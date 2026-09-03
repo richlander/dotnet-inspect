@@ -16,6 +16,52 @@ async function slideAfter(page: Page, selector: string) {
   });
 }
 
+async function renderSpotlightFooter(
+  page: Page,
+  spotlightScope: "all" | "commands",
+) {
+  await page.evaluate(async scope => {
+    const [{ createSpotlight }, { KeybindingRegistry }] = await Promise.all([
+      import("../src/spotlight.ts"),
+      import("../src/keybinding-registry.ts"),
+    ]);
+    const escapeHtml = (value: unknown) => String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+    const spotlight = createSpotlight({
+      keybindings: new KeybindingRegistry(),
+      state: {
+        spotlightOpen: true,
+        spotlightQuery: "",
+        spotlightIndex: 0,
+        spotlightScope: scope,
+        spotlightFocus: "input",
+        spotlightChipIndex: 0,
+      },
+      lenses: () => [["api", "API"]],
+      escapeHtml,
+      highlightRanges: value => escapeHtml(value),
+      kindIcon: () => "C",
+      searchResults: () => [],
+      pickResult: () => {},
+      executeCommand: () => undefined,
+      reportCommandError: () => {},
+      commandContext: () => null,
+      schedulePackageFetch: () => {},
+      resetPackageSearch: () => {},
+      packageSearchLoading: () => false,
+      packageCount: () => 1,
+      activeFramework: () => "net10.0",
+      render: () => {},
+    });
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("Workspace harness app is missing");
+    app.innerHTML = spotlight.modalHtml();
+  }, spotlightScope);
+}
+
 test("the title bar contains the inspected target without tab-like workspace identity", async ({
   page,
 }) => {
@@ -27,12 +73,17 @@ test("the title bar contains the inspected target without tab-like workspace ide
   const forward = await box(page, "#nav-forward");
 
   expect(titleNavigation.x + titleNavigation.width).toBeCloseTo(1440, 0);
+  expect(titleNavigation.width).toBeCloseTo(284, 0);
   expect(forward.x + forward.width).toBeLessThanOrEqual(search.x);
+  expect(search.width).toBeCloseTo(224, 0);
   expect(search.x + search.width).toBeCloseTo(1440, 0);
   await expect(page.locator(".titlebar .inspected-target")).toBeVisible();
   await expect(page.locator(".titlebar .subject-path-segment.root"))
     .toHaveText("System.Text.Json");
   await expect(page.locator(".titlebar #open-search")).toBeVisible();
+  await expect(page.locator(".title-search-label-full"))
+    .toHaveText("Search types, members, packages");
+  await expect(page.locator("#open-search kbd")).toHaveCount(0);
   await expect(page.locator(".titlebar .nav-history")).toBeVisible();
   await expect(page.locator(".titlebar #share")).toHaveCount(0);
   await expect(page.locator(".titlebar #open-settings")).toHaveCount(0);
@@ -396,9 +447,25 @@ test("right-side actions yield from labels to arrows to nothing", async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
+  await expect(page.locator(".title-search-label-full"))
+    .toHaveText("Search types, members, packages");
   await expect(page.locator(".title-search-label-full")).toBeVisible();
   await expect(page.locator(".title-search-label-compact")).toBeHidden();
 
+  await page.setViewportSize({ width: 1125, height: 900 });
+  await expect(page.locator(".title-search-label-full")).toBeHidden();
+  await expect(page.locator(".title-search-label-compact")).toBeVisible();
+
+  await page.setViewportSize({ width: 1126, height: 900 });
+  const fullLabel = page.locator(".title-search-label-full");
+  await expect(fullLabel).toBeVisible();
+  const fullLabelWidth = await fullLabel.evaluate(element => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(fullLabelWidth.scroll).toBeLessThanOrEqual(fullLabelWidth.client);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1&long=1");
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
@@ -513,6 +580,28 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   const narrowTypeList = await box(page, ".type-list");
   expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
     .toBeLessThanOrEqual(narrowTypeList.y);
+});
+
+test("Spotlight keeps its Search shortcut guidance visible when narrow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 280, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html");
+
+  for (const scope of ["all", "commands"] as const) {
+    await renderSpotlightFooter(page, scope);
+    const modal = await box(page, ".spotlight");
+    const guidance = page.locator(".spotlight-foot span");
+    await expect(guidance.first()).toContainText("Ctrl P search");
+
+    for (const item of await guidance.all()) {
+      const itemBox = await item.boundingBox();
+      expect(itemBox).not.toBeNull();
+      expect(itemBox!.x).toBeGreaterThanOrEqual(modal.x);
+      expect(itemBox!.x + itemBox!.width)
+        .toBeLessThanOrEqual(modal.x + modal.width);
+    }
+  }
 });
 
 test("SlideStrip slides one uniform window without stealing external focus", async ({
@@ -1378,18 +1467,18 @@ test("the title line advertises the typed Package, Type, and Member path", async
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
-test("Workspace gives retained packets the pane and keeps the menu fixed", async ({
+test("Workspace keeps the Default Workspace visible and menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const list = await box(page, ".workspace-packet-list");
-  const lastPacket = await box(page, ".workspace-packet:last-child");
+  const list = await box(page, ".workspace-list");
+  const defaultWorkspace = await box(page, ".workspace-card");
   const applicationMenu = await box(page, "#application-menu-button");
 
   expect(list.height).toBeGreaterThan(200);
-  expect(lastPacket.y + lastPacket.height)
+  expect(defaultWorkspace.y + defaultWorkspace.height)
     .toBeLessThanOrEqual(list.y + list.height);
   expect(applicationMenu.width).toBeCloseTo(30, 0);
   await page.locator("#application-menu-button").click();
@@ -1398,47 +1487,30 @@ test("Workspace gives retained packets the pane and keeps the menu fixed", async
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
 });
 
-test("Workspace packet selection is observational and Open executes", async ({
+test("Workspace selection is observational and occurrence activation executes", async ({
   page,
 }) => {
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const packets = page.locator("[data-workspace-packet]");
-  await expect(packets).toHaveCount(3);
-  expect(await packets.evaluateAll(elements =>
-    elements.map(element => element.getAttribute("data-workspace-packet"))))
-    .toEqual([
-    "stj-serializer",
-    "stj-serialize-callgraph",
-    "stj-getdecimal-callgraph",
-  ]);
+  const workspace = page.locator("[data-workspace-default]");
+  await expect(workspace).toHaveCount(1);
   const href = page.url();
-  const serialize = page.locator(
-    '[data-workspace-packet="stj-serialize-callgraph"]');
-  await serialize.click();
+  await workspace.click();
 
-  await expect(serialize).toBeFocused();
+  await expect(workspace).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("Serialize call graph");
+    .toHaveText("Default Workspace");
   await expect(page.locator(".subject-path-segment"))
-    .toHaveText("Serialize call graph");
+    .toHaveText("Default Workspace");
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-execution-count", "0");
   expect(page.url()).toBe(href);
 
-  const getDecimal = page.locator(
-    '[data-workspace-packet="stj-getdecimal-callgraph"]');
-  await getDecimal.click();
-  await expect(getDecimal).toBeFocused();
-  await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("JsonElement.GetDecimal");
-  expect(page.url()).toBe(href);
-
-  await page.getByRole("button", { name: "Open workspace" }).click();
+  await page.locator('[data-workspace-activate="occurrence-0"]').click();
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-execution-count", "1");
   await expect(page.locator("body"))
     .toHaveAttribute(
       "data-workspace-execution",
-      "stj-getdecimal-callgraph");
+      "occurrence-0");
 });

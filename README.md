@@ -1,9 +1,16 @@
 # dotnet-inspect
 
-CLI tool for inspecting .NET libraries and NuGet packages. It is for .NET what
+A tool for inspecting .NET libraries and NuGet packages. It is for .NET what
 `docker inspect` and `kubectl describe` are for containers: view package
-metadata, API surfaces, dependencies, source provenance, implementation
-receipts, and version-to-version changes.
+metadata, API surfaces, dependencies, and source.
+
+The .NET ecosystem uses a standardized binary format for managed assemblies
+([ECMA-335](https://ecma-international.org/publications-and-standards/standards/ecma-335/)
+`.dll` files). That's why NuGet packages primarily distribute binaries instead
+of source. That's where `dotnet-inspect` fits. It does for .NET binaries what
+LSP-based tools do for source. `dotnet-inspect` reads .NET binaries to answer
+basic questions about types and members and unlocks deeper insights, like call
+graphs and seeing what really changed across two binary versions
 
 ## Install or run
 
@@ -109,6 +116,7 @@ stderr rather than mixed into structured output.
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `--heap "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
+| Workspace package occurrences | `workspace --package X --tfm TFM` | Render the exact ordered package occurrences of one runtime Workspace through the same product-owned view used by Inspect Web. Repeat `--package` to compose the Workspace. |
 | Workspace sharing | `workspace-state encode` / `decode` | Convert the canonical browser/CLI base64url workspace packet to or from its bounded JSON shape without acquisition or execution. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -131,6 +139,7 @@ stderr rather than mixed into structured output.
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. |
 | `match A --similar` | Rank structural candidates for one seed method, within a single assembly. Ranks candidates only; it establishes no relation. |
 | `vocabulary` | Discover product-owned query vocabularies such as `Accessibility`, `C# Style Choices`, and `C# Body Kinds`. |
+| `workspace` | Render an ordered runtime Workspace package-occurrence view for packages with selected managed assemblies. Repeat `--package ID@VERSION` coordinates and supply `--tfm`; omit packages for a typed empty Workspace. |
 | `workspace-state encode` / `decode` | Convert validated workspace-state JSON and canonical base64url packets; pass `-` for stdin or use `--file`. |
 | `skill` | Print the base LLM skill and route to focused built-in guidance (`skill list`, `skill query`, `skill decompiler`, `skill relationships`, and more). |
 | `demo [id]` | List or run product-home inspection demos backed by real section output. |
