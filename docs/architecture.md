@@ -197,6 +197,13 @@ Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 persistent filesystem-derived package projection may replace cold inspection;
 `CoreCache` remains only its storage mechanism.
 
+Within `DotnetInspector.Services`, package-metadata persistence is a focused
+observation-reuse owner. Its
+[package metadata persistence](design/package-metadata-persistence.md)
+contract defines when a complete, authority-scoped present or absent
+observation may replace a fresh metadata operation; `MetadataFieldCache` and
+`CoreCache` remain encoding and storage mechanisms.
+
 ## Core currencies
 
 The architecture composes typed currencies rather than strings or

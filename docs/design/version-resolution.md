@@ -340,6 +340,9 @@ feed.
 Network calls use the cache behavior below. Negative cache entries are written
 only for definitive 404/not-found responses; transient failures, timeouts,
 offline mode, and unsupported local feed URLs are not cached as misses.
+Package-metadata absence is a time-bounded observation rather than a permanent
+coordinate fact; its target semantics are owned by
+[package metadata persistence](package-metadata-persistence.md).
 
 | Download or check | Cache behavior |
 | --- | --- |
@@ -351,8 +354,8 @@ offline mode, and unsupported local feed URLs are not cached as misses.
 | Addressable package range | Uses the version-list cache to resolve the vector; package caches are consulted only after a caller selects a cell. |
 | `@latest` package resolution | Always checks NuGet and bypasses version/metadata caches. |
 | Package index scan | Cached permanently for extracted package contents. |
-| Package metadata | Cached for 1 hour in the metadata cache. |
-| Dependency publish dates | Reuses the package metadata cache, so dependency-age audit does not refetch known publish dates. |
+| Package metadata | Present or authoritative-absence observations are cached for no more than 1 hour under the [package metadata persistence](package-metadata-persistence.md) contract. |
+| Dependency publish dates | Reuses an eligible package metadata observation; an authority without persistent or process-local reuse is refetched. |
 | Successful symbol-server PDB downloads | Cached permanently under `packages/symbols/servers/`. |
 | Symbol-server PDB 404s | Cached as misses for 1 day, so detailed audit does not retry unavailable PDBs on every run. |
 | Successful `.snupkg` PDB extraction | Extracted PDB is cached permanently under `packages/symbols/{package}/{version}/`. |
