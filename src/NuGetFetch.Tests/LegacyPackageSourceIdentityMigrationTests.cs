@@ -60,7 +60,7 @@ public sealed class LegacyPackageSourceIdentityMigrationTests
             new(
                 "#4805",
                 "prototypes/inspect-web/engine.Tests/BrowserEngineBoundaryTests.cs",
-                ExplicitReferences: 19,
+                ExplicitReferences: 20,
                 ImplicitReferences: 0),
         ];
 
