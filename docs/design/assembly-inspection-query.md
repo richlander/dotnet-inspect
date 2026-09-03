@@ -214,6 +214,36 @@ readers all use that same check. Compatibility path and stream factories remain
 available while their callers migrate; they do not manufacture an artifact
 registration.
 
+Compatibility selection classifies metadata once a path or readable stream is
+opened. `ResolvedAssemblyReference.SelectFromPath` and `SelectFromStream`
+return an `AssemblyDescriptorSelectionResult`: `Ready` carries the selected
+descriptor, `Descriptorless` identifies an image with no usable managed
+assembly identity because it is an unrecognized non-PE image, native image, or
+managed netmodule, and `Rejected` carries an `InvalidImage` failure when an
+image's managed metadata cannot yield a usable assembly identity. I/O,
+authorization, and opener-contract failures remain visible exceptions.
+Consumers must not decode PE metadata or inspect exception text to recreate
+the three-way classification.
+
+The existing nullable factories are shims over this result: they return the
+descriptor, return `null` for `Descriptorless`, and keep `Rejected` visible as
+`BadImageFormatException`. Artifact-backed factories intentionally retain
+their existing nullable classification as well as their separate registration
+and MVID semantics; this compatibility correction does not change artifact
+selection.
+
+`LibraryCommand` in #5594 is the named direct consumer. Existing production
+path and stream callers consume the corrected classification through the
+nullable shims while they migrate. The stream entry point remains
+browser/Wasm-compatible; browser layering continues to prohibit host code from
+constructing Metadata descriptors directly. The contract is gated by
+`SelectFromPath_ReturnsDescriptorWithSelectedProvenance`,
+`DescriptorSelection_ClassifiesDescriptorlessImages`,
+`PathFactories_BlankAssemblyName_IsRejected`,
+`DescriptorSelection_RejectsMalformedManagedMetadata`,
+`SelectFromStream_UsesTheSameTypedClassification`, and
+`SelectFromPath_UnreadableInputRemainsVisible`.
+
 The compatibility package-role path continues to use
 `CreateFromStreamWithFallbackIdentity`.
 `CreateFromArtifactWithFallbackIdentity` is its artifact-backed peer for a
