@@ -176,7 +176,7 @@ end-to-end wiring has partial Release gate coverage:
 - `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gates its
   warning; and
 - `SearchScopeResolutionTests.PackagePrefixExpansionLimit_UsesSelectedBound`
-  gates the 500-package type-search expansion bound.
+  gates the declared 500-package type-search expansion bound.
 
 The search-only measurements in
 [the package query CLI](package-query-cli.md#measured-package-profile-limits)
@@ -187,8 +187,9 @@ cost remains with the acquisition owners and is not evidence for this bound.
 The residual command-adapter matrix is explicitly unverified: the suite does
 not provide one outcome-level non-vacuity case for every explicit package,
 package-prefix, `--extensions`, and `--aspnetcore` path on every participating
-command. This design does not generalize the representative wiring gates into
-that stronger claim.
+command. The exact `take:` wiring from the declaration into prefix acquisition
+is also unverified. This design does not generalize the representative wiring
+gates into those stronger claims.
 
 ## Non-claims
 

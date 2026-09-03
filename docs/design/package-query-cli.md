@@ -163,7 +163,7 @@ input-safety ceiling because non-Gallery sources may have different paging
 contracts. The CLI maximum is the largest measured request that completes
 within the Gallery source's default 120-second operation deadline on both
 measured hosts.
-`FindCommandTests.PackageProfileLimits_UseMeasuredDefaultAndMaximum`
+`FindCommandIntegrationTests.PackageProfileLimits_UseMeasuredDefaultAndMaximum`
 gates the declared values, while the invalid-input tests gate the maximum at
 the command boundary.
 `SearchScopeResolutionTests.PackageProfileGuidance_DisclosesDefaultAndMaximum`
