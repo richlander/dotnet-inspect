@@ -14,8 +14,8 @@ authority, local-before-HTTP ordering, cross-source composition, and cache
 authorization remain the separate adoption successor
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400).
 
-The contract is design-only and unverified until the Release gates in
-[Implementation evidence](#implementation-evidence) exist and pass.
+The contract is implemented and verified by the Release gates in
+[Implementation evidence](#implementation-evidence).
 
 ## Boundary
 
@@ -193,12 +193,13 @@ remain visible at package-store admission or later stream consumption.
 
 Every loop, chunked read, archive record, manifest decode, and transition
 between host calls observes caller cancellation and the remaining operation
-ceiling. Local work creates no HTTP request deadline. A library-owned expiry is
-an existing `PackageSourceTimeout` with kind `Operation` and the configured
-duration; the surrounding failure kind remains `Timeout`. A host syscall that
-has already entered the operating system may not be preemptible; cancellation
-or expiry wins immediately when control returns. This contract does not claim
-stronger kernel preemption.
+ceiling. Local work creates no HTTP request deadline. A library-owned expiry
+settles the operation with the existing `Timeout` failure kind. An expiry
+while consuming a returned payload stream carries the existing
+`PackageSourceTimeout` detail with kind `Operation` and the configured
+duration. A host syscall that has already entered the operating system may not
+be preemptible; cancellation or expiry wins immediately when control returns.
+This contract does not claim stronger kernel preemption.
 
 ## Search
 
@@ -271,7 +272,7 @@ validation and caller cancellation already defined by `IPackageSourceClient`.
 | Candidate archive, central directory, nuspec, coordinate, or XML is malformed or inconsistent | `InvalidResponse` |
 | Two physical archives normalize to one coordinate | `InvalidResponse` |
 | A finite directory, candidate, archive, or byte bound is exceeded | `ResponseRejected` |
-| Owner-issued operation ceiling expires | `Timeout` with `Operation` detail |
+| Owner-issued operation ceiling expires | `Timeout` |
 | Caller cancellation wins | `OperationCanceledException` with the original caller token |
 | Returned payload later cannot be read or disposed | Source-bound `PackageSourceStreamException` |
 
@@ -388,8 +389,7 @@ general source.
 
 ## Implementation evidence
 
-Implementation remains `unverified` until all of these named Release gates
-exist and pass:
+Implementation is verified by these named Release gates:
 
 - `LocalFolderSource_ConsumesCanonicalIdentityWithoutReparsing` proves path and
   `file://` equivalents share one producer, case-distinct Unix roots remain
