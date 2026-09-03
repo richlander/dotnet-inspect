@@ -25,7 +25,6 @@ public static class FindOptionsParser
         Option<string[]> PlatformLibraryOption,
         Option<bool> ExtensionsOption,
         Option<bool> AspNetCoreOption,
-        Option<bool> CuratedOption,
         Option<string[]> ProjectOption,
         Option<string[]> BinOption,
         Option<string?> TfmOption,
@@ -90,8 +89,7 @@ public static class FindOptionsParser
         var scopeFlags = new ScopeResolver.ScopeFlags(
             Platform: allPlatformFrameworks,
             Extensions: parseResult.GetValue(args.ExtensionsOption),
-            AspNetCore: parseResult.GetValue(args.AspNetCoreOption),
-            Curated: parseResult.GetValue(args.CuratedOption));
+            AspNetCore: parseResult.GetValue(args.AspNetCoreOption));
         var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
             hasOtherScopeIndicators: projects.Length > 0 || binPaths.Length > 0 || platformAssemblies.Length > 0);
 
