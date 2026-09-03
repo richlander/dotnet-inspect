@@ -24,7 +24,10 @@ This is a focused L2 presentation design. It consumes:
   implementation is tracked by
   [#5690](https://github.com/richlander/dotnet-inspect/issues/5690);
 - the producer-owned whole-member `MemberRenderResult.Text` contract;
-- model-free declaration-trivia recognition from `CSharpText`;
+- the query-owned declaring `MetadataTypeDefinitionName`;
+- metadata-name arity recognition from MetadataPrimitives;
+- model-free identifier admission and declaration-trivia recognition from
+  `CSharpText`;
 - source-line correspondence from `TextFindings.CreateAnalysisDiff`;
 - relation semantics from [Analysis diff](analysis-diff.md); and
 - mapped text presentation from Markout.
@@ -76,6 +79,9 @@ The projection accepts only one `Available` PDB endpoint and one `Available`
 decompiled endpoint from the same successful member source-comparison result.
 It does not accept independently acquired strings.
 
+The successful result also contributes its query-owned declaring type identity.
+The adapter does not infer constructor context from display text.
+
 The PDB endpoint contributes:
 
 - its complete checksum-verified member text;
@@ -121,10 +127,24 @@ whitespace placement prefix.
 
 ### Shared declaration boundary
 
-`CSharpText` recognizes members only inside a type. The adapter therefore
-places each endpoint inside the same fixed synthetic type wrapper for
-recognition, selects exactly one child member declaration, and translates its
-line and column coordinates back to the unwrapped endpoint.
+`CSharpText` recognizes members only inside a type, and constructor
+classification depends on the enclosing type's name. The adapter therefore
+derives one synthetic class identifier from the query-owned declaring type
+identity:
+
+1. select the leaf segment of `MetadataTypeDefinitionName`;
+2. remove only its canonical generic-arity suffix through
+   `MetadataNameArity.StripFromSegment`; and
+3. require `CSharpIdentifier.AdmitTypeDeclaration` to admit the exact
+   declaration spelling.
+
+Both endpoints are placed inside synthetic class wrappers with that same
+identifier. If the exact identifier is not admitted, projection fails visibly;
+it does not sanitize the identity or fall back to a fixed wrapper name.
+
+The adapter selects exactly one direct child member declaration whose signature
+coordinate and end boundary cover the endpoint's complete member segment, then
+translates its line and column coordinates back to the unwrapped endpoint.
 
 The synthetic type contributes no output text, analysis item, line number, or
 Markout coordinate. It exists only to obtain the owner-issued trivia,
@@ -146,6 +166,7 @@ It does not:
 - trim nested indentation, PDB placement whitespace, or trailing whitespace;
 - remove attributes or comments after the signature token;
 - use a host-owned C# parser or regenerate C#;
+- infer the declaring type from endpoint text or display names;
 - add using directives from `MemberRenderResult.Namespaces`; or
 - manufacture text for an incomplete render.
 
@@ -277,6 +298,7 @@ The contract fixture uses a complete product render with:
 - an attribute sharing the PDB signature line;
 - a column-zero conditional directive inside an otherwise indented PDB slice;
 - a column-zero verbatim-string continuation;
+- a no-modifier constructor in a class named `extension`;
 - nested block indentation;
 - an expression that differs from PDB source;
 - one moved line; and
@@ -288,6 +310,8 @@ The fixture proves:
   whitespace placement prefix on every non-empty After line;
 - a synthetic type scope yields exact member signature coordinates without
   entering output or analysis coordinates;
+- declaring-type-derived scope keeps the `extension()` constructor distinct
+  from a C# 14 extension block;
 - separate-line and same-line declaration trivia are removed consistently from
   both endpoints and do not become attribute-only additions or removals;
 - PDB directive and literal-continuation lines remain byte-for-byte unchanged;
@@ -308,8 +332,14 @@ Release presentation tests prove:
   endpoint without changing PDB body or literal lines;
 - column-zero directives and verbatim-string continuations do not trigger PDB
   dedenting;
-- a synthetic type wrapper produces one exact child-member boundary and
-  contributes no output lines or coordinates;
+- the admitted leaf declaring-type identity supplies both synthetic wrapper
+  names, while an unrepresentable identity fails visibly;
+- wrapper naming comes only from the successful query result's exact type
+  identity, not endpoint or host display text;
+- a constructor named `extension` produces one constructor boundary rather
+  than selecting a declaration-shaped body statement;
+- the selected direct child starts at the typed signature coordinate, covers
+  the complete member segment, and contributes no wrapper lines or coordinates;
 - separate-line and same-line attributes/comments before the signature token
   are excluded consistently from both endpoints;
 - inconsistent complete-result indentation fails visibly;
@@ -342,9 +372,10 @@ Release CLI tests prove:
   old CLI-only endpoint projection.
 
 This typed same-result boundary deliberately adds the Queries, Decompiler,
-Text, and CSharpText dependency graph to `DotnetInspector.Presentation`. Both
-planned hosts already carry that graph, and accepting the query result directly
-prevents hosts from pairing independently acquired endpoints.
+Text, Metadata, MetadataPrimitives, and CSharpText dependency graph to
+`DotnetInspector.Presentation`. Both planned hosts already carry that graph,
+and accepting the query result directly prevents hosts from pairing
+independently acquired endpoints.
 
 Layering tests prove `DotnetInspector.Presentation` remains L2, consumes L1
 query results, and is referenced by both the CLI and the planned Browser/Wasm
