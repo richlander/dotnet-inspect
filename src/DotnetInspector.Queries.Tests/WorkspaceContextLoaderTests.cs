@@ -2462,6 +2462,78 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task UnsupportedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // A workspace member is not a scan and may not present partial rows,
+        // so a rejected asset denies the whole member even when a healthy
+        // assembly sits beside it. Pinning the blast radius in both directions
+        // is the point: the single-asset gates cannot distinguish scoping from
+        // non-scoping.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Unsupported.dll",
+                    CreateUnsupportedMetadataImage()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // The base swallowed this inside CreateFromStreamIfManaged and loaded
+        // the member as though the package were intact. That success-shaped
+        // skip is what this contract removes, so the change is pinned here.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Malformed.dll",
+                    "not a portable executable"u8.ToArray()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "MalformedMetadataRoot",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task UnsupportedPackageAsset_CreatesTypedFailure()
     {
         byte[] unsupported = CreateUnsupportedMetadataImage();

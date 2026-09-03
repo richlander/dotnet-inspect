@@ -420,10 +420,23 @@ public sealed class MetadataAdmissionCleanupTests
             // The scan must not degrade a decode failure into "type not
             // found": with no surviving participant the invalid-image
             // outcome is the caller's exact result.
-            Assert.Throws<BadImageFormatException>(
-                () => TypeDependencyScanner.BuildDependencyTree(
-                    "Missing.Type",
-                    [malformed]));
+            BadImageFormatException thrown =
+                Assert.Throws<BadImageFormatException>(
+                    () => TypeDependencyScanner.BuildDependencyTree(
+                        "Missing.Type",
+                        [malformed]));
+
+            // The decoder's own failure is carried through, not replaced by a
+            // reconstruction. A reconstruction would name the file and carry
+            // no cause, which is what these two assertions pin against.
+            Assert.IsType<OverflowException>(
+                Assert.Throws<OverflowException>(
+                    () => ReadMetadataDirectly(malformed)));
+            Assert.IsType<OverflowException>(thrown.InnerException);
+            Assert.DoesNotContain(
+                malformed,
+                thrown.Message,
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -435,32 +448,87 @@ public sealed class MetadataAdmissionCleanupTests
     public void DependencyScan_EveryRejectionSurvivesAnAllRejectedScan()
     {
         string winmd = WriteTempImage(BuildManagedWindowsMetadata());
-        string malformed = WriteTempImage(
+        string malformedRoot = WriteTempImage([0x4d, 0x5a]);
+        string invalidImage = WriteTempImage(
             BuildOverflowingMetadataStreamCount());
         try
         {
             // Throwing one rejection would silently discard the others, which
-            // is the evidence loss this contract exists to prevent. Each
-            // candidate failed for its own reason, so each reason survives.
-            AggregateException aggregate =
-                Assert.Throws<AggregateException>(
+            // is the evidence loss this contract exists to prevent. Every
+            // candidate keeps its own mechanism, and the path-to-mechanism
+            // correspondence stays typed rather than living in display text.
+            AllCandidatesRejectedException rejected =
+                Assert.Throws<AllCandidatesRejectedException>(
                     () => TypeDependencyScanner.BuildDependencyTree(
                         "Missing.Type",
-                        [winmd, malformed]));
+                        [winmd, malformedRoot, invalidImage]));
 
-            Assert.Equal(2, aggregate.InnerExceptions.Count);
-            Assert.Contains(
-                aggregate.InnerExceptions,
-                inner => inner is UnsupportedMetadataFormatException);
-            Assert.Contains(
-                aggregate.InnerExceptions,
-                inner => inner is BadImageFormatException);
+            Assert.Equal(3, rejected.Rejections.Length);
+            Assert.Equal(
+                rejected.Rejections.Length,
+                rejected.InnerExceptions.Count);
+
+            // Scan order, so each record pairs with the inner at its index.
+            Assert.Equal(
+                [winmd, malformedRoot, invalidImage],
+                rejected.Rejections.Select(r => r.AssemblyPath));
+            Assert.Equal(
+                [
+                    TypeDependencyRejectionKind.UnsupportedMetadataFormat,
+                    TypeDependencyRejectionKind.MalformedMetadataRoot,
+                    TypeDependencyRejectionKind.InvalidImage,
+                ],
+                rejected.Rejections.Select(r => r.Kind));
+
+            Assert.IsType<UnsupportedMetadataFormatException>(
+                rejected.InnerExceptions[0]);
+
+            MalformedMetadataRootException root =
+                Assert.IsType<MalformedMetadataRootException>(
+                    rejected.InnerExceptions[1]);
+            Assert.Equal(
+                MetadataRootMalformedReason.UnmappableMetadataDirectory,
+                root.Reason);
+            Assert.Equal(
+                root.Reason,
+                rejected.Rejections[1].MetadataRootReason);
+
+            // The invalid image keeps the decoder's captured failure rather
+            // than one reconstructed from the record, and it is the plain
+            // invalid-image type, not the malformed-root refinement.
+            BadImageFormatException invalid =
+                Assert.IsType<BadImageFormatException>(
+                    rejected.InnerExceptions[2]);
+            Assert.IsType<OverflowException>(invalid.InnerException);
+            Assert.DoesNotContain(
+                invalidImage,
+                invalid.Message,
+                StringComparison.Ordinal);
+
+            // Each path is rendered beside its own mechanism, so a displayed
+            // error cannot pair a file with the wrong reason.
+            foreach (var (record, mechanism) in rejected.Rejections.Zip(
+                rejected.InnerExceptions))
+            {
+                Assert.Contains(
+                    $"'{record.AssemblyPath}': {mechanism.Message}",
+                    rejected.Message,
+                    StringComparison.Ordinal);
+            }
         }
         finally
         {
             File.Delete(winmd);
-            File.Delete(malformed);
+            File.Delete(malformedRoot);
+            File.Delete(invalidImage);
         }
+    }
+
+    static void ReadMetadataDirectly(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var peReader = new PEReader(stream);
+        _ = peReader.GetMetadataReader().TypeDefinitions.Count;
     }
 
     static string WriteTempImage(byte[] image)

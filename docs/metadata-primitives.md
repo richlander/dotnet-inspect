@@ -298,10 +298,33 @@ Measured behavior at this head, using a real WinMD
   A `.winmd` renamed to `.dll` follows the same rejection path: at this head
   `find "*" --library <renamed>` returns 0 rows plus the mechanism warning,
   where the base returned 21 rows of WinRT types as ordinary types.
-- A rejected participant does not disable a scan. The same `--bin` scan with a
-  WinMD participant present returns the same rows as the baseline apart from
-  the per-row source column, so an unsupported participant costs its own
-  contribution and nothing else.
+- A rejected participant does not disable a *directory* scan. The same `--bin`
+  scan with a WinMD participant present returns the same rows as the baseline
+  apart from the per-row source column, so there an unsupported participant
+  costs its own contribution and nothing else.
+
+Rejection scope is deliberately not uniform, and the difference follows the
+partial-rows rule above rather than the owner:
+
+- **A dependency scan and a `--bin` directory scan scope per participant.**
+  `TypeDependencyScanner` carries its rejections on the result, and
+  `AssemblySetResolutionSession` records a typed `ApiSurfaceInspectionFailure`
+  and continues, so healthy neighbors still contribute. These are the bounded
+  relaxation described above: the answer is explicitly uncertified.
+- **A package or platform member fails as a unit.** `WorkspaceContextLoader`
+  returns a typed member failure when any selected assembly asset is rejected,
+  because a workspace member is not a scan and may not present partial rows —
+  a graph built from the surviving assets would claim a completeness it does
+  not have.
+
+This is a deliberate behavior change from the base for the malformed and
+non-PE cases. The base swallowed `BadImageFormatException` inside
+`CreateFromStreamIfManaged` and returned `null`, so a corrupt or non-PE
+`lib/<tfm>/*.dll` asset was silently skipped and the member loaded as though
+the package were intact. That is the success-shaped outcome this contract
+exists to remove; the member now fails with the mechanism named. A file with
+no managed metadata is still not an assembly and is still skipped, so ordinary
+native libraries shipped beside managed ones are unaffected.
 
 What remains partial is therefore narrower than the base gap, and it is these
 two things rather than the explicit-name case:

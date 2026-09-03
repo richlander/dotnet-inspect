@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Runtime.ExceptionServices;
 using System.Reflection.PortableExecutable;
@@ -29,6 +30,29 @@ public sealed record TypeDependencyRejection(
     TypeDependencyRejectionKind Kind)
 {
     public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
+
+/// <summary>
+/// Every candidate in a dependency scan was rejected, so the scan has no
+/// surviving participant to scope its rejections against. Each rejection is
+/// an independent outcome: throwing one would discard the rest, so they are
+/// carried together. <see cref="Rejections"/> holds the typed record for each
+/// rejected candidate, keeping the path-to-mechanism correspondence available
+/// as data rather than only in the rendered message.
+/// </summary>
+public sealed class AllCandidatesRejectedException : AggregateException
+{
+    internal AllCandidatesRejectedException(
+        string message,
+        ImmutableArray<TypeDependencyRejection> rejections,
+        IEnumerable<Exception> mechanisms)
+        : base(message, mechanisms) => Rejections = rejections;
+
+    /// <summary>
+    /// The rejected candidates, in scan order. Each entry corresponds to the
+    /// inner exception at the same index.
+    /// </summary>
+    public ImmutableArray<TypeDependencyRejection> Rejections { get; }
 }
 
 /// <summary>
@@ -200,24 +224,28 @@ public static class TypeDependencyScanner
                 // prevent, so every mechanism travels in an aggregate.
                 if (rejections.Count > 1)
                 {
-                    // The typed inners keep each mechanism, but their fixed
-                    // messages do not name a file. The aggregate message
-                    // carries that correspondence so a rendered error still
-                    // says which assembly was rejected for which reason.
-                    string rejected = string.Join(
-                        "; ",
-                        rejections.Select(rejection =>
-                            $"'{rejection.AssemblyPath}': "
-                            + ToRejectionException(
-                                rejection,
-                                invalidImageCauses).Message));
-                    throw new AggregateException(
-                        "Every candidate assembly was rejected before the "
-                            + $"dependency scan could run ({rejected})",
-                        rejections.Select(rejection =>
+                    // The typed records keep the path-to-mechanism
+                    // correspondence as data; the message repeats it only so a
+                    // rendered error is readable. Callers read Rejections.
+                    Exception[] mechanisms =
+                    [
+                        .. rejections.Select(rejection =>
                             ToRejectionException(
                                 rejection,
-                                invalidImageCauses)));
+                                invalidImageCauses)),
+                    ];
+                    string rendered = string.Join(
+                        "; ",
+                        rejections.Zip(
+                            mechanisms,
+                            (rejection, mechanism) =>
+                                $"'{rejection.AssemblyPath}': "
+                                + mechanism.Message));
+                    throw new AllCandidatesRejectedException(
+                        "Every candidate assembly was rejected before the "
+                            + $"dependency scan could run ({rendered})",
+                        [.. rejections],
+                        mechanisms);
                 }
 
                 TypeDependencyRejection soleRejection = rejections[0];
