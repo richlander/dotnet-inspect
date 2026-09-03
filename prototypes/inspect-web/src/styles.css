@@ -1610,7 +1610,9 @@ kbd {
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  column-gap: 16px;
+  row-gap: 6px;
   justify-content: flex-end;
   padding: 8px 14px;
   border-top: 1px solid var(--line);

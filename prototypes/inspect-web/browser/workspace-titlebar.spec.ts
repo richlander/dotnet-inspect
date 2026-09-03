@@ -16,6 +16,52 @@ async function slideAfter(page: Page, selector: string) {
   });
 }
 
+async function renderSpotlightFooter(
+  page: Page,
+  spotlightScope: "all" | "commands",
+) {
+  await page.evaluate(async scope => {
+    const [{ createSpotlight }, { KeybindingRegistry }] = await Promise.all([
+      import("../src/spotlight.ts"),
+      import("../src/keybinding-registry.ts"),
+    ]);
+    const escapeHtml = (value: unknown) => String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+    const spotlight = createSpotlight({
+      keybindings: new KeybindingRegistry(),
+      state: {
+        spotlightOpen: true,
+        spotlightQuery: "",
+        spotlightIndex: 0,
+        spotlightScope: scope,
+        spotlightFocus: "input",
+        spotlightChipIndex: 0,
+      },
+      lenses: () => [["api", "API"]],
+      escapeHtml,
+      highlightRanges: value => escapeHtml(value),
+      kindIcon: () => "C",
+      searchResults: () => [],
+      pickResult: () => {},
+      executeCommand: () => undefined,
+      reportCommandError: () => {},
+      commandContext: () => null,
+      schedulePackageFetch: () => {},
+      resetPackageSearch: () => {},
+      packageSearchLoading: () => false,
+      packageCount: () => 1,
+      activeFramework: () => "net10.0",
+      render: () => {},
+    });
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("Workspace harness app is missing");
+    app.innerHTML = spotlight.modalHtml();
+  }, spotlightScope);
+}
+
 test("the title bar contains the inspected target without tab-like workspace identity", async ({
   page,
 }) => {
@@ -534,6 +580,28 @@ test("right-side actions yield from labels to arrows to nothing", async ({
   const narrowTypeList = await box(page, ".type-list");
   expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
     .toBeLessThanOrEqual(narrowTypeList.y);
+});
+
+test("Spotlight keeps its Search shortcut guidance visible when narrow", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 280, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html");
+
+  for (const scope of ["all", "commands"] as const) {
+    await renderSpotlightFooter(page, scope);
+    const modal = await box(page, ".spotlight");
+    const guidance = page.locator(".spotlight-foot span");
+    await expect(guidance.first()).toContainText("Ctrl P search");
+
+    for (const item of await guidance.all()) {
+      const itemBox = await item.boundingBox();
+      expect(itemBox).not.toBeNull();
+      expect(itemBox!.x).toBeGreaterThanOrEqual(modal.x);
+      expect(itemBox!.x + itemBox!.width)
+        .toBeLessThanOrEqual(modal.x + modal.width);
+    }
+  }
 });
 
 test("SlideStrip slides one uniform window without stealing external focus", async ({
