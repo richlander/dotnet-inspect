@@ -664,10 +664,17 @@ public class MethodBodyInspectionSessionTests
             AssemblyResolutionScope scope) =>
             null;
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target is AssemblyBindingTarget.IntrinsicCoreLibrary
                 ? AssemblyBindingSelection.Found(_coreLibrary)
                 : AssemblyBindingSelection.NameNotOwned();
+        }
     }
 }

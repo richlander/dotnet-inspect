@@ -652,12 +652,20 @@ public sealed class AssemblyContextResearchProjectionQueryTests
 
         internal IReadOnlyList<AssemblyBindingRequest> Requests => _requests;
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
         {
-            _requests.Add(request);
-            return AssemblyBindingSelection.CannotSelect(
-                new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                _requests.Add(request);
+                return AssemblyBindingSelection.CannotSelect(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.CandidateUnavailable));
+
+            }
         }
     }
 
@@ -670,10 +678,18 @@ public sealed class AssemblyContextResearchProjectionQueryTests
 
         internal IReadOnlyList<AssemblyBindingRequest> Requests => _requests;
 
-        public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+        public AssemblyBindingSelectionSnapshot Select(AssemblyBindingRequest request)
         {
-            _requests.Add(request);
-            return AssemblyBindingSelection.Found(selection);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                _requests.Add(request);
+                return AssemblyBindingSelection.Found(selection);
+
+            }
         }
     }
 }
