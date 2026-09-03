@@ -566,9 +566,14 @@ public static class StructuralViewRegistry
                 .LastOrDefault();
         var (typeFilter, _) =
             SharedParsers.ParseTypeFilter(typeMarkerValue);
+        string typeCatalogTarget =
+            (isPackageIdentity || isPlatformIdentity)
+            && typeMarkerValue is not null
+                ? typeMarkerValue
+                : target;
         bool hasTypeFilter =
             new TypeGestureIntent(typeFilter)
-                .SelectsListingCatalog(target);
+                .SelectsListingCatalog(typeCatalogTarget);
         SectionDemandClassification demand =
             ApiSectionDemandIndex.Classify(
                 InspectionSurface.Commandless,
@@ -609,12 +614,29 @@ public static class StructuralViewRegistry
             }
         }
 
-        if (memberSelectors.Length == 0)
+        bool exactGenericType =
+            HasExplicitGenericTypeTail(target)
+            && !HasGenericTypeAndGenericTailAmbiguity(target)
+            && !RequiresGenericTailMemberAlternative(
+                target,
+                tokens);
+        bool memberSelectorsCanFilterType =
+            memberSelectors.Length > 0
+            && demand.RequiredTarget
+                != InspectionTargetRequirement.ExactMember;
+        if (memberSelectors.Length == 0
+            || memberSelectorsCanFilterType)
         {
-            routes.Add(
-                Route(
-                    StructuralViewIdentity.Type,
-                    InspectionCatalogIdentity.ApiType));
+            bool exactTypeGesture =
+                hasTypeMarker && !hasTypeFilter
+                || exactGenericType;
+            if (!exactTypeGesture)
+            {
+                routes.Add(
+                    Route(
+                        StructuralViewIdentity.Type,
+                        InspectionCatalogIdentity.ApiType));
+            }
             if (!hasTypeFilter)
             {
                 routes.Add(
