@@ -92,6 +92,21 @@ methods are present but `NoApplicableInput`; only the explicit endpoint arm is
 `PresentEndpoint_RejectsNullAndNilEvidence` in
 `CSharpMemberEndpointComparisonTests`.
 
+This adapter is the C# native-producer prerequisite consumed by the Research
+producer session under
+[#5441](https://github.com/richlander/dotnet-inspect/issues/5441) in the
+user-approved focused decomposition tracked by
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706). It is one
+producer-owned adapter, not a shared substrate. Its endpoint sum type is the
+simplest contract that preserves explicit presence and absence while preventing
+the pair-dependent body algorithm from running outside `Complete`/`Complete`.
+It adds no CLI, browser, presentation, or rendered-output surface, so host
+enablement and rendering strategy are not applicable to this slice; later
+Research and Queries consumers own those boundaries. The
+`decompiler-dependencies` dependency-policy rule provides full project- and
+assembly-graph coverage for the claim that this API remains below Research and
+accepts no Research dependency.
+
 The older assembly-wide and `CompareMembers` paths retain their current
 missing-body compatibility behavior while existing consumers migrate. That
 behavior is not emitted by `CompareMemberEndpoints`, where endpoint topology
