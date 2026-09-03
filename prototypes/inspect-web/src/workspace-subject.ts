@@ -1,164 +1,98 @@
 import type { PackageControlPackage } from "./package-controls.ts";
 import type {
-  BrowserHomeDemoMember,
-  BrowserHomeDemoResolved,
+  BrowserWorkspacePackageOccurrence,
 } from "./inspect-web-engine.d.ts";
 
 export interface WorkspaceSubjectRenderOptions {
-  packets: readonly BrowserHomeDemoResolved[];
-  selectedPacketId: string | null;
+  packageCount: number;
+  selected: boolean;
   escapeHtml: (value: unknown) => string;
 }
 
-export interface WorkspacePacketViewRenderOptions {
-  packet: BrowserHomeDemoResolved | null;
+export interface WorkspaceViewRenderOptions {
+  occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
-  activePackage: PackageControlPackage | null;
+  loading: boolean;
+  error: string;
   escapeHtml: (value: unknown) => string;
-  packageIdentityKey: (pkg: PackageControlPackage) => string;
 }
 
 export interface WorkspaceSubjectBindingActions {
-  onSelect: (packetId: string) => void;
-  onOpen: (packetId: string) => void;
-  onClose: (packageKey: string) => void;
-}
-
-export function retainWorkspacePacket(
-  packets: readonly BrowserHomeDemoResolved[],
-  packet: BrowserHomeDemoResolved,
-): BrowserHomeDemoResolved[] {
-  const index = packets.findIndex(candidate => candidate.id === packet.id);
-  if (index < 0) return [...packets, packet];
-  const retained = packets.slice();
-  retained[index] = packet;
-  return retained;
+  onSelect: () => void;
+  onActivate: (action: string) => void;
+  onRetry: () => void;
 }
 
 export function renderWorkspaceSubject(
   options: WorkspaceSubjectRenderOptions,
 ): string {
   const {
-    packets,
-    selectedPacketId,
+    packageCount,
+    selected,
     escapeHtml,
   } = options;
-  const rows = packets.map(packet => {
-    const active = packet.id === selectedPacketId;
-    const target = [packet.view.section, packet.view.type]
-      .filter((value): value is string => Boolean(value))
-      .join(" · ") || "Workspace";
-    return `<button class="workspace-packet${active ? " active" : ""}" type="button" data-workspace-packet="${escapeHtml(packet.id)}" aria-current="${active ? "true" : "false"}">
-      <strong>${escapeHtml(packet.title)}</strong>
-      <span>${escapeHtml(packet.summary)}</span>
-      <small>${escapeHtml(target)}</small>
-    </button>`;
-  }).join("");
-  const content = rows
-    || `<p class="workspace-packet-empty">Open a demo to retain its workspace packet here.</p>`;
   return `<aside class="type-browser workspace-nav">
-    <header class="browser-head"><span>WORKSPACE PACKETS</span><small>${packets.length}</small></header>
-    <div class="workspace-packet-list">${content}</div>
+    <header class="browser-head"><span>WORKSPACES</span><small>1</small></header>
+    <div class="workspace-list">
+      <button class="workspace-card${selected ? " active" : ""}" type="button" data-workspace-default aria-current="${selected ? "true" : "false"}">
+        <strong>Default Workspace</strong>
+        <span>${escapeHtml(packageCount)} loaded coordinate${packageCount === 1 ? "" : "s"}</span>
+        <small>Browser session</small>
+      </button>
+    </div>
   </aside>`;
 }
 
-function coordinateDetail(
-  member: BrowserHomeDemoMember,
-  escapeHtml: (value: unknown) => string,
-): string {
-  const details = [member.version, member.framework, member.assembly]
-    .filter((value): value is string => Boolean(value))
-    .map(escapeHtml)
-    .join(" · ");
-  const kind = member.kind === "package"
-    ? "NuGet package"
-    : member.kind === "platform"
-      ? "Platform"
-      : member.kind;
-  return `<li>
-    <span>${escapeHtml(kind)}</span>
-    <strong>${escapeHtml(member.id)}</strong>
-    ${details ? `<small>${details}</small>` : ""}
-  </li>`;
-}
-
-export function renderWorkspacePacketView(
-  options: WorkspacePacketViewRenderOptions,
+export function renderWorkspaceView(
+  options: WorkspaceViewRenderOptions,
 ): string {
   const {
-    packet,
+    occurrences,
     packages,
-    activePackage,
+    loading,
+    error,
     escapeHtml,
-    packageIdentityKey,
   } = options;
-  const title = packet?.title ?? "Current workspace";
-  const summary = packet?.summary
-    ?? "Live coordinates retained by this browser session.";
-  const declaredMembers = packet?.workspaceMembers.map(member =>
-    coordinateDetail(member, escapeHtml)).join("") ?? "";
-  const focusedTab = packet
-    ? packet.tabs[Math.min(
-        Math.max(packet.focusTabIndex, 0),
-        Math.max(packet.tabs.length - 1, 0))]
-    : null;
-  const viewRows = packet
-    ? [
-        ["Starts at", focusedTab?.member.id ?? null],
-        ["Section", packet.view.section],
-        ["Library", packet.view.library],
-        ["Type", packet.view.type],
-        ["Member", packet.view.memberKey ?? packet.view.memberAnchor],
-      ].filter((row): row is [string, string] => Boolean(row[1]))
-    : [];
-  const loadedCoordinates = packages.map(item => {
-    const key = packageIdentityKey(item);
-    const active = Boolean(
-      activePackage
-      && packageIdentityKey(activePackage) === key);
-    const label = `${item.id} ${item.version} ${item.activeFramework}`;
-    return `<li class="${active ? "active" : ""}">
-      <span>${item.isRuntimePack ? "Platform" : "Loaded package"}</span>
-      <strong>${escapeHtml(item.id)}</strong>
-      <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
-      ${item.isRuntimePack
-        ? ""
-        : `<button type="button" data-workspace-close="${escapeHtml(key)}" aria-label="Close ${escapeHtml(label)}">Close</button>`}
+  const packageRows = occurrences.map(occurrence => {
+    const label = `${occurrence.package} ${occurrence.version} ${occurrence.framework}`;
+    return `<li class="workspace-occurrence-row">
+      <button class="workspace-occurrence" type="button" data-workspace-activate="${escapeHtml(occurrence.action)}" aria-label="Inspect ${escapeHtml(label)}">
+        <span>NuGet package</span>
+        <strong>${escapeHtml(occurrence.package)}</strong>
+        <small>${escapeHtml(occurrence.version)} · ${escapeHtml(occurrence.framework)}</small>
+      </button>
     </li>`;
   }).join("");
-  const packetDetails = packet
-    ? `<section class="document-section workspace-packet-section">
-        <div class="section-title"><h2>Packet workspace</h2><span>${packet.workspaceMembers.length} member${packet.workspaceMembers.length === 1 ? "" : "s"}</span></div>
-        <ul class="workspace-detail-list">${declaredMembers}</ul>
-      </section>
-      <section class="document-section workspace-packet-section">
-        <div class="section-title"><h2>Initial view</h2><span>selection only</span></div>
-        <dl class="workspace-view-details">${viewRows.map(([label, value]) =>
-          `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>
-      </section>`
-    : "";
+  const platformRows = packages.filter(item => item.isRuntimePack).map(item =>
+    `<li>
+      <span>Platform</span>
+      <strong>${escapeHtml(item.id)}</strong>
+      <small>${escapeHtml(item.version)} · ${escapeHtml(item.activeFramework)}</small>
+    </li>`).join("");
+  const rows = `${packageRows}${platformRows}`;
+  const content = loading
+    ? `<p class="workspace-empty">Reading Workspace package occurrences…</p>`
+    : error
+      ? `<div class="workspace-empty">
+          <p>${escapeHtml(error)}</p>
+          <button type="button" data-workspace-retry>Retry</button>
+        </div>`
+      : rows
+        ? `<ul class="workspace-detail-list loaded">${rows}</ul>`
+        : `<p class="workspace-empty">No packages are loaded in this Workspace.</p>`;
   return `<header class="type-heading workspace-heading">
     <div class="type-badge">W</div>
     <div>
-      <div class="type-namespace">${packet ? "Workspace packet" : "Inspection workspace"}</div>
-      <h1>${escapeHtml(title)}</h1>
-      <code class="type-signature">${packet
-        ? `${packet.workspaceMembers.length} workspace member${packet.workspaceMembers.length === 1 ? "" : "s"} · ${packet.tabs.length} navigation target${packet.tabs.length === 1 ? "" : "s"}`
-        : `${packages.length} loaded coordinate${packages.length === 1 ? "" : "s"}`}</code>
+      <div class="type-namespace">Workspace</div>
+      <h1>Default Workspace</h1>
+      <code class="type-signature">${packages.length} loaded coordinate${packages.length === 1 ? "" : "s"}</code>
     </div>
   </header>
   <div class="workspace-overview">
-    <div class="workspace-packet-introduction">
-      <p>${escapeHtml(summary)}</p>
-      ${packet
-        ? `<button class="primary-action" type="button" data-workspace-open="${escapeHtml(packet.id)}">Open workspace</button>`
-        : ""}
-    </div>
-    ${packetDetails}
-    <section class="document-section workspace-packet-section">
-      <div class="section-title"><h2>Loaded workspace</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span></div>
-      <p>Workspace packets may share these loaded coordinates without becoming the same packet.</p>
-      <ul class="workspace-detail-list loaded">${loadedCoordinates}</ul>
+    <section class="document-section workspace-section">
+      <div class="section-title"><h2>Packages</h2><span>${packages.length} coordinate${packages.length === 1 ? "" : "s"}</span></div>
+      <p>Choose a package to inspect it. The Workspace keeps every loaded coordinate available.</p>
+      ${content}
     </section>
   </div>`;
 }
@@ -167,31 +101,21 @@ export function bindWorkspaceSubject(
   root: ParentNode,
   actions: WorkspaceSubjectBindingActions,
 ): void {
-  root.querySelectorAll<HTMLElement>("[data-workspace-packet]").forEach(button =>
+  root.querySelector<HTMLElement>("[data-workspace-default]")
+    ?.addEventListener("click", actions.onSelect);
+  root.querySelectorAll<HTMLElement>("[data-workspace-activate]").forEach(button =>
     button.addEventListener("click", () => {
-      const id = button.dataset.workspacePacket;
-      if (id !== undefined) actions.onSelect(id);
+      const action = button.dataset.workspaceActivate;
+      if (action !== undefined) actions.onActivate(action);
     }));
-  root.querySelectorAll<HTMLElement>("[data-workspace-open]").forEach(button =>
-    button.addEventListener("click", () => {
-      const id = button.dataset.workspaceOpen;
-      if (id !== undefined) actions.onOpen(id);
-    }));
-  root.querySelectorAll<HTMLElement>("[data-workspace-close]").forEach(button =>
-    button.addEventListener("click", () => {
-      const key = button.dataset.workspaceClose;
-      if (key !== undefined) actions.onClose(key);
-    }));
+  root.querySelector<HTMLElement>("[data-workspace-retry]")
+    ?.addEventListener("click", actions.onRetry);
 }
 
-export function focusWorkspacePacket(
+export function focusWorkspace(
   root: ParentNode,
-  packetId: string,
 ): boolean {
-  for (const button of root.querySelectorAll<HTMLElement>("[data-workspace-packet]")) {
-    if (button.dataset.workspacePacket !== packetId) continue;
-    button.focus();
-    return true;
-  }
-  return false;
+  const button = root.querySelector<HTMLElement>("[data-workspace-default]");
+  button?.focus();
+  return Boolean(button);
 }

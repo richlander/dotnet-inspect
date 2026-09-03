@@ -2727,34 +2727,11 @@ test("member entry controls move focus into the resulting member navigation", ()
 
 test("workspace package selection resets type-specific member filters", () => {
   const selection =
-    appSource.match(/function selectWorkspacePackage\([\s\S]*?\n}\n\nfunction closeWorkspacePackage/)?.[0]
+    appSource.match(/function selectWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
     ?? "";
   assert.match(
     selection,
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
-});
-
-test("last package close recovers a route before releasing the workspace", () => {
-  const close =
-    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
-    ?? "";
-
-  assert.match(
-    close,
-    /const removal = removeWorkspacePackage\([\s\S]*if \(!removal\.closed\) return;[\s\S]*if \(!removal\.active && !clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}[\s\S]*state\.packages = removal\.packages;\s*releasePackageModelCaches\(removal\.closed\);[\s\S]*state\.package = null;\s*goHome\(\);/);
-});
-
-test("Workspace close preserves the subject unless the active coordinate changes", () => {
-  const close =
-    appSource.match(/function closeWorkspacePackage\([\s\S]*?\n}\n\nfunction activatePackage/)?.[0]
-    ?? "";
-
-  assert.match(
-    close,
-    /const activeChanged =\s*!packageIdentityEquals\(removal\.active, state\.package\)/);
-  assert.match(
-    close,
-    /if \(removal\.active\) \{\s*if \(activeChanged\) \{\s*selectWorkspacePackage\(removal\.active, \{ stayInWorkspace: true \}\);\s*\} else \{\s*render\(\);/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -2877,7 +2854,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.doesNotMatch(route, /packageQueryController\.run/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);\s*document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\("package-query-route"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.match(
     stylesSource,
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
@@ -2985,7 +2962,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     appSource,
-    /const focusWorkspace = state\.packageQueryOpen;\s*if \(focusWorkspace\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspace\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);
+    /const focusWorkspaceAfterQuery = state\.packageQueryOpen;\s*if \(focusWorkspaceAfterQuery\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);
   assert.match(
     appSource,
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
@@ -5735,15 +5712,21 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /appendQueryNotice\(\s+friendly\.message,\s+options\.retryAction/);
-  assert.match(
+  assert.doesNotMatch(
     workspaceSubjectSource,
     /data-workspace-close=/);
-  assert.match(
+  assert.doesNotMatch(
     appSource,
     /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
-    /onSelect: selectWorkspacePacket,\s+onOpen: runHomeDemo/);
+    /onSelect: openDefaultWorkspace,\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
+  assert.match(
+    appSource,
+    /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*revision === workspaceOccurrenceRevision[\s\S]*\(superseded[\s\S]*\|\| revision !== workspaceOccurrenceRevision[\s\S]*\|\| signature !== state\.workspaceOccurrenceSignature\)/);
+  assert.match(
+    appSource,
+    /if \(state\.engineReady\s*&& scope\(\) !== "workspace"\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);

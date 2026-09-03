@@ -402,6 +402,10 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(
             UtilityCommandDefinitions.CreateWorkspaceStateCommand());
 
+        // Product-owned runtime Workspace inventory
+        rootCommand.Subcommands.Add(
+            WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
+
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
 

@@ -5258,6 +5258,7 @@ public sealed class BrowserEngineBoundaryTests
         PackageRootBinding binding = Assert.IsType<PackageRootBinding>(
             coordinate.Binding);
         Assert.Same(binding.Root, coordinate.Root);
+        Assert.Equal(packageId, binding.Root.PackageId);
         Assert.Equal(packageId.ToLowerInvariant(), binding.Coordinate.PackageId);
         Assert.Equal(version, binding.Coordinate.Version);
         Assert.Equal("net11.0", binding.Coordinate.Framework);
@@ -5266,6 +5267,124 @@ public sealed class BrowserEngineBoundaryTests
             NuGetCache.GetSourceKey(PackageSourceIdentity.NuGetOrg.Value),
             binding.Coordinate.Producer);
         Assert.True(binding.Root.ReferencesContent(coordinate.Package.Content));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_PreserveOrderAndSupersedeOldActions()
+    {
+        string packageId = $"Gallery.Workspace.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        byte[] archive = Package(
+            [0x01],
+            $"lib/net11.0/{packageId}.dll");
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+
+        BrowserWorkspacePackageOccurrenceView view =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate, coordinate]);
+
+        Assert.Equal(2, view.Occurrences.Length);
+        Assert.All(
+            view.Occurrences,
+            occurrence =>
+            {
+                Assert.Equal(packageId, occurrence.Package);
+                Assert.Equal(version, occurrence.Version);
+                Assert.Equal("net11.0", occurrence.Framework);
+                Assert.DoesNotContain(
+                    packageId,
+                    occurrence.Action,
+                    StringComparison.OrdinalIgnoreCase);
+            });
+        Assert.NotEqual(
+            view.Occurrences[0].Action,
+            view.Occurrences[1].Action);
+        BrowserWorkspaceOccurrenceSelection selection = Assert.IsType<
+            BrowserWorkspaceOccurrenceSelection>(
+                BrowserWorkspaceOccurrenceOperations.Activate(
+                    view.Occurrences[1].Action));
+        Assert.Same(coordinate, selection.Coordinate);
+
+        BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([]);
+
+        Assert.Null(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                view.Occurrences[0].Action));
+
+        BrowserWorkspacePackageOccurrenceView replacement =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [coordinate]);
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+
+        Assert.Null(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_RevokedInflightQueryReturnsSupersededView()
+    {
+        string packageId = $"Gallery.Workspace.Race.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            Package(
+                [0x01],
+                $"lib/net11.0/{packageId}.dll"));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                "net11.0",
+                source,
+                PackageSourceIdentity.NuGetOrg,
+                TimeSpan.FromSeconds(5));
+        var resolutionStarted =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueResolution =
+            new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Task<BrowserWorkspacePackageOccurrenceView> query =
+            BrowserWorkspaceOccurrenceOperations.QueryAsync(
+                [
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        "net11.0"),
+                ],
+                async _ =>
+                {
+                    resolutionStarted.SetResult();
+                    await continueResolution.Task;
+                    return coordinate;
+                });
+        await resolutionStarted.Task;
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        continueResolution.SetResult();
+
+        BrowserWorkspacePackageOccurrenceView view = await query;
+
+        Assert.True(view.Superseded);
+        Assert.Single(view.Occurrences);
+        Assert.Null(
+            BrowserWorkspaceOccurrenceOperations.Activate(
+                view.Occurrences[0].Action));
     }
 
     [Fact]

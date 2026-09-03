@@ -36,7 +36,6 @@ import {
   partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
-  removeWorkspacePackage,
   removeAppendedNotice,
   retainGraphMemberProjection,
   retainWorkspacePackage,
@@ -246,10 +245,9 @@ import {
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace,
   renderWorkspaceSubject,
-  retainWorkspacePacket as retainWorkspacePacketInList,
+  renderWorkspaceView as renderWorkspaceViewPure,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -387,6 +385,8 @@ import type {
   BrowserTypeMetadata,
   BrowserTypeSurface,
   BrowserWorkspaceShareState,
+  BrowserWorkspacePackageOccurrenceActivation,
+  BrowserWorkspacePackageOccurrenceView,
 } from "./inspect-web-engine.d.ts";
 
 type EngineModule = typeof import("./inspect-web-engine.d.ts");
@@ -421,6 +421,12 @@ let inspectPackageMetadataTable: EngineModule["queryPackageMetadataTable"];
 let inspectPackageOpportunities: EngineModule["queryPackageOpportunities"];
 let inspectPackagePerformance: EngineModule["queryPackagePerformance"];
 let inspectPackageVersions: EngineModule["queryPackageVersions"];
+let inspectQueryWorkspacePackageOccurrences:
+  EngineModule["queryWorkspacePackageOccurrences"];
+let inspectActivateWorkspacePackageOccurrence:
+  EngineModule["activateWorkspacePackageOccurrence"];
+let inspectClearWorkspacePackageOccurrences:
+  EngineModule["clearWorkspacePackageOccurrences"];
 let inspectPlatformHeapEntries: EngineModule["queryPlatformHeapEntries"];
 let inspectPlatformIntegrations: EngineModule["queryPlatformIntegrations"];
 let inspectPlatformMetadata: EngineModule["queryPlatformMetadata"];
@@ -475,6 +481,12 @@ async function loadEngineModule() {
     queryPackageOpportunities: inspectPackageOpportunities,
     queryPackagePerformance: inspectPackagePerformance,
     queryPackageVersions: inspectPackageVersions,
+    queryWorkspacePackageOccurrences:
+      inspectQueryWorkspacePackageOccurrences,
+    activateWorkspacePackageOccurrence:
+      inspectActivateWorkspacePackageOccurrence,
+    clearWorkspacePackageOccurrences:
+      inspectClearWorkspacePackageOccurrences,
     queryPlatformHeapEntries: inspectPlatformHeapEntries,
     queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformMetadata: inspectPlatformMetadata,
@@ -749,8 +761,10 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
-  workspacePackets: [],
-  selectedWorkspacePacketId: "",
+  workspaceOccurrences: null,
+  workspaceOccurrenceSignature: "",
+  workspaceOccurrenceLoading: false,
+  workspaceOccurrenceError: "",
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -815,7 +829,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
-  workspacePackets: ProductHomeDemoResolved[];
+  workspaceOccurrences: BrowserWorkspacePackageOccurrenceView | null;
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -1934,29 +1948,94 @@ function selectWorkspacePackage(
   render();
 }
 
-function closeWorkspacePackage(packageKey: string) {
-  const removal = removeWorkspacePackage(state.packages, state.package, packageKey);
-  if (!removal.closed) return;
-  const activeChanged =
-    !packageIdentityEquals(removal.active, state.package);
-  if (!removal.active && !clearWorkspaceRouteFailure()) {
-    render();
-    return;
-  }
+function workspaceOccurrenceRequest() {
+  return state.packages
+    .filter(item => !item.isRuntimePack)
+    .map(item => ({
+      package: item.id,
+      version: item.version,
+      framework: item.activeFramework,
+    }));
+}
 
-  state.packages = removal.packages;
-  releasePackageModelCaches(removal.closed);
-  if (removal.active) {
-    if (activeChanged) {
-      selectWorkspacePackage(removal.active, { stayInWorkspace: true });
-    } else {
-      render();
+function ensureWorkspaceOccurrenceView() {
+  if (!state.engineReady) return;
+  const signature = JSON.stringify(workspaceOccurrenceRequest());
+  if (signature === state.workspaceOccurrenceSignature) return;
+
+  state.workspaceOccurrenceSignature = signature;
+  if (state.workspaceOccurrenceLoading) return;
+  void queryWorkspaceOccurrenceView();
+}
+
+let workspaceOccurrenceRevision = 0;
+
+async function queryWorkspaceOccurrenceView() {
+  const signature = state.workspaceOccurrenceSignature;
+  const revision = workspaceOccurrenceRevision;
+  let superseded = false;
+  state.workspaceOccurrenceLoading = true;
+  state.workspaceOccurrenceError = "";
+  try {
+    const view = await inspectQueryWorkspacePackageOccurrences(signature);
+    superseded = view.superseded;
+    if (!superseded
+      && revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature) {
+      state.workspaceOccurrences = view;
     }
+  } catch (error: unknown) {
+    if (revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature) {
+      state.workspaceOccurrences = null;
+      state.workspaceOccurrenceError =
+        error instanceof Error ? error.message : String(error);
+    }
+  } finally {
+    state.workspaceOccurrenceLoading = false;
+    if (scope() === "workspace"
+      && (superseded
+        || revision !== workspaceOccurrenceRevision
+        || signature !== state.workspaceOccurrenceSignature)) {
+      state.workspaceOccurrenceSignature =
+        JSON.stringify(workspaceOccurrenceRequest());
+      void queryWorkspaceOccurrenceView();
+    }
+    render();
+  }
+}
+
+function retryWorkspaceOccurrenceView() {
+  state.workspaceOccurrenceSignature = "";
+  ensureWorkspaceOccurrenceView();
+  render();
+}
+
+function clearWorkspaceOccurrenceView() {
+  inspectClearWorkspacePackageOccurrences();
+  workspaceOccurrenceRevision++;
+  state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrences = null;
+  state.workspaceOccurrenceError = "";
+}
+
+function activateWorkspacePackageOccurrence(action: string) {
+  const result: BrowserWorkspacePackageOccurrenceActivation =
+    inspectActivateWorkspacePackageOccurrence(action);
+  if (!result.activated || !result.package) {
+    state.workspaceOccurrenceSignature = "";
+    ensureWorkspaceOccurrenceView();
+    showToast(
+      result.superseded
+        ? "That Workspace view was replaced. Package actions have been refreshed."
+        : "The package occurrence could not be activated.",
+    );
     return;
   }
 
-  state.package = null;
-  goHome();
+  const packageModel = createNuGetPackageModel(result.package);
+  retainPackageModel(packageModel);
+  selectWorkspacePackage(packageModel);
 }
 
 function activatePackage(
@@ -2632,6 +2711,12 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  if (state.engineReady
+    && scope() !== "workspace"
+    && (state.workspaceOccurrenceSignature
+      || state.workspaceOccurrences)) {
+    clearWorkspaceOccurrenceView();
+  }
   document.body.classList.remove("package-query-route");
   const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const focusedElement = document.activeElement instanceof HTMLElement
@@ -2988,7 +3073,7 @@ function inspectedSubjectPath(
   if (scope() === "workspace") {
     return [{
       kind: "workspace",
-      label: selectedWorkspacePacket()?.title ?? "Current workspace",
+      label: "Default Workspace",
       copyable: false,
     }];
   }
@@ -3041,8 +3126,8 @@ function renderInspectedSubjectPath(
 
 function renderWorkspaceNavPane() {
   return renderWorkspaceSubject({
-    packets: state.workspacePackets,
-    selectedPacketId: state.selectedWorkspacePacketId || null,
+    packageCount: state.packages.length,
+    selected: state.workspaceSubjectOpen,
     escapeHtml,
   });
 }
@@ -3263,12 +3348,13 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  return renderWorkspacePacketView({
-    packet: selectedWorkspacePacket(),
+  ensureWorkspaceOccurrenceView();
+  return renderWorkspaceViewPure({
+    occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
-    activePackage: state.package,
+    loading: state.workspaceOccurrenceLoading,
+    error: state.workspaceOccurrenceError,
     escapeHtml,
-    packageIdentityKey,
   });
 }
 
@@ -5535,9 +5621,12 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onSelect: selectWorkspacePacket,
-    onOpen: runHomeDemo,
-    onClose: closeWorkspacePackage,
+    onSelect: openDefaultWorkspace,
+    onActivate: action =>
+      observeAction(
+        () => activateWorkspacePackageOccurrence(action),
+        "Opening the Workspace package"),
+    onRetry: retryWorkspaceOccurrenceView,
   });
 }
 
@@ -7507,26 +7596,12 @@ function bindHomeEvents() {
 // deep links built from the resolved projection; member-bound Call Graph demos
 // execute through one generated engine operation over the product-resolved
 // workspace and view.
-function selectedWorkspacePacket(): ProductHomeDemoResolved | null {
-  return state.workspacePackets.find(
-    packet => packet.id === state.selectedWorkspacePacketId) ?? null;
-}
-
-function selectWorkspacePacket(packetId: string): void {
-  if (!state.workspacePackets.some(packet => packet.id === packetId)) return;
-  state.selectedWorkspacePacketId = packetId;
+function openDefaultWorkspace(): void {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   render();
   afterCurrentNavigationFrame(() =>
-    focusWorkspacePacket(document, packetId));
-}
-
-function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
-  state.workspacePackets = retainWorkspacePacketInList(
-    state.workspacePackets,
-    packet);
-  state.selectedWorkspacePacketId = packet.id;
+    focusWorkspace(document));
 }
 
 function runHomeDemo(kind: ProductHomeDemoId) {
@@ -7539,7 +7614,6 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
-  retainWorkspacePacket(resolved);
   state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
@@ -9955,6 +10029,9 @@ async function loadPackage(
   framework: string,
   options: LoadPackageOptions = {},
 ): Promise<AppPackage | null> {
+  if (state.engineReady)
+    clearWorkspaceOccurrenceView();
+
   // Background restores load a tab's data into state.packages (for the tab bar and
   // cross-package edges) WITHOUT stealing the main view: no focus switch, no selection
   // reset, no loading toggle, no render. The caller (workspace restore) keeps the loading
@@ -10884,14 +10961,14 @@ function navigateInAppUrl(url: URL) {
     goHome();
     return;
   }
-  const focusWorkspace = state.packageQueryOpen;
-  if (focusWorkspace) {
+  const focusWorkspaceAfterQuery = state.packageQueryOpen;
+  if (focusWorkspaceAfterQuery) {
     state.packageQueryOpen = false;
     packageQueryController.cancel();
     state.packageQueryNavigationError = "";
   }
   const navigationSeq = navigationSequence.begin();
-  if (focusWorkspace) {
+  if (focusWorkspaceAfterQuery) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   workspaceLocation.push(url.toString());
