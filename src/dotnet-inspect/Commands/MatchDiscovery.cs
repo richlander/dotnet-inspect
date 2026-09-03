@@ -72,22 +72,71 @@ internal static class MatchDiscovery
             return 1;
         }
 
-        if (options.PackagePath is string packagePath
-            && !packagePath.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            && !TryGetReplaySources(
-                options.SourceOptions,
-                out _,
-                out string? replaySourceError,
-                workingDirectory: replayWorkingDirectory))
+        if (options.SourceOptions is { ConfigFile: not null, ConfigDirectory: not null })
         {
-            CommandError.Write(replaySourceError!);
+            CommandError.Write(
+                "--nugetconfig and --nugetconfig-directory cannot be combined.");
             return 1;
+        }
+
+        if (options.PackagePath is string packagePath
+            && !packagePath.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        {
+            NuGetSourceOptions sourceOptions =
+                options.SourceOptions ?? NuGetSourceOptions.Default;
+            if (sourceOptions.ConfigFile is null)
+            {
+                string configDirectory;
+                try
+                {
+                    configDirectory = Path.GetFullPath(
+                        sourceOptions.ConfigDirectory ?? replayWorkingDirectory,
+                        replayWorkingDirectory);
+                }
+                catch (Exception ex) when (ex is
+                    ArgumentException
+                    or IOException
+                    or NotSupportedException)
+                {
+                    CommandError.Write(
+                        "--nugetconfig-directory must identify a usable directory.");
+                    return 1;
+                }
+
+                if (!Directory.Exists(configDirectory))
+                {
+                    CommandError.Write(
+                        $"NuGet config discovery directory not found: '{configDirectory}'.");
+                    return 1;
+                }
+
+                options = options with
+                {
+                    SourceOptions = sourceOptions with
+                    {
+                        ConfigDirectory = configDirectory,
+                    },
+                };
+            }
+
+            if (!TryGetReplaySources(
+                    options.SourceOptions,
+                    out _,
+                    out string? replaySourceError,
+                    workingDirectory: replayWorkingDirectory))
+            {
+                CommandError.Write(replaySourceError!);
+                return 1;
+            }
         }
 
         LoadedSide? seed = null;
         try
         {
-            (seed, int? seedError) = await LoadSideAsync(options, options.AssemblyPath);
+            (seed, int? seedError) = await LoadSideAsync(
+                options,
+                options.AssemblyPath,
+                replayWorkingDirectory);
             if (seedError.HasValue)
                 return seedError.Value;
 
@@ -178,7 +227,10 @@ internal static class MatchDiscovery
         if (!tokensIndexCallerImage)
         {
             (populationSide, int? populationError) =
-                await LoadSideAsync(ForPhysicalImageLoad(options), candidateImage);
+                await LoadSideAsync(
+                    ForPhysicalImageLoad(options),
+                    candidateImage,
+                    replayWorkingDirectory);
             if (populationError.HasValue)
                 return populationError.Value;
         }
@@ -203,8 +255,7 @@ internal static class MatchDiscovery
                     resolvedSeed.OriginProvenance);
             bool disclosePackageReplay =
                 !tokensIndexCallerImage || seed.ReplayPackage is not null;
-            if (disclosePackageReplay
-                && !TryValidateReplayAddress(
+            if (!TryValidateReplayAddress(
                     candidateAddress,
                     out string? replayAddressError))
             {
@@ -227,8 +278,7 @@ internal static class MatchDiscovery
                         options.SourceOptions,
                         seed.PackageReplaySourceUrls!)
                     : options.SourceOptions;
-            if (disclosePackageReplay
-                && candidateAddress.Package is not null
+            if (candidateAddress.Package is not null
                 && !TryGetReplaySources(
                     replaySourceOptions,
                     out replaySources,
@@ -447,13 +497,25 @@ internal static class MatchDiscovery
     internal static string? GetReplayablePackage(
         string? resolvedPackagePath,
         string? packageName,
-        string? packageVersion)
+        string? packageVersion,
+        string? workingDirectory = null)
     {
         if (resolvedPackagePath is null)
             return null;
-        if (File.Exists(resolvedPackagePath)
-            || packageName is null
-            || packageVersion is null)
+
+        workingDirectory ??= Directory.GetCurrentDirectory();
+        if (resolvedPackagePath.EndsWith(
+                ".nupkg",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            string localPackagePath = Path.GetFullPath(
+                resolvedPackagePath,
+                workingDirectory);
+            if (File.Exists(localPackagePath))
+                return localPackagePath;
+        }
+
+        if (packageName is null || packageVersion is null)
         {
             return resolvedPackagePath;
         }
@@ -471,7 +533,8 @@ internal static class MatchDiscovery
         if (sourceOptions is null
             || sourceOptions.Sources.Length == 0
                 && sourceOptions.AdditionalSources.Length == 0
-                && sourceOptions.ConfigFile is null)
+                && sourceOptions.ConfigFile is null
+                && sourceOptions.ConfigDirectory is null)
         {
             replaySources = null;
             error = null;
@@ -532,7 +595,7 @@ internal static class MatchDiscovery
 
         string? configFile = sourceOptions.ConfigFile is null
             ? null
-            : Path.GetFullPath(sourceOptions.ConfigFile);
+            : Path.GetFullPath(sourceOptions.ConfigFile, workingDirectory);
         if (configFile is not null
             && !InertString.IsPermitted(TextPolicy.Field, configFile))
         {
@@ -544,10 +607,25 @@ internal static class MatchDiscovery
             return false;
         }
 
+        string? configDirectory = sourceOptions.ConfigDirectory is null
+            ? null
+            : Path.GetFullPath(sourceOptions.ConfigDirectory, workingDirectory);
+        if (configDirectory is not null
+            && !InertString.IsPermitted(TextPolicy.Field, configDirectory))
+        {
+            replaySources = null;
+            error =
+                "match --similar cannot disclose a replayable package command because "
+                    + "--nugetconfig-directory contains text that cannot be emitted losslessly. "
+                    + "Use a different config discovery directory for package-backed discovery.";
+            return false;
+        }
+
         replaySources = new MatchDiscoveryReplaySources(
             [.. replaySourcesValues],
             [.. replayAdditionalSourcesValues],
-            configFile);
+            configFile,
+            configDirectory);
         error = null;
         return true;
     }
@@ -781,7 +859,8 @@ internal static class MatchDiscovery
 
     static async Task<(LoadedSide? Side, int? Error)> LoadSideAsync(
         MatchOptions options,
-        string? libraryPath)
+        string? libraryPath,
+        string replayWorkingDirectory)
     {
         MatchOptions sideOptions = options with
         {
@@ -810,7 +889,8 @@ internal static class MatchDiscovery
             GetReplayablePackage(
                 source.ResolvedPackagePath,
                 source.PackageName,
-                source.PackageVersion),
+                source.PackageVersion,
+                replayWorkingDirectory),
             source.PackageExtractPath,
             source.PackageReplaySourceUrls,
             source.PackageReplayUsesOriginalSources), null);

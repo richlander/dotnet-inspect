@@ -426,7 +426,10 @@ The disclosure names only the transition that is actually available, and names
 the image that transition must be given. A `--library` argument names exactly
 one image, so the seed and the candidate population coincide in the ordinary
 case: the transition is pairwise `match` against that same library, and the
-printed token is the promise that it will work.
+printed token is the promise that it will work. The ordinary same-image
+disclosure therefore retains that direct image's exact `--library` address
+rather than printing only a generic instruction
+(`Similar_SameImage_StillNamesThePairwiseTransition`).
 
 They come apart only through type forwarding. When the named library forwards
 the seed's type, the rows that retrieval ranks are defined by the forwarded-to
@@ -461,13 +464,22 @@ the resolved exact package coordinate, exact package-relative asset, and TFM.
 That includes the ordinary case where the package image is also the image the
 caller named: the original package spelling may float to another version, so it
 cannot be the replay address for a printed MethodDef token. The exact address
-survives package ranges and same-named assets in other TFMs. User-supplied
-`--source`, `--add-source`, and `--nugetconfig` selectors are part of that
-address because they authorize which cached producer may serve the package
-offline. Explicit config paths are made absolute so the next command does not
-reinterpret them against another working directory. Relative local source paths
-are likewise disclosed as their canonical absolute paths from the discovery
+survives package ranges and same-named assets in other TFMs. A caller-supplied
+local `.nupkg` is likewise disclosed by its canonical absolute path from the
+discovery working directory rather than by a relative spelling that another
+directory can reinterpret
+(`Similar_RelativeLocalPackageReplayIsIndependentOfTheNextWorkingDirectory`).
+User-supplied `--source`, `--add-source`, and `--nugetconfig` selectors are part
+of that address because they authorize which cached producer may serve the
+package offline. Explicit config paths are made absolute so the next command
+does not reinterpret them against another working directory. When package
+resolution used the ambient `NuGet.Config` hierarchy, the address also carries
+the absolute discovery directory through `--nugetconfig-directory`; replay
+discovers the same hierarchy rather than a hierarchy rooted at its later
 working directory
+(`Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory`). Relative
+local source paths are likewise disclosed as their canonical absolute paths
+from the discovery working directory
 (`ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory`).
 The disclosure names its shell dialect and uses POSIX-shell quoting on Unix or
 PowerShell quoting on Windows; it does not present one dialect as shell-neutral
@@ -515,7 +527,7 @@ override also does not hide a retained target in the default secondary root
 `Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,
 `Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
 `Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
-supplied directly outlives the command and is disclosed unchanged
+supplied directly outlives the command and is disclosed by its canonical path
 (`ReplayableCandidateAddress_ForADirectlyNamedLibrary_KeepsThePathIntact`,
 `ReplayableCandidateAddress_ForAnImageOutsideTheExtraction_KeepsThePathIntact`).
 

@@ -27,7 +27,8 @@ internal sealed record MatchDiscoveryRequest(
 internal sealed record MatchDiscoveryReplaySources(
     ImmutableArray<string> Sources,
     ImmutableArray<string> AdditionalSources,
-    string? ConfigFile);
+    string? ConfigFile,
+    string? ConfigDirectory);
 
 /// <summary>
 /// Token-to-display names for one candidate assembly, projected from the already-extracted
@@ -430,7 +431,15 @@ internal static class MatchDiscoveryFormatter
                         + " on a candidate with `"
                         + ReplayOptions(request, replayLibrary)
                         + "` to obtain a checked relation against that same image."
-                    : Disclosure;
+                    : request.ReplayLibrary is string directLibrary
+                        ? DisclosurePrefix
+                            + "Ranked tokens index the directly selected image; run pairwise "
+                            + "`match` in "
+                            + ShellCommandText.CurrentDialectName
+                            + " on a candidate with `"
+                            + ReplayOptions(request, directLibrary)
+                            + "` to obtain a checked relation against that same image."
+                        : Disclosure;
 
     static string ReplayOptions(MatchDiscoveryRequest request, string library)
     {
@@ -450,6 +459,12 @@ internal static class MatchDiscoveryFormatter
                     source => "--add-source " + ShellCommandText.Quote(source)));
                 if (sources.ConfigFile is string configFile)
                     options.Add("--nugetconfig " + ShellCommandText.Quote(configFile));
+                if (sources.ConfigDirectory is string configDirectory)
+                {
+                    options.Add(
+                        "--nugetconfig-directory "
+                            + ShellCommandText.Quote(configDirectory));
+                }
             }
         }
         else

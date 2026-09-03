@@ -36,6 +36,10 @@ public static class MatchCommandDefinitions
         var platformOption = new Option<string?>("--platform") { Description = "Source: platform library (e.g., System.Text.Json)" };
         var frameworkOption = new Option<string?>("--framework") { Description = "Source: platform framework (runtime, aspnetcore, netstandard)" };
         var tfmOption = new Option<string?>("--tfm") { Description = "Source: select by TFM (e.g., net8.0)" };
+        var configDirectoryOption = new Option<string?>("--nugetconfig-directory")
+        {
+            Description = "Source: discover the ambient NuGet.Config hierarchy from this directory",
+        };
         var allOption = new Option<bool>("--all") { Description = "Include non-public members when resolving selectors" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var implementationOption = new Option<bool>("--implementation")
@@ -71,6 +75,7 @@ public static class MatchCommandDefinitions
         matchCommand.Options.Add(platformOption);
         matchCommand.Options.Add(frameworkOption);
         matchCommand.Options.Add(tfmOption);
+        matchCommand.Options.Add(configDirectoryOption);
         matchCommand.Options.Add(allOption);
         matchCommand.Options.Add(opts.Json);
         matchCommand.Options.Add(compactOption);
@@ -119,6 +124,43 @@ public static class MatchCommandDefinitions
                 return 1;
             }
 
+            string? configDirectory = parseResult.GetValue(configDirectoryOption);
+            if (configDirectory is not null)
+            {
+                try
+                {
+                    configDirectory = Path.GetFullPath(configDirectory);
+                }
+                catch (Exception ex) when (ex is
+                    ArgumentException
+                    or IOException
+                    or NotSupportedException)
+                {
+                    CommandError.Write(
+                        "--nugetconfig-directory must identify a usable directory.");
+                    return 1;
+                }
+
+                if (!Directory.Exists(configDirectory))
+                {
+                    CommandError.Write(
+                        $"NuGet config discovery directory not found: '{configDirectory}'.");
+                    return 1;
+                }
+            }
+
+            var sourceOptions = opts.ParseNuGetSourceOptions(parseResult);
+            if (sourceOptions.ConfigFile is not null && configDirectory is not null)
+            {
+                CommandError.Write(
+                    "--nugetconfig and --nugetconfig-directory cannot be combined.");
+                return 1;
+            }
+
+            sourceOptions = sourceOptions with
+            {
+                ConfigDirectory = configDirectory,
+            };
             var options = new MatchOptions
             {
                 LeftSelector = left,
@@ -145,7 +187,7 @@ public static class MatchCommandDefinitions
                 Verbose = parseResult.GetValue(opts.Verbose),
                 Rows = opts.ParseRows(parseResult),
                 Bare = parseResult.GetValue(opts.Bare),
-                SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
+                SourceOptions = sourceOptions,
             };
 
             return await MatchCommand.ExecuteAsync(options);

@@ -311,6 +311,237 @@ public sealed class MatchDiscoveryTests
         }
     }
 
+    [Fact]
+    public async Task Similar_RelativeLocalPackageReplayIsIndependentOfTheNextWorkingDirectory()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-relative-package-replay-{Guid.NewGuid():N}");
+        string discoveryDirectory = Path.Combine(root, "discovery");
+        string replayDirectory = Path.Combine(root, "replay");
+        string packageName = $"Match.Relative.Package.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        string originalWorkingDirectory = Directory.GetCurrentDirectory();
+        Directory.CreateDirectory(discoveryDirectory);
+        Directory.CreateDirectory(replayDirectory);
+
+        try
+        {
+            string package = CreatePackageArchive(
+                discoveryDirectory,
+                "fixture",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            Directory.SetCurrentDirectory(discoveryDirectory);
+            string discoveryWorkingDirectory = Directory.GetCurrentDirectory();
+            string relativePackage = Path.GetFileName(package);
+
+            var (discoveryExit, discoveryOutput, discoveryError) =
+                await RunCliAsync(
+                    "match",
+                    SampleSeed,
+                    "--similar",
+                    "--package",
+                    relativePackage,
+                    "--library",
+                    Path.GetFileName(TestAssembly),
+                    "--all",
+                    "--json");
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            JsonElement discovery = Parse(discoveryOutput);
+            string absolutePackage =
+                Path.GetFullPath(relativePackage, discoveryWorkingDirectory);
+            Assert.Contains(
+                $"--package {ShellCommandText.Quote(absolutePackage)}",
+                discovery.GetProperty("disclosure").GetString());
+            string candidateToken = discovery.GetProperty("candidates")
+                .EnumerateArray()
+                .Single(candidate => candidate.GetProperty("member").GetString()!
+                    .EndsWith(".ExactPeer", StringComparison.Ordinal))
+                .GetProperty("token")
+                .GetString()!;
+
+            string[] replayArguments =
+            [
+                "match",
+                SampleSeed,
+                candidateToken,
+                "--package",
+                absolutePackage,
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+                "--json",
+            ];
+            Directory.SetCurrentDirectory(replayDirectory);
+            var (replayExit, replayOutput, replayError) =
+                await RunCliAsync(replayArguments);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(
+                    [
+                        .. replayArguments[..3],
+                        "--package",
+                        relativePackage,
+                        .. replayArguments[5..],
+                    ]);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Equal(
+                "Exact",
+                Parse(replayOutput).GetProperty("relation").GetString());
+            Assert.Equal(1, staleExit);
+            Assert.Contains("File not found", staleError);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalWorkingDirectory);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-ambient-config-replay-{Guid.NewGuid():N}");
+        string cacheDirectory = Path.Combine(root, "cache");
+        string discoveryDirectory = Path.Combine(root, "discovery");
+        string replayDirectory = Path.Combine(root, "replay");
+        string packageName = $"Match.Ambient.Config.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        const string source = "https://ambient-config.invalid/v3/index.json";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        string staged = Path.Combine(root, "staged");
+        string originalWorkingDirectory = Directory.GetCurrentDirectory();
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        Directory.CreateDirectory(discoveryDirectory);
+        Directory.CreateDirectory(replayDirectory);
+
+        try
+        {
+            string package = CreatePackageArchive(
+                root,
+                "ambient-config",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            ZipFile.ExtractToDirectory(package, staged);
+            File.WriteAllText(
+                Path.Combine(discoveryDirectory, "NuGet.Config"),
+                $"""
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="ambient" value="{source}" />
+                  </packageSources>
+                  <packageSourceMapping>
+                    <packageSource key="ambient">
+                      <package pattern="{packageName}" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """);
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-ambient-config-replay",
+                cacheDirectory,
+                skipNuGetCache: true);
+            NuGetCache.CommitPackage(
+                staged,
+                package,
+                packageName,
+                version,
+                NuGetCache.GetSourceKey(source));
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+
+            Directory.SetCurrentDirectory(discoveryDirectory);
+            string configDirectory = Directory.GetCurrentDirectory();
+            var (discoveryExit, discoveryOutput, discoveryError) =
+                await RunCliAsync(
+                    "match",
+                    SampleSeed,
+                    "--similar",
+                    "--package",
+                    $"{packageName}@{version}",
+                    "--library",
+                    asset,
+                    "--all",
+                    "--json");
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            JsonElement discovery = Parse(discoveryOutput);
+            Assert.Contains(
+                $"--nugetconfig-directory {ShellCommandText.Quote(configDirectory)}",
+                discovery.GetProperty("disclosure").GetString());
+            string candidateToken = discovery.GetProperty("candidates")
+                .EnumerateArray()
+                .Single(candidate => candidate.GetProperty("member").GetString()!
+                    .EndsWith(".ExactPeer", StringComparison.Ordinal))
+                .GetProperty("token")
+                .GetString()!;
+
+            string[] replayArguments =
+            [
+                "match",
+                SampleSeed,
+                candidateToken,
+                "--package",
+                $"{packageName}@{version}",
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+                "--json",
+            ];
+            Directory.SetCurrentDirectory(replayDirectory);
+            var (replayExit, replayOutput, replayError) =
+                await RunCliAsync(
+                    [
+                        .. replayArguments,
+                        "--nugetconfig-directory",
+                        configDirectory,
+                    ]);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(replayArguments);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Equal(
+                "Exact",
+                Parse(replayOutput).GetProperty("relation").GetString());
+            Assert.Equal(1, staleExit);
+            Assert.Contains("not available offline", staleError);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalWorkingDirectory);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Retrieval selects candidates; it does not decide a relation. The rendered output has to say
     /// so, because a ranked table otherwise reads as a verdict.
@@ -1048,7 +1279,11 @@ public sealed class MatchDiscoveryTests
         Assert.Equal(0, exitCode);
         string disclosure = Parse(output).GetProperty("disclosure").GetString()!;
 
-        Assert.Contains("Run pairwise `match` on a candidate", disclosure);
+        Assert.Contains("run pairwise `match`", disclosure);
+        Assert.Contains("on a candidate with", disclosure);
+        Assert.Contains(
+            $"--library {ShellCommandText.Quote(TestAssembly)}",
+            disclosure);
         Assert.DoesNotContain("across images", disclosure);
     }
 
@@ -2489,7 +2724,8 @@ public sealed class MatchDiscoveryTests
             ReplaySources: new MatchDiscoveryReplaySources(
                 ["https://feed-a.invalid/v3/index.json"],
                 ["https://feed-b.invalid/v3/index.json"],
-                "/configs/NuGet Config"));
+                "/configs/NuGet Config",
+                null));
 
         string disclosure = MatchDiscoveryFormatter.DisclosureFor(request);
 
@@ -2600,6 +2836,51 @@ public sealed class MatchDiscoveryTests
                 Path.Combine("..", "secondary"),
                 workingDirectory),
             Assert.Single(replaySources.AdditionalSources));
+    }
+
+    [Fact]
+    public void ReplayConfigDirectory_DoesNotRebaseAnExplicitRelativeSource()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-config-directory-source-base-{Guid.NewGuid():N}");
+        string configDirectory = Path.Combine(root, "config");
+        string commandDirectory = Path.Combine(root, "command");
+        Directory.CreateDirectory(configDirectory);
+        Directory.CreateDirectory(commandDirectory);
+
+        try
+        {
+            IReadOnlyList<NuGetFetch.PackageSource> sources =
+                NuGetSourceResolver.ResolveSources(
+                    new NuGetSourceOptions
+                    {
+                        Sources = [Path.Combine(".", "feed")],
+                        ConfigDirectory = configDirectory,
+                    },
+                    commandDirectory);
+
+            Assert.Equal(
+                NuGetFetch.LocalPackageSourceIdentity.Create(
+                    Path.Combine(".", "feed"),
+                    commandDirectory).CanonicalPath,
+                Assert.Single(sources).Url);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ReplayConfigDirectory_RejectsARelativeSourceResolutionBase()
+    {
+        Assert.Throws<ArgumentException>(
+            () => NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions
+                {
+                    ConfigDirectory = Path.Combine(".", "config"),
+                }));
     }
 
     [Fact]
