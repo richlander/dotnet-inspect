@@ -1347,7 +1347,9 @@ public static class IrImporter
                     }
                     // MemberRefs carry no MethodDef rows; resolve only the
                     // missing cross-assembly facts this callee can consume.
-                    callee = source.CrossAssembly.Upgrade(callee, function.UsesUpdatedMemorySafetyRules);
+                    callee = source.CrossAssembly.Upgrade(
+                        callee,
+                        resolveRequiresUnsafe: true);
                     // A same-assembly MethodDef exposes its parameters' C# defaults
                     // and sibling overloads; recover the overload-safe trailing
                     // elision facts for the optional-argument elision pass.
@@ -1572,7 +1574,9 @@ public static class IrImporter
                     // byte; resolve its value-type-ness so a struct constructor
                     // (new DateTime(...)) is not misread as a heap allocation.
                     constructor = constructor with { DeclaringType = source.CrossAssembly.Upgrade(constructor.DeclaringType) };
-                    constructor = source.CrossAssembly.Upgrade(constructor, function.UsesUpdatedMemorySafetyRules);
+                    constructor = source.CrossAssembly.Upgrade(
+                        constructor,
+                        resolveRequiresUnsafe: true);
                     // A same-assembly MethodDef ctor whose body proves it effect-free
                     // (a trivial direct-Object parameterless ctor with no static ctor)
                     // lets ObjectInitializerPass hoist an enclosing call's this-field
@@ -1810,6 +1814,9 @@ public static class IrImporter
                         MetadataTokens.EntityHandle(reader.ReadILToken()),
                         callerScope,
                         source.MemorySafety);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        resolveRequiresUnsafe: true);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: false, instance: null));
                     break;
                 }
@@ -1821,6 +1828,9 @@ public static class IrImporter
                         MetadataTokens.EntityHandle(reader.ReadILToken()),
                         callerScope,
                         source.MemorySafety);
+                    target = source.CrossAssembly.Upgrade(
+                        target,
+                        resolveRequiresUnsafe: true);
                     var instance = Pop(stack);
                     stack.Push(new LoadFunctionPointer(target, isVirtual: true, instance));
                     break;
@@ -2375,17 +2385,15 @@ public static class IrImporter
                 bool methodCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes());
                 bool typeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes());
                 RequiresUnsafeContractResult requiresUnsafeContract =
-                    MethodDefinitionFacts.RequiresUnsafeContract(
+                    ResolveRequiresUnsafeContract(
+                        reader,
+                        method,
                         memorySafety,
-                        handle);
+                        (MethodDefinitionHandle)handle);
                 MetadataFactState requiresUnsafeFact =
                     requiresUnsafeContract.State;
                 bool requiresUnsafe =
-                    requiresUnsafeContract.IsExplicit
-                    || requiresUnsafeFact == MetadataFactState.Unknown
-                        && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
-                            reader,
-                            method);
+                    requiresUnsafeContract.IsExplicit;
                 string methodName = reader.GetString(method.Name);
                 return new MethodRef(declaring, methodName, signature.ReturnType, signature.ParameterTypes, signature.Header.IsInstance)
                 {
@@ -2476,8 +2484,8 @@ public static class IrImporter
                     ReturnIsDynamic = memberFacts.ReturnIsDynamic,
                     ReturnArrayElementIsDynamic = memberFacts.ReturnArrayElementIsDynamic,
                     HasRefReadOnlyParameters = memberFacts.ParameterRefKinds.HasRefReadOnlyParameters,
-                    RequiresUnsafe = memberFacts.RequiresUnsafe == MetadataFactState.Yes,
-                    RequiresUnsafeFact = memberFacts.RequiresUnsafe,
+                    RequiresUnsafe = memberFacts.RequiresUnsafe.IsExplicit,
+                    RequiresUnsafeFact = memberFacts.RequiresUnsafe.State,
                     IsOperator = memberFacts.IsOperator,
                     CompilerGenerated = memberFacts.CompilerGenerated,
                     DeclaringTypeCompilerGenerated = memberFacts.DeclaringTypeCompilerGenerated,
@@ -2635,7 +2643,7 @@ public static class IrImporter
         ParameterRefKindResult ParameterRefKinds,
         MetadataFactState ReturnIsDynamic,
         MetadataFactState ReturnArrayElementIsDynamic,
-        MetadataFactState RequiresUnsafe,
+        RequiresUnsafeContractResult RequiresUnsafe,
         MetadataFactState IsOperator,
         MetadataFactState CompilerGenerated,
         MetadataFactState DeclaringTypeCompilerGenerated) MemberReferenceDefinitionFacts(
@@ -2657,7 +2665,7 @@ public static class IrImporter
                 fallbackRefKinds,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
-                MetadataFactState.Unknown,
+                new(MetadataFactState.Unknown, IsExplicit: false),
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown,
                 MetadataFactState.Unknown);
@@ -2690,9 +2698,11 @@ public static class IrImporter
                         method,
                         declaredReturnType,
                         effectiveReturnType),
-                    MethodDefinitionFacts.RequiresUnsafeContract(
+                    ResolveRequiresUnsafeContract(
+                        reader,
+                        method,
                         memorySafety,
-                        methodHandle).State,
+                        methodHandle),
                     FactState(MethodDefinitionFacts.IsOperator(method, memberName, hasThis)),
                     FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, method.GetCustomAttributes())),
                     typeCompilerGenerated);
@@ -2702,10 +2712,28 @@ public static class IrImporter
             fallbackRefKinds,
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
-            MetadataFactState.Unknown,
+            new(MetadataFactState.Unknown, IsExplicit: false),
             MetadataFactState.Unknown,
             MetadataFactState.Unknown,
             typeCompilerGenerated);
+    }
+
+    static RequiresUnsafeContractResult ResolveRequiresUnsafeContract(
+        MetadataReader reader,
+        MethodDefinition method,
+        MemorySafetyMetadataIndex? memorySafety,
+        MethodDefinitionHandle methodHandle)
+    {
+        RequiresUnsafeContractResult contract =
+            MethodDefinitionFacts.RequiresUnsafeContract(
+                memorySafety,
+                methodHandle);
+        return contract.State == MetadataFactState.Unknown
+            && MethodDefinitionFacts.HasRequiresUnsafeAttribute(
+                reader,
+                method)
+                ? new(MetadataFactState.Yes, IsExplicit: true)
+                : contract;
     }
 
     internal static bool IsTrustedPlatformMemberReference(MetadataReader reader, EntityHandle parent) => parent.Kind switch

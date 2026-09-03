@@ -80,9 +80,15 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 awaiterType,
                 out var isCompletedAccessor)
             || !TryGetResult(merge, awaiterStore.Index, awaiterType, out var getResult)
-            || getAwaiter.Callee.RequiresUnsafe
-            || isCompletedAccessor.RequiresUnsafe
-            || getResult.Callee.RequiresUnsafe
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getAwaiter.Callee,
+                function.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                isCompletedAccessor,
+                function.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getResult.Callee,
+                function.UsesUpdatedMemorySafetyRules)
             || UnsafeAwaitOperand.RequiresUnsafeContext(
                 awaited,
                 function.UsesUpdatedMemorySafetyRules)

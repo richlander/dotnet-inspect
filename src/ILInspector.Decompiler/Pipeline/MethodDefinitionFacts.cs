@@ -85,18 +85,6 @@ internal static class MethodDefinitionFacts
                 "System.Runtime.CompilerServices",
                 "RequiresUnsafeAttribute");
 
-    internal static bool HasRequiresUnsafeAttribute(MetadataReader reader, TypeDefinition type)
-        => HasAttribute(
-                reader,
-                type.GetCustomAttributes(),
-                "System.Diagnostics.CodeAnalysis",
-                "RequiresUnsafeAttribute")
-            || HasAttribute(
-                reader,
-                type.GetCustomAttributes(),
-                "System.Runtime.CompilerServices",
-                "RequiresUnsafeAttribute");
-
     internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
         => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "CompilerGeneratedAttribute");
 

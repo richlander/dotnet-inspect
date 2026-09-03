@@ -98,12 +98,12 @@ An operation needs a block when it is:
 
 - a pointer dereference or pointer member/indexer access (`*p`, `p->F`,
   `(*p)[i]`), or a function-pointer invocation (`calli`);
-- a call to a *requires-unsafe* member — one stamped with `RequiresUnsafeAttribute`
-  (`System.Diagnostics.CodeAnalysis`), i.e. declared `unsafe`/`extern`, even with
-  no pointer in the call;
-- a call whose callee has a pointer or function-pointer anywhere in its signature
-  (the spec's compat fallback for cross-assembly callees whose attributes can't be
-  read, e.g. `NativeMemory.Free(void*)`);
+- a call carrying an enforced *requires-unsafe* contract: an implicit legacy
+  pointer contract is enforced for either caller model, while an explicit V2
+  `RequiresUnsafeAttribute` contract is enforced only for a V2 caller;
+- a call whose normalized callee contract is unavailable and whose signature
+  contains a pointer or function pointer (the conservative compatibility
+  fallback for unresolved cross-assembly callees);
 - a `stackalloc` converted to a `Span<T>`/`ReadOnlySpan<T>` with no initializer in
   a `[SkipLocalsInit]` body (the stack space is uninitialized).
 
@@ -112,6 +112,12 @@ comparison (`p++`, `p + 1`, `p < q`), the `fixed` statement, and `sizeof` are
 safe under the new rules and stay outside the blocks. When the unsafe operation
 initializes a local used later, the declaration is hoisted above the block so
 the variable stays in scope.
+
+The callee's module and member metadata classify its contract independently of
+the caller. In particular, a V2 callee without `RequiresUnsafeAttribute` has no
+caller requirement even when its signature contains pointers, for both legacy
+and V2 callers. The caller model controls only whether an explicit V2 contract
+is enforced.
 
 Await reconstruction stands down when either the awaited operand or an implicit
 await-pattern member requires unsafe context because C# forbids `await` inside

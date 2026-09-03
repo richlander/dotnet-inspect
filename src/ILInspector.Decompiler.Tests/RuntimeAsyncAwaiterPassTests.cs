@@ -170,6 +170,7 @@ public class RuntimeAsyncAwaiterPassTests
     public void UnsafeAwaiterPatternMember_StandsDownBecauseAwaitCannotEnterUnsafeContext()
     {
         var function = Synthetic(requiresUnsafeAwaiterMember: true);
+        function.UsesUpdatedMemorySafetyRules = true;
 
         new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
         function.CheckInvariant();
@@ -184,6 +185,7 @@ public class RuntimeAsyncAwaiterPassTests
     public void UnsafeAwaitOperand_StandsDownBecauseAwaitCannotEnterUnsafeContext()
     {
         var function = Synthetic(requiresUnsafeOperand: true);
+        function.UsesUpdatedMemorySafetyRules = true;
 
         new RuntimeAsyncAwaiterPass().Run(function, PassContext.None);
         function.CheckInvariant();

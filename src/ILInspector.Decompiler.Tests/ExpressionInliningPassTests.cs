@@ -278,7 +278,7 @@ public class ExpressionInliningPassTests
     }
 
     [Fact]
-    public void UpdatedUnresolvedPointerSignature_PreservesCompatibilityFallback()
+    public void CallerModel_EnforcesNormalizedPointerContracts()
     {
         var pointer = TypeRef.Pointer(Int32);
         var unresolved = new MethodRef(
@@ -291,6 +291,15 @@ public class ExpressionInliningPassTests
         {
             RequiresUnsafeFact = MetadataFactState.No,
         };
+        var implicitContract = unresolved with
+        {
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
+        var explicitContract = unresolved with
+        {
+            RequiresUnsafe = true,
+            RequiresUnsafeFact = MetadataFactState.Yes,
+        };
 
         Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
             unresolved,
@@ -298,8 +307,20 @@ public class ExpressionInliningPassTests
         Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
             knownSafe,
             usesUpdatedMemorySafetyRules: true));
-        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
             knownSafe,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            implicitContract,
+            usesUpdatedMemorySafetyRules: false));
+        Assert.True(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
+            usesUpdatedMemorySafetyRules: true));
+        Assert.False(UnsafeAwaitOperand.MethodRequiresUnsafe(
+            explicitContract,
             usesUpdatedMemorySafetyRules: false));
     }
 

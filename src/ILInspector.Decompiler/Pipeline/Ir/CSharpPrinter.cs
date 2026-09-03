@@ -3020,47 +3020,10 @@ public sealed partial class CSharpPrinter
     bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitExpression;
 
     bool NeedsExplicitUnsafeContext(IrNode node)
-        => _newMemorySafetyRules
-            ? NeedsUnsafeContext(node)
-            : _containsAwaitExpression && NeedsLegacyUnsafeContext(node);
+        => EmitsUnsafeBlocks && NeedsUnsafeContext(node);
 
     bool HasExplicitUnsafeOperation(IrNode? node)
-        => node is not null
-            && (_newMemorySafetyRules
-                ? HasUnsafeOperation(node)
-                : HasLegacyUnsafeOperation(node));
-
-    bool HasLegacyUnsafeOperation(IrNode? node)
-        => node is not null
-            && (IsUnsafeOperation(node)
-                || IsLegacyPointerOperation(node)
-                || node.Descendants.Any(candidate =>
-                    IsUnsafeOperation(candidate)
-                    || IsLegacyPointerOperation(candidate)));
-
-    bool NeedsLegacyUnsafeContext(IrNode node) => node switch
-    {
-        ForLoop f => HasLegacyUnsafeOperation(f.Initializer)
-            || HasLegacyUnsafeOperation(f.Condition)
-            || HasLegacyUnsafeOperation(f.Increment),
-        WhileLoop w => HasLegacyUnsafeOperation(w.Condition),
-        DoWhileLoop d => HasLegacyUnsafeOperation(d.Condition),
-        IfStatement s => HasLegacyUnsafeOperation(s.Condition),
-        Switch s => HasLegacyUnsafeOperation(s.Value),
-        Lock l => HasLegacyUnsafeOperation(l.LockObject),
-        Fixed => true,
-        UsingStatement u => HasLegacyUnsafeOperation(u.Resource)
-            || MethodsRequireUnsafe(u.ConsumedMemberRefs),
-        ForeachStatement f => ContainsPointer(f.LocalType)
-            || HasLegacyUnsafeOperation(f.Collection)
-            || MethodsRequireUnsafe(f.ConsumedMemberRefs),
-        LocalFunctionStatement => false,
-        TryCatch t => t.Clauses.Any(c => HasLegacyUnsafeOperation(c.Filter)),
-        TryFinally => false,
-        StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
-            => HasLegacyUnsafeOperation(s) || HasLegacyUnsafeOperation(store.Value),
-        _ => HasLegacyUnsafeOperation(node),
-    };
+        => HasUnsafeOperation(node);
 
     bool NeedsUnsafeBodyModifier(IrNode node)
         => NeedsUnsafeContext(node)
@@ -3120,7 +3083,8 @@ public sealed partial class CSharpPrinter
             => RendersAsPointerDeref(s.Value),
         Return { Value: { } value } when CurrentReturnType.Kind == TypeRefKind.ByRef
             => RendersAsPointerDeref(value),
-        LocalFunctionInvocation i => i.RequiresUnsafe
+        LocalFunctionInvocation i => (_newMemorySafetyRules
+                && i.RequiresUnsafe)
             || !_newMemorySafetyRules
                 && SignatureRequiresUnsafe(i.ReturnType, i.ParameterTypes)
             || ArgumentsRenderPointerDereference(i.Arguments, i.ParameterTypes),
@@ -3153,10 +3117,10 @@ public sealed partial class CSharpPrinter
     bool MethodRequiresUnsafe(MethodRef? method)
         => method is not null
             && (method.RequiresUnsafe
-                || method.RequiresUnsafeFact == MetadataFactState.Yes
-                || (!_newMemorySafetyRules
-                    || method.RequiresUnsafeFact == MetadataFactState.Unknown)
-                && SignatureRequiresUnsafe(method));
+                ? _newMemorySafetyRules
+                : method.RequiresUnsafeFact == MetadataFactState.Yes
+                    || method.RequiresUnsafeFact == MetadataFactState.Unknown
+                        && SignatureRequiresUnsafe(method));
 
     bool MethodsRequireUnsafe(IEnumerable<MethodRef?> methods)
         => methods.Any(MethodRequiresUnsafe);

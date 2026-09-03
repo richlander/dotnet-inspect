@@ -155,7 +155,8 @@ internal sealed class CrossAssemblyTypeResolver
         callee = UpgradeTypeReferences(callee);
         bool needsRefKinds = NeedsParameterRefKinds(callee);
         bool needsGenerated = NeedsGeneratedFacts(callee);
-        bool needsUnsafe = resolveRequiresUnsafe && !callee.RequiresUnsafe;
+        bool needsUnsafe = resolveRequiresUnsafe
+            && callee.RequiresUnsafeFact == MetadataFactState.Unknown;
         bool needsExtension = NeedsExtensionFacts(callee);
         bool needsDelegate = NeedsDelegateFact(callee);
         bool needsOperator = NeedsOperatorFact(callee);

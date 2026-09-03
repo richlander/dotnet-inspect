@@ -105,6 +105,7 @@ public class AwaitRecoveryPassTests
     public void UnsafeAwaitOperand_StandsDownBecauseAwaitCannotEnterUnsafeContext()
     {
         var function = BuildExactCorelibAwait(MetadataFactState.Yes);
+        function.UsesUpdatedMemorySafetyRules = true;
         var awaitCall = Assert.Single(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == "Await");

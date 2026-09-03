@@ -14,8 +14,7 @@ internal static class UnsafeAwaitOperand
     public static bool RequiresUnsafeContext(
         IrNode root,
         bool usesUpdatedMemorySafetyRules)
-        => ContainsUnsafeOperation(root, usesUpdatedMemorySafetyRules)
-            || !usesUpdatedMemorySafetyRules && ContainsPointerSyntax(root);
+        => ContainsUnsafeOperation(root, usesUpdatedMemorySafetyRules);
 
     static bool ContainsUnsafeOperation(
         IrNode root,
@@ -42,7 +41,8 @@ internal static class UnsafeAwaitOperand
                 || node is StoreProperty propertyStore && IsPointerReceiver(propertyStore.Instance)
                 || node is EventSubscription subscription && IsPointerReceiver(subscription.Instance)
                 || node is LocalFunctionInvocation invocation
-                    && (invocation.RequiresUnsafe
+                    && ((usesUpdatedMemorySafetyRules
+                            && invocation.RequiresUnsafe)
                         || !usesUpdatedMemorySafetyRules
                             && (ContainsPointer(invocation.ReturnType)
                                 || invocation.ParameterTypes.Any(ContainsPointer))
@@ -68,11 +68,11 @@ internal static class UnsafeAwaitOperand
         MethodRef method,
         bool usesUpdatedMemorySafetyRules)
         => method.RequiresUnsafe
-            || method.RequiresUnsafeFact == MetadataFactState.Yes
-            || (!usesUpdatedMemorySafetyRules
-                || method.RequiresUnsafeFact == MetadataFactState.Unknown)
-            && (ContainsPointer(method.ReturnType)
-                || method.ParameterTypes.Any(ContainsPointer));
+            ? usesUpdatedMemorySafetyRules
+            : method.RequiresUnsafeFact == MetadataFactState.Yes
+                || method.RequiresUnsafeFact == MetadataFactState.Unknown
+                    && (ContainsPointer(method.ReturnType)
+                        || method.ParameterTypes.Any(ContainsPointer));
 
     static bool CallRendersPointerDereference(Call call)
     {
@@ -121,10 +121,4 @@ internal static class UnsafeAwaitOperand
                 || ContainsPointer(type.ElementType)
                 || type.TypeArguments.Any(ContainsPointer));
 
-    static bool ContainsPointerSyntax(IrNode root)
-        => root.Descendants.Prepend(root).Any(node =>
-            node is Fixed or StackAllocate
-            || node.DirectTypes.Any(ContainsPointer)
-            || node is IrExpression expression
-                && ContainsPointer(expression.ResultType));
 }

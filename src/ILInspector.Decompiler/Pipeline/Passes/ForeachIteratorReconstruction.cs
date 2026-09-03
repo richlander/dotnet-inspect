@@ -80,7 +80,9 @@ internal static class ForeachIteratorReconstruction
         var disposalBody = context.ImportMethodBody(disposalFinally);
         if (disposalBody is null
             || !TryGetDisposalMethod(disposalBody, out var dispose)
-            || dispose.RequiresUnsafe)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                dispose,
+                work.UsesUpdatedMemorySafetyRules))
             return false;
 
         // field name -> (local index, type): the enumerator, plus any hoisted loop fields.

@@ -235,12 +235,358 @@ public class CompilerFeatureOptionsTests
             options);
     }
 
-    static CompiledAssembly Compile(string source, CSharpParseOptions options)
+    [Theory]
+    [InlineData("on")]
+    [InlineData("off")]
+    public void LegacyCaller_AwaitingUpdatedSafePointer_RemainsReconstructable(
+        string runtimeAsync)
     {
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class Library
+            {
+                public static Task<int> Safe(int* value)
+                    => Task.FromResult(1);
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UpdatedPointerLibrary");
+        var callerOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "runtime-async",
+                    runtimeAsync),
+            ]);
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        using var caller = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class Consumer
+            {
+                public static async Task<int> M(nint value)
+                    => await Library.Safe((int*)value);
+            }
+            """,
+            callerOptions,
+            assemblyName: "LegacyPointerConsumer",
+            additionalReferences: [libraryReference]);
+
+        DecompilerResult result = DecompileWithSibling(
+            "UpdatedPointerLibrary.dll",
+            library.Image,
+            "LegacyPointerConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "M");
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains(
+            "return await Library.Safe((int*)value);",
+            result.Output);
+        Assert.DoesNotContain("unsafe", result.Output);
+
+        using var recompiled = Compile(
+            $$"""
+            using System.Threading.Tasks;
+
+            public static class Recompiled
+            {
+                public static async Task<int> M(nint value)
+                {
+            {{result.Output}}
+                }
+            }
+            """,
+            callerOptions,
+            additionalReferences: [libraryReference]);
+    }
+
+    [Fact]
+    public void UpdatedCrossAssemblyUnsafeMethodGroup_RetainsUnsafeContext()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            public static class Library
+            {
+                public static unsafe void Risky() { }
+            }
+
+            public class InstanceLibrary
+            {
+                public virtual unsafe void Risky() { }
+            }
+            """,
+            options,
+            assemblyName: "UnsafeMethodGroupLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        using var caller = Compile(
+            """
+            using System;
+
+            public static class Consumer
+            {
+                public static Action Make()
+                {
+                    unsafe { return Library.Risky; }
+                }
+
+                public static Action MakeVirtual(InstanceLibrary value)
+                {
+                    unsafe { return value.Risky; }
+                }
+            }
+            """,
+            options,
+            assemblyName: "UnsafeMethodGroupConsumer",
+            additionalReferences: [libraryReference]);
+
+        DecompilerResult result = DecompileWithSibling(
+            "UnsafeMethodGroupLibrary.dll",
+            library.Image,
+            "UnsafeMethodGroupConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "Make");
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("unsafe", result.Output);
+        Assert.Contains("new Action(Library.Risky)", result.Output);
+
+        DecompilerResult virtualResult = DecompileWithSibling(
+            "UnsafeMethodGroupLibrary.dll",
+            library.Image,
+            "UnsafeMethodGroupConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "MakeVirtual");
+
+        Assert.Equal(
+            DecompilationFidelity.Full,
+            virtualResult.Fidelity);
+        Assert.Contains("unsafe", virtualResult.Output);
+        Assert.Contains(
+            "new Action(value.Risky)",
+            virtualResult.Output);
+
+        using var recompiled = Compile(
+            $$"""
+            using System;
+
+            public static class Recompiled
+            {
+                public static Action Make()
+                {
+            {{result.Output}}
+                }
+
+                public static Action MakeVirtual(InstanceLibrary value)
+                {
+            {{virtualResult.Output}}
+                }
+            }
+            """,
+            options,
+            additionalReferences: [libraryReference]);
+    }
+
+    [Fact]
+    public void LegacyCaller_UpdatedUnsafeMethodGroup_IgnoresExplicitContract()
+    {
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            public static class Library
+            {
+                public static unsafe void Risky() { }
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UpdatedUnsafeMethodGroupLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        var callerOptions = new CSharpParseOptions(
+            LanguageVersion.Preview);
+        using var caller = Compile(
+            """
+            using System;
+
+            public static class Consumer
+            {
+                public static Action Make()
+                    => Library.Risky;
+            }
+            """,
+            callerOptions,
+            assemblyName: "LegacyMethodGroupConsumer",
+            additionalReferences: [libraryReference]);
+
+        DecompilerResult result = DecompileWithSibling(
+            "UpdatedUnsafeMethodGroupLibrary.dll",
+            library.Image,
+            "LegacyMethodGroupConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "Make");
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("new Action(Library.Risky)", result.Output);
+        Assert.DoesNotContain("unsafe", result.Output);
+
+        using var recompiled = Compile(
+            $$"""
+            using System;
+
+            public static class Recompiled
+            {
+                public static Action Make()
+                {
+            {{result.Output}}
+                }
+            }
+            """,
+            callerOptions,
+            additionalReferences: [libraryReference]);
+    }
+
+    [Fact]
+    public void UpdatedCaller_LegacyPointerContract_RequiresUnsafeContext()
+    {
+        var legacyOptions = new CSharpParseOptions(
+            LanguageVersion.Preview);
+        using var library = Compile(
+            """
+            public static class Library
+            {
+                public static unsafe int Legacy(int* value)
+                    => 1;
+            }
+            """,
+            legacyOptions,
+            assemblyName: "LegacyPointerLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var caller = Compile(
+            """
+            public static class Consumer
+            {
+                public static int M(nint value)
+                {
+                    unsafe { return Library.Legacy((int*)value); }
+                }
+            }
+            """,
+            updatedOptions,
+            assemblyName: "UpdatedLegacyPointerConsumer",
+            additionalReferences: [libraryReference]);
+
+        DecompilerResult result = DecompileWithSibling(
+            "LegacyPointerLibrary.dll",
+            library.Image,
+            "UpdatedLegacyPointerConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "M");
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("unsafe", result.Output);
+        Assert.Contains("Library.Legacy", result.Output);
+
+        using var recompiled = Compile(
+            $$"""
+            public static class Recompiled
+            {
+                public static int M(nint value)
+                {
+            {{result.Output}}
+                }
+            }
+            """,
+            updatedOptions,
+            additionalReferences: [libraryReference]);
+    }
+
+    static DecompilerResult DecompileWithSibling(
+        string libraryName,
+        byte[] libraryImage,
+        string consumerName,
+        byte[] consumerImage,
+        string typeName,
+        string methodName)
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-memory-safety-").FullName;
+        string consumerPath = Path.Combine(directory, consumerName);
+        try
+        {
+            File.WriteAllBytes(
+                Path.Combine(directory, libraryName),
+                libraryImage);
+            File.WriteAllBytes(consumerPath, consumerImage);
+            using var source = MetadataSource.OpenWithoutSymbols(
+                consumerPath);
+            var function = IrImporter.Import(
+                source,
+                typeName,
+                methodName);
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+            return CSharpPrinter.Print(function);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static CompiledAssembly Compile(
+        string source,
+        CSharpParseOptions options,
+        string assemblyName = "CompilerFeatureOptionsTests",
+        ImmutableArray<MetadataReference> additionalReferences = default)
+    {
+        ImmutableArray<MetadataReference> references =
+            additionalReferences.IsDefaultOrEmpty
+                ? RoslynTestReferences.TrustedPlatform
+                : RoslynTestReferences.TrustedPlatform.AddRange(
+                    additionalReferences);
         var compilation = CSharpCompilation.Create(
-            "CompilerFeatureOptionsTests",
+            assemblyName,
             [CSharpSyntaxTree.ParseText(source, options)],
-            RoslynTestReferences.TrustedPlatform,
+            references,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: true,

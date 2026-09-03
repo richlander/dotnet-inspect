@@ -808,9 +808,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             out var loopGetAwaiter,
             out var loopIsCompleted);
         if (awaitedOperand is null
-            || loopGetAwaiter.RequiresUnsafe
-            || loopIsCompleted.RequiresUnsafe
-            || getResult.Callee.RequiresUnsafe
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                loopGetAwaiter,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                loopIsCompleted,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getResult.Callee,
+                kickoff.UsesUpdatedMemorySafetyRules)
             || !IsCurrentLoopElement(moveNext, awaitedOperand))
         {
             hasUnconsumedStore = true;
@@ -1011,9 +1017,15 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             out var getAwaiter,
             out var isCompleted);
         if (awaitedOperand is null
-            || getAwaiter.RequiresUnsafe
-            || isCompleted.RequiresUnsafe
-            || getResult.Callee.RequiresUnsafe)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getAwaiter,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                isCompleted,
+                kickoff.UsesUpdatedMemorySafetyRules)
+            || UnsafeAwaitOperand.MethodRequiresUnsafe(
+                getResult.Callee,
+                kickoff.UsesUpdatedMemorySafetyRules))
             return null;
 
         var operand = CloneAndRemap(awaitedOperand, kickoff);
