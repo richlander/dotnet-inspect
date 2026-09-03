@@ -896,7 +896,7 @@ public sealed partial class EhStructuringPass
             .ToList();
         var existingVariable = exceptionLocalStores.Count > 0 ? exceptionLocalStores[0] : (int?)null;
 
-        int selectedVariable = preferredVariable ?? existingVariable ?? (allocateVariable && function is not null ? function.AddLocal(exceptionType, "e") : -1);
+        int selectedVariable = preferredVariable ?? existingVariable ?? (allocateVariable && function is not null ? function.AddSynthesizedLocal(exceptionType, "e") : -1);
         if (selectedVariable >= 0 && LocalReferencedOutsideFilterHandler(blocks, handler, selectedVariable))
             return null;
         if (selectedVariable >= 0 && !ValidateSelectedFilterLocal(filterBlocks, testedAliases, selectedVariable, exceptionType))

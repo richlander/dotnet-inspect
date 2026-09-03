@@ -292,6 +292,7 @@ public sealed partial class CSharpPrinter
                 body)
             {
                 LocalNames = lambda.LocalNames,
+                SynthesizedLocalNames = lambda.SynthesizedLocalNames,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };

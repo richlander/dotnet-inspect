@@ -410,6 +410,7 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             ReturnsVoid = returnsVoid,
             ParameterRefKinds = hasByRefParameter ? creation.Method.ParameterRefKinds : [],
+            SynthesizedLocalNames = body.SynthesizedLocalNames,
         };
         lambda.InheritSourceOffset(provenance);
         return new RaisedLambda(lambda, body);

@@ -402,7 +402,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             // synthesized method is static only because the environment is passed
             // explicitly by ref, which the recovered source form does not show.
             raised.Add(Identity(method));
-            declarations.Add(new LocalFunctionStatement(
+            var declaration = new LocalFunctionStatement(
                 name,
                 method.ReturnType,
                 parameters,
@@ -412,7 +412,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.LocalNames,
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
-                container));
+                container)
+            {
+                SynthesizedLocalNames = body.SynthesizedLocalNames,
+            };
+            declarations.Add(declaration);
             // Merge the raised body's resolved type info into the enclosing
             // function. The body was imported from a separate method, so the
             // host never materialized shapes/enum members/underlying types/

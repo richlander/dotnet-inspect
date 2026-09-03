@@ -737,6 +737,9 @@ collisions lower body fidelity instead of being presented as preserved C#
 identifiers. The third compiler-produced gate verifies the legal contrast in
 both directions: nested parameters and locals may reuse an enclosing parameter
 or local identity, and both exact names remain preserved with Full fidelity.
+`NestedScopeNameCollisionTests.MaterializedLambdaSlot_AvoidsOuterStackSlotName`
+keeps pass-synthesized local names on the conservative path: they are not
+artifact identity and remain collision-resolved across nested scopes.
 
 ### P27: different PDB names for one reused slot
 

@@ -425,7 +425,7 @@ public sealed class IrFunction : IrNode
         || IsRuntimeAsync == MetadataFactState.Yes;
 
     /// <summary>
-    /// Appends a local slot (and its source name) and returns its index. Used by
+    /// Appends a local slot (and its recovered source name) and returns its index. Used by
     /// raising passes that introduce a variable absent from the original IL — e.g.
     /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>
     /// materializing a hoisted iterator loop field back into a C# loop local. Keeps
@@ -439,6 +439,13 @@ public sealed class IrFunction : IrNode
         while (names.Length < index)
             names = names.Add(null);
         LocalNames = names.Add(name);
+        if (!SynthesizedLocalNames.IsDefaultOrEmpty)
+        {
+            var synthesized = SynthesizedLocalNames;
+            while (synthesized.Length < index)
+                synthesized = synthesized.Add(null);
+            SynthesizedLocalNames = synthesized.Add(null);
+        }
         if (!LocalDeclaredInNestedScope.IsDefaultOrEmpty)
         {
             // A slot a pass invents has no PDB scope, so it is not nested.
@@ -447,6 +454,21 @@ public sealed class IrFunction : IrNode
                 nested = nested.Add(false);
             LocalDeclaredInNestedScope = nested.Add(false);
         }
+        return index;
+    }
+
+    /// <summary>
+    /// Appends a pass-created local with a preferred presentation name. Unlike
+    /// <see cref="LocalNames"/>, the name is not artifact identity and remains
+    /// collision-resolved against enclosing and descendant binders.
+    /// </summary>
+    public int AddSynthesizedLocal(TypeRef type, string name)
+    {
+        int index = AddLocal(type);
+        var synthesized = SynthesizedLocalNames;
+        while (synthesized.Length <= index)
+            synthesized = synthesized.Add(null);
+        SynthesizedLocalNames = synthesized.SetItem(index, name);
         return index;
     }
 
@@ -463,14 +485,23 @@ public sealed class IrFunction : IrNode
     /// transplanted body is not silently undone. A null set drops any prior
     /// marking, since the new numbering no longer names the same locals.
     /// </summary>
-    public void ResetLocals(ImmutableArray<TypeRef> locals, ImmutableArray<string?> names,
-        IReadOnlySet<int>? eliminatedSlots = null)
+    public void ResetLocals(
+        ImmutableArray<TypeRef> locals,
+        ImmutableArray<string?> names,
+        IReadOnlySet<int>? eliminatedSlots = null,
+        ImmutableArray<string?> synthesizedNames = default)
     {
         Locals = locals;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        var alignedSynthesized = synthesizedNames.IsDefault
+            ? ImmutableArray<string?>.Empty
+            : synthesizedNames;
+        while (alignedSynthesized.Length < locals.Length)
+            alignedSynthesized = alignedSynthesized.Add(null);
+        SynthesizedLocalNames = alignedSynthesized;
         // The new numbering no longer names the same locals, so any scope evidence
         // gathered for the old slots would be misattributed. Drop it: the printer then
         // degrades to the byte-stable method-scope shape rather than guessing.
@@ -600,6 +631,13 @@ public sealed class IrFunction : IrNode
     /// printer renders a present name and falls back to <c>V_index</c> otherwise.
     /// </summary>
     public ImmutableArray<string?> LocalNames { get; set; } = [];
+
+    /// <summary>
+    /// Preferred names for locals introduced by reconstruction rather than
+    /// recovered from artifact identity. Length-aligned with <see cref="Locals"/>
+    /// when non-empty.
+    /// </summary>
+    public ImmutableArray<string?> SynthesizedLocalNames { get; set; } = [];
 
     /// <summary>
     /// Per entry in <see cref="Locals"/>, whether the portable PDB scoped the local to
@@ -3264,6 +3302,7 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<ArgumentRefKind> ParameterRefKinds { get; init; } = [];
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
+    public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
@@ -3384,6 +3423,7 @@ public sealed class LocalFunctionStatement : IrNode
     public bool IsStatic { get; }
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
+    public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];

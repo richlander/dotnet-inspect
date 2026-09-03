@@ -1897,6 +1897,7 @@ public sealed partial class CSharpPrinter
                 body)
             {
                 LocalNames = localFunction.LocalNames,
+                SynthesizedLocalNames = localFunction.SynthesizedLocalNames,
                 UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = localFunction.SkipLocalsInit,
                 // The nested scope is metadata-free like the enclosing one; carry the
@@ -5938,7 +5939,7 @@ public sealed partial class CSharpPrinter
         {
             int count = _function.Locals.Length;
             var display = new string[count];
-            var sourceNamed = new bool[count];
+            var assigned = new bool[count];
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
 
@@ -5966,7 +5967,7 @@ public sealed partial class CSharpPrinter
                     if (taken.Add(name))
                     {
                         display[i] = name;
-                        sourceNamed[i] = true;
+                        assigned[i] = true;
                         if (isArmLocal)
                             armNameUsers[(owner.Switch, name)] = [owner.Arm];
                     }
@@ -5982,7 +5983,7 @@ public sealed partial class CSharpPrinter
                         // local leaves no entry here, and a second binding in the
                         // same arm is already in the set, so both still dedup.
                         display[i] = name;
-                        sourceNamed[i] = true;
+                        assigned[i] = true;
                     }
                 }
             }
@@ -5993,6 +5994,15 @@ public sealed partial class CSharpPrinter
             taken.UnionWith(_reservedScopeNames);
             AddDescendantBinderNames(taken);
 
+            var synthesizedNames = _function.SynthesizedLocalNames;
+            for (int i = 0; i < count && i < synthesizedNames.Length; i++)
+            {
+                if (assigned[i] || synthesizedNames[i] is not { } synthesized)
+                    continue;
+                display[i] = ReserveName(synthesized, taken);
+                assigned[i] = true;
+            }
+
             // When enabled, a local with no usable source name gets a synthesized
             // name from IR evidence (its type, loop-counter role), collision-
             // resolved against names already taken. The library default remains
@@ -6002,20 +6012,20 @@ public sealed partial class CSharpPrinter
                 var counters = LoopCounterLocals();
                 for (int i = 0; i < count; i++)
                 {
-                    if (sourceNamed[i])
+                    if (assigned[i])
                         continue;
                     var type = i < _function.Locals.Length ? _function.Locals[i] : null;
                     if (LocalNameSynthesizer.Synthesize(type, counters.Contains(i), taken) is { } synthesized)
                     {
                         display[i] = synthesized;
                         taken.Add(synthesized);
-                        sourceNamed[i] = true;
+                        assigned[i] = true;
                     }
                 }
             }
             for (int i = 0; i < count; i++)
             {
-                if (sourceNamed[i])
+                if (assigned[i])
                     continue;
                 display[i] = ReserveName(display[i], taken);
             }

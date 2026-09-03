@@ -230,7 +230,7 @@ internal static class ForeachIteratorReconstruction
                     if (read is null)
                         return false;
                     elementType = read.ResultType!;
-                    loopVariable = work.AddLocal(elementType, "item");
+                    loopVariable = work.AddSynthesizedLocal(elementType, "item");
                     foreach (var current in loopBody.Descendants.OfType<LoadProperty>().ToList())
                         if (IsCurrentOf(current, enumeratorIndex))
                             current.ReplaceWith(new LoadLocal(loopVariable, elementType));
