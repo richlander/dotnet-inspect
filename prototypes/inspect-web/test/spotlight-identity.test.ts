@@ -1229,6 +1229,18 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
 });
 
+test("keyboard help projects available global and current graph bindings", () => {
+  const openKeyboardHelp =
+    appSource.match(/function openKeyboardHelp\(\) \{[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    openKeyboardHelp,
+    /querySelector<HTMLElement>\("\.graph-viewport"\)[\s\S]*keybindings\.availableBindingsFor\(\)[\s\S]*keybindings\.availableBindingsFor\(graphViewport\)[\s\S]*state\.keyboardHelp = true/);
+  assert.match(
+    shellControlsSource,
+    /\["graph\.zoom", "Zoom the current graph"\][\s\S]*\["graph\.pan-horizontal", "Pan the current graph horizontally"\][\s\S]*\["graph\.pan-vertical", "Pan the current graph vertically"\]/);
+});
+
 test("the title line advertises the typed target above the subject strip", () => {
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");

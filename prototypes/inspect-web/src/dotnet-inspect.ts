@@ -952,6 +952,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
@@ -2845,7 +2846,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ${renderApplicationMenu(true)}
     ${state.settings ? renderSettingsViewHtml() : ""}
     ${state.keyboardHelp
-      ? renderKeyboardHelpDialog(keybindings.bindingsFor())
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
       : ""}
     ${renderAnnotatedSourceModal()}`;
 
@@ -9797,6 +9798,14 @@ function closeSettings() {
 
 function openKeyboardHelp() {
   state.settings = false;
+  const graphViewport =
+    document.querySelector<HTMLElement>(".graph-viewport");
+  keyboardHelpBindings = [
+    ...keybindings.availableBindingsFor(),
+    ...(graphViewport
+      ? keybindings.availableBindingsFor(graphViewport)
+      : []),
+  ];
   state.keyboardHelp = true;
   render();
 }
@@ -10945,6 +10954,9 @@ const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.docViewerOpen;
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
+const workspaceDrillOutIsAvailable = () =>
+  workspaceKeyboardContextIsActive()
+  && (navMode() === "member" || !state.atPackageRoot);
 
 keybindings.register({
   id: "metadata-explorer.dismiss",
@@ -11140,11 +11152,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
-    && (navMode() === "member" || !state.atPackageRoot),
+  when: () => !isTextEntry(),
   run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
@@ -11154,10 +11165,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-commands",
   key: "k",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight("", "commands");
     return true;
@@ -11166,10 +11177,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-all",
   key: "p",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight();
     return true;
@@ -11178,10 +11189,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter",
   key: "f",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     focusFilter();
     return true;
@@ -11195,12 +11206,11 @@ for (const [key, action] of [
   keybindings.register({
     id: `workspace.history-alt-${key}`,
     key,
+    available: workspaceKeyboardContextIsActive,
     modifiers: { alt: true },
     allowExtraModifiers: true,
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: event => workspaceKeyboardContextIsActive()
-      && !event.metaKey
-      && !event.ctrlKey,
+    when: event => !event.metaKey && !event.ctrlKey,
     run: () => {
       action();
       return true;
@@ -11209,9 +11219,10 @@ for (const [key, action] of [
   keybindings.register({
     id: `workspace.history-shift-${key}`,
     key,
+    available: workspaceKeyboardContextIsActive,
     modifiers: { shift: true },
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    when: () => !isTextEntry(),
     run: () => {
       action();
       return true;
@@ -11222,11 +11233,11 @@ for (const [key, action] of [
 keybindings.register({
   id: "workspace.select-lens",
   key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   preventDefault: false,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
@@ -11237,10 +11248,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-vertical",
   key: ["ArrowUp", "ArrowDown"],
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey,
@@ -11252,8 +11263,9 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-horizontal",
   key: ["ArrowLeft", "ArrowRight"],
+  available: workspaceKeyboardContextIsActive,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: event => {
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
     return true;
@@ -11262,10 +11274,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey
@@ -11279,14 +11291,13 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-backspace",
   key: "Backspace",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
-    && !event.altKey
-    && (navMode() === "member" || !state.atPackageRoot),
+    && !event.altKey,
   run: () => {
     drillOut();
     return true;
@@ -11295,9 +11306,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter-slash",
   key: "/",
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: () => {
     focusFilter();
     return true;

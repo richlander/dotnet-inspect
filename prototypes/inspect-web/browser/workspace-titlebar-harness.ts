@@ -28,6 +28,7 @@ import {
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import {
   bindSettingsPanel,
   renderSettingsView,
@@ -75,6 +76,7 @@ const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
+const graphMode = params.has("graph");
 const limitationMode = params.has("limitation");
 const longMode = params.has("long");
 const defaultPackageIcon =
@@ -337,6 +339,53 @@ const navigationHtml = workspaceMode
         <button class="namespace-row">System.Text.Json</button>
       </div>
     </section>`;
+const harnessKeybindings = new KeybindingRegistry();
+harnessKeybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  available: () => !packageMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+const graphHelpScope = graphMode ? new EventTarget() : null;
+if (graphHelpScope) {
+  harnessKeybindings.register({
+    id: "graph.zoom",
+    key: ["+", "=", "-", "_", "0"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-horizontal",
+    key: ["ArrowLeft", "ArrowRight"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-vertical",
+    key: ["ArrowUp", "ArrowDown"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+}
+const harnessKeyboardHelpBindings = [
+  ...harnessKeybindings.availableBindingsFor(),
+  ...(graphHelpScope
+    ? harnessKeybindings.availableBindingsFor(graphHelpScope)
+    : []),
+];
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
@@ -430,14 +479,7 @@ app.innerHTML = `
     'id="settings-backdrop" class="modal-backdrop"',
     'id="settings-backdrop" class="modal-backdrop" hidden',
   )}
-  ${renderKeyboardHelpDialog([{
-    id: "workspace.open-all",
-    keys: ["p"],
-    modifiers: { commandOrControl: true },
-    allowExtraModifiers: true,
-    priority: 100,
-    preventDefault: true,
-  }]).replace(
+  ${renderKeyboardHelpDialog(harnessKeyboardHelpBindings).replace(
     'id="keyboard-help-backdrop" class="modal-backdrop"',
     'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
   )}`;

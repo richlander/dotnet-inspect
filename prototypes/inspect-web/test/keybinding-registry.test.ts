@@ -116,6 +116,33 @@ test("context predicates remove inactive bindings from arbitration", () => {
   assert.equal(registry.dispatch(keyboardEvent({ key: "p" }).event).handled, true);
 });
 
+test("availability controls dispatch and description projection together", () => {
+  let available = false;
+  const registry = new KeybindingRegistry();
+  registry.register({
+    id: "contextual",
+    key: "p",
+    available: () => available,
+    run: () => true,
+  });
+
+  assert.deepEqual(registry.bindingsFor().map(binding => binding.id), [
+    "contextual",
+  ]);
+  assert.deepEqual(registry.availableBindingsFor(), []);
+  assert.equal(
+    registry.dispatch(keyboardEvent({ key: "p" }).event).handled,
+    false);
+
+  available = true;
+  assert.deepEqual(
+    registry.availableBindingsFor().map(binding => binding.id),
+    ["contextual"]);
+  assert.equal(
+    registry.dispatch(keyboardEvent({ key: "p" }).event).handled,
+    true);
+});
+
 test("the closest event-path scope wins at equal priority", () => {
   const parent = fakeDom.eventTarget({});
   const child = fakeDom.eventTarget({});

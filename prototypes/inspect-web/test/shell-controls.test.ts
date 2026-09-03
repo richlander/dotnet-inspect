@@ -106,10 +106,26 @@ class FakeElement {
 
 class FakeRoot {
   activeElement: FakeElement | null = null;
-  readonly defaultView = { innerWidth: 800, innerHeight: 900 };
+  readonly defaultView = {
+    innerWidth: 800,
+    innerHeight: 900,
+    visualViewport: null,
+    addEventListener: (type: string, listener: EventListener) => {
+      const listeners = this.viewListeners.get(type) ?? [];
+      listeners.push(listener);
+      this.viewListeners.set(type, listeners);
+    },
+    removeEventListener: (type: string, listener: EventListener) => {
+      const listeners = this.viewListeners.get(type) ?? [];
+      this.viewListeners.set(
+        type,
+        listeners.filter(candidate => candidate !== listener));
+    },
+  };
   private readonly single = new Map<string, FakeElement>();
   private readonly multiple = new Map<string, FakeElement[]>();
   private readonly listeners = new Map<string, EventListener[]>();
+  private readonly viewListeners = new Map<string, EventListener[]>();
 
   element(dataset: Record<string, string | undefined> = {}) {
     return new FakeElement(this, dataset);
@@ -147,6 +163,10 @@ class FakeRoot {
 
   listenerCount(type: string) {
     return this.listeners.get(type)?.length ?? 0;
+  }
+
+  viewListenerCount(type: string) {
+    return this.viewListeners.get(type)?.length ?? 0;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -246,6 +266,7 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
     fakeDom.parentNode(root),
     applicationActions(calls));
   assert.equal(root.listenerCount("pointerdown"), 1);
+  assert.equal(root.viewListenerCount("resize"), 1);
 
   assert.equal(button.dispatch("keydown", { key: "ArrowDown" }), true);
   assert.equal(menu.hidden, false);
@@ -273,6 +294,7 @@ test("application menu follows menu-button keyboard and dismissal behavior", () 
   assert.equal(menu.hidden, true);
   binding.disconnect();
   assert.equal(root.listenerCount("pointerdown"), 0);
+  assert.equal(root.viewListenerCount("resize"), 0);
 });
 
 test("keyboard help is rendered from registered keybinding descriptions", () => {
@@ -283,12 +305,21 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
     allowExtraModifiers: true,
     priority: 100,
     preventDefault: true,
+  }, {
+    id: "graph.zoom",
+    keys: ["+", "-", "0"],
+    modifiers: {},
+    allowExtraModifiers: true,
+    priority: 200,
+    preventDefault: true,
   }]);
 
   assert.match(html, /role="dialog"/);
   assert.match(html, /Keyboard help/);
   assert.match(html, /Search types, members, and packages/);
   assert.match(html, /Ctrl\/Command\+P/);
+  assert.match(html, /Zoom the current graph/);
+  assert.match(html, /\+ \/ - \/ 0/);
 });
 
 test("workbench shell renders the inspected target after the product root", () => {

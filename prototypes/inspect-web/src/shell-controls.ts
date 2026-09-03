@@ -94,6 +94,9 @@ const keyboardHelpLabels = new Map<string, string>([
   ["workspace.history-alt-ArrowRight", "Go forward"],
   ["workspace.history-shift-ArrowLeft", "Go back"],
   ["workspace.history-shift-ArrowRight", "Go forward"],
+  ["graph.zoom", "Zoom the current graph"],
+  ["graph.pan-horizontal", "Pan the current graph horizontally"],
+  ["graph.pan-vertical", "Pan the current graph vertically"],
 ]);
 
 function keyLabel(binding: KeybindingDescription): string {
@@ -267,6 +270,9 @@ export function bindWorkbenchShell(
   actions: WorkbenchShellBindingActions,
 ): WorkbenchShellBinding {
   let outsidePointerHandler: ((event: Event) => void) | null = null;
+  let resizeHandler: (() => void) | null = null;
+  let menuView: Window | null = null;
+  let visualViewport: VisualViewport | null = null;
   root.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
     button.addEventListener("click", () => {
       const index = Number(button.dataset.subjectCopy);
@@ -325,6 +331,14 @@ export function bindWorkbenchShell(
       closeApplicationMenu(menuButton, menu, false);
     };
     root.addEventListener("pointerdown", outsidePointerHandler);
+    menuView = menu.ownerDocument.defaultView;
+    visualViewport = menuView?.visualViewport ?? null;
+    resizeHandler = () => {
+      if (!menu.hidden)
+        setApplicationMenuOpen(menuButton, menu, true);
+    };
+    menuView?.addEventListener("resize", resizeHandler);
+    visualViewport?.addEventListener("resize", resizeHandler);
   }
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
@@ -359,6 +373,10 @@ export function bindWorkbenchShell(
     disconnect() {
       if (outsidePointerHandler)
         root.removeEventListener("pointerdown", outsidePointerHandler);
+      if (resizeHandler) {
+        menuView?.removeEventListener("resize", resizeHandler);
+        visualViewport?.removeEventListener("resize", resizeHandler);
+      }
     },
   };
 }

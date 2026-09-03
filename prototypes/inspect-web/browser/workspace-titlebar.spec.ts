@@ -118,14 +118,35 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(page.locator("body")).toHaveAttribute("data-shared", "true");
   await expect(button).toBeFocused();
 
-  await page.setViewportSize({ width: 400, height: 180 });
   await button.click();
+  await page.setViewportSize({ width: 400, height: 180 });
   const shortPopup = await box(page, "#application-menu");
   expect(shortPopup.y).toBeGreaterThanOrEqual(0);
   expect(shortPopup.y + shortPopup.height).toBeLessThanOrEqual(180);
   expect(await page.locator("#application-menu").evaluate(menu =>
     menu.scrollHeight > menu.clientHeight)).toBe(true);
   await page.keyboard.press("Escape");
+});
+
+test("Keyboard help reflects current command availability and surface", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?package=1");
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard help" }).click();
+  await expect(page.getByText("Search types, members, and packages"))
+    .toBeVisible();
+  await expect(page.getByText("Leave the current member or subject"))
+    .toHaveCount(0);
+
+  await page.goto("/browser/workspace-titlebar.html?member=1&graph=1");
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Keyboard help" }).click();
+  await expect(page.getByText("Zoom the current graph")).toBeVisible();
+  await expect(page.getByText("Pan the current graph horizontally"))
+    .toBeVisible();
+  await expect(page.getByText("Pan the current graph vertically"))
+    .toBeVisible();
 });
 
 test("application menu keeps a fixed trailing slot outside SlideStrip overflow", async ({
