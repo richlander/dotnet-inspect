@@ -28,6 +28,9 @@ planning, [inspection-layers.md](inspection-layers.md) for consumer layers, and
 single-image and MVID correctness contract.
 [workspace-definitions.md](workspace-definitions.md) owns static context
 coordinates, while
+[workspace-scope-and-expansion.md](workspace-scope-and-expansion.md) owns
+committed logical Root membership, occurrence order, selective dependency
+expansion, scope revisions, and scope-operation results, and
 [inspection-graph-document.md](inspection-graph-document.md) owns graph
 subjects and relationships.
 
@@ -117,7 +120,8 @@ package dependency closure.
 | `ArtifactSetSession` | One sealed artifact generation admitted to a workspace | child acquisition leases and artifact handles | source-specific resolution or assembly binding |
 | Root scope projection | Resource-free facts about one admitted or replacing Root | logical correspondence, current-generation freshness, typed realization status | logical membership, Root order, scope policy, or physical access authority |
 | Root preparation receipt | One complete provisional physical Root batch | prepared resources, candidate correspondence, budget reservation, one-shot publication or release | logical membership, order, expansion policy, Navigation, or portable state |
-| Workspace | Logical inspection composition | artifact sessions, contexts, roles, query plans, aggregate admission budgets | feed or archive mechanics |
+| Inspection Workspace runtime | Physical inspection composition | runtime identity and lifetime, artifact sessions, contexts, roles, query plans, aggregate admission budgets | logical Root membership, dependency-expansion eligibility, or scope-operation policy |
+| Workspace scope | One committed logical inspection scope | [Root membership, occurrence order, selective expansion, revisions, and scope-operation results](workspace-scope-and-expansion.md) | acquisition, assembly binding, query execution, or runtime lifetime |
 | Assembly context group | One binding-consistent universe | participants, binding policy, retained assembly snapshots | package acquisition |
 | Resolved assembly reference | Neutral handle for one selected managed assembly | assembly identity and guarded repeatable content access | package coordinate parsing or storage implementation |
 | Assembly inspection session | One opened PE inspection lifetime | [reader/image lifetime and session-scoped operations](assembly-image-lifetime.md) | artifact acquisition |
@@ -2639,7 +2643,7 @@ membership or order, expansion policy, closure, Navigation focus, browser
 effects, portable schema, arbitrary transaction participants, durable recovery,
 or a second query-access protocol.
 
-### Runtime Workspace and coordinate-occurrence identity
+### Runtime Workspace identity
 
 `InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
 exact runtime instance. The identity is stable for that instance and differs
@@ -2648,37 +2652,47 @@ activated from equal portable
 `WorkspaceContextAddress` values. Definition IDs, context names, URLs, cache
 keys, and display text do not participate in runtime identity.
 
-While its state is `Open`, the Workspace may issue an opaque coordinate
-occurrence. Each issuance is distinct even for the same root currency, so a
-stale result cannot become current again merely because a root binding recurs.
-Synchronous `Dispose()` and asynchronous `CloseAsync()` stop issuance in the
-same critical section that changes the Workspace state to `Closing`. Existing
-identities remain comparable after close, but neither identity nor equality
-authorizes later Workspace operations or package-content access.
+While its state is `Open`, the Workspace supplies live operation authority to
+the [Workspace Scope and Expansion](workspace-scope-and-expansion.md) owner.
+That owner may issue Workspace-bound occurrence identities only while the
+authority remains valid. Synchronous `Dispose()` and asynchronous
+`CloseAsync()` stop new scope-operation authority in the same critical section
+that changes the runtime state to `Closing`. Existing identities remain
+comparable after close, but neither identity nor equality authorizes later
+scope operations, package-content access, or query entry.
 
-The package arm is `PackageRootOccurrenceBinding`. It carries the exact
-Workspace identity and exact acquisition-issued `PackageRootBinding`.
-`PackageRootBinding` remains authoritative for package coordinate,
-content-generation, selection, and their exact physical correspondence.
-`ArtifactRootCorrespondence` is the separate generation-independent logical
-request relation defined above. The occurrence adds only Workspace-local
-issuance identity; it is a transitional physical-binding currency rather than
-the logical history value consumed by #5701. The non-package arm is an opaque
-`NonPackageRootOccurrenceIdentity`; a later root adapter composes its own
-owner-issued root facts with that exact occurrence rather than deriving them
-from display or portable address fields.
+The runtime identity currency is:
 
-The currency contract is:
+| Property | Contract |
+| --- | --- |
+| Authority | Issued once by the exact `InspectionWorkspace` instance |
+| Scope | One runtime Workspace occurrence |
+| Lifetime | Equality remains meaningful after close; operations still require a live owner |
+| Portability | Process-local and never serialized |
+| Erasure | Carries no definition, context, inventory, membership, or presentation facts |
+| Rebinding | No value can reconstruct or rebind it in another Workspace |
+| Correspondence | Reference equality proves the same runtime Workspace |
 
-| Property | Workspace identity | Coordinate occurrence |
-| --- | --- | --- |
-| Authority | Issued once by the exact `InspectionWorkspace` instance | Issued by that Workspace only while it is `Open` |
-| Scope | One runtime Workspace occurrence | One issuance inside one exact Workspace |
-| Lifetime | Equality remains meaningful after close; operations still require a live owner | Equality remains meaningful after close; use does not outlive owner authorization |
-| Portability | Process-local and never serialized | Process-local and never serialized |
-| Erasure | Carries no definition, context, inventory, or presentation facts | Carries no membership, order, status, successor, or presentation facts |
-| Rebinding | No value can reconstruct or rebind it in another Workspace | Only future Workspace membership operations may associate it with retained state |
-| Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same occurrence issuance; the carried `PackageRootBinding` proves exact physical correspondence, while `ArtifactRootCorrespondence` separately proves logical request correspondence |
+The current `PackageRootOccurrenceBinding`,
+`NonPackageRootOccurrenceIdentity`, and
+`InspectionWorkspacePackageOccurrenceView` implementation is the first
+package-only substrate for #5656. Architectural ownership of occurrence
+issuance, order, retained membership, activation-bearing operation results,
+and their future replacement moves to Workspace Scope and Expansion.
+`PackageRootBinding` remains acquisition-owned and authoritative for package
+coordinate, content generation, selection, and exact physical correspondence.
+The replacement scope contract does not retain that resource-bearing value in
+a logical occurrence. It instead consumes the `ArtifactRootCorrespondence`
+and point-in-time `ArtifactRootScopeProjection` defined above; neither retains
+package content, contexts, sessions, leases, or access authority.
+
+The runtime-identity and close gates remain
+`WorkspaceIdentity_IsStableAndExactPerInstance`,
+`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
+`AsynchronousClose_StopsOccurrenceIssuanceImmediately`. Existing
+`PackageOccurrence_*` gates and the order, empty-view, and repeated-binding
+`PackageOccurrenceView_*` gates are implementation evidence consumed by the
+new owner; this document no longer defines their logical membership semantics.
 
 `InspectionWorkspace.CreatePackageOccurrenceView` composes an immutable
 ordered view from acquisition-issued package Root bindings. Input order is the
@@ -2698,32 +2712,28 @@ lowers the same ordered descriptors through Markout. Neither host derives
 activation identity from package text, version, framework, row position, or a
 cache key.
 
-This slice does not define retained membership, add/remove transitions,
-successor selection, persistence, general Navigation snapshots, or
-concurrency semantics. It also does not project non-package Root occurrences
-through this package view. The first CLI acquisition adapter requires a
-package with at least one selected managed assembly; root-only, analyzer-only,
-and tools-only package acquisition is not yet a supported CLI input. Those
-remain consumer-led slices of #5634, #5583, and #5584. The gates are
-`WorkspaceIdentity_IsStableAndExactPerInstance`,
-`PackageOccurrence_IsExactPerIssuanceAndCarriesBinding`,
-`PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration`,
-`NonPackageOccurrence_IsExactAndWorkspaceScoped`,
-`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
-`AsynchronousClose_StopsOccurrenceIssuanceImmediately`, plus the
-`PackageOccurrenceView_*` gates for ordering, empty input, repeated bindings,
-exact activation, foreign-view rejection, and closed-Workspace rejection.
+This shipped action is a transitional adapter until #5584 replaces it with
+Navigation-owned actions. Its ordered package view is no longer canonical
+Workspace membership, but its existing activation and host-lowering behavior
+remains owned here during that transition. It does not project non-package Root
+occurrences. The first CLI acquisition adapter requires a package with at
+least one selected managed assembly; root-only, analyzer-only, and tools-only
+package acquisition is not yet a supported CLI input.
 
 ### Workspace composition and query execution
 
-The workspace owns one or more artifact set sessions and one or more assembly
-context groups. When an authorized query plan first demands a context, the
+The Workspace runtime owns one or more artifact set sessions and one or more
+assembly context groups. Its
+[logical scope owner](workspace-scope-and-expansion.md) decides which exact
+Root composition a candidate revision requests. When an authorized query plan
+first demands a context, the
 artifact owner issues its admission lease; the context loader constructs and
 seals a session from all required acquisitions for that context, then creates
 its group. Loading a definition alone performs none of that work. Retained hosts
-may repeat the authorized operation to add contexts. Groups compose projected
-assembly participants under one binding policy and may span artifact sources
-within their session.
+may prepare additional contexts for one candidate scope revision. Logical
+publication, Root order, and Add/Replace/Remove/Clear policy remain with
+Workspace Scope and Expansion. Groups compose projected assembly participants
+under one binding policy and may span artifact sources within their session.
 
 The execution path is:
 
@@ -3137,6 +3147,8 @@ workspace roles remain unverified.
 - Replacing assembly context groups with artifact sets; artifact lifetime and
   assembly binding remain separate axes.
 - Requiring every workspace artifact to be an assembly.
+- Defining logical Root membership, selective dependency expansion, scope
+  revisions, or scope-operation results.
 - Scraping arbitrary deployed Wasm applications for runtime assemblies. A
   cooperating application may supply an explicit manifest or adapter, but
   framework-version-specific boot-resource discovery is not a general source

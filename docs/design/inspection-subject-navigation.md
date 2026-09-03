@@ -83,8 +83,10 @@ correctness: without it, a replacement content or selection generation inside
 one Workspace can alias its predecessor, and display keys or stale actions can
 target the wrong retained occurrence. The existing opaque-snapshot TLA+ state
 machines remain sufficient for Navigation-local intent, maintenance, and
-authority ordering. Workspace membership operation results and their protected
-Navigation consumption are separate focused contracts in #5583 and #5584.
+authority ordering. Workspace scope-operation results are owned by
+[Workspace Scope and Expansion](workspace-scope-and-expansion.md). Their
+protected Navigation consumption remains the separate focused contract in
+[#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
 Structural containment remains implementation-gated rather than model-checked.
 
 Navigation returns typed descriptors, identities, evidence, and outcomes. The
@@ -175,8 +177,8 @@ The owner consumes:
   occurrence descriptors;
 - zero or one active retained-coordinate occurrence and its realized
   coordinate-root facts;
-- zero or one explicitly supplied exact replacement occurrence plus typed
-  correspondence outcomes;
+- zero or one scope-result requested active/replacement occurrence plus typed
+  effect and correspondence outcomes;
 - owner-issued retained-coordinate activation operations;
 - admitted Library identities, declaration order, and primary preference;
 - bounded Type and Member inventories in producer-issued navigation order;
@@ -209,23 +211,28 @@ The owner returns:
 ### Adjacent owners
 
 [Artifact acquisition and workspace
-composition](artifact-acquisition-and-workspaces.md) owns Workspace identity,
-isolation, retained-coordinate membership and order, coordinates, admitted
-artifacts, lifetime, and membership operations. Navigation consumes its
-owner-issued identities, ordered occurrence descriptors, exact active
-occurrence, and typed correspondence without defining identity construction,
-equality, membership policy, replacement policy, or successor choice. Runtime
-identity work is tracked by #5508. Membership operation results are #5583;
-their protected Navigation consumption is #5584.
+composition](artifact-acquisition-and-workspaces.md) owns runtime Workspace
+identity, including the #5508 construction and close contract, isolation,
+admitted artifacts and contexts, query authorization, and lifetime. [Workspace
+Scope and
+Expansion](workspace-scope-and-expansion.md) owns retained-coordinate
+membership and order, Workspace-bound occurrence construction, retention, and
+retirement, selective dependency expansion, revisions, and scope-operation
+results. Navigation consumes the runtime identity, complete ordered occurrence
+descriptors, the scope result's requested active/replacement occurrence, and
+typed correspondence without defining identity construction, equality, scope
+policy, replacement policy, or closure. Scope-operation production is the
+focused successor to #5583; protected Navigation consumption remains #5584.
 
 Artifact acquisition and package realization own package coordinate,
 `PackageRootBinding`, content-generation, selection, and acquired-descendant
-identity currencies. #5508 composes a Workspace-local occurrence with those
-existing currencies rather than minting a parallel package identity. Each
-issuance for the same `PackageRootBinding` creates a distinct occurrence; later
-Workspace membership operations retain that exact occurrence while the carried
-binding remains the only package correspondence proof. Navigation consumes only
-that owner-issued exact occurrence binding; a portable package coordinate alone
+identity currencies. The current #5656 substrate composes a Workspace-local
+occurrence with `PackageRootBinding`; Workspace Scope and Expansion replaces
+that resource-bearing association with a complete `WorkspaceRootOccurrence`
+containing its own identity and the adjacent owner's
+`ArtifactRootCorrespondence`, plus a point-in-time
+`ArtifactRootScopeProjection` in the occurrence descriptor. Navigation
+consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
@@ -308,9 +315,9 @@ The conceptual subject identity family is:
 
 | Kind | Identity components |
 | --- | --- |
-| Workspace | Owner-issued runtime Workspace occurrence identity |
-| Package | Exact owner-issued `PackageRootOccurrenceBinding`, carrying its Workspace identity, distinct occurrence issuance, and exact retained `PackageRootBinding` |
-| Root | Exact owner-issued `NonPackageRootOccurrenceIdentity`, carrying its Workspace identity |
+| Workspace | Artifact-owner `InspectionWorkspaceIdentity` established by #5508 |
+| Package | Complete scope-owner `WorkspaceRootOccurrence` for one package Root: occurrence identity plus separate `ArtifactRootCorrespondence` |
+| Root | Complete scope-owner `WorkspaceRootOccurrence` for one non-package Root: occurrence identity plus separate `ArtifactRootCorrespondence` |
 | All Libraries | Exact Package or Root plus explicit aggregate Library identity |
 | One Library | Exact Package or Root plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |
@@ -318,9 +325,10 @@ The conceptual subject identity family is:
 
 Identity equality never uses display text, filename, list position, metadata
 token alone, portable package coordinate alone, browser cache key, or backend
-arrival order. The Workspace and retained-coordinate identities are
-process-local and never serialized. Their adjacent owner issues them; #5508
-owns their construction and lifetime.
+arrival order. Runtime Workspace and retained-coordinate occurrence identities
+are process-local and never serialized. Artifact Acquisition issues the runtime
+identity under #5508; Workspace Scope and Expansion constructs and retires the
+occurrence identity under that live runtime authority.
 
 The current coordinate-rooted `StructuralSubjectIdentity` implementation is
 replaced in place rather than retained as a parallel identity family. Its
@@ -431,27 +439,35 @@ identities through typed seams; browser display text never becomes a command
 currency.
 
 Retained-coordinate descriptors separately carry an owner-issued exact
-occurrence identity, owner order, current status, and an optional
+occurrence identity and owner order from
+[Workspace Scope and Expansion](workspace-scope-and-expansion.md), current
+realization status from
+[Artifact acquisition and workspace
+composition](artifact-acquisition-and-workspaces.md), and an optional
 Navigation-issued activation action. Navigation resolves the action to the
 exact occurrence; the host never submits a package key or display label. An
-owner-loading status maps to `Pending` activation, retains the owner's typed
-status and evidence, and carries no activation action. A failed status maps to
-`Failed` activation and likewise carries no activation action. Current
-available occurrences omit activation.
+artifact-owner loading status maps to `Pending` activation, retains the
+owner's typed status and evidence, and carries no activation action. A failed
+status maps to `Failed` activation and likewise carries no activation action.
+Current `Ready` occurrences omit activation.
 
 Activation status is independent of exact occurrence presence in the complete
 owner-issued inventory. When the current retained occurrence is being
 re-realized without a membership or identity change, `Pending` or `Failed`
-keeps its installed root and descendant context with the typed owner evidence.
-Neither status runs root-first correspondence, fallback, or truncation. Only
-absence of that exact occurrence from the complete inventory enters the
-replacement-or-Workspace branch.
+keeps its exact logical occurrence, installed Root subject, descendant subject
+context, and typed owner evidence but carries no current artifact realization
+reference or activation action. Neither status runs root-first correspondence,
+fallback, or truncation, and neither pretends that a retired artifact
+generation remains consumable. Only absence of that exact occurrence from the
+complete inventory enters the replacement-or-Workspace branch; #5584 owns
+protected result consumption for the non-`Ready` occurrence.
 
-Admission, Close, removal, replacement, invalidation, effect disposition, and
-successor policy are outside this structural claim. #5583 defines those
-Workspace-owner results; #5584 defines protected Navigation consumption. This
-design consumes only an installed complete inventory and any exact active or
-replacement occurrence supplied through those future contracts.
+Admission and Close remain Artifact Acquisition concerns. Root removal,
+replacement, invalidation, and effect disposition are Workspace Scope and
+Expansion results. Navigation applies the reconciliation rule below and #5584
+owns protected result consumption. This design consumes only an installed
+complete inventory and any exact requested occurrence supplied through those
+contracts; it does not acquire a separate successor-selection policy.
 
 ## Product policy
 
@@ -879,10 +895,10 @@ Correspondence never crosses a Workspace boundary. A different exact Workspace
 uses a different retained navigation session and independently selected or
 restored state.
 
-Membership-changing effects and stale-work sequencing are outside this
-structural claim. #5583 owns the Workspace operation result, and #5584 owns its
-protected Navigation consumption. This design accepts only their exact
-installed inventory and replacement-occurrence inputs. Non-invalidating status
+Membership-changing effects are outside this structural claim and are owned by
+Workspace Scope and Expansion. #5584 owns their stale-work sequencing and
+protected Navigation consumption. This design accepts only the exact installed
+inventory and active-occurrence inputs. Non-invalidating realization-status
 refresh remains ordinary maintenance.
 
 ## Retained navigation session
@@ -990,7 +1006,8 @@ snapshot, typed disposition, and current authority needed for that owner to act.
 `NavigationSession.tla` does not model external Workspace membership effects.
 Its opaque `coordinate` intent covers Navigation-local coordinate activation
 and variation under ordinary latest-admitted-intent supersession. Workspace
-operation results are #5583; their protected Navigation consumption is #5584.
+scope-operation results are owned by Workspace Scope and Expansion; their
+protected Navigation consumption is #5584.
 
 ## Canonical restoration participant
 
@@ -1240,8 +1257,8 @@ result identifies Navigation as the failure source.
 | Package subject activated | Exact Package with Package Overview recommendation after #5509 |
 | Active coordinate is absent without a supplied replacement | Workspace with no active occurrence |
 | Active coordinate is absent with an exact supplied replacement | Root-first correspondence and level-local fallback only inside that occurrence |
-| Current retained coordinate is Pending during non-invalidating re-realization | Typed owner evidence and no Navigation activation action; installed root and descendant context remain without structural fallback until settled |
-| Current retained coordinate is Failed while its exact occurrence remains present | Typed owner evidence and no Navigation activation action; installed root and descendant context remain without structural fallback |
+| Current retained coordinate is Pending during non-invalidating re-realization | Exact logical occurrence, installed Root subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is exposed |
+| Current retained coordinate is Failed while its exact occurrence remains present | Exact logical occurrence, installed Root subject, descendant subject context, and typed owner evidence remain without fallback or truncation; no current artifact realization reference or Navigation activation action is fabricated |
 | Foreign-Workspace subject, action, or restoration payload | Rejected before Registry resolution, correspondence, or fallback |
 | Restoration occurrence and subject ancestry disagree inside one Workspace | Preparation aborts before Registry resolution |
 | Restoration active Type and retained path name different Types in one occurrence | Preparation aborts before Registry resolution |
