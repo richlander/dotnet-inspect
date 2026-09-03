@@ -91,8 +91,22 @@ Issue #5224 owns miss dispositions; the
 [binding composition-currency model](../binding-composition-currency/README.md)
 owns the complete identity-eligible handoff; #5216 owns workspace generation
 replacement. TLC results establish properties of these state machines under
-the stated bounds, not of the shipped implementation. Formal
-model-to-implementation correspondence is unverified.
+the stated bounds, not of the shipped implementation.
+
+The selection-side implementation introduced by #5646 has focused Release
+correspondence gates in `TypeResolutionContextTests`:
+
+- `ForeignPolicySnapshot_IsRejectedBeforePayloadInterpretation` exercises the
+  atomic-association and foreign-payload exclusion boundary;
+- `FinalPolicyVersionChange_PublishesNoGenerationOrPolicyCache` exercises the
+  final commit comparison and pre-commit publication exclusion; and
+- `NullPolicySnapshot_RemainsInvalidPolicyOutput` keeps invalid output distinct
+  from generation-control evidence.
+
+These tests enforce the named selection-side product transitions, but they are
+not a mechanical refinement proof. Producer token non-reuse, transforming
+composite refresh, workspace retry, and full model-to-implementation
+correspondence remain unverified.
 
 ## Checked configurations
 
