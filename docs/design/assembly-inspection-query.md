@@ -218,12 +218,13 @@ Compatibility selection classifies metadata once a path or readable stream is
 opened. `ResolvedAssemblyReference.SelectFromPath` and `SelectFromStream`
 return an `AssemblyDescriptorSelectionResult`: `Ready` carries the selected
 descriptor, `Descriptorless` identifies an image with no usable managed
-assembly identity because it is an unrecognized non-PE image, native image, or
-managed netmodule, and `Rejected` carries an `InvalidImage` failure when an
-image's managed metadata cannot yield a usable assembly identity. I/O,
-authorization, and opener-contract failures remain visible exceptions.
-Consumers must not decode PE metadata or inspect exception text to recreate
-the three-way classification.
+assembly identity because it is an unrecognized non-PE image, structurally
+valid native image, or managed netmodule. `Rejected` carries an `InvalidImage`
+failure when recognizable PE intent has invalid PE or CLR structure, or when
+managed metadata cannot yield a usable assembly identity. I/O, authorization,
+and opener-contract failures remain visible exceptions. Consumers must not
+decode PE metadata or inspect exception text to recreate the three-way
+classification.
 
 The existing nullable factories are shims over this result while preserving
 their exact compatibility behavior: they return the descriptor, return `null`
@@ -239,8 +240,8 @@ this compatibility correction does not change artifact selection.
 `LibraryCommand` in #5594 is the named direct consumer. Existing production
 path and stream callers consume the corrected classification through the
 nullable shims while they migrate. The stream entry point remains
-browser/Wasm-compatible; browser layering continues to prohibit host code from
-constructing Metadata descriptors directly, gated by
+browser/Wasm-compatible; browser layering prohibits host code from calling
+these descriptor-selection entry points directly, gated by
 `BrowserEngineLayeringTests.BanListForbidsEverySessionAndImageDoor`. The
 selection contract is gated by
 `SelectFromPath_ReturnsDescriptorWithSelectedProvenance`,
