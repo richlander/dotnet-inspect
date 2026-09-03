@@ -2947,6 +2947,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = extension.IsAbstract,
                     IsOverride = extension.IsOverride,
                     IsSealed = extension.IsSealed,
+                    HasMethodBody = extension.HasMethodBody,
                     IsUnsafe = extension.IsUnsafe,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,

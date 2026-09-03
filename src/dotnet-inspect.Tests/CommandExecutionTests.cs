@@ -16613,6 +16613,34 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_ExtensionMethod_FindingCensusDiscoversAndRenders()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:AsMemory:1", "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Finding Census |", output);
+
+        (exit, output, error) = await RunAppAsync(
+            "member", "String", "--platform", "System.Private.CoreLib",
+            "extension:AsMemory:1", "-S", "Finding Census",
+            "--json", "--compact", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument envelope = JsonDocument.Parse(output);
+        Assert.True(
+            Guid.TryParse(
+                envelope.RootElement
+                    .GetProperty("fact_census_receipt")
+                    .GetString(),
+                out Guid receipt));
+        Assert.NotEqual(Guid.Empty, receipt);
+    }
+
+    [Fact]
     public async Task Member_FindingCensus_RejectsUnnarrowedOverloads()
     {
         var (exit, output, error) = await RunAppAsync(
