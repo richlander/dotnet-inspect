@@ -53,8 +53,11 @@ substrates, and inspection producers that will extend that space.
   SourceLink,
   implementation-relationship, type/member search, extension-reachability,
   API-comparison, progressive call-graph, and group-scoped source queries. The
-  source query owns a Decompiler fallback over retained assembly content. The
-  project has no Markout, console, or filesystem-path dependency.
+  source query owns a Decompiler fallback over retained assembly content; the
+  proposed
+  [member source comparison query](design/member-source-comparison-query.md)
+  owns an explicit two-endpoint attempt over one resolved member. The project
+  has no Markout, console, or filesystem-path dependency.
 - `src/DotnetInspector.ResearchQueries/` contains the optional Research-backed
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
