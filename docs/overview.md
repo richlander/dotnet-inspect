@@ -59,7 +59,11 @@ substrates, and inspection producers that will extend that space.
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
-  Research into the core query assembly.
+  Research into the core query assembly. Its target
+  [workspace Research target composition](design/research-workspace-target-composition.md)
+  joins a facade's Metadata forwarding outcome through the sealed
+  Queries-to-Research population receipt to one already admitted terminal
+  Research attempt.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
