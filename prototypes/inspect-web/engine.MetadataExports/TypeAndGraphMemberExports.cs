@@ -147,7 +147,7 @@ public static partial class MetadataExports
         BrowserTypeSurface type = BrowserMetadataWireProjection.Project(projectedType);
         BrowserMemberSurface member = type.Api.Single();
         BrowserMemberBodySelector selectedBody =
-            member.BodySelectors.FirstOrDefault(
+            member.BodySelectors.SingleOrDefault(
                 body => body.Token == resolution.BodyToken)
             ?? throw new InvalidOperationException(
                 $"The projected member '{member.Name}' does not retain "

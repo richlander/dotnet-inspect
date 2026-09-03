@@ -1653,8 +1653,10 @@ runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-`.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
-commit to the isolated comparison site at
+Successful main-push completion of `.github/workflows/deploy-inspect-web.yml`
+triggers `.github/workflows/deploy-inspect-web-coreclr.yml`, which checks out
+that run's exact head and downloads its exact `inspect-web-site` artifact before
+publishing the same commit to the isolated comparison site at
 `https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
 main-only `inspect-web-coreclr-staging` environment, a distinct deployment
 token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
@@ -1667,7 +1669,9 @@ this application graph, and applies the `UseMonoRuntime=false`,
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
 lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
-hook before and after artifact transfer.
+hook before and after artifact transfer. Before the CoreCLR artifact crosses
+the upload/deploy boundary, the workflow compares its schema-5 runtime receipt
+with the triggering Mono run's schema-5 compiler receipt.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property

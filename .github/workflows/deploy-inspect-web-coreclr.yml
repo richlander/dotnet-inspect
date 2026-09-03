@@ -1,17 +1,19 @@
 name: Deploy inspect-web CoreCLR staging
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Deploy inspect-web staging
+    types:
+      - completed
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: deploy-inspect-web-coreclr-staging
-  cancel-in-progress: true
+  group: deploy-inspect-web-coreclr-staging-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -21,10 +23,25 @@ env:
 jobs:
   build:
     name: Build CoreCLR staging artifact
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Download compiler-async staging artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: inspect-web-site
+          path: artifacts/inspect-web-compiler-publish
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          digest-mismatch: error
 
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -60,7 +77,7 @@ jobs:
             -c Release \
             --output artifacts/inspect-web-coreclr-publish \
             -p:VersionPrefix="$version" \
-            -p:SourceRevisionId="$GITHUB_SHA" \
+            -p:SourceRevisionId="${{ github.event.workflow_run.head_sha }}" \
             -p:BuildTimestampUtc="$built_at" \
             -p:Features=runtime-async=on \
             -p:UseMonoRuntime=false \
@@ -198,6 +215,14 @@ jobs:
           test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
           grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
 
+      - name: Compare compiler-async and runtime-async receipts
+        shell: bash
+        run: |
+          eng/verify-inspect-web-async-deployment.sh \
+            --compare \
+            artifacts/inspect-web-compiler-publish/async-lowering.json \
+            artifacts/inspect-web-coreclr-publish/async-lowering.json
+
       - name: Upload CoreCLR staged site artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -210,7 +235,10 @@ jobs:
   deploy:
     name: Publish CoreCLR staging
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.head_branch == 'main'
+      && github.event.workflow_run.event == 'push'
     environment:
       name: inspect-web-coreclr-staging
       url: https://coreclr.dotnet-inspect.ca
