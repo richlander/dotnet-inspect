@@ -18,7 +18,6 @@ static class NuGetTargetFrameworkIdentity
         try
         {
             NuGetFramework framework;
-            bool requirePlatformRoundTrip = false;
             if (source.Contains(',', StringComparison.Ordinal))
             {
                 if (!TryReadLongFormAttributes(
@@ -45,7 +44,6 @@ static class NuGetTargetFrameworkIdentity
                         framework.Version,
                         platform.ToLowerInvariant(),
                         platformVersion ?? FrameworkConstants.EmptyVersion);
-                    requirePlatformRoundTrip = true;
                 }
             }
             else
@@ -68,13 +66,7 @@ static class NuGetTargetFrameworkIdentity
                         FrameworkConstants.FrameworkIdentifiers.Portable,
                         StringComparison.Ordinal)
                     && HasUnsupportedComponent(shortFolder))
-                || !framework.Framework.Equals(
-                    roundTripped.Framework,
-                    StringComparison.OrdinalIgnoreCase)
-                || (requirePlatformRoundTrip
-                    && !NuGetFrameworkFullComparer.Instance.Equals(
-                        framework,
-                        roundTripped))
+                || !PreservesIdentity(framework, roundTripped, shortFolder)
                 || !PackageCoordinateResolver.IsAcquisitionTargetText(shortFolder))
                 return false;
 
@@ -124,6 +116,12 @@ static class NuGetTargetFrameworkIdentity
 
             if (parts[0].Equals("Version", StringComparison.OrdinalIgnoreCase))
             {
+                if (!string.Equals(rawValue, value, StringComparison.Ordinal)
+                    || !TryGetNumericVersionText(value, out _))
+                {
+                    return false;
+                }
+
                 hasVersion = true;
             }
             else if (parts[0].Equals(
@@ -153,13 +151,13 @@ static class NuGetTargetFrameworkIdentity
                 "PlatformVersion",
                 StringComparison.OrdinalIgnoreCase))
             {
-                string version = value[0] is 'v' or 'V'
-                    ? value[1..]
-                    : value;
                 if (!string.Equals(rawValue, value, StringComparison.Ordinal)
-                    || version.Length == 0
-                    || version[0] is 'v' or 'V'
-                    || !Version.TryParse(version, out platformVersion))
+                    || !TryGetNumericVersionText(
+                        value,
+                        out string numericVersion)
+                    || !Version.TryParse(
+                        numericVersion,
+                        out platformVersion))
                 {
                     return false;
                 }
@@ -181,6 +179,65 @@ static class NuGetTargetFrameworkIdentity
 
     static bool IsQualifierToken(string value) =>
         value.All(character => char.IsAsciiLetterOrDigit(character));
+
+    static bool TryGetNumericVersionText(
+        string value,
+        out string numericVersion)
+    {
+        numericVersion = value.Length > 0
+            && value[0] is 'v' or 'V'
+                ? value[1..]
+                : value;
+        if (numericVersion.Length == 0
+            || numericVersion[0] is 'v' or 'V'
+            || numericVersion[0] == '.'
+            || numericVersion[^1] == '.')
+        {
+            return false;
+        }
+
+        bool previousWasDot = false;
+        foreach (char character in numericVersion)
+        {
+            if (character == '.')
+            {
+                if (previousWasDot)
+                    return false;
+
+                previousWasDot = true;
+            }
+            else if (char.IsAsciiDigit(character))
+            {
+                previousWasDot = false;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool PreservesIdentity(
+        NuGetFramework framework,
+        NuGetFramework roundTripped,
+        string shortFolder)
+    {
+        if (!framework.IsPCL)
+            return NuGetFrameworkFullComparer.Instance.Equals(
+                framework,
+                roundTripped);
+
+        return framework.Framework.Equals(
+                roundTripped.Framework,
+                StringComparison.OrdinalIgnoreCase)
+            && framework.Version == roundTripped.Version
+            && string.Equals(
+                shortFolder,
+                roundTripped.GetShortFolderName().ToLowerInvariant(),
+                StringComparison.Ordinal);
+    }
 
     static bool HasUnsupportedComponent(string shortFolder) =>
         shortFolder

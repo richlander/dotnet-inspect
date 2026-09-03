@@ -130,19 +130,27 @@ Long-form framework admission is deliberately stricter than
 `NuGetFramework.Parse`. NuGet owns framework, version, and profile semantics,
 but the query rejects empty, duplicate, or unknown attributes before parsing so
 an ignored attribute cannot make malformed text equal a recognized framework.
-Profile text must already satisfy the bounded target-token grammar; it is never
-repaired by removing whitespace.
+Version text must use non-empty ASCII numeric components separated by single
+dots after at most one optional leading `v` or `V`. Profile text must already
+satisfy the bounded target-token grammar; it is never repaired by removing
+whitespace. NuGet then owns profile interpretation, including ignoring a
+profile for a framework family where NuGet does not retain it.
 
 The query additionally recognizes `Platform` and `PlatformVersion` attributes
 for `.NETCoreApp` version 5 or later because NuGet long-form parsing does not
 retain them. Platform text must be an ASCII alphanumeric token, platform
-version must parse as a version after at most one optional leading `v` or `V`,
-and a profile cannot coexist with a platform.
+version must use non-empty ASCII numeric components separated by single dots
+after at most one optional leading `v` or `V`, and a profile cannot coexist
+with a platform. Signs, whitespace, and empty components are not version
+syntax.
 
-Every admitted long form must produce a short-folder spelling that parses back
-to the same NuGet framework identifier. A manually constructed platform
-framework must additionally parse back to the same full NuGet framework
-identity. These round trips prevent framework families and distinct platform
+Every admitted non-PCL long form must produce a short-folder spelling that
+parses back to the same full NuGet framework identity. Portable frameworks
+below version 5, NuGet's PCL classification, are the explicit exception because
+NuGet maps equivalent named and component-list profiles to one canonical short
+spelling; they must preserve framework identifier and version, and the
+produced short spelling must be a fixed point under NuGet parsing. These round
+trips prevent framework families, versions, profiles, and distinct platform
 and platform-version pairs from collapsing into one short spelling. Text
 outside these rules remains opaque rather than being repaired.
 

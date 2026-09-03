@@ -450,6 +450,38 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     }
 
     [Fact]
+    public void Execute_SchemaVersion3_LossyFrameworkVersionSpellingDoesNotMatchAnotherIdentity()
+    {
+        const string longFramework = ".NETPlatform,Version=v0.0";
+        const string differentShortFramework = "dotnet";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [differentShortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(differentShortFramework)));
+
+        Assert.Null(facts.SelectedTarget);
+        Assert.IsType<RestoredProjectGraphResult.Unavailable>(facts.Graph);
+    }
+
+    [Fact]
     public void Execute_SchemaVersion3_CorrelatesShortDeclarationPivotWithLongTargetPivot()
     {
         RestoredProjectDependencyFacts facts = Available(
@@ -1246,6 +1278,12 @@ public sealed class RestoredProjectDependencyFactsQueryTests
 
     [Theory]
     [InlineData(".NETCoreApp,Version=v8.0,")]
+    [InlineData(".NETFramework,Version=v4.5=Client")]
+    [InlineData(".NETFramework,Version=v4=5")]
+    [InlineData(".NETFramework,Version=v4. 5")]
+    [InlineData(".NETFramework,Version=v 4.5")]
+    [InlineData(".NETFramework,Version= 4.5")]
+    [InlineData(".NETFramework,Version=vv4.8")]
     [InlineData(".NETCoreApp,Version=v8.0,Unknown=value")]
     [InlineData(".NETCoreApp,Version=v8.0,Version=v9.0")]
     [InlineData(".NETCoreApp,Platform=windows")]
@@ -1258,6 +1296,12 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion= 1.0")]
     [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vv1.0")]
     [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=vV1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1 .0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1. 0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=v 1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=+1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1.+0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=1..0")]
     [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus,Platform=windows")]
     [InlineData(".NETCoreApp,Version=v3.1,Platform=windows")]
     [InlineData(".NETFramework,Version=v4.8,Platform=windows")]
