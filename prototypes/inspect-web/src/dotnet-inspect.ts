@@ -5238,7 +5238,6 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
-      state.libraryScope = null;
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
       focusFilter({ immediate: true });

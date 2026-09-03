@@ -1464,9 +1464,16 @@ test("typed type panel owns its rendered control bindings", () => {
   const rootEventBinder =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
+  const clearFilters =
+    binding.match(/onClearFilters: \(\) => \{[\s\S]*?\n    },/)?.[0]
+    ?? "";
   assert.match(
     binding,
     /bindTypePanel\(document, \{/);
+  assert.doesNotMatch(clearFilters, /libraryScope/);
+  assert.match(
+    clearFilters,
+    /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
   assert.match(
     binding,
     /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
