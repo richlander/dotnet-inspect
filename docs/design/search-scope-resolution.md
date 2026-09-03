@@ -2,8 +2,8 @@
 
 This document owns the CLI-scoped normalization that decides when the search
 default applies and expands named search-scope groups into ordered platform
-framework and package sets. Type-search `find`, `implements`, `extensions`,
-and type-mode `depends` consume the result.
+framework and package-coordinate selections. Type-search `find`, `implements`,
+`extensions`, and type-mode `depends` consume the result.
 
 This is the current behavior contract and reference oracle for the ground-up
 typed search-scope domain tracked by
@@ -17,7 +17,10 @@ owns candidate collection and classification after it receives an authorized
 scope. Package, platform, project, and local-library owners retain acquisition,
 identity, failure, and caching. [CLI change classification and obsolete
 inputs](cli-change-classification.md) governs changes to published scope
-syntax, defaults, and catalogs.
+syntax, defaults, and named package sets.
+[Package Set Registry](package-set-registry.md) owns the identity,
+discoverability, and ordered membership of named package sets. This owner
+consumes those sets for search composition; it does not own their inventories.
 
 ## Purpose and baseline
 
@@ -39,7 +42,7 @@ and therefore compose rather than replace one another.
 The normalizer consumes:
 
 - the bare platform-group selection;
-- the Microsoft.Extensions and ASP.NET Core package-group selections;
+- the Microsoft.Extensions and ASP.NET Core package-set selections;
 - explicit package and library presence;
 - explicit platform-library presence;
 - explicit project and binary-directory presence; and
@@ -48,7 +51,8 @@ The normalizer consumes:
 It returns only:
 
 - an ordered platform-framework set; and
-- an ordered package set containing explicit packages and selected catalogs.
+- an ordered package-coordinate selection containing explicit packages and
+  selected package sets.
 
 Direct libraries, platform libraries, projects, and binary directories pass
 through their command-owned option models unchanged. Their presence is still
@@ -59,8 +63,8 @@ network authorization, acquisition, matching, result ordering, or rendering.
 
 ## Default activation
 
-With no explicit source indicator, the normalizer returns an empty package set
-and exactly these platform frameworks in order:
+With no explicit source indicator, the normalizer returns no package
+coordinates and exactly these platform frameworks in order:
 
 1. `runtime`
 2. `aspnetcore`
@@ -82,8 +86,8 @@ Explicit selectors compose additively:
 | Normalized selection | Contribution |
 | --- | --- |
 | bare `--platform` | all three platform frameworks in default order |
-| `--extensions` | the current Microsoft.Extensions package catalog |
-| `--aspnetcore` | the current ASP.NET Core package catalog |
+| `--extensions` | the current Microsoft.Extensions package set |
+| `--aspnetcore` | the current ASP.NET Core package set |
 | explicit `--package` values | those package coordinates |
 | `--package-prefix` with a type pattern | up to 500 matching package coordinates; its presence suppresses the default even when expansion is empty |
 | valued `--platform`, `--library`, `--project`, or `--bin` | no framework or package contribution; their presence suppresses the default |
@@ -100,19 +104,22 @@ and paging remain acquisition concerns.
 Package order is:
 
 1. explicit package coordinates in caller order;
-2. the Microsoft.Extensions catalog, when selected; and
-3. the ASP.NET Core catalog, when selected.
+2. the Microsoft.Extensions package set, when selected; and
+3. the ASP.NET Core package set, when selected.
 
 Package coordinates use case-insensitive set semantics while preserving the
 first spelling and position. Repeating a coordinate explicitly or through a
-catalog does not authorize duplicate acquisition. A versioned coordinate and
-an unversioned coordinate remain distinct.
+package set does not authorize duplicate acquisition. A versioned coordinate
+and an unversioned coordinate remain distinct.
 
-Catalog membership is maintained by this owner in `ScopeConstants`. Adding,
-removing, or reordering members is observable because it can change network
-work, source order, results, and failures; such changes require the
-classification and evidence defined by the CLI change-classification design.
-The design does not duplicate the current catalog inventory in prose.
+Named package-set membership is owned by the
+[Package Set Registry](package-set-registry.md). The current implementation
+still stores its two inventories in CLI-owned `ScopeConstants` until registry
+adoption. Adding, removing, or reordering members is observable because it can
+change network work, source order, results, and failures; such changes require
+the package-set owner's contract evidence and the classification defined by the
+CLI change-classification design. Neither design duplicates the inventory in
+prose.
 
 ## Command participation
 
@@ -199,6 +206,6 @@ This design does not:
 - define workspace identity, partitioning, or lifetime;
 - define package, platform, project, local-library, or prefix acquisition;
 - choose candidate or result order after source resolution;
-- promise that catalog membership is stable or backward compatible;
+- promise that package-set membership is stable or backward compatible;
 - turn a source miss or failure into fallback; or
 - define output shape, verbosity, or diagnostics.
