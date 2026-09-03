@@ -962,6 +962,38 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     }
 
     [Theory]
+    [InlineData("Foo,Version=v1.0")]
+    [InlineData(".NETPortable,Version=v0.0,Profile=ProfileZZZ")]
+    [InlineData("portable-net45+foo")]
+    public void Execute_UnresolvableNuGetFrameworkRemainsUnrecognized(
+        string sourceFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        Assert.StartsWith(
+            "sha256:",
+            group.FrameworkIdentity.Identity,
+            StringComparison.Ordinal);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Theory]
     [InlineData("uap10.0", "uap10.0")]
     [InlineData("monoandroid10.0", "monoandroid10.0")]
     [InlineData("portable-net45+win8", "portable-net45+win8")]
@@ -1022,6 +1054,103 @@ public sealed class RestoredProjectDependencyFactsQueryTests
             group.Identity.PivotIdentity,
             StringComparison.Ordinal);
         Assert.Equal(sourceFramework, group.SourcePivotSpelling.ToString());
+    }
+
+    [Fact]
+    public void Execute_MalformedLongPlatformVersionRemainsUnrecognized()
+    {
+        const string sourceFramework =
+            ".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion=bogus";
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Theory]
+    [InlineData(".NETCoreApp,Version=v8.0,")]
+    [InlineData(".NETCoreApp,Version=v8.0,Unknown=value")]
+    [InlineData(".NETCoreApp,Version=v8.0,Version=v9.0")]
+    [InlineData(".NETCoreApp,Platform=windows")]
+    public void Execute_MalformedLongFrameworkAttributesRemainUnrecognized(
+        string sourceFramework)
+    {
+        var frameworks = new JsonObject
+        {
+            [sourceFramework] = new JsonObject
+            {
+                ["dependencies"] = new JsonObject(),
+            },
+        };
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                DocumentWithFrameworks(frameworks)));
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
+    [Fact]
+    public void Execute_DifferentUnresolvablePortableFrameworksRemainDistinct()
+    {
+        const string first = "portable-net45+foo";
+        const string second = "portable-net45+bar";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [first] = new JsonObject(),
+                [second] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [first] = new JsonArray(),
+                [second] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [first] = new JsonObject { ["dependencies"] = new JsonObject() },
+                [second] = new JsonObject { ["dependencies"] = new JsonObject() },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+        RestoredProjectDeclarationResult.Available declaration =
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration);
+
+        Assert.All(
+            declaration.Groups,
+            group => Assert.Equal(
+                RestoredProjectFrameworkIdentityKind.Unrecognized,
+                group.FrameworkIdentity.Kind));
+        Assert.NotEqual(
+            declaration.Groups[0].FrameworkIdentity.Identity,
+            declaration.Groups[1].FrameworkIdentity.Identity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        AssertNoArtifactTextInIdentities(facts);
     }
 
     [Fact]
