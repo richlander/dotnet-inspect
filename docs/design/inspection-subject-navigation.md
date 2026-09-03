@@ -79,11 +79,14 @@ occurrences. It adds no global Root, `All packages` subject, cross-Workspace
 correspondence, or second concurrency protocol.
 
 The exact Workspace and retained-occurrence ancestry is necessary for
-correctness: without it, a replacement content or selection generation inside
-one Workspace can alias its predecessor, and display keys or stale actions can
-target the wrong retained occurrence. The existing opaque-snapshot TLA+ state
-machines remain sufficient for Navigation-local intent, maintenance, and
-authority ordering. Workspace scope-operation results are owned by
+correctness: without it, distinct logical occurrences inside one Workspace can
+alias, and display keys can target the wrong retained occurrence. A
+corresponding physical-generation replacement intentionally preserves that
+occurrence; its refreshed `ArtifactRootScopeProjection` and
+generation-scoped actions distinguish current physical authority and reject
+stale work. The existing opaque-snapshot TLA+ state machines remain sufficient
+for Navigation-local intent, maintenance, and authority ordering. Workspace
+scope-operation results are owned by
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md). Their
 protected Navigation consumption remains the separate focused contract in
 [#5584](https://github.com/richlander/dotnet-inspect/issues/5584).
@@ -1133,6 +1136,7 @@ The eventual subject-navigation implementation must include named gates for:
 - `RetainedCoordinateDescriptor_PendingHasEvidenceAndNoActivation`
 - `RetainedCoordinatePending_PreservesInstalledContextUntilSettled`
 - `RetainedCoordinateFailure_PreservesInstalledContextWithEvidence`
+- `RetainedCoordinateCorrespondingGenerationRefresh_PreservesRootSubject`
 - `ZeroOneOrManyOccurrences_DoNotInventActiveOccurrence`
 - `RetainedContextReconciliation_ResolvesRootThenPathThenActiveSubject`
 - `CoordinateVariation_NeverCrossesWorkspaceBoundary`
@@ -1270,7 +1274,8 @@ result identifies Navigation as the failure source.
 | Retained Member disappears while Workspace is active | Retained context falls back to the containing Type while Workspace and its lens remain active |
 | Retained Member disappears while Package is active | Retained context falls back to the containing Type while Package and its lens remain active |
 | Package O1 with retained Type/Member context resolves exactly to replacement Package O2 | Correspondable retained descendants resolve under O2 before invalid descendants are discarded |
-| Package content or selection generation is replaced at the same portable coordinate | New exact Package subject; stale subject and actions are rejected |
+| Package content or binding-context generation is replaced with equal logical correspondence | Same exact Package subject and occurrence; projection and actions refresh, retained descendants reconcile, and stale generation-scoped actions are rejected |
+| Package coordinate or selection target changes so logical correspondence differs | Membership-changing replacement supplies a new occurrence and Package subject; correspondence and level-local fallback govern retained descendants |
 | Coordinate variation within one Workspace | Typed correspondence or independent recommendation confined to the requested occurrence |
 | Coordinate variation across Workspaces | No correspondence; separate retained session and independently restored state |
 | Ordinary package | Highest-ranked trustworthy Type with API lens |
