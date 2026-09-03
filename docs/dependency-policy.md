@@ -109,8 +109,9 @@ The checked-in rules provide full gate coverage for these dependency claims:
    documented source-neutral `DotnetInspector.Artifacts` exception.
 3. Product libraries use only repository and platform assemblies unless an
    owner-specific rule names an external assembly. Markout is admitted only at
-   the metadata-rendering boundary; package, query, service, and NuGet
-   acquisition libraries retain their explicit narrow exceptions.
+   the metadata-rendering and shared-presentation boundaries; package, query,
+   service, and NuGet acquisition libraries retain their explicit narrow
+   exceptions.
 4. The direct project and compiled dependencies of the CSharp, Metadata,
    Instructions, Analysis, ILDiff, Decompiler, SourceLink, Research,
    JavaScript-export, and TypeScript-generation components stay within their
