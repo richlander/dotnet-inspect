@@ -115,6 +115,9 @@ internal static class PolicyLoader
             RequirePatterns(
                 rule.ExcludeProjectPaths,
                 $"excluded project paths for rule '{rule.Id}'");
+            RequirePatterns(
+                rule.Except,
+                $"dependency exceptions for rule '{rule.Id}'");
             RejectTokens(
                 rule.Targets,
                 $"targets for rule '{rule.Id}'");
@@ -159,9 +162,6 @@ internal static class PolicyLoader
                         $"Rule '{rule.Id}' must deny at least one dependency.");
                 }
 
-                RequirePatterns(
-                    rule.Except,
-                    $"dependency exceptions for rule '{rule.Id}'");
                 RejectTokens(
                     rule.Deny,
                     $"denied dependencies for rule '{rule.Id}'");

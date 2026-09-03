@@ -43,6 +43,7 @@
         "*.App",
         "*.Tests",
         "*Fixture*",
+        "ILInspector.Analysis.CallerGraph*",
         "ILInspector.Metadata"
       ],
       "deny": [
@@ -70,6 +71,7 @@
         "*.App",
         "*.Tests",
         "*Fixture*",
+        "ILInspector.Analysis.CallerGraph*",
         "DotnetInspector.MetadataRendering",
         "DotnetInspector.Packages",
         "DotnetInspector.Queries",

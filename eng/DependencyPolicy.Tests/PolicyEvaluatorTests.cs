@@ -110,6 +110,38 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void AllowOnly_RepositoryTokenDoesNotPermitProjectReference()
+    {
+        RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
+            [
+                Node(
+                    "Engine",
+                    projectReferences: ["Repo.Dependency"],
+                    assemblyReferences: ["Repo.Dependency"]),
+                Node("Repo.Dependency"),
+            ]);
+        DependencyPolicyDocument policy = Policy(
+            new DependencyRule
+            {
+                Id = "combined",
+                Source = "docs/dependency-policy.md",
+                Graphs =
+                [
+                    DependencyGraphKind.Project,
+                    DependencyGraphKind.Assembly,
+                ],
+                Targets = ["Engine"],
+                AllowOnly = ["$repository"],
+            });
+
+        DependencyViolation violation = Assert.Single(
+            PolicyEvaluator.Evaluate(policy, graph));
+
+        Assert.Equal(DependencyGraphKind.Project, violation.Graph);
+        Assert.Equal("Repo.Dependency", violation.Dependency);
+    }
+
+    [Fact]
     public void Evaluate_RejectsVacuousTargetPattern()
     {
         RepositoryDependencyGraph graph = RepositoryDependencyGraph.Create(
@@ -286,6 +318,88 @@ public sealed class PolicyEvaluatorTests
         Assert.Contains("may not contain token", exception.Message);
     }
 
+    [Fact]
+    public void App_ReportsNullExceptAsConfigurationError()
+    {
+        string rulesPath = Path.Combine(
+            Path.GetTempPath(),
+            $"dependency-policy-{Guid.NewGuid():N}.json");
+        File.WriteAllText(
+            rulesPath,
+            """
+            {
+              "schemaVersion": 1,
+              "solution": "dotnet-inspect.slnx",
+              "configuration": "Release",
+              "rules": [
+                {
+                  "id": "invalid",
+                  "source": "docs/overview.md",
+                  "graphs": [ "assembly" ],
+                  "targets": [ "Target" ],
+                  "allowOnly": [ "$platform" ],
+                  "except": null
+                }
+              ]
+            }
+            """);
+        TextWriter originalError = Console.Error;
+        using var error = new StringWriter();
+
+        try
+        {
+            Console.SetError(error);
+
+            int exitCode = DependencyPolicyApp.Run(
+                ["--rules", rulesPath]);
+
+            Assert.Equal(2, exitCode);
+            Assert.StartsWith("error DP0002:", error.ToString());
+            Assert.Contains("dependency exceptions", error.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+            File.Delete(rulesPath);
+        }
+    }
+
+    [Fact]
+    public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        string[] fixtureNames = Directory
+            .EnumerateDirectories(
+                Path.Combine(repository, "src"),
+                "ILInspector.Analysis.CallerGraph*")
+            .Select(path => new DirectoryInfo(path).Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.NotEmpty(fixtureNames);
+
+        foreach (string ruleId in new[]
+        {
+            "engine-libraries-stay-below-tool-libraries",
+            "product-libraries-use-repository-and-platform-assemblies",
+        })
+        {
+            DependencyRule rule = Assert.Single(
+                policy.Rules,
+                candidate => candidate.Id == ruleId);
+            foreach (string fixtureName in fixtureNames)
+            {
+                Assert.False(
+                    DependencyPattern.Selects(
+                        rule,
+                        fixtureName,
+                        $"src/{fixtureName}/{fixtureName}.csproj"),
+                    $"{ruleId} selects caller-graph fixture {fixtureName}.");
+            }
+        }
+    }
+
     private static ProjectDependencyNode Node(
         string name,
         string? projectPath = null,
@@ -307,4 +421,21 @@ public sealed class PolicyEvaluatorTests
             Configuration = "Release",
             Rules = rules,
         };
+
+    private static string FindRepositoryRoot()
+    {
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
+            directory is not null;
+            directory = directory.Parent)
+        {
+            if (File.Exists(
+                    Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+            {
+                return directory.FullName;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Could not locate the repository root.");
+    }
 }
