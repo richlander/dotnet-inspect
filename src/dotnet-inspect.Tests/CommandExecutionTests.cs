@@ -15814,7 +15814,15 @@ public partial class CommandExecutionTests
         {
             Name = "Fixture",
             Kind = "class",
-            Members = [new ApiMember { Name = "M", Kind = "method" }],
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "M",
+                    Kind = "method",
+                    HasMethodBody = true,
+                },
+            ],
         };
         var options = new MemberOptions
         {
@@ -16589,6 +16597,19 @@ public partial class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Finding Census", error);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensusDiscovery_OmitsBodylessMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(IGenericExplicitInterfaceFixture<>).FullName!,
+            "--library", TestAssemblyPath,
+            "Map:1", "-D", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("| Finding Census |", output);
     }
 
     [Fact]

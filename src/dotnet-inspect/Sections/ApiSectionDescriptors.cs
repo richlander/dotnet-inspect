@@ -494,6 +494,11 @@ public static class ApiMemberSectionDescriptors
     internal static bool IsBodyBacked(ApiMember member) =>
         IsMethodLike(member) || HasAccessorTokens(member);
 
+    internal static bool HasExecutableBody(ApiMember member) =>
+        IsMethodLike(member)
+            ? member.HasMethodBody == true
+            : HasAccessorTokens(member) && !member.IsAbstract;
+
     /// <summary>
     /// True when a property/event member records at least one accessor method token
     /// (get/set/init for a property or indexer, add/remove for an event).
@@ -735,7 +740,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
     }
 
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>
