@@ -2,9 +2,10 @@
 
 ## Status and ownership
 
-This document proposes the `ILInspector.Findings`-owned
+This document defines the `ILInspector.Findings`-owned
 `ComparisonDocument<T>` composition format for
-[#5499](https://github.com/richlander/dotnet-inspect/issues/5499).
+[#5499](https://github.com/richlander/dotnet-inspect/issues/5499), implemented
+in [#5550](https://github.com/richlander/dotnet-inspect/issues/5550).
 
 It is the second design slice in the structured-comparison delivery sequence:
 
@@ -50,8 +51,12 @@ The producer owns:
 Consumers own filtering, aggregation, analysis of `T`, navigation, and
 presentation.
 
-All behavior is unverified until the implementation effort adds the Release
-gates under [Required gates](#required-gates).
+The format is implemented by `ComparisonDocument<T>`,
+`ComparisonSubject<T>`, the closed subject-change and root-comparison cases,
+the exceptional-description value types, and the AOT-safe
+`ComparisonDocumentJson` codec. The Release gates under
+[Required gates](#required-gates) verify the Findings-owned construction,
+structured-form, and value contracts.
 
 ### Consumers and delivery
 
