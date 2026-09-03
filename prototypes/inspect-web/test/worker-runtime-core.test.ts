@@ -988,6 +988,59 @@ test("prepared abandonment completes deferred realm release", async () => {
   assert.deepEqual(harness.releasedEpochs, [1]);
 });
 
+test("terminal observer restart completes before realm release", async () => {
+  const settlement = deferred<TestSettlement>();
+  const order: string[] = [];
+  let harness: TestHarness;
+  harness = createHarness({
+    invoke: () => settlement.promise,
+    realmReleased: () => {
+      order.push("realm-released");
+    },
+  });
+  await startReady(harness);
+  const page = createOperationAuthorityPage({
+    allocation: { createId: () => "reentrant-terminal" },
+  });
+  const operationSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind !== "terminal") return undefined;
+        order.push("terminal-enter");
+        harness.host.restart();
+        assert.equal(harness.workers[0]!.terminated, true);
+        assert.deepEqual(harness.releasedEpochs, []);
+        order.push("terminal-exit");
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
+
+  const handle = started(operationSession.start("input", harness.adapter));
+  await harness.environment.flushAsync();
+  settlement.resolve({ kind: "succeeded", value: "value" });
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(order, [
+    "terminal-enter",
+    "terminal-exit",
+    "realm-released",
+  ]);
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: "value",
+  });
+  await handle.quiesced;
+  assert.equal(harness.host.snapshot().phase, "closed");
+});
+
 test("startup uses one non-renewable active-time budget and only matching Ready succeeds", async () => {
   const bootstrap = deferred<void>();
   const harness = createHarness({

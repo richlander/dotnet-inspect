@@ -338,6 +338,9 @@ interface MainEpoch<TDiagnostic> {
   drainDeadline: number | null;
   suspended: boolean;
   preparedBindings: number;
+  producerCallouts: number;
+  terminationFinalizing: boolean;
+  terminationFinalized: boolean;
   realmReleased: boolean;
 }
 
@@ -802,6 +805,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       drainDeadline: null,
       suspended: false,
       preparedBindings: 0,
+      producerCallouts: 0,
+      terminationFinalizing: false,
+      terminationFinalized: false,
       realmReleased: false,
     };
     this.#current = epoch;
@@ -1059,6 +1065,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           return;
         }
         const record = this.#createOperationRecord(
+          assignedEpoch,
           registration,
           identity,
           payload,
@@ -1091,6 +1098,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     TProgress,
     TPreparationError,
   >(
+    epoch: MainEpoch<TDiagnostic>,
     registration: WorkerRuntimeOperationRegistration<
       TInput,
       TValue,
@@ -1117,10 +1125,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     ): void => {
       const current = retainedSink;
       if (current === null) return;
+      epoch.producerCallouts++;
       try {
         call(current);
       } catch (error: unknown) {
         this.#reportCallbackError(error);
+      } finally {
+        this.#releaseProducerCallout(epoch);
       }
     };
     const reference: WorkerWireOperationReference = {
@@ -2142,35 +2153,59 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   #hardTerminate(
     epoch: MainEpoch<TDiagnostic>,
   ): void {
-    if (epoch.phase === "closed") return;
-    epoch.phase = "closed";
-    epoch.detach?.();
-    epoch.detach = null;
+    if (epoch.phase !== "closed") {
+      epoch.phase = "closed";
+      epoch.detach?.();
+      epoch.detach = null;
+      try {
+        epoch.source.terminate();
+      } catch (error: unknown) {
+        const diagnostic = this.#options.createDiagnostic(
+          "callback-error",
+          error,
+        );
+        this.#reportDiagnostic({
+          kind: "callback-error",
+          diagnostic,
+          error,
+        });
+      }
+      epoch.held.length = 0;
+      epoch.commands.clear();
+      epoch.probe = null;
+      epoch.deferredControlProbe = false;
+      epoch.epochWork.clear();
+    }
+    this.#finalizeHardTerminationIfReady(epoch);
+  }
+
+  #releaseProducerCallout(epoch: MainEpoch<TDiagnostic>): void {
+    if (epoch.producerCallouts <= 0)
+      throw new Error("Producer callout lifetime was released more than once.");
+    epoch.producerCallouts--;
+    this.#finalizeHardTerminationIfReady(epoch);
+  }
+
+  #finalizeHardTerminationIfReady(epoch: MainEpoch<TDiagnostic>): void {
+    if (epoch.phase !== "closed"
+      || epoch.producerCallouts !== 0
+      || epoch.terminationFinalizing
+      || epoch.terminationFinalized) {
+      return;
+    }
+    epoch.terminationFinalizing = true;
     try {
-      epoch.source.terminate();
-    } catch (error: unknown) {
-      const diagnostic = this.#options.createDiagnostic(
-        "callback-error",
-        error,
-      );
-      this.#reportDiagnostic({
-        kind: "callback-error",
-        diagnostic,
-        error,
-      });
+      for (const record of epoch.operations.values()) {
+        if (epoch.closure !== null)
+          this.#reportOperationClosure(record, epoch.closure);
+        this.#reportOperationQuiescence(record);
+        this.#releaseOperationPayload(record);
+      }
+      epoch.operations.clear();
+    } finally {
+      epoch.terminationFinalizing = false;
     }
-    for (const record of epoch.operations.values()) {
-      if (epoch.closure !== null)
-        this.#reportOperationClosure(record, epoch.closure);
-      this.#reportOperationQuiescence(record);
-      this.#releaseOperationPayload(record);
-    }
-    epoch.operations.clear();
-    epoch.held.length = 0;
-    epoch.commands.clear();
-    epoch.probe = null;
-    epoch.deferredControlProbe = false;
-    epoch.epochWork.clear();
+    epoch.terminationFinalized = true;
     this.#reportRealmReleasedIfReady(epoch);
   }
 
@@ -2183,6 +2218,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
   #reportRealmReleasedIfReady(epoch: MainEpoch<TDiagnostic>): void {
     if (epoch.phase !== "closed"
+      || !epoch.terminationFinalized
+      || epoch.producerCallouts !== 0
       || epoch.preparedBindings !== 0
       || epoch.realmReleased) {
       return;

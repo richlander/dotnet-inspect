@@ -820,6 +820,12 @@ Hard termination:
 4. releases held, active, control-response, probe, and epoch-work records; and
 5. reports quiescence for every assigned producer not already quiescent.
 
+If hard termination is requested reentrantly from a producer-sink callout,
+steps 1-3 remain immediate, but operation quiescence, record release, and realm
+release wait until the outermost epoch producer callout returns. The host
+counts that callback lifetime around every sink invocation, including terminal,
+diagnostic, progress, cancellation, and quiescence publication.
+
 No worker message or managed callback can be delivered through this host after
 revocation. Realm release claims that worker code and operation-scoped
 callbacks can no longer run. It does not claim immediate browser-process
@@ -1092,6 +1098,9 @@ deterministic scheduling rather than a real browser worker. It includes:
 - preparation followed by epoch closure before activation, preserving planned
   versus unexpected classification, with activation or abandonment completing
   before `realmReleased`;
+- terminal-observer reentrant restart revoking the Worker immediately while
+  deferring quiescence, record release, and `realmReleased` until the active
+  producer callout returns;
 - bounded failed draining with early natural release and deadline hard
   termination;
 - source revocation and no message, progress callback, managed callback, or
