@@ -193,7 +193,15 @@ internal sealed class ChangeRoutingPolicy
             path,
             "*.cs",
             "*.csx",
-            "*.csproj"))
+            "*.csproj",
+            // Buildless C# extraction still resolves dependencies, so the
+            // MSBuild and SDK inputs that decide which packages and sources
+            // participate change what the analysis sees.
+            "*.props",
+            "*.targets",
+            "*.slnx",
+            "*.sln",
+            "global.json"))
         {
             state.CodeqlCSharp = true;
         }
@@ -207,7 +215,11 @@ internal sealed class ChangeRoutingPolicy
             "*.ts",
             "*.tsx",
             "*.mts",
-            "*.cts"))
+            "*.cts",
+            // The JavaScript extractor also reads script content embedded in
+            // HTML, which this repository's browser pages carry.
+            "*.html",
+            "*.htm"))
         {
             state.CodeqlJavaScript = true;
         }

@@ -616,10 +616,12 @@ while IFS= read -r -d '' file; do
   # to costs analysis minutes; a lane that fails to run leaves an unscanned
   # change until the next push to the default branch re-analyzes everything.
   case "$file" in
-    *.cs|*.csx|*.csproj) CODEQLCSHARP=true ;;
+    *.cs|*.csx|*.csproj|*.props|*.targets|*.slnx|*.sln|global.json) \
+      CODEQLCSHARP=true ;;
   esac
   case "$file" in
-    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.mts|*.cts) CODEQLJAVASCRIPT=true ;;
+    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.mts|*.cts|*.html|*.htm) \
+      CODEQLJAVASCRIPT=true ;;
   esac
   case "$file" in
     *.yml|*.yaml) CODEQLACTIONS=true ;;

@@ -206,8 +206,10 @@ tolerate it; the conservative policy above then applies.
 The three CodeQL lanes route on file-extension families rather than a project
 inventory, because CodeQL's unit of analysis is a language, not a project:
 `codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on C#
-sources plus the MSBuild and SDK files that shape their compilation, and
-`codeqlJavaScript` on JavaScript and TypeScript sources. Like `markdownlint`,
+sources plus the MSBuild and SDK inputs that decide which packages and sources
+participate in buildless extraction, and `codeqlJavaScript` on JavaScript and
+TypeScript sources together with the HTML that can embed them. Like
+`markdownlint`,
 `inspectWeb`, and `tla`, they carry no pre-merge event condition, so a push to
 `main` re-analyzes whichever languages that push touched.
 

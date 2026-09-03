@@ -88,7 +88,7 @@ internal static class ChangePlanTestSuite
                 "code,packaging,shipped,codeqlcsharp"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped"),
+                + "shipped,codeqlcsharp"),
             ("src/DotnetInspector.Queries.Tests/Q.cs",
                 "code,decompiler,codeqlcsharp"),
             ("src/DiffFixtures.V1/F.cs",
@@ -147,7 +147,8 @@ internal static class ChangePlanTestSuite
             ("eng/validate-inspect-web-promotion.sh", "web"),
             ("eng/generate-inspect-web-engine-facade.sh", "web"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
+                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web,"
+                + "codeqlcsharp"),
             ("eng/verify-inspect-web-async-deployment.sh", "web"),
             ("eng/BannedSymbols.txt", "code,docs,web"),
             (".gitattributes", "code"),
@@ -159,21 +160,21 @@ internal static class ChangePlanTestSuite
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
             ("prototypes/inspect-web/README.md", "docs"),
-            ("prototypes/inspect-web/index.html", "web"),
+            ("prototypes/inspect-web/index.html", "web,codeqljavascript"),
             ("prototypes/annotated-source-viewer/app.js",
                 "web,codeqljavascript"),
             ("Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                + "shipped,web,codeqlcsharp"),
             ("Directory.Build.targets",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                + "shipped,web,codeqlcsharp"),
             ("Directory.Packages.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
-                + "shipped,web"),
+                + "shipped,web,codeqlcsharp"),
             ("dotnet-inspect.slnx",
-                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web"),
-            ("global.json", "decompiler,packaging,shipped"),
+                "code,csharpdiff,decompiler,ildiff,ilroundtrip,web,codeqlcsharp"),
+            ("global.json", "decompiler,packaging,shipped,codeqlcsharp"),
             (".github/workflows/ci.yml",
                 "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
                 + "skills,tla,codeqlactions"),
@@ -206,6 +207,8 @@ internal static class ChangePlanTestSuite
             ("misc/probe.csproj", "codeqlcsharp"),
             ("misc/probe.mjs", "codeqljavascript"),
             ("misc/probe.cts", "codeqljavascript"),
+            ("misc/probe.html", "codeqljavascript"),
+            ("misc/probe.htm", "codeqljavascript"),
             ("misc/config.yaml", "codeqlactions"),
             ("misc/notes.rst", ""),
         ];
