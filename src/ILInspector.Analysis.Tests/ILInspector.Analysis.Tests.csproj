@@ -57,7 +57,7 @@
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\tools\AnalysisHarness\AnalysisHarness.csproj" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
 </Project>

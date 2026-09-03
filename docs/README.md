@@ -143,6 +143,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Development Practices](development-practices.md) | How convention, design, pathological fixtures, analogous implementations, narrow slices, agent-current compatibility, demos, and review work together. |
 | [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
+| [Fixture Governance](fixture-governance.md) | Placement, project-boundary axes, catalog metadata, consumer rules, and expectation ownership for compiled fixtures and test-local samples. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
 | [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
