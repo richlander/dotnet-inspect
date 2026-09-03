@@ -756,7 +756,7 @@ kbd {
   font: 11px var(--mono);
   color: var(--text);
 }
-.member-nav { grid-template-rows: 40px 34px auto 24px minmax(0, 1fr) 27px; }
+.member-nav { grid-template-rows: 40px 34px auto minmax(0, 1fr) 27px; }
 .member-filter-disclosure { min-width: 0; border-top: 1px solid var(--line); }
 .member-filter-disclosure summary { min-width: 0; height: 30px; display: grid; grid-template-columns: 12px max-content minmax(0, 1fr); gap: 7px; align-items: center; padding: 0 10px; cursor: pointer; list-style: none; color: var(--dim); font: 10px var(--mono); }
 .member-filter-disclosure summary::-webkit-details-marker { display: none; }
@@ -767,14 +767,6 @@ kbd {
 .member-filter-disclosure .member-search { border-top: 1px solid var(--line); }
 .member-filter-stack { min-width: 0; }
 .member-filter-stack .namespace-chips:last-child { border-bottom: 0; }
-.member-filter-result {
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--line);
-  color: var(--dim);
-  font: 10px var(--mono);
-}
 .member-search .tiny-button {
   width: 22px;
   height: 22px;
@@ -870,7 +862,6 @@ kbd {
   background: var(--chrome);
 }
 .member-browser-controls .type-search { height: 38px; }
-.member-browser-controls .member-filter-result { height: 24px; border-bottom: 0; }
 .api-list { border: 1px solid var(--line); }
 .api-row {
   width: 100%;
@@ -891,7 +882,7 @@ kbd {
 .api-row small { color: var(--dim); font: 10px var(--mono); }
 .api-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; background: var(--bg); }
 .api-surface-head { min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.api-surface-head h1 { min-width: 0; margin: 0; font-size: 18px; letter-spacing: -.025em; }
+.api-surface-head h1 { min-width: 0; margin: 0; font-size: 17px; letter-spacing: -.025em; }
 .api-surface-head p { flex: none; display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--dim); font: 10px var(--mono); }
 .api-surface-head p strong { color: var(--text); font-size: 13px; font-weight: 500; }
 .api-surface-controls { margin: 0; border: 0; border-bottom: 1px solid var(--line); }

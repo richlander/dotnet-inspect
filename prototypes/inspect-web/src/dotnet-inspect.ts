@@ -2155,8 +2155,6 @@ function availableMemberTraits(type: AppTypeSurface) {
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
-  const groups = publicMemberGroups(type);
-  const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
@@ -2194,8 +2192,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
           ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
         </div>` : ""}
       </div>
-    </details>
-    <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
+    </details>`;
 }
 
 function compositionFilterButton(
@@ -4399,7 +4396,7 @@ function renderApiLens(item: AppTypeSurface) {
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
         <h1 id="api-surface-title">Members</h1>
-        <p><strong>${publicGroups.length}</strong> member groups <span>· ${item.members} overloads</span></p>
+        <p><strong>${visibleGroups.length} of ${publicGroups.length}</strong> member groups <span>· ${item.members} overloads</span></p>
       </header>
       <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
       <div class="api-surface-scroll">

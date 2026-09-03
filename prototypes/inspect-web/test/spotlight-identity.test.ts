@@ -4730,7 +4730,6 @@ test("member navigation excludes graph-only projections from ordinary filters", 
   assert.match(
     filters,
     /function publicMemberGroups\([\s\S]*?searchableMemberGroups\(memberGroups\(type\)\)/);
-  assert.match(filters, /const groups = publicMemberGroups\(type\)/);
   assert.match(
     filters,
     /publicMemberGroups\(type\)\s*\.flatMap\(group => group\.overloads\)/);
@@ -4746,6 +4745,19 @@ test("member navigation excludes graph-only projections from ordinary filters", 
     appSource.match(/function renderMemberNavPane\([\s\S]*?\n}\n\n\/\/ The scope switcher/)?.[0]
     ?? "";
   assert.match(pane, /memberCount: publicMemberGroups\(type\)\.length/);
+});
+
+test("type API reports the filtered member count once in its header", () => {
+  const renderApi =
+    appSource.match(/function renderApiLens\([\s\S]*?\n}\n\nfunction renderMember/)?.[0]
+    ?? "";
+  assert.match(
+    renderApi,
+    /<h1 id="api-surface-title">Members<\/h1>/);
+  assert.match(
+    renderApi,
+    /<strong>\$\{visibleGroups\.length} of \$\{publicGroups\.length}<\/strong> member groups/);
+  assert.doesNotMatch(renderApi, /member-filter-result/);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {
