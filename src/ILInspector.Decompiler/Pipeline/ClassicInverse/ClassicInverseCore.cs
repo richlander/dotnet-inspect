@@ -1,0 +1,95 @@
+using System.Collections.Immutable;
+
+namespace ILInspector.Decompiler.Pipeline;
+
+/// <summary>
+/// The classic async inverse core.
+/// <para>
+/// Given one authenticated request and unmodified import snapshots bound to its
+/// exact guarded identities, the core returns a healthy
+/// <see cref="ClassicInverseDecision.Decline"/>, a visible
+/// <see cref="ClassicInverseDecision.Failed"/>, or one immutable detached
+/// <see cref="ClassicInverseDecision.Reconstruct"/>. Planning is deterministic
+/// and side-effect free over the request; nothing it publishes points back into
+/// the request's mutable trees.
+/// </para>
+/// <para>Owning design: <c>docs/design/classic-async-reconstruction.md</c>.</para>
+/// </summary>
+internal static class ClassicInverseCore
+{
+    internal static ClassicInverseDecision Decide(ClassicInverseRequest request)
+        => Decide(request, new ClassicInverseBudget());
+
+    internal static ClassicInverseDecision Decide(
+        ClassicInverseRequest request,
+        ClassicInverseBudget budget)
+    {
+        if (request.CorrelationFailure() is { } correlation)
+        {
+            return ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.InvalidCorrelation,
+                correlation);
+        }
+
+        ClassicInverseShellFacts shell =
+            ClassicInverseShellFacts.Derive(request.ExecutionBody);
+
+        List<ClassicInverseCandidate> candidates =
+            ClassicInverseRecipes.Match(request, shell);
+        if (budget.Exhausted)
+        {
+            return ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.BudgetExhausted,
+                "recipe matching exhausted the planning budget");
+        }
+
+        if (candidates.Count == 0)
+        {
+            return ClassicInverseDecision.DeclineWith(
+                ClassicInverseDeclineReason.NoRecipeMatched,
+                "no closed recipe recognized the request's lowering shell");
+        }
+
+        if (candidates.Count > 1)
+        {
+            // Registration order must never decide an outcome. The accepted
+            // recipes are mutually exclusive by construction, so a multiple
+            // match means an unproven overlap, not a preference.
+            return ClassicInverseDecision.DeclineWith(
+                ClassicInverseDeclineReason.AmbiguousRecipeMatch,
+                "more than one recipe claimed the request: "
+                    + string.Join(
+                        ", ",
+                        candidates.Select(static c => c.Recipe).Order(
+                            StringComparer.Ordinal)));
+        }
+
+        return ClassicInverseAccountant.Account(
+            request,
+            candidates[0],
+            shell,
+            budget);
+    }
+
+    /// <summary>
+    /// Forms a core request from a kickoff body, its state-machine local, and
+    /// the exact execution body. The unmodified execution import snapshot
+    /// supplies the offsets that bind every receipt back to the artifact.
+    /// </summary>
+    internal static ClassicInverseRequest Request(
+        IrFunction kickoff,
+        int stateMachineLocal,
+        int kickoffSourceOffset,
+        IrFunction execution,
+        ImmutableHashSet<int> executionImportOffsets,
+        ClassicAsyncRequestSeed? seed)
+        => new(
+            seed?.DeclaredMethod,
+            seed?.ExecutionMethod,
+            seed?.Relationship,
+            kickoff,
+            execution,
+            stateMachineLocal,
+            kickoffSourceOffset,
+            executionImportOffsets);
+}

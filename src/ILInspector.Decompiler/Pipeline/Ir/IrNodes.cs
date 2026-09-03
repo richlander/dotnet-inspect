@@ -758,7 +758,29 @@ public sealed class IrFunction : IrNode
     internal IReadOnlySet<TypeDefinitionIdentity> InequalityOperatorFreeTypes { get; set; }
         = ImmutableHashSet<TypeDefinitionIdentity>.Empty;
 
+    /// <summary>
+    /// An immutable snapshot of every type fact this function carries. A
+    /// cross-method raise that must survive its source body being mutated or
+    /// discarded captures this instead of retaining the function.
+    /// </summary>
+    internal IrTypeFactSnapshot CaptureTypeFacts()
+        => new(
+            TypeShapes,
+            TypeFactIdentities,
+            AmbiguousTypeFacts,
+            EnumMembers,
+            EnumUnderlyingTypes,
+            CollectionInitializerTypes,
+            UnionTypes,
+            ByRefLikeTypes,
+            InterfaceTypes,
+            EqualityOperatorFreeTypes,
+            InequalityOperatorFreeTypes);
+
     internal void MergeTypeFactsFrom(IrFunction body)
+        => MergeTypeFactsFrom(body.CaptureTypeFacts());
+
+    internal void MergeTypeFactsFrom(IrTypeFactSnapshot body)
     {
         var ambiguous = MergeSet(AmbiguousTypeFacts, body.AmbiguousTypeFacts).ToImmutableHashSet();
         foreach (var (type, bodyIdentity) in body.TypeFactIdentities)
