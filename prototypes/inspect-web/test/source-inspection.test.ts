@@ -131,6 +131,9 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
   assert.match(
     appSource,
     /case "source":\s*return renderTypeSourceHtml\(item\);/);
+  assert.match(
+    appSource,
+    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
 });
 
 async function promiseSettled(promise: Promise<unknown>): Promise<boolean> {

@@ -751,6 +751,9 @@ test("Annotated Source composition requires a concrete overload and validated se
     /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
   assert.match(
     appSource,
+    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
+  assert.match(
+    appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);
 });
 
