@@ -770,15 +770,13 @@ public static class RestoredProjectDependencyFactsQuery
     // ---- Target selection -------------------------------------------------
 
     /// <summary>
-    /// One <c>targets</c> pivot. <see cref="NormalizedFramework"/> retains the legacy priority and
-    /// unrecognized-case correlation spelling; <see cref="FrameworkIdentity"/> and
+    /// One <c>targets</c> pivot. <see cref="FrameworkIdentity"/> and
     /// <see cref="RuntimeIdentifierIdentity"/> are canonical-or-opaque public identities.
     /// </summary>
     sealed record TargetCandidate(
         string RawKey,
         string RawFramework,
         string? RawRuntimeIdentifier,
-        string NormalizedFramework,
         string? NormalizedRuntimeIdentifier,
         string FrameworkIdentity,
         string? RuntimeIdentifierIdentity)
@@ -824,13 +822,11 @@ public static class RestoredProjectDependencyFactsQuery
             if (rawFramework.Length == 0 || rawRuntimeIdentifier is { Length: 0 })
                 continue;
 
-            string normalizedFramework = TfmSelector.NormalizeTfm(rawFramework);
             string? normalizedRid = rawRuntimeIdentifier;
             var candidate = new TargetCandidate(
                 key,
                 rawFramework,
                 rawRuntimeIdentifier,
-                normalizedFramework,
                 normalizedRid,
                 FrameworkIdentityText(rawFramework),
                 rawRuntimeIdentifier is null
@@ -842,7 +838,7 @@ public static class RestoredProjectDependencyFactsQuery
             if (!seen.Add(new TargetCorrelationKey(
                     RestoredProjectIdentityText.IsOpaque(
                         candidate.FrameworkIdentity)
-                            ? candidate.NormalizedFramework
+                            ? candidate.RawFramework
                             : candidate.FrameworkIdentity,
                     candidate.NormalizedRuntimeIdentifier)))
             {

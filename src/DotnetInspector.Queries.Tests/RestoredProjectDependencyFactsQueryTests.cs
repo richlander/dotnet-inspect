@@ -287,6 +287,91 @@ public sealed class RestoredProjectDependencyFactsQueryTests
                 facts.Graph).IsComplete);
     }
 
+    [Theory]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Profile=bogus",
+        "net8.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=unsupportedos,PlatformVersion=1.0",
+        "net8.0-unsupportedos1.0")]
+    [InlineData(
+        ".NETCoreApp,Version=v8.0,Platform=unsupported",
+        "net8.0-unsupported")]
+    public void Execute_SchemaVersion3_NuGetLongFormSemanticsRemainCanonical(
+        string longFramework,
+        string shortFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [longFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [longFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [shortFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest(shortFramework)));
+
+        Assert.Equal(shortFramework, facts.SelectedTarget!.FrameworkIdentity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+    }
+
+    [Fact]
+    public void Execute_SchemaVersion3_OpaqueTargetDoesNotCollideWithCanonicalTarget()
+    {
+        const string canonicalFramework = ".NETCoreApp,Version=v8.0";
+        const string malformedFramework =
+            ".NETCoreApp,Version=v8.0,Unknown=value";
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [canonicalFramework] = new JsonObject(),
+                [malformedFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [canonicalFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                ["net8.0"] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            },
+            version: 3);
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                bytes,
+                new RestoredProjectTargetRequest("net8.0")));
+        RestoredProjectDependencyFacts reordered = Available(
+            RestoredProjectDependencyFactsQuery.Execute(
+                WithReversedPropertyOrder(bytes),
+                new RestoredProjectTargetRequest("net8.0")));
+
+        Assert.Equal("net8.0", facts.SelectedTarget!.FrameworkIdentity);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        Assert.Equal(Describe(facts), Describe(reordered));
+        Assert.Equal(facts.SelectionIdentity, reordered.SelectionIdentity);
+    }
+
     [Fact]
     public void Execute_SchemaVersion3_CorrelatesShortDeclarationPivotWithLongTargetPivot()
     {
@@ -1087,6 +1172,16 @@ public sealed class RestoredProjectDependencyFactsQueryTests
     [InlineData(".NETCoreApp,Version=v8.0,Unknown=value")]
     [InlineData(".NETCoreApp,Version=v8.0,Version=v9.0")]
     [InlineData(".NETCoreApp,Platform=windows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bog us")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile= bogus")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus ")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=win dows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform= windows")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows ")]
+    [InlineData(".NETCoreApp,Version=v8.0,Platform=windows,PlatformVersion= 1.0")]
+    [InlineData(".NETCoreApp,Version=v8.0,Profile=bogus,Platform=windows")]
+    [InlineData(".NETCoreApp,Version=v3.1,Platform=windows")]
+    [InlineData(".NETFramework,Version=v4.8,Platform=windows")]
     public void Execute_MalformedLongFrameworkAttributesRemainUnrecognized(
         string sourceFramework)
     {

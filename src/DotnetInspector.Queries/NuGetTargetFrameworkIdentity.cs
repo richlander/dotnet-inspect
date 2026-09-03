@@ -1,5 +1,4 @@
 using DotnetInspector.Packages;
-using DotnetInspector.Services;
 using NuGet.Frameworks;
 
 namespace DotnetInspector.Queries;
@@ -21,16 +20,31 @@ static class NuGetTargetFrameworkIdentity
             NuGetFramework framework;
             if (source.Contains(',', StringComparison.Ordinal))
             {
-                int separatorIndex = source.IndexOf(',');
-                if (string.IsNullOrWhiteSpace(source[..separatorIndex]))
+                if (!TryReadLongFormAttributes(
+                        source,
+                        out string? platform,
+                        out Version? platformVersion))
+                {
                     return false;
-                if (!HasValidLongFormAttributes(source[(separatorIndex + 1)..]))
-                    return false;
+                }
 
-                string normalized = TfmSelector.NormalizeTfm(source);
-                framework = string.Equals(normalized, source, StringComparison.Ordinal)
-                    ? NuGetFramework.Parse(source)
-                    : NuGetFramework.ParseFolder(normalized);
+                framework = NuGetFramework.Parse(source);
+                if (platform is not null)
+                {
+                    if (!framework.Framework.Equals(
+                            FrameworkConstants.FrameworkIdentifiers.NetCoreApp,
+                            StringComparison.Ordinal)
+                        || framework.Version.Major < 5)
+                    {
+                        return false;
+                    }
+
+                    framework = new NuGetFramework(
+                        framework.Framework,
+                        framework.Version,
+                        platform.ToLowerInvariant(),
+                        platformVersion ?? FrameworkConstants.EmptyVersion);
+                }
             }
             else
             {
@@ -47,7 +61,10 @@ static class NuGetTargetFrameworkIdentity
             }
 
             string shortFolder = framework.GetShortFolderName().ToLowerInvariant();
-            if (shortFolder.Contains("unsupported", StringComparison.Ordinal)
+            if ((framework.Framework.Equals(
+                        FrameworkConstants.FrameworkIdentifiers.Portable,
+                        StringComparison.Ordinal)
+                    && HasUnsupportedComponent(shortFolder))
                 || !PackageCoordinateResolver.IsAcquisitionTargetText(shortFolder))
                 return false;
 
@@ -64,20 +81,32 @@ static class NuGetTargetFrameworkIdentity
         }
     }
 
-    static bool HasValidLongFormAttributes(string attributes)
+    static bool TryReadLongFormAttributes(
+        string source,
+        out string? platform,
+        out Version? platformVersion)
     {
+        platform = null;
+        platformVersion = null;
+        int separatorIndex = source.IndexOf(',');
+        if (separatorIndex < 1
+            || string.IsNullOrWhiteSpace(source[..separatorIndex]))
+        {
+            return false;
+        }
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool hasVersion = false;
-        string? platform = null;
-        string? platformVersion = null;
-        foreach (string attribute in attributes.Split(
-            ',',
-            StringSplitOptions.TrimEntries))
+        bool hasProfile = false;
+        foreach (string rawAttribute in source[(separatorIndex + 1)..].Split(','))
         {
+            string attribute = rawAttribute.TrimStart();
             string[] parts = attribute.Split('=', 2);
+            string rawValue = parts.Length == 2 ? parts[1] : "";
+            string value = rawValue.Trim();
             if (parts.Length != 2
                 || string.IsNullOrWhiteSpace(parts[0])
-                || string.IsNullOrWhiteSpace(parts[1])
+                || string.IsNullOrWhiteSpace(value)
                 || !seen.Add(parts[0]))
             {
                 return false;
@@ -86,7 +115,7 @@ static class NuGetTargetFrameworkIdentity
             if (parts[0].Equals("Version", StringComparison.OrdinalIgnoreCase))
             {
                 hasVersion = Version.TryParse(
-                    parts[1].Trim().TrimStart('v', 'V'),
+                    value.TrimStart('v', 'V'),
                     out _);
                 if (!hasVersion)
                     return false;
@@ -95,18 +124,36 @@ static class NuGetTargetFrameworkIdentity
                 "Profile",
                 StringComparison.OrdinalIgnoreCase))
             {
+                hasProfile = true;
+                if (!string.Equals(rawValue, value, StringComparison.Ordinal)
+                    || !IsQualifierToken(value))
+                {
+                    return false;
+                }
             }
             else if (parts[0].Equals(
                 "Platform",
                 StringComparison.OrdinalIgnoreCase))
             {
-                platform = parts[1];
+                if (!string.Equals(rawValue, value, StringComparison.Ordinal)
+                    || !IsQualifierToken(value))
+                {
+                    return false;
+                }
+
+                platform = value;
             }
             else if (parts[0].Equals(
                 "PlatformVersion",
                 StringComparison.OrdinalIgnoreCase))
             {
-                platformVersion = parts[1];
+                if (!string.Equals(rawValue, value, StringComparison.Ordinal)
+                    || !Version.TryParse(
+                        value.TrimStart('v', 'V'),
+                        out platformVersion))
+                {
+                    return false;
+                }
             }
             else
             {
@@ -117,10 +164,19 @@ static class NuGetTargetFrameworkIdentity
         if (!hasVersion)
             return false;
 
-        return platformVersion is null
-            || (platform is not null
-                && Version.TryParse(
-                    platformVersion.Trim().TrimStart('v', 'V'),
-                    out _));
+        if (platformVersion is not null && platform is null)
+            return false;
+
+        return !(hasProfile && platform is not null);
     }
+
+    static bool IsQualifierToken(string value) =>
+        value.All(character => char.IsAsciiLetterOrDigit(character));
+
+    static bool HasUnsupportedComponent(string shortFolder) =>
+        shortFolder
+            .Split(['-', '+'], StringSplitOptions.RemoveEmptyEntries)
+            .Any(component => component.Equals(
+                "unsupported",
+                StringComparison.Ordinal));
 }
