@@ -81,10 +81,10 @@ public class ApiOutputFormatterTests
                 .Single(constructor =>
                     constructor.GetParameters() is
                     [
-                        {
-                            ParameterType:
+                    {
+                        ParameterType:
                             var parameterType
-                        },
+                    },
                     ]
                     && parameterType
                         == typeof(AssemblyReferenceIdentity))
@@ -3311,22 +3311,36 @@ public class ApiOutputFormatterTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == assembly.Identity
                 ? AssemblyBindingSelection.Found(assembly)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NotFound();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class AmbiguousBindingPolicy(
@@ -3336,13 +3350,20 @@ public class ApiOutputFormatterTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == first.Identity
                 ? AssemblyBindingSelection.Multiple([first, second])
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }
 
