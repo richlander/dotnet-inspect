@@ -21,8 +21,13 @@ dotnet run --project src/ts-jsexport -c Release -- \
 published atomically only after the complete surface is authenticated and
 mapped; an unsupported surface leaves an existing destination unchanged.
 
-To generate a closed set of independent facades in this repository, add a
-project reference to the dependency-free producer contract:
+`JsExportRoot` declarations and context mode are the two halves of one
+generator mechanism, not separate features: the attributes compile the closed
+facade recipe, and `--context` tells `ts-jsexport` which exact recipe type to
+execute. Neither concept appears in the generated TypeScript.
+
+To use that mechanism for a closed set of independent facades in this
+repository, add a project reference to the dependency-free producer contract:
 
 ```xml
 <ProjectReference

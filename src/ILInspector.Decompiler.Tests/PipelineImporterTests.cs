@@ -1,10 +1,16 @@
+using DotnetInspector.Fixtures;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
 public class PipelineImporterTests
 {
+    const string ClassicAsyncFixtureType =
+        "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
+    const string ClassicAsyncFixtureMethod = "AwaitValue";
+
     static string CoreLibPath => typeof(object).Assembly.Location;
 
     [Fact]
@@ -73,6 +79,86 @@ public class PipelineImporterTests
 
         Assert.Equal(MetadataFactState.Yes, runtimeAsync?.IsRuntimeAsync);
         Assert.Equal(MetadataFactState.No, synchronous?.IsRuntimeAsync);
+        Assert.Null(synchronous?.ClassicAsyncRequest);
+        var filtered = Assert.IsType<
+            ClassicAsyncRequestAdapterResult.Filtered>(
+                runtimeAsync?.ClassicAsyncRequest);
+        Assert.Equal(
+            MethodClassification.RuntimeAsync,
+            filtered.Evidence.Classification);
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            filtered.Evidence.Relationship);
+    }
+
+    [Fact]
+    public void Import_CarriesAuthenticatedClassicRequestSeed()
+    {
+        ClassicAsyncRequestAdapterResult.RequestAvailable available;
+        ImportedMethod method;
+        using (var source =
+            MetadataSource.Open(
+                FixtureCatalog.DecompilerClassicAsync.AssemblyPath()))
+        {
+            method = MethodImporter.Import(
+                source,
+                ClassicAsyncFixtureType,
+                ClassicAsyncFixtureMethod)!;
+            available = Assert.IsType<
+                ClassicAsyncRequestAdapterResult.RequestAvailable>(
+                    method.ClassicAsyncRequest);
+        }
+
+        Assert.Equal(
+            MethodClassification.StateMachineAsync,
+            available.Evidence.Classification);
+        Assert.Equal(
+            ClassicAsyncHostRole.DeclaredKickoff,
+            available.Evidence.HostRole);
+        Assert.Equal(
+            method.MetadataToken,
+            available.Request.DeclaredMethod.Token);
+        Assert.Equal(
+            StateMachineClaimKind.ClassicAsync,
+            available.Request.Relationship.Kind);
+        Assert.Equal(
+            available.Request.ExecutionMethod,
+            Assert.IsType<StateMachineRoleDisposition.Present>(
+                available.Request.Relationship.GetRole(
+                    StateMachineMethodRole.MoveNext)).Method);
+    }
+
+    [Fact]
+    public void ClassicPass_ImportsCertifiedExecutionMethod()
+    {
+        using var source =
+            MetadataSource.Open(
+                FixtureCatalog.DecompilerClassicAsync.AssemblyPath());
+        IrFunction function = IrImporter.Import(
+            source,
+            ClassicAsyncFixtureType,
+            ClassicAsyncFixtureMethod)!;
+        var available = Assert.IsType<
+            ClassicAsyncRequestAdapterResult.RequestAvailable>(
+                function.ClassicAsyncRequest);
+        MetadataMethodAddress? importedAddress = null;
+        var context = PassContext.ForImport(
+            method =>
+            {
+                importedAddress = method.ExactDefinitionAddress;
+                return null;
+            },
+            source.AreProvablyDisjoint);
+
+        IrPasses.Run(
+            function,
+            [.. IrPasses.Default.TakeWhile(
+                pass => pass is not ClassicAsyncReconstructionPass)],
+            context);
+        new ClassicAsyncReconstructionPass().Run(function, context);
+
+        Assert.Equal(
+            available.Request.ExecutionMethod,
+            importedAddress);
     }
 
     [Fact]

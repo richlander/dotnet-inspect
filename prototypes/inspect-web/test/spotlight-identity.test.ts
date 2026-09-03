@@ -3887,8 +3887,11 @@ test("decompiled source discloses the PDB-source limitation", () => {
   assert.doesNotMatch(html, /<img/);
   assert.match(html, /&lt;img/);
   assert.match(
+    typePanelSource,
+    /renderSourceResult[\s\S]*pdbSourceLimitationHtml\(source\)/);
+  assert.match(
     appSource,
-    /pdbSourceLimitationHtml\(state\.memberSource\)/);
+    /state\.memberSource\s*\?\s*renderSourceResult\(\{/);
 });
 
 test("history never applies a selection to another coordinate", () => {
@@ -5715,6 +5718,9 @@ test("workspace UI routes replacements and restore notices through bounded paths
   assert.match(
     appSource,
     /onClose: closeWorkspacePackage/);
+  assert.match(
+    appSource,
+    /onSelect: selectWorkspacePacket,\s+onOpen: runHomeDemo/);
   assert.match(
     appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);

@@ -297,8 +297,18 @@ Product inspection contains no `Assembly.Load` call for inspected assemblies.
 
 This is a user-approved partial-gate absence claim. Product projects set
 `IsAotCompatible`, so Release builds run NativeAOT compatibility analysis and
-fail on the dynamic-loading uses that its diagnostics cover. That is a partial
-gate, not a syntactic scan of every `Assembly.Load` overload.
+fail on the dynamic-loading uses that its diagnostics cover. Measured
+2026-09-02 against `IsAotCompatible=true`, those diagnostics are:
+
+- `IL2026` — `Assembly.Load(byte[])`, `Assembly.LoadFrom`, `Assembly.LoadFile`,
+  and `AssemblyLoadContext.LoadFromAssemblyPath`
+- `IL2067` — `Activator.CreateInstance(Type)`
+- `IL2057` — `Type.GetType(string)`
+- `IL3050` — `System.Reflection.Emit`
+
+`src/Directory.Build.props` sets `TreatWarningsAsErrors`, so each is a build
+error rather than a warning. That is a partial gate, not a syntactic scan of
+every `Assembly.Load` overload.
 
 When packaging-affecting changes select it, the CI
 [`pack` job](../../.github/workflows/ci.yml) builds and installs the
