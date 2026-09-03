@@ -2993,7 +2993,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
         AssemblyBindingSelection platform =
             participant.Participant.BindingPolicy.Select(
                 new AssemblyBindingRequest(
@@ -3001,7 +3001,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Platform));
+                    AssemblyResolutionScope.Platform)).Selection;
 
         Assert.Same(
             participant.Assembly,
@@ -6637,11 +6637,18 @@ public sealed class BrowserEngineBoundaryTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 
 }

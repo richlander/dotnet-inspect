@@ -602,7 +602,7 @@ internal sealed class ApiMemberAnalysisInspection
         public AssemblyBindingPolicyVersion Version =>
             Volatile.Read(ref _state).Version;
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
             BindingPolicyState state = Volatile.Read(ref _state);
@@ -618,10 +618,12 @@ internal sealed class ApiMemberAnalysisInspection
                 }
             }
 
+            AssemblyBindingSelectionSnapshot? snapshot =
+                policy.Value.Select(request);
             AssemblyBindingSelection selection =
                 AssemblyBindingSelection.ValidateForRequest(
                     request,
-                    policy.Value.Select(request));
+                    snapshot?.Selection);
             switch (selection)
             {
                 case AssemblyBindingSelection.Selected selected:
@@ -632,7 +634,9 @@ internal sealed class ApiMemberAnalysisInspection
                     break;
             }
 
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                state.Version,
+                selection);
         }
 
         static Func<
@@ -725,7 +729,8 @@ internal sealed class ApiMemberAnalysisInspection
                 defaultPolicy;
             internal ImmutableDictionary<
                 AssemblyAcquisitionRegistration,
-                Lazy<IAssemblyBindingPolicy>> Routes { get; } =
+                Lazy<IAssemblyBindingPolicy>> Routes
+            { get; } =
                     routes;
 
             internal BindingPolicyState WithLearnedRoutes(

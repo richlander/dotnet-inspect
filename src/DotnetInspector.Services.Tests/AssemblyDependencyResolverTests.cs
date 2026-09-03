@@ -151,7 +151,7 @@ public class AssemblyDependencyResolverTests
                                     Culture: null,
                                     PublicKeyToken: null)),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -199,7 +199,7 @@ public class AssemblyDependencyResolverTests
                                     Culture: null,
                                     PublicKeyToken: null)),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -256,7 +256,7 @@ public class AssemblyDependencyResolverTests
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(platformIdentity),
                         AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Any)));
+                        AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(
                 AssemblyBindingMissDisposition.NameOwnedNoMatch,
@@ -293,7 +293,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -326,7 +326,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -350,7 +350,7 @@ public class AssemblyDependencyResolverTests
             AssemblyBindingOrigin.Global(),
             AssemblyResolutionScope.Any);
         var owned = Assert.IsType<AssemblyBindingSelection.Missing>(
-            resolver.Select(ownedRequest));
+            resolver.Select(ownedRequest).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NameOwnedNoMatch,
@@ -382,7 +382,7 @@ public class AssemblyDependencyResolverTests
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(platformIdentity),
                     AssemblyBindingOrigin.Global(),
-                    AssemblyResolutionScope.Any)));
+                    AssemblyResolutionScope.Any)).Selection);
 
         Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
             selected.Assembly.Provenance);
@@ -441,7 +441,7 @@ public class AssemblyDependencyResolverTests
                                     AssemblyReferenceIdentity
                                         .ComputePublicKeyToken(selectedKey))),
                             AssemblyBindingOrigin.Global(),
-                            AssemblyResolutionScope.Any)));
+                            AssemblyResolutionScope.Any)).Selection);
 
             Assert.Equal(candidates[1], selection.Assembly.Path);
         }
@@ -497,10 +497,10 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
         var repeated = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
         Assert.Same(selected.Assembly, repeated.Assembly);
 
@@ -580,8 +580,8 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                group.Select(request));
-        _ = group.Select(request);
+                group.Select(request).Selection);
+        _ = group.Select(request).Selection;
 
         Assert.Same(coreLibrary, selected.Assembly);
         Assert.Equal(0, firstOpens);
@@ -666,14 +666,14 @@ public class AssemblyDependencyResolverTests
             ]);
         AssemblyBindingPolicyVersion version = group.Version;
 
-        Task<AssemblyBindingSelection> firstSelection = Task.Run(
+        Task<AssemblyBindingSelectionSnapshot> firstSelection = Task.Run(
             () => group.Select(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(
                         firstCandidate.Identity),
                     AssemblyBindingOrigin.FromAssembly(firstOwner),
                     AssemblyResolutionScope.Any)));
-        Task<AssemblyBindingSelection> secondSelection = Task.Run(
+        Task<AssemblyBindingSelectionSnapshot> secondSelection = Task.Run(
             () => group.Select(
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(
@@ -681,17 +681,20 @@ public class AssemblyDependencyResolverTests
                     AssemblyBindingOrigin.FromAssembly(secondOwner),
                     AssemblyResolutionScope.Any)));
 
-        AssemblyBindingSelection[] selections =
+        AssemblyBindingSelectionSnapshot[] snapshots =
             await Task.WhenAll(firstSelection, secondSelection);
 
         Assert.Same(
             firstCandidate,
             Assert.IsType<AssemblyBindingSelection.Selected>(
-                selections[0]).Assembly);
+                snapshots[0].Selection).Assembly);
         Assert.Same(
             secondCandidate,
             Assert.IsType<AssemblyBindingSelection.Selected>(
-                selections[1]).Assembly);
+                snapshots[1].Selection).Assembly);
+        Assert.All(
+            snapshots,
+            snapshot => Assert.Same(version, snapshot.Version));
 
         var probe = new AssemblyReferenceIdentity(
             "Probe",
@@ -704,14 +707,14 @@ public class AssemblyDependencyResolverTests
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(probe),
                         AssemblyBindingOrigin.FromAssembly(firstCandidate),
-                        AssemblyResolutionScope.Any)));
+                        AssemblyResolutionScope.Any)).Selection);
         var secondProbe = Assert.IsType<
             AssemblyBindingSelection.Selected>(
                 group.Select(
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(probe),
                         AssemblyBindingOrigin.FromAssembly(secondCandidate),
-                        AssemblyResolutionScope.Any)));
+                        AssemblyResolutionScope.Any)).Selection);
 
         Assert.Same(firstCandidate, firstProbe.Assembly);
         Assert.Same(secondCandidate, secondProbe.Assembly);
@@ -834,7 +837,7 @@ public class AssemblyDependencyResolverTests
 
         var unavailable = Assert.IsType<
             AssemblyBindingSelection.Unavailable>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -878,7 +881,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal([first, second], ambiguous.Assemblies);
     }
@@ -916,7 +919,7 @@ public class AssemblyDependencyResolverTests
 
         var unavailable = Assert.IsType<
             AssemblyBindingSelection.Unavailable>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -953,7 +956,7 @@ public class AssemblyDependencyResolverTests
 
         var selected = Assert.IsType<
             AssemblyBindingSelection.Selected>(
-                group.Select(request));
+                group.Select(request).Selection);
 
         Assert.Same(root, selected.Assembly);
     }
@@ -992,7 +995,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(selected, result.Assembly);
     }
@@ -1036,7 +1039,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
@@ -1077,7 +1080,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(disposition, missing.Disposition);
         Assert.Equal(1, policy.SelectionCount);
@@ -1115,7 +1118,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
         Assert.Equal(
             AssemblyBindingMissDisposition.Undifferentiated,
             missing.Disposition);
@@ -1154,7 +1157,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Equal(1, policy.SelectionCount);
@@ -1183,7 +1186,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -1224,7 +1227,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(first, ambiguous.Assemblies);
@@ -1252,7 +1255,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1287,7 +1290,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1327,7 +1330,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.IdentityPolicyRequired,
@@ -1372,7 +1375,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Same(platform, Assert.Single(selected.ShadowedAssemblies));
@@ -1419,7 +1422,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1468,7 +1471,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
@@ -1512,7 +1515,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Equal(2, ambiguous.Assemblies.Length);
         Assert.Contains(root, ambiguous.Assemblies);
@@ -1565,7 +1568,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(designated, selected.Assembly);
         Assert.Equal(2, selected.ShadowedAssemblies.Length);
@@ -1612,7 +1615,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Any);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            group.Select(request));
+            group.Select(request).Selection);
 
         Assert.Same(platform, selected.Assembly);
         Assert.Empty(selected.ShadowedAssemblies);
@@ -1683,7 +1686,7 @@ public class AssemblyDependencyResolverTests
                 scope);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(designatedPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1729,7 +1732,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.Equal(platformPath, selected.Assembly.Path);
         Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1779,7 +1782,7 @@ public class AssemblyDependencyResolverTests
 
             var unavailable =
                 Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                    resolver.Select(request));
+                    resolver.Select(request).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1829,7 +1832,7 @@ public class AssemblyDependencyResolverTests
 
             var unavailable =
                 Assert.IsType<AssemblyBindingSelection.Unavailable>(
-                    resolver.Select(request));
+                    resolver.Select(request).Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -1875,7 +1878,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(designatedPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -1915,7 +1918,7 @@ public class AssemblyDependencyResolverTests
             AssemblyResolutionScope.Platform);
 
         var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-            resolver.Select(request));
+            resolver.Select(request).Selection);
 
         Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
             selected.Assembly.Provenance);
@@ -1959,7 +1962,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(platformPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.PlatformAsset>(
@@ -2008,7 +2011,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Platform);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(platformPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
@@ -2062,7 +2065,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.IsType<AssemblyResolutionProvenance.DesignatedAsset>(
                 selected.Assembly.Provenance);
@@ -2138,7 +2141,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var ambiguous = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(2, ambiguous.Assemblies.Length);
             Assert.All(
@@ -2194,7 +2197,7 @@ public class AssemblyDependencyResolverTests
                 AssemblyResolutionScope.Any);
 
             var selected = Assert.IsType<AssemblyBindingSelection.Selected>(
-                resolver.Select(request));
+                resolver.Select(request).Selection);
 
             Assert.Equal(siblingPath, selected.Assembly.Path);
             Assert.IsType<AssemblyResolutionProvenance.LocalAsset>(
@@ -2251,11 +2254,19 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            return AssemblyBindingSelection.Found(selected);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                return AssemblyBindingSelection.Found(selected);
+
+            }
         }
     }
 
@@ -2270,18 +2281,26 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            if (Interlocked.Increment(ref _selectionCount) == 1
-                && !firstSelectionBarrier.SignalAndWait(
-                    TimeSpan.FromSeconds(30)))
-            {
-                throw new TimeoutException(
-                    "Concurrent binding selections did not rendezvous.");
-            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
 
-            return AssemblyBindingSelection.Found(selected);
+            AssemblyBindingSelection SelectCore()
+            {
+                if (Interlocked.Increment(ref _selectionCount) == 1
+                    && !firstSelectionBarrier.SignalAndWait(
+                        TimeSpan.FromSeconds(30)))
+                {
+                    throw new TimeoutException(
+                        "Concurrent binding selections did not rendezvous.");
+                }
+
+                return AssemblyBindingSelection.Found(selected);
+
+            }
         }
     }
 
@@ -2291,9 +2310,16 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.NameNotOwned();
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.NameNotOwned();
+        }
     }
 
     static AssemblyBindingSelection Missing(
@@ -2316,11 +2342,19 @@ public class AssemblyDependencyResolverTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                return selection;
+
+            }
         }
     }
 

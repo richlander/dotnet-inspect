@@ -1151,30 +1151,38 @@ public class ReferenceEqualityMetadataFactsTests
         public bool ReceiverRequested { get; private set; }
         public bool BaseRequestedFromReceiver { get; private set; }
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            if (request.Target is not
-                AssemblyBindingTarget.AssemblyReference reference)
-            {
-                return _runtime.Select(request);
-            }
-            if (reference.Identity.Name == receiver.Identity.Name)
-            {
-                ReceiverRequested = true;
-                return AssemblyBindingSelection.Found(receiver);
-            }
-            if (reference.Identity.Name != rootBase.Identity.Name)
-                return _runtime.Select(request);
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
 
-            bool fromReceiver = request.Origin is
-                AssemblyBindingOrigin.RequestingAssembly origin
-                && ReferenceEquals(
-                origin.Registration,
-                receiver.Registration);
-            BaseRequestedFromReceiver |= fromReceiver;
-            return AssemblyBindingSelection.Found(
-                fromReceiver ? receiverBase : rootBase);
+            AssemblyBindingSelection SelectCore()
+            {
+                if (request.Target is not
+                    AssemblyBindingTarget.AssemblyReference reference)
+                {
+                    return _runtime.Select(request).Selection;
+                }
+                if (reference.Identity.Name == receiver.Identity.Name)
+                {
+                    ReceiverRequested = true;
+                    return AssemblyBindingSelection.Found(receiver);
+                }
+                if (reference.Identity.Name != rootBase.Identity.Name)
+                    return _runtime.Select(request).Selection;
+
+                bool fromReceiver = request.Origin is
+                    AssemblyBindingOrigin.RequestingAssembly origin
+                    && ReferenceEquals(
+                    origin.Registration,
+                    receiver.Registration);
+                BaseRequestedFromReceiver |= fromReceiver;
+                return AssemblyBindingSelection.Found(
+                    fromReceiver ? receiverBase : rootBase);
+
+            }
         }
     }
 

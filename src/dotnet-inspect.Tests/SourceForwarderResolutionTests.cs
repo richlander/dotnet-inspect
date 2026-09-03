@@ -1896,12 +1896,19 @@ public class SourceForwarderResolutionTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == dependency.Identity
                 ? AssemblyBindingSelection.Found(dependency)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }
