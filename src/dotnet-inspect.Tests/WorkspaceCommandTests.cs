@@ -125,8 +125,9 @@ public sealed class WorkspaceCommandTests
     }
 
     [Fact]
-    public async Task EmptyCompileGroup_IsReportedAsUnsupported()
+    public async Task EmptyCompileGroup_WithCompatibleLibrary_IsReportedAsUnsupported()
     {
+        const string assetFramework = "net8.0";
         var store = new InMemoryPackageStore();
         string sourceKey = NuGetCache.GetSourceKey(Source.Url);
         byte[] assembly =
@@ -136,7 +137,7 @@ public sealed class WorkspaceCommandTests
         byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
             ($"{PackageId}.nuspec", "<package />"u8.ToArray()),
             ($"ref/{Framework}/_._", []),
-            ($"lib/{Framework}/dotnet-inspect.Tests.dll", assembly));
+            ($"lib/{assetFramework}/dotnet-inspect.Tests.dll", assembly));
         using (var stream = new MemoryStream(package))
         {
             await store.CommitAsync(
