@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>RestoredProjectFixture</id>
+    <version>1.0.0</version>
+    <authors>dotnet-inspect fixtures</authors>
+    <description>
+      A hand-authored package-manifest build asset carrying the complete package
+      declaration seed that DotnetInspector.RestoredProjectFixtures restores,
+      for later composition work between restored-project dependency facts and
+      package-manifest facts. Every group below matches that project's generated
+      project.frameworks declarations exactly, after canonical NuGet range
+      normalization, including the repository-wide
+      Microsoft.CodeAnalysis.BannedApiAnalyzers reference that
+      Directory.Build.targets adds to both legs.
+      RestoredProjectDependencyFactsQueryTests pins that parity, so a drift in
+      either direction fails rather than silently misrepresenting the fixture.
+      See docs/design/restored-project-dependency-facts.md and
+      docs/design/package-dependency-evidence.md.
+    </description>
+    <dependencies>
+      <group targetFramework="net10.0">
+        <dependency id="Microsoft.CodeAnalysis.BannedApiAnalyzers" version="5.6.0" />
+      </group>
+      <group targetFramework="net11.0">
+        <dependency id="MarkdownTable.Formatting" version="0.3.4" />
+        <dependency id="Microsoft.CodeAnalysis.BannedApiAnalyzers" version="5.6.0" />
+        <dependency id="NuGet.Packaging" version="7.0.3" />
+      </group>
+    </dependencies>
+  </metadata>
+</package>

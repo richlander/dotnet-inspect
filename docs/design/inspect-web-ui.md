@@ -49,8 +49,12 @@ and acceptance scenarios. This document does not repeat those contracts.
 This document composes four adjacent owner contracts without defining them:
 
 - [Inspection Subject Navigation](inspection-subject-navigation.md) owns
-  inspection-subject descriptors, availability, initial recommendation, and
-  reconciliation, plus retained-session intent and effect authority.
+  Workspace-bound Package or non-package Root, Library, Type, and Member
+  descriptors, availability, initial recommendation, and reconciliation, plus
+  retained-session intent and effect authority. Workspace is the inventory
+  container for retained coordinate occurrences; the website does not recreate package
+  tabs or a second coordinate-selection identity. The shared capability and
+  its CLI and Browser/Wasm adoption sequence are tracked end to end by #5512.
   [#5013](https://github.com/richlander/dotnet-inspect/issues/5013) strengthens
   that same owner's lens recommendation with non-vacuous role-first selection,
   a direct-Member rule, deterministic fallback, and all-non-success precedence.
@@ -59,8 +63,10 @@ This document composes four adjacent owner contracts without defining them:
   outcomes.
 - [Workspace Definitions](workspace-definitions.md) owns stable portable
   fields, versioning, migration, valid combinations, per-coordinate view
-  state, canonical packet projection, and restoration, tracked by
-  [#4787](https://github.com/richlander/dotnet-inspect/issues/4787).
+  state, canonical packet projection, and restoration. #4787 established the
+  current version-2 shape; #5525 tracks adoption of explicit Workspace and
+  Package subjects plus optional retained occurrence and descendant context
+  independent from the active subject.
 - [Browser package sources](browser-package-sources.md#default-feed-decision)
   owns browser source selection and the decision that first-run Gallery
   bootstrap does not become default-feed or acquisition-preference semantics.
@@ -83,10 +89,10 @@ independent cosmetic changes.
 | Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
-| Type headings | Use a compact exact-target heading in API and Source; retain detail in Metadata |
+| Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
 | Filters | Collapse selector rows by default and summarize hidden restrictions |
 | Selected controls | Use one accent selected-state treatment across selector families |
-| Source provenance | Use a compact status/action row without validation prose or link glyphs |
+| Source provenance | Keep compact provenance in the bottom footer and page-owned Copy/Open actions in the separate working-surface action group |
 | Search and opening | Open Spotlight from a responsive flush-right title-line control immediately after Back/Forward; use a separate local-artifact Open flow |
 | Settings | Use one Settings experience with contextual entry points |
 | Data bar | Show build identity, acquired source, CLI, and skill links on one line |
@@ -111,16 +117,15 @@ owns the SSS composition's two tablists, different styling and navigation,
 inspector-first width allocation, boundary controls, and subject-driven
 inspector replacement.
 
-Moving application and contextual actions out of the subject row remains
-required product direction, but it is not part of this focused pattern and
-first-adopter contract. Surface Composition changes are limited to deferring
-its stale inspector representation, horizontal-movement, pressure-trigger, and
-matching acceptance restatements to Navigation Presentation. Shell Interaction
-and Surface Composition retain their current application-action contracts until
-[#5482](https://github.com/richlander/dotnet-inspect/issues/5482) defines the
-shell-owned application control and
-[#5483](https://github.com/richlander/dotnet-inspect/issues/5483) relocates it
-and the contextual actions at the page-composition layer.
+The page-level action line keeps working-surface actions distinct from the
+Application menu: Source and Annotated Source supply contextual groups between
+the SlideStrip region and the fixed application control. Surface Composition
+owns that placement and the transition from legacy direct application controls
+without changing either action inventory. This focused pattern otherwise
+defers its stale inspector representation, horizontal-movement,
+pressure-trigger, and matching acceptance restatements to Navigation
+Presentation. Shell Interaction owns the Application menu's identity,
+inventory, and behavior.
 
 ## Cross-document relationships
 

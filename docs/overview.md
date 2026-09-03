@@ -37,6 +37,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The [package index cache](design/package-index-cache.md) separately owns
+  whether a persistent filesystem-derived package result may replace cold
+  inspection of one exact authorized retained payload.
 - `src/DotnetInspector.Queries/` contains host-neutral typed query definitions,
   deterministic synchronous/asynchronous execution, prerequisite-aware cost,
   and content-shaped metadata, reference, package dependency-group,
@@ -91,7 +94,13 @@ substrates, and inspection producers that will extend that space.
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
   network-policy enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
-- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
+  and Decompiler: its registry orders fact producers, joins R1 analysis
+  occurrences with R2 decompiler projections, and projects facts into the
+  Annotated Source, annotated IL, and Facts views used by `member`.
+  [Research Finding census projection](design/research-finding-census-projection.md)
+  owns preservation of one producer-sealed body-fact receipt and its instance
+  keys across those projections.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
@@ -148,6 +157,11 @@ substrates, and inspection producers that will extend that space.
   owns the user-scenario ordering and typed handoffs across operation
   authority, worker runtime, generated facades, managed bridging, and
   feature-owned work without redefining those owners.
+- [`docs/design/engine-browser-async-event-stream.md`](design/engine-browser-async-event-stream.md)
+  owns host-neutral, request-scoped engine event sequences: advisory progress,
+  durable partial items and item failures, one semantic completion, and
+  adapter-side pull, batching, and cancellation obligations before Browser
+  publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
   from untrusted metadata: the alignment, bounding, and guard-work invariants
@@ -260,9 +274,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
-  host-neutral root, Library, Type, and Member descriptors, availability,
-  initial recommendations, transitions, reconciliation, and model-checked
-  retained-session authority.
+  host-neutral Workspace, Package or non-package Root, Library, Type, and
+  Member descriptors, availability, initial recommendations, transitions,
+  reconciliation, and model-checked retained-session authority.
 - [Inspect Web UI](design/inspect-web-ui.md): composition map for the website
   redesign, linking
   [presentation language](design/inspect-web-presentation-language.md),
@@ -286,6 +300,12 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding nomenclature](design/finding-nomenclature.md): observation/change semantics, operation outcomes, and Research composition boundaries.
 - [Finding producer design](design/finding-producers.md): how to choose owners, payloads, identities, result shapes, and matching modes.
 - [Finding coordinates](design/finding-coordinates.md): separation of subject identity, correspondence, optional producer order, and typed provenance.
+- [Finding instance census](design/finding-instance-census.md): producer-issued
+  receipt and per-instance keys for one sealed execution census, with
+  bijection and exact-association validation.
+- [Research Finding census projection](design/research-finding-census-projection.md):
+  Research preservation of one body-fact census through Facts and Annotated
+  Source.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

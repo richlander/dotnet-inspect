@@ -3,7 +3,6 @@ import {
   activeSourceOperationKind,
   assemblyDescriptorForType,
   assertNever,
-  pdbSourceLimitationHtml,
   callGraphAssemblyIdentityMatches,
   callGraphDiagnosticsMessage,
   callGraphTargetMatchesType,
@@ -144,12 +143,21 @@ import {
   type PlatformLibraryLens,
 } from "./library-controls.ts";
 import {
+  applicationMenuOwnsFocus,
   bindHomeShell,
   bindLoadErrorShell,
   bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
+  type ApplicationAction,
   type HomeShellBindingActions,
   type LoadErrorShellBindingActions,
+  type WorkbenchShellBinding,
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "./shell-controls.ts";
@@ -158,6 +166,7 @@ import {
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
+  type ProductHomeDemoResolved,
 } from "./product-home-demos.ts";
 import {
   createSourceInspectionCoordinator,
@@ -237,7 +246,10 @@ import {
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  focusWorkspacePacket,
+  renderWorkspacePacketView,
   renderWorkspaceSubject,
+  retainWorkspacePacket as retainWorkspacePacketInList,
 } from "./workspace-subject.ts";
 import {
   bindDocViewer,
@@ -266,6 +278,8 @@ import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
+  renderSourcePageActions,
+  renderSourceResult,
   renderTypeMetadata,
   renderTypeNav,
   renderTypeSource,
@@ -735,6 +749,8 @@ const initialState = {
   memberDocumentationKey: "",
   lens: "api" as const,
   packageLens: "overview" as const,
+  workspacePackets: [],
+  selectedWorkspacePacketId: "",
   workspaceSubjectOpen: false,
   atPackageRoot: false,
   typeFilter: "",
@@ -778,6 +794,7 @@ const initialState = {
   taste: loadStoredTaste(),
   settings: false,
   settingsReturn: "home",
+  keyboardHelp: false,
   typeCursor: 0,
   history: [],
   loading: true,
@@ -798,6 +815,7 @@ const initialState = {
 interface StateOverrides {
   packages: AppPackage[];
   package: AppPackage | null;
+  workspacePackets: ProductHomeDemoResolved[];
   workspaceShareBasis: BrowserWorkspaceShareState | null;
   platformIndex: PlatformIndex | null;
   queryNoticeRetryAction: RetryAction;
@@ -858,6 +876,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
   | {
@@ -935,6 +954,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
 }
 
 const keybindings = createWorkbenchKeybindings();
+let keyboardHelpBindings = keybindings.bindingsFor();
 const operationAuthority = createOperationAuthorityPage();
 const sourceInspection = createSourceInspectionCoordinator({
   state,
@@ -1578,11 +1598,13 @@ function isInteractiveElement(element: Element | null) {
 function focusTypeList(generation = spotlightFocusGeneration) {
   if (generation !== spotlightFocusGeneration
       || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-      || isTextEntry()) return;
+      || state.settings || state.keyboardHelp
+      || applicationMenuOwnsFocus(document) || isTextEntry()) return;
   afterCurrentNavigationFrame(() => {
     if (generation !== spotlightFocusGeneration
         || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-        || isTextEntry()) return;
+        || state.settings || state.keyboardHelp
+        || applicationMenuOwnsFocus(document) || isTextEntry()) return;
     document.querySelector<HTMLElement>("#type-list")?.focus();
   });
 }
@@ -2611,6 +2633,7 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   document.body.classList.remove("package-query-route");
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
@@ -2620,15 +2643,9 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  workbenchShellBinding?.disconnect();
+  workbenchShellBinding = null;
 
-  // The Settings page is a modal-style full view layered over whatever the user came from
-  // (home or a package). It owns no URL — it's a preferences panel, not shareable content —
-  // so it renders first and returns; closeSettings restores the underlying view.
-  if (state.settings) {
-    loadingBotSrc = null;
-    renderSettingsViewHtml();
-    return;
-  }
   // The Metadata Explorer is a full-bleed "browse the database" view layered over the
   // package workbench. Like Settings it owns no URL and renders first, returning to the
   // Metadata lens on close.
@@ -2697,14 +2714,37 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     state.lens = "api";
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const activeScope = scope();
+  const sourcePageKind =
+    activeScope === "type" && state.lens === "source"
+      ? "type"
+      : activeScope === "member"
+        && state.memberSection === "source"
+        && memberSourceHasConcreteOverload()
+        ? "member"
+        : null;
+  const currentTypeSourceSignature = current
+    ? typeSourceSignature(
+        current,
+        currentPackage(),
+        state.taste,
+        memberRequestKey)
+    : "";
+  const sourcePageSource =
+    sourcePageKind === "member"
+      ? state.memberSource
+      : sourcePageKind === "type"
+        && state.typeSourceKey === currentTypeSourceSignature
+        ? state.typeSource
+        : null;
+  const sourceWorkingSurface =
+    sourcePageKind !== null && sourcePageSource !== null;
   const annotatedPageContext =
-    scope() === "member"
+    activeScope === "member"
     && state.memberSection === "annotated"
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
-  const annotatedActionsEnabled =
-    annotatedWorkingSurface;
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
   const inspectorPanelSemantics = hasEffectiveInspector()
@@ -2715,8 +2755,9 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.tabIndex = -1;
     app.focus({ preventScroll: true });
   }
+  const applicationModalOpen = state.settings || state.keyboardHelp;
   app.innerHTML = `
-    <div class="workbench"${state.memberAnnotatedModal ? " inert" : ""}>
+    <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
@@ -2741,15 +2782,26 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <header class="subject-zone" aria-label="Subjects and inspectors">
-        ${renderScopeBar()}
-        <nav class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}" aria-label="Application">
-          <button id="share" type="button">Share</button>
-          ${annotatedPageContext
-            ? renderAnnotatedSourcePageActions(annotatedActionsEnabled)
+        <div class="subject-inspector-region">${renderScopeBar()}</div>
+        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
+          ${annotatedPageContext || sourcePageKind
+            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+                ${annotatedPageContext
+                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
+                  : ""}
+                ${sourcePageKind
+                  ? renderSourcePageActions({
+                      source: sourcePageSource,
+                      copyButtonId: sourcePageKind === "member"
+                        ? "copy-source"
+                        : "copy-type-source",
+                      escapeHtml,
+                    })
+                  : ""}
+              </div>`
             : ""}
-          <button id="open-settings" type="button">Settings</button>
-          <button id="help" type="button" aria-label="Keyboard help">?</button>
-        </nav>
+          ${renderApplicationMenuButton()}
+        </div>
       </header>
 
       <div class="notice-stack">
@@ -2776,7 +2828,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -2795,6 +2847,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ${state.graphSourceOpen ? renderGraphSource() : ""}
       ${state.docViewerOpen ? renderDocViewer() : ""}
     </div>
+    ${renderApplicationMenu(true)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}
     ${renderAnnotatedSourceModal()}`;
 
   const packageIcon =
@@ -2806,6 +2863,15 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     };
   }
   bindEvents();
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  } else if (state.keyboardHelp) {
+    document.querySelector<HTMLElement>("#keyboard-help-title")
+      ?.focus({ preventScroll: true });
+  } else if (applicationMenuHadFocus) {
+    focusApplicationMenuButton(document);
+  }
   if (scopeBarOwnsFocus) {
     let restored = false;
     if (scopeBarFocus) {
@@ -2920,7 +2986,11 @@ function inspectedSubjectPath(
   current: AppTypeSurface | null | undefined,
 ): readonly SubjectPathSegment[] {
   if (scope() === "workspace") {
-    return [{ kind: "workspace", label: "Workspace", copyable: false }];
+    return [{
+      kind: "workspace",
+      label: selectedWorkspacePacket()?.title ?? "Current workspace",
+      copyable: false,
+    }];
   }
   const path: SubjectPathSegment[] = [{
     kind: "package",
@@ -2971,10 +3041,9 @@ function renderInspectedSubjectPath(
 
 function renderWorkspaceNavPane() {
   return renderWorkspaceSubject({
-    packages: state.packages,
-    activePackage: state.package,
+    packets: state.workspacePackets,
+    selectedPacketId: state.selectedWorkspacePacketId || null,
     escapeHtml,
-    packageIdentityKey,
   });
 }
 
@@ -3194,26 +3263,13 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  const packages = state.packages.filter(item => !item.isRuntimePack);
-  const current = state.package && !state.package.isRuntimePack
-    ? state.package
-    : packages[0] ?? null;
-  const platform = runtimePackPackage();
-  return `<header class="type-heading workspace-heading">
-    <div class="type-badge">W</div>
-    <div>
-      <div class="type-namespace">Inspection workspace</div>
-      <h1>Workspace</h1>
-      <code class="type-signature">${packages.length} coordinate${packages.length === 1 ? "" : "s"} · platform ${platform ? "available" : "not loaded"}</code>
-    </div>
-  </header>
-  <section class="workspace-overview">
-    <h2>Current coordinate</h2>
-    ${current
-      ? `<p><strong>${escapeHtml(current.id)}</strong> ${escapeHtml(current.version)} · ${escapeHtml(current.activeFramework)}</p>`
-      : "<p>No package coordinate is open.</p>"}
-    <p>Use Search to open another package. Platform libraries are included when the workspace requires them.</p>
-  </section>`;
+  return renderWorkspacePacketView({
+    packet: selectedWorkspacePacket(),
+    packages: state.packages,
+    activePackage: state.package,
+    escapeHtml,
+    packageIdentityKey,
+  });
 }
 
 function packageLensBody() {
@@ -4261,7 +4317,13 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
     currentPackage(),
     state.taste,
     memberRequestKey);
-  return renderTypeSource({ item, currentSignature, sourceState: state, escapeHtml, highlightCSharp });
+  return renderTypeSource({
+    item,
+    currentSignature,
+    sourceState: state,
+    escapeHtml,
+    highlightCSharp,
+  });
 }
 
 function renderLens(item: AppTypeSurface | null | undefined) {
@@ -4270,9 +4332,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (!item) return "";
   switch (state.lens) {
     case "source":
-      return `
-      ${typeHeadingHtml(item)}
-      ${renderTypeSourceHtml(item)}`;
+      return renderTypeSourceHtml(item);
     case "metadata":
       return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
     case "api":
@@ -4531,10 +4591,11 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying PDB-checksum-verified source through SourceLink, then dotnet-inspect decompilation.</p></section>`
       : state.memberSource
-        ? `<section class="document-section source-result">
-            <div class="source-provenance"><strong>${state.memberSource.provider === "pdb" ? "PDB Source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}${pdbSourceLimitationHtml(state.memberSource)}<button id="copy-source" type="button">copy</button></div>
-            <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
-          </section>`
+        ? renderSourceResult({
+            source: state.memberSource,
+            escapeHtml,
+            highlightCSharp,
+          })
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
   } else {
     assertNever(state.memberSection, "member section");
@@ -5446,6 +5507,7 @@ function bindAnnotatedSourceEvents() {
 }
 
 const workbenchShellActions: WorkbenchShellBindingActions = {
+  onApplicationAction: dispatchApplicationAction,
   onCopySubjectSegment: index => {
     const segment = currentInspectedSubjectPath()[index];
     if (segment?.copyable)
@@ -5458,10 +5520,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     pkg.inspectionError = "";
     render();
   },
-  onHelp: () => showToast(
-    "⌘K command · ⌘P / type to find a type · ⌘F filter · "
-    + "1—5 lenses · ↑↓ types · Alt+←/→ or Shift+←/→ back/forward · "
-    + "graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"),
   onNavigateBack: navBack,
   onNavigateForward: navForward,
   onRetryNotice: () => {
@@ -5469,7 +5527,6 @@ const workbenchShellActions: WorkbenchShellBindingActions = {
     if (retryAction) observeAction(retryAction, "Retrying the inspection");
   },
   onSearch: () => openSpotlight(),
-  onShare: () => void share(),
 };
 
 const graphBackActions: GraphBackBindingActions = {
@@ -5478,11 +5535,8 @@ const graphBackActions: GraphBackBindingActions = {
 
 function bindWorkspaceSubjectEvents() {
   bindWorkspaceSubject(document, {
-    onActivate: key => {
-      const packageModel = state.packages.find(
-        item => packageIdentityKey(item) === key);
-      if (packageModel) selectWorkspacePackage(packageModel);
-    },
+    onSelect: selectWorkspacePacket,
+    onOpen: runHomeDemo,
     onClose: closeWorkspacePackage,
   });
 }
@@ -5501,7 +5555,8 @@ function bindEvents() {
   bindAnnotatedSourceEvents();
   bindPackageViewEvents();
   bindLibraryControlsEvents();
-  bindWorkbenchShell(document, workbenchShellActions);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -6594,7 +6649,11 @@ function executeCommand(
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
-    operation = share();
+    dispatchApplicationAction("share");
+  } else if (verb === "settings") {
+    dispatchApplicationAction("settings");
+  } else if (value === "keyboard help") {
+    dispatchApplicationAction("keyboard-help");
   }
   state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
   return operation;
@@ -6631,8 +6690,13 @@ function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
 function renderPreservingMemberFocus(
   fallback: MemberFocusSnapshot | null = null,
 ) {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
   const current = captureMemberFocus(document);
   const preserved = memberFocusRestorer.resolve(current, fallback);
+  if (applicationMenuHadFocus) {
+    render();
+    return preserved;
+  }
   return renderWithMemberFocus(preserved);
 }
 
@@ -7206,6 +7270,7 @@ function loadSelectionData() {
 }
 
 async function share() {
+  const focusOwner = captureApplicationMenuFocusOwner(document);
   try {
     await navigator.clipboard?.writeText(buildStateUrl().toString());
     showToast("selection link copied");
@@ -7213,6 +7278,9 @@ async function share() {
     state.queryNotice = errorMessage(error);
     state.queryNoticeRetryAction = null;
     render();
+  } finally {
+    requestAnimationFrame(() =>
+      restoreApplicationMenuFocusIfOwned(document, focusOwner));
   }
 }
 
@@ -7220,6 +7288,8 @@ function showToast(message: string, duration = 2200) {
   document.querySelector(".toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "toast";
+  toast.setAttribute("role", "status");
+  toast.setAttribute("aria-live", "polite");
   toast.textContent = message;
   document.body.append(toast);
   setTimeout(() => toast.remove(), duration);
@@ -7335,7 +7405,7 @@ function renderHomeView() {
     : -((performance.now() - homeBotAnimationStartedAt)
       % HOME_BOT_ANIMATION_DURATION_MS);
   app.innerHTML = `
-    <div class="home">
+    <div class="home"${state.settings ? " inert" : ""}>
       <header class="home-bar">
         ${renderBrand()}
         <div class="home-bar-actions">
@@ -7384,8 +7454,13 @@ function renderHomeView() {
         compactDiagnostics: true,
         expanded: state.statusBarExpanded,
       }, escapeHtml)}
-    </div>`;
+    </div>
+    ${state.settings ? renderSettingsViewHtml() : ""}`;
   bindHomeEvents();
+  if (state.settings) {
+    document.querySelector<HTMLElement>("#settings-title")
+      ?.focus({ preventScroll: true });
+  }
 }
 
 // The hero mascot: dotnet-bot inspecting through a magnifying glass (official dotnet/brand
@@ -7432,8 +7507,29 @@ function bindHomeEvents() {
 // deep links built from the resolved projection; member-bound Call Graph demos
 // execute through one generated engine operation over the product-resolved
 // workspace and view.
+function selectedWorkspacePacket(): ProductHomeDemoResolved | null {
+  return state.workspacePackets.find(
+    packet => packet.id === state.selectedWorkspacePacketId) ?? null;
+}
+
+function selectWorkspacePacket(packetId: string): void {
+  if (!state.workspacePackets.some(packet => packet.id === packetId)) return;
+  state.selectedWorkspacePacketId = packetId;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspacePacket(document, packetId));
+}
+
+function retainWorkspacePacket(packet: ProductHomeDemoResolved): void {
+  state.workspacePackets = retainWorkspacePacketInList(
+    state.workspacePackets,
+    packet);
+  state.selectedWorkspacePacketId = packet.id;
+}
+
 function runHomeDemo(kind: ProductHomeDemoId) {
-  state.home = false;
   const resolveResult = inspectResolveHomeDemo(kind);
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
@@ -7443,6 +7539,8 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     render();
     return;
   }
+  retainWorkspacePacket(resolved);
+  state.home = false;
   const link = productHomeDemoLocationHref(
     resolved,
     inspectEncodeWorkspaceShareState);
@@ -8064,6 +8162,7 @@ async function loadSelectedTypeMetadata() {
       const currentType = selectedType();
       return !state.home
       && !state.settings
+      && !state.keyboardHelp
       && !state.explorer?.open
       && !state.loading
       && !state.error
@@ -9665,10 +9764,25 @@ function clearTaste() {
   render();
 }
 
-// Open the Settings page, remembering where to return (the home page vs. the workbench) so
-// closing restores that view without touching the URL.
+function dispatchApplicationAction(action: ApplicationAction) {
+  switch (action) {
+    case "share":
+      void share();
+      return;
+    case "settings":
+      openSettings("workbench");
+      return;
+    case "keyboard-help":
+      if (state.keyboardHelp) closeKeyboardHelp();
+      else openKeyboardHelp();
+      return;
+  }
+}
+
+// Open Settings, remembering the logical control that receives focus after dismissal.
 function openSettings(from: "home" | "workbench") {
   state.settingsReturn = from === "workbench" ? "workbench" : "home";
+  state.keyboardHelp = false;
   state.settings = true;
   render();
 }
@@ -9677,14 +9791,39 @@ function closeSettings() {
   state.settings = false;
   reloadVisibleSource();
   render();
+  requestAnimationFrame(() => {
+    const selector = state.settingsReturn === "workbench"
+      ? "#application-menu-button"
+      : "#home-settings";
+    document.querySelector<HTMLElement>(selector)
+      ?.focus({ preventScroll: true });
+  });
 }
 
-// The Settings page: a persistent preferences panel. Every control here writes straight to
-// localStorage (theme → inspect-theme, taste → inspect-taste) so choices survive a reload and
-// future sessions. Grouped into Appearance and Decompiler style; the latter reuses the same
-// style-option catalog the detail-view taste popover shows.
+function openKeyboardHelp() {
+  state.settings = false;
+  const graphViewport =
+    document.querySelector<HTMLElement>(".graph-viewport");
+  keyboardHelpBindings = [
+    ...keybindings.availableBindingsFor(),
+    ...(graphViewport
+      ? keybindings.availableBindingsFor(graphViewport)
+      : []),
+  ];
+  state.keyboardHelp = true;
+  render();
+}
+
+function closeKeyboardHelp() {
+  state.keyboardHelp = false;
+  render();
+  requestAnimationFrame(() =>
+    document.querySelector<HTMLElement>("#application-menu-button")
+      ?.focus({ preventScroll: true }));
+}
+
 function renderSettingsViewHtml() {
-  app.innerHTML = renderSettingsView({
+  return renderSettingsView({
     theme: state.theme,
     settingsReturn: state.settingsReturn,
     styleCatalog: {
@@ -9695,7 +9834,6 @@ function renderSettingsViewHtml() {
     },
     escapeHtml,
   });
-  bindSettingsPanelEvents();
 }
 
 function renderGraphSource() {
@@ -10791,6 +10929,7 @@ function registerContainedShortcuts(
 function workspaceKeyboardContextIsActive(): boolean {
   return !state.explorer?.open
     && !state.settings
+    && !state.keyboardHelp
     && !state.home
     && !state.packageQueryOpen
     && !state.loading
@@ -10819,6 +10958,15 @@ const documentViewerContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.docViewerOpen;
 const spotlightContextIsActive = () =>
   workspaceModalContextIsAvailable() && state.spotlightOpen;
+const workspaceDrillOutIsAvailable = () =>
+  workspaceKeyboardContextIsActive()
+  && (navMode() === "member" || !state.atPackageRoot);
+const inspectionNavigationIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && scope() !== "workspace";
+const workspaceHistoryBackIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canBack();
+const workspaceHistoryForwardIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && navigationHistory.canForward();
 
 keybindings.register({
   id: "metadata-explorer.dismiss",
@@ -10865,6 +11013,22 @@ registerContainedShortcuts(
   "settings.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.settings,
   () => state.settings,
+);
+keybindings.register({
+  id: "keyboard-help.dismiss",
+  key: "Escape",
+  allowExtraModifiers: true,
+  priority: WORKBENCH_KEYBINDING_PRIORITY.settings,
+  when: () => state.keyboardHelp,
+  run: () => {
+    closeKeyboardHelp();
+    return true;
+  },
+});
+registerContainedShortcuts(
+  "keyboard-help.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.settings,
+  () => state.keyboardHelp,
 );
 
 const unavailableWorkspaceContext = () =>
@@ -10998,11 +11162,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-escape",
   key: "Escape",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
-    && (navMode() === "member" || !state.atPackageRoot),
+  when: () => !isTextEntry(),
   run: () => {
     if (navMode() === "member") exitMemberScope();
     else drillOut();
@@ -11012,10 +11175,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-commands",
   key: "k",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight("", "commands");
     return true;
@@ -11024,10 +11187,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.open-all",
   key: "p",
+  available: workspaceKeyboardContextIsActive,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     openSpotlight();
     return true;
@@ -11036,29 +11199,28 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter",
   key: "f",
+  available: inspectionNavigationIsAvailable,
   modifiers: { commandOrControl: true },
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: workspaceKeyboardContextIsActive,
   run: () => {
     focusFilter();
     return true;
   },
 });
 
-for (const [key, action] of [
-  ["ArrowLeft", navBack],
-  ["ArrowRight", navForward],
+for (const [key, action, available] of [
+  ["ArrowLeft", navBack, workspaceHistoryBackIsAvailable],
+  ["ArrowRight", navForward, workspaceHistoryForwardIsAvailable],
 ] as const) {
   keybindings.register({
     id: `workspace.history-alt-${key}`,
     key,
+    available,
     modifiers: { alt: true },
     allowExtraModifiers: true,
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: event => workspaceKeyboardContextIsActive()
-      && !event.metaKey
-      && !event.ctrlKey,
+    when: event => !event.metaKey && !event.ctrlKey,
     run: () => {
       action();
       return true;
@@ -11067,9 +11229,10 @@ for (const [key, action] of [
   keybindings.register({
     id: `workspace.history-shift-${key}`,
     key,
+    available,
     modifiers: { shift: true },
     priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-    when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+    when: () => !isTextEntry(),
     run: () => {
       action();
       return true;
@@ -11080,11 +11243,11 @@ for (const [key, action] of [
 keybindings.register({
   id: "workspace.select-lens",
   key: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   preventDefault: false,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey,
   run: event => {
@@ -11095,10 +11258,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-vertical",
   key: ["ArrowUp", "ArrowDown"],
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey,
@@ -11110,8 +11273,9 @@ keybindings.register({
 keybindings.register({
   id: "workspace.navigate-horizontal",
   key: ["ArrowLeft", "ArrowRight"],
+  available: inspectionNavigationIsAvailable,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: event => {
     stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
     return true;
@@ -11120,10 +11284,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
+  available: workspaceKeyboardContextIsActive,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
     && !event.altKey
@@ -11137,14 +11301,13 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-out-backspace",
   key: "Backspace",
+  available: workspaceDrillOutIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: event => workspaceKeyboardContextIsActive()
-    && !isTextEntry()
+  when: event => !isTextEntry()
     && !event.metaKey
     && !event.ctrlKey
-    && !event.altKey
-    && (navMode() === "member" || !state.atPackageRoot),
+    && !event.altKey,
   run: () => {
     drillOut();
     return true;
@@ -11153,9 +11316,10 @@ keybindings.register({
 keybindings.register({
   id: "workspace.focus-filter-slash",
   key: "/",
+  available: inspectionNavigationIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
-  when: () => workspaceKeyboardContextIsActive() && !isTextEntry(),
+  when: () => !isTextEntry(),
   run: () => {
     focusFilter();
     return true;
@@ -11193,6 +11357,7 @@ function clearNavigationError() {
 function dismissModalsForRoutedNavigation() {
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
+  state.keyboardHelp = false;
   state.explorer = null;
   spotlight.reset();
   sourceInspection.clearGraphSource();

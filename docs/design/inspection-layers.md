@@ -38,7 +38,7 @@ dotnet-inspect L3
   |
   v
 DotnetInspector.Sections --+----> DotnetInspector.RowSelection
-  L2                       |       shared dependency-free leaf
+  L2                       |       shared typed leaf
   |                        |
   v                        |
 DotnetInspector.Queries ---+
@@ -269,8 +269,23 @@ subsequent reads, and exactly 25 projected rows. Run it with:
 
 ```bash
 dotnet run --project src/dotnet-inspect.Tests -c Release -- \
-  -method '*PackageProfileDefaultScale*'
+  --filter-method '*PackageProfileDefaultScale*'
 ```
+
+`RestoredProjectDependencyFactsQuery` implements the contract in
+[`restored-project-dependency-facts.md`](restored-project-dependency-facts.md)
+over exact caller-supplied `project.assets.json` bytes and an optional exact
+TFM/RID request, supporting assets schema versions 3 and 4. It projects one
+content provenance digest, one selection identity independent of JSON property
+order, one root, per-framework declaration groups with `InertString`-contained
+package identity and version-constraint spellings, and a package-resolving
+graph of direct/transitive edges reachable from root traversal — never a path,
+filesystem, cache, MSBuild evaluation, or output type. Declaration and graph
+projection fail independently, each as a closed `Available` (complete or
+incomplete)/`Unavailable`/`Failed` outcome with a typed, content-free failure
+reason. This query has no CLI or section adoption yet; it is gated by
+`RestoredProjectDependencyFactsQueryTests` and the
+`restored-project.dependency-facts` fixture in `DotnetInspector.Fixtures`.
 
 L1 does not reference Markout.
 
@@ -1638,8 +1653,9 @@ The layering is closer to reality than it looks: the CLI's directories already
 declare `DotnetInspector.*` namespaces, and Markout coupling is already
 concentrated in the upper directories while the model and service directories
 are essentially free of it. The boundary is largely drawn; the metadata canary
-establishes the L1 project and structural pattern, but the remaining facets and
-the L2 project split still need migration.
+establishes the L1 project and structural pattern, and the first reusable L2
+Rows seam now exists, but the remaining facets and broader L2 migration are
+still incomplete.
 
 The structural fix is continuing L1 beyond the completed library section-query
 migration. Collection outside the typed query-bound library facets is still not
@@ -1663,8 +1679,9 @@ uniformly content-shaped or demand-driven:
 
 Converting the remaining collection into typed, demand-driven, content-shaped
 queries is therefore the migration path for the split, not a follow-up to it.
-L2 is close to a project move as query coverage expands; the descriptor contract is
-already Markout-free apart from its name binding.
+`DotnetInspector.Sections` currently contains the unresolved row-selection
+intent and Rows cohort seams; the descriptor contract remains in the CLI
+assembly and is already Markout-free apart from its name binding.
 
 ## Non-goals
 

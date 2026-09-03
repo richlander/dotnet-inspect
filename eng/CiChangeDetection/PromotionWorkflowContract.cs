@@ -8,7 +8,7 @@ internal static class PromotionWorkflowContract
     private const string AzureAction =
         "Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9";
     private const string CheckoutAction =
-        "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803";
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1";
     private const string DownloadArtifactAction =
         "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c";
     private const string SetupDotnetAction =
@@ -162,14 +162,14 @@ internal static class PromotionWorkflowContract
         const string trustedCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
                   - name: Setup .NET
             """;
         const string candidateCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                     with:
                       ref: ${{ needs.resolve.outputs.sha }}
 
@@ -190,7 +190,7 @@ internal static class PromotionWorkflowContract
         const string stagingCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
                   - name: Download staged site artifact
             """;
@@ -209,7 +209,7 @@ internal static class PromotionWorkflowContract
         const string coreClrStagingCheckout =
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
                   - name: Download CoreCLR staged site artifact
             """;
@@ -424,10 +424,10 @@ internal static class PromotionWorkflowContract
             "Staging workflow contract accepted write permission.");
         AssertMutationRejected(
             stagingWorkflow,
-            "    steps:\n      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n",
+            "    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n",
             """
                 steps:
-                  - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
                     with:
                       ref: ${{ github.event.pull_request.head.sha }}
             """,
@@ -1429,7 +1429,9 @@ internal static class PromotionWorkflowContract
         string[] required =
         [
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs\"",
+            "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
+            "\"$scratch/inspect-web-engine.d.ts\" \\\n  \"$version_prefix\"",
             "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",

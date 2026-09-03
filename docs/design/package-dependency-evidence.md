@@ -29,6 +29,30 @@ The query has no external effects. Its work is bounded by the admitted roots,
 declarations, and supplied enrichments. Network, filesystem, parsing, and
 retry costs are declared by the owners that construct those inputs.
 
+## Consumers and delivery
+
+The concrete product consumers are the CLI dependency experience tracked by
+issue #5534 and the inspect-web Browser/Wasm dependency experience tracked by
+issue #5535.
+The focused query implementation is #5533, and #5532 is the single end-to-end
+tracker joining those consumers to restored-project facts from #5314,
+direct-nuspec identity from #5316, and optional package-owner evidence from
+issue #5315.
+
+This query is shared host-neutral substrate, so no single-consumer or
+single-host exception applies. Its complexity is justified by observable
+cross-input equivalence: package, nuspec, `.csproj`, direct-assets, and
+package-prefix inputs must not acquire separate comparison, identity,
+completion, or failure semantics in each host.
+
+The query preserves structured typed evidence rather than rendering it. The
+CLI consumer uses Markout as the default host-neutral lowering and projects
+JSON-family formats from the same typed information. The browser consumer
+bypasses Markout only for its host-specific interactive DOM presentation,
+consuming the same typed/wire information through the Browser/Wasm boundary.
+That browser path owns gestures and component state, not dependency
+normalization or identity.
+
 ## The question
 
 The query answers:
@@ -701,17 +725,19 @@ Until those Release gates exist, the implementation properties are
 
 ## Adoption sequence
 
-1. Lock this result and equivalence contract.
+1. Lock this result and equivalence contract under #5312.
 2. Land typed self-attested direct nuspec identity in #5316.
 3. Land the focused Restored Project Dependency Facts Query tracked by #5314.
-4. Implement the package/nuspec adapter over `PackageManifestFacts` and
-   `PackageDependencyGroupsQuery`.
-5. Implement the restored-project adapter and the cross-input equivalence
-   fixture.
+4. Under #5533, implement the package/nuspec adapter over
+   `PackageManifestFacts` and `PackageDependencyGroupsQuery`.
+5. Under #5533, implement the restored-project adapter and the cross-input
+   equivalence fixture.
 6. Land the focused Package Owner Evidence Query tracked by #5315, then admit
    its owner observations as optional input.
-7. Add L2 section and JSON projections over the immutable outcome.
-8. Bind CLI input spellings and, later, product-owned predicates.
+7. Under #5534, add the L2 section, Markout and JSON-family projections, CLI
+   input spellings, and later product-owned predicates.
+8. Under #5535, export the same typed outcome through the Browser/Wasm boundary
+   and adopt it in inspect-web without duplicating dependency semantics.
 
 Each adoption is independently reviewable. Later syntax must not move owner
 filtering ahead of required evidence acquisition unless source delegation

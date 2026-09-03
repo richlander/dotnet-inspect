@@ -90,9 +90,10 @@ than forming an additional host tier.
 
 These are logical boundaries, not a claim that every layer is already a
 separate reusable assembly. L1 is available through host-neutral projects.
-Current L2 section pipelines remain in the `DotnetInspector.Sections` namespace
-inside the CLI project; the owning design describes their separate-component
-target.
+`DotnetInspector.Sections` contains the typed unresolved selection-operation
+intent boundary and the first reusable L2 Rows execution boundary. Current L2
+section pipelines remain in the same namespace inside the CLI project; their
+broader migration is still incomplete.
 
 The reusable L1/L2 binding is owned by
 [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
@@ -145,7 +146,7 @@ depends on typed models.
 
 | Region | Place in flow | Responsibility | Primary authority |
 | ------ | ------------- | -------------- | ----------------- |
-| `ILInspector.Findings` | Result contracts | Domain-free observation, census, matching, transition, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
+| `ILInspector.Findings` | Result contracts | Domain-free observation, sealed-census identity, matching, transition, comparison, complete analysis-diff, and correlation contracts. | [Finding nomenclature](design/finding-nomenclature.md), [Finding instance census](design/finding-instance-census.md), [Analysis diff](design/analysis-diff.md), [Finding producers](design/finding-producers.md) |
 | `ILInspector.Instructions` | Decode substrate | Shared instruction decoding and exception-region-aware basic blocks. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.ControlFlow` | Flow substrate | Shared control-flow, dominance, and dataflow kernels. | [Instruction substrate](design/instruction-substrate.md) |
 | `ILInspector.Text` | Text producer | Exact ordered line inspection and generic text comparison on the Finding spine. | [Finding producers](design/finding-producers.md) |
@@ -165,6 +166,7 @@ reaches through Research to redefine the other.
 | ------ | ------------- | -------------- | ----------------- |
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
 | `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
+| `DotnetInspector.Sections` | Shared L2 contracts | Typed unresolved row-selection intent plus binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
 | `DotnetInspector.PackageQueries` | Optional L1 companion | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |
@@ -172,13 +174,16 @@ reaches through Research to redefine the other.
 Queries accept content-shaped or context-shaped inputs. They do not choose a
 renderer, parse command lines, or use display strings as identity.
 
-Current L2 section pipelines, immutable catalogs, schemas, and compiled lenses
-live under `src/dotnet-inspect/Sections` in the CLI assembly. The
+The reusable `DotnetInspector.Sections` project currently contains the
+unresolved selection-operation intent and one-cohort Rows execution
+boundaries. Existing L2 section pipelines, immutable catalogs, schemas, and
+compiled lenses remain under
+`src/dotnet-inspect/Sections` in the CLI assembly. The
 [Section model](design/section-model.md) and
 [section pipeline](design/section-pipeline.md) own those contracts;
-[Inspection layers](design/inspection-layers.md) owns the target reusable L2
-component boundary. The browser host currently consumes L1 query projects
-without referencing the CLI assembly.
+[Inspection layers](design/inspection-layers.md) owns their target reusable L2
+boundary. The browser host currently consumes L1 query projects without
+referencing the CLI assembly.
 
 ### Hosts and tools
 
@@ -191,6 +196,11 @@ without referencing the CLI assembly.
 
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
+
+Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
+[package index cache](design/package-index-cache.md) contract defines when a
+persistent filesystem-derived package projection may replace cold inspection;
+`CoreCache` remains only its storage mechanism.
 
 ## Core currencies
 
@@ -283,7 +293,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | ----------- | ---------- | ------------ |
 | Workspace, acquisition, cache, or source policy | [Inspection space](inspection-space.md), [artifact acquisition](design/artifact-acquisition-and-workspaces.md) | `DotnetInspector.Artifacts*`, `DotnetInspector.Core`, `DotnetInspector.Packages`, `DotnetInspector.Services` |
 | Query planning or execution | [Inspection layers](design/inspection-layers.md) | `DotnetInspector.Queries`, optional query companions |
-| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md), [semantic row selection](design/semantic-row-selection.md) | `DotnetInspector.RowSelection`, `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
+| Sections, discovery, or selection | [Progressive disclosure](design/progressive-disclosure.md), [section model](design/section-model.md), [semantic row selection](design/semantic-row-selection.md) | `DotnetInspector.RowSelection`, `DotnetInspector.Sections`, `src/dotnet-inspect/Sections`, `src/dotnet-inspect/Output` |
 | Metadata, API, type, or member facts | [Assembly inspection query](design/assembly-inspection-query.md), [representation](design/type-member-api-representation.md) | `ILInspector.Metadata*`, `ILInspector.CSharp`, `CSharpText` |
 | Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |

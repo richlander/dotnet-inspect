@@ -25,6 +25,11 @@ on:
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -42,7 +47,7 @@ jobs:
       inputs.lane == 'package-sweep'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -106,7 +111,7 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -188,7 +193,7 @@ jobs:
     # lane gets the same larger budget until its runtime variance is known.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -284,7 +289,7 @@ jobs:
       inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -340,7 +345,7 @@ jobs:
     if: inputs.lane == 'census' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -501,7 +506,7 @@ jobs:
       DOTNET_ROOT: ${{ github.workspace }}/.dotnet-nightly
       DOTNET_DOTNETUP_DATA_DIR: ${{ github.workspace }}/artifacts/.dotnetup
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install nightly .NET SDK with dotnetup
         shell: bash
@@ -682,7 +687,7 @@ jobs:
     # loose for restore and runner variance.
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6

@@ -9,8 +9,9 @@ generated modules attach to one Browser/Wasm runtime, and how the consumer
 proves that the complete partition is deployed. It owns no package, metadata,
 Analysis, source, call-graph, vocabulary, or workspace-query semantics.
 
-[`ts-jsexport`](ts-jsexport.md) remains the owner of one compiled assembly to
-one generated TypeScript source module. The
+[`ts-jsexport`](ts-jsexport.md) remains the owner of one rooted assembly to one
+generated TypeScript source module and of compiler-declared context
+orchestration across those independent modules. The
 [inspection layers](inspection-layers.md) and their focused product documents
 remain the owners of the typed operations and results that inspect-web adapts.
 The [inspect-web README](../../prototypes/inspect-web/README.md) owns the
@@ -21,15 +22,41 @@ implemented browser build and deployment procedure.
 Inspect-web will replace its one production `InspectWeb.Engine.dll` export
 surface with seven independently generated facade modules:
 
-| Facade | Managed assembly | Responsibility |
-| --- | --- | --- |
-| `inspect-web-host` | `InspectWeb.Engine` | Browser/Wasm lifecycle, host configuration, and build identity |
-| `inspect-web-package` | `InspectWeb.Engine.PackageExports` | Package and platform acquisition, package queries, and package content |
-| `inspect-web-metadata` | `InspectWeb.Engine.MetadataExports` | API and metadata projection |
-| `inspect-web-analysis` | `InspectWeb.Engine.AnalysisExports` | Analysis, integration, opportunity, and performance results |
-| `inspect-web-source` | `InspectWeb.Engine.SourceExports` | Source and annotated-source projection |
-| `inspect-web-call-graph` | `InspectWeb.Engine.CallGraphExports` | Package and platform call-graph expansion |
-| `inspect-web-catalog` | `InspectWeb.Engine.CatalogExports` | Product vocabulary, home demos, and workspace-share transport |
+| Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
+| --- | --- | --- | --- | --- |
+| `inspect-web-host` | `InspectWeb.Engine` | `InspectWeb.Engine.ts` | `engine/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
+| `inspect-web-package` | `InspectWeb.Engine.PackageExports` | `InspectWeb.Engine.PackageExports.ts` | `engine/facades/inspect-web-package.ts` | Package and platform acquisition, package queries, and package content |
+| `inspect-web-metadata` | `InspectWeb.Engine.MetadataExports` | `InspectWeb.Engine.MetadataExports.ts` | `engine/facades/inspect-web-metadata.ts` | API and metadata projection |
+| `inspect-web-analysis` | `InspectWeb.Engine.AnalysisExports` | `InspectWeb.Engine.AnalysisExports.ts` | `engine/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
+| `inspect-web-source` | `InspectWeb.Engine.SourceExports` | `InspectWeb.Engine.SourceExports.ts` | `engine/facades/inspect-web-source.ts` | Source and annotated-source projection |
+| `inspect-web-call-graph` | `InspectWeb.Engine.CallGraphExports` | `InspectWeb.Engine.CallGraphExports.ts` | `engine/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
+| `inspect-web-catalog` | `InspectWeb.Engine.CatalogExports` | `InspectWeb.Engine.CatalogExports.ts` | `engine/facades/inspect-web-catalog.ts` | Product vocabulary, home demos, and workspace-share transport |
+
+`InspectWeb.Engine` declares the production set in compiled metadata:
+
+```csharp
+using TsJsExport;
+
+[JsExportRoot(typeof(InspectionEngine))]
+[JsExportRoot(typeof(PackageExports))]
+[JsExportRoot(typeof(MetadataExports))]
+[JsExportRoot(typeof(AnalysisExports))]
+[JsExportRoot(typeof(SourceExports))]
+[JsExportRoot(typeof(CallGraphExports))]
+[JsExportRoot(typeof(CatalogExports))]
+internal sealed class InspectWebJsExportContext;
+```
+
+The `JsExportRoot` declaration and the generator's context mode are one
+mechanism. The attributes compile the closed facade recipe into CLR metadata;
+`--context` names the exact recipe type for `ts-jsexport` to execute. Context
+mode is not a TypeScript feature and adds no context concept to the emitted
+modules.
+
+Each type is an assembly anchor under the generator-owned root meaning; it does
+not filter that assembly's export surface. The host already references every
+capability export assembly, so the context adds no reverse or sibling
+dependency. Attribute order is explanatory only.
 
 Each module is generated from a different managed export assembly. The
 Browser/Wasm application remains one host with one SDK runtime. A
@@ -71,9 +98,39 @@ assemblies.
 This choice preserves the implemented `ts-jsexport` contract. Generator-side
 selection would require a new rule for selecting exports and pruning the
 assembly-wide serializer vocabulary. That would be a normative change to the
-generator owner as well as this consumer owner. The assembly partition uses the
-existing one-assembly/one-module rule and the shared-runtime composition already
+generator owner as well as this consumer owner. The compiled context declares
+the closed assembly set while every root retains the existing
+one-assembly/one-module rule. Explicit search locations resolve only those
+declared roots and never add a facade. Shared-runtime composition remains
 gated by `eng/test-inspect-web-multi-facade-canary.sh`.
+
+## Mock demo
+
+After the seven assemblies build, one context invocation generates the complete
+source set into a fresh scratch directory:
+
+```text
+ts-jsexport InspectWeb.Engine.dll
+  --context InspectWeb.Engine.InspectWebJsExportContext
+  --assembly-search-path <browser-output>
+  --runtime-module ./_framework/dotnet.js
+  --output <fresh-scratch>/facades
+
+<fresh-scratch>/facades/
+  InspectWeb.Engine.ts
+  InspectWeb.Engine.AnalysisExports.ts
+  InspectWeb.Engine.CallGraphExports.ts
+  InspectWeb.Engine.CatalogExports.ts
+  InspectWeb.Engine.MetadataExports.ts
+  InspectWeb.Engine.PackageExports.ts
+  InspectWeb.Engine.SourceExports.ts
+```
+
+What to notice: the compiler-bound context, not a directory scan or handwritten
+facade manifest, determines all seven outputs. Generation fails as one operation
+before the destination exists if any declared root cannot resolve or emit. As a
+neighboring case, `InspectWeb.Engine.Core.dll` may be present in the same search
+directory but produces no facade because the context does not root it.
 
 ## Boundaries
 
@@ -106,8 +163,8 @@ gated by `eng/test-inspect-web-multi-facade-canary.sh`.
 
 This partition does not:
 
-- add export filtering, module manifests, or multi-assembly input to
-  `ts-jsexport`;
+- add export filtering, redefine context-root identity, or treat assembly search
+  locations as facade membership;
 - change any managed operation's parameters, JSON wire shape, failure
   semantics, query behavior, or progressive-disclosure policy;
 - expose raw `ILInspector` or `DotnetInspector` objects to TypeScript;
@@ -126,9 +183,13 @@ The current engine contains 45 `[JSExport]` methods across seven source files.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
-The target inventory below is exhaustive. The implementation gate
-`ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` will derive the
-actual export set from the built assemblies and fail for an omitted, duplicated,
+The target inventory below is exhaustive. The compiled
+`InspectWebJsExportContext` is the implementation source of truth for its
+assembly membership.
+`ProductionFacadeContext_DeclaresExactAssemblySet` gates equality between the
+compiled root set and the seven managed assembly identities above.
+`ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives the actual
+export set from those rooted assemblies and fails for an omitted, duplicated,
 or unexpected assignment.
 
 ### Host facade: 3 exports
@@ -371,9 +432,10 @@ stronger close negative than the production names.
 
 ## TypeScript ownership
 
-Each generated TypeScript source is the authoritative checked-in handoff for
-one managed export assembly. Consumer-owned TypeScript compilation derives one
-`.d.ts` and one browser JavaScript module from it:
+Each checked-in TypeScript source is a byte-identical copy of one canonical
+context artifact and is the authoritative handoff for one managed export
+assembly. Consumer-owned TypeScript compilation derives one `.d.ts` and one
+browser JavaScript module from it:
 
 ```text
 InspectWeb.Engine.PackageExports.dll
@@ -385,11 +447,20 @@ engine/facades/inspect-web-package.ts
         `-- engine/wwwroot/inspect-web-package.js
 ```
 
-The generation command runs once per export assembly using the same
-`ts-jsexport` binary, resolved runtime-pack declaration, compiler configuration,
-and runtime verifier. A single `--check` command regenerates all modules into
-scratch space and compares every source, declaration, and JavaScript artifact.
-It fails if the expected module set and the generated module set differ.
+The generation command executes the compiled `JsExportRoot` recipe once using
+one `ts-jsexport` binary, one runtime-module option, and explicit search
+locations for the built assemblies. This execution path is the tool's context
+mode. It emits all seven canonical artifacts into a destination that does not
+exist. The consumer's exact table above maps each canonical artifact to its
+public module and checked-in path without modifying the generated bytes. That
+map cannot add or omit membership: its domain must equal the complete context
+output set before TypeScript compilation begins.
+
+A single `--check` command regenerates the context into fresh scratch space,
+requires exact set equality with the seven canonical artifact names, then
+compares every mapped source, declaration, and JavaScript artifact. It fails if
+context resolution, generated membership, the consumer map, or any derived
+artifact differs.
 
 Application files import DTOs from their owning facade declaration. Runtime
 composition imports JavaScript modules only in the coordinator. A small
@@ -426,9 +497,11 @@ byte-for-byte equality with the corresponding published JavaScript module. The
 published filename-to-digest map therefore binds the wrappers the browser
 imports to the managed assembly and authenticated source used by that lane.
 
-Both jobs must report the same assembly names, generated source/declaration
+Both jobs derive their expected assembly/module domain from the compiled
+context and must report the same assembly names, generated source/declaration
 digests, published JavaScript filename/digest map, total export count, sorted
-project identities, and project-graph digest. The count remains a useful
+project identities, and project-graph digest. The consumer mapping is accepted
+only when its domain equals that context-issued set. The count remains a useful
 summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
@@ -509,7 +582,9 @@ One cutover PR therefore:
 
 1. introduces the six capability export assemblies and moves all 45 exports and
    their DTO closures to their final assemblies;
-2. generates, compiles, verifies, lints, and drift-checks all seven facades;
+2. declares the seven roots in `InspectWebJsExportContext`, then generates the
+   complete context once and compiles, verifies, lints, and drift-checks every
+   mapped facade;
 3. adds the single-flight coordinator and migrates every runtime call and DTO
    import;
 4. expands Browser/Wasm composition and paired async deployment receipts to the
@@ -534,28 +609,33 @@ exception to the exact-one-owner rule.
 
 The partition is implemented when all of the following hold:
 
-1. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 45
+1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
+   `InspectWebJsExportContext` and proves its root identities equal the seven
+   expected managed assemblies.
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 45
    current exports across the seven expected assemblies with no omission or
    duplicate.
-2. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,
+3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,
    export-assembly, and core dependency direction.
-3. `ProductionFacadeWireContexts_AreAssemblyLocal` proves every exported JSON
+4. `ProductionFacadeWireContexts_AreAssemblyLocal` proves every exported JSON
    wire closure is local to its export assembly.
-4. The generation drift gate compares the exact seven TypeScript sources,
-   declarations, and JavaScript modules.
-5. TypeScript and Oxlint ownership tests cover each generated and authored
+5. The generation drift gate runs one context invocation, requires exact
+   equality among compiled roots, canonical generated artifacts, and consumer
+   mappings, and compares all seven TypeScript sources, declarations, and
+   JavaScript modules.
+6. TypeScript and Oxlint ownership tests cover each generated and authored
    composition file without admitting build-output directories.
-6. The production Browser/Wasm composition gate initializes concurrent callers,
+7. The production Browser/Wasm composition gate initializes concurrent callers,
    observes one live SDK runtime, invokes every facade through its own assembly,
    and runs the entry point exactly once.
-7. Existing multi-facade close negatives still fail for duplicate runtimes,
+8. Existing multi-facade close negatives still fail for duplicate runtimes,
    wrong assembly roots, cross-routing, skipped initialization, and dropped
    managed invocation.
-8. `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` and
+9. `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` and
    `InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts` prove paired
    deployment completeness and parity.
-9. Source, declaration, runtime-module, and compatibility searches find no
+10. Source, declaration, runtime-module, and compatibility searches find no
    surviving import or publication of `inspect-web-engine`.
-10. The real browser demo loads a package, opens its metadata, source, Analysis,
+11. The real browser demo loads a package, opens its metadata, source, Analysis,
     and call-graph views, runs a home demo, and round-trips a workspace share
     through the partitioned modules.

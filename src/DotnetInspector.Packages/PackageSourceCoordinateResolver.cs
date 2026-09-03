@@ -61,18 +61,19 @@ public static class PackageSourceCoordinateResolver
                 prerelease: false,
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
-        if (search is PackageSourceOperationResult<PackageSearchResult>.Failed failed)
-            return new PackageSourceCoordinateResolution.Failed(failed.Failure);
+        if (search.Failure is { } failure)
+            return new PackageSourceCoordinateResolution.Failed(failure);
 
         PackageSearchResult result =
-            ((PackageSourceOperationResult<PackageSearchResult>.Succeeded)search)
-            .Value;
+            search.Value
+            ?? throw new InvalidOperationException(
+                "The package source search completed without a value or failure.");
         PackageCandidateObservation? selected = null;
         NuGetVersion? selectedVersion = null;
         foreach (PackageCandidateObservation candidate in
                  result.Matches.Select(match => match.Candidate))
         {
-            if (candidate.Producer != source.Identity
+            if (!ReferenceEquals(candidate.Source, source.Source)
                 || !candidate.Coordinate.PackageId.Equals(
                     coordinate.PackageId,
                     StringComparison.OrdinalIgnoreCase)
