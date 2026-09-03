@@ -95,7 +95,7 @@ owner combines that ID with a versioned authority namespace; it does not hash a
 credential-bearing URL to fill a missing identity.
 
 `ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct` and
-`ConfiguredAuthority_CredentialPathRotationsDoNotShareAuthorityOrRetainSecret`
+`ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`
 are the required Release gates for these distinctions.
 
 ## Classification precedes authority and transport
@@ -424,6 +424,26 @@ construction, payload bytes, or implementation correspondence. The Release
 gates named throughout this document remain the implementation evidence.
 
 ## Implementation boundary
+
+Desktop adoption is staged. Ordinary online
+`package <id> --versions` is the first package-owned consumer: it resolves
+configured authorities, creates one association per authority and one
+plugin-authentication context per configurable V3 authority, uses the
+credential-free Gallery route for the exact anonymous NuGet.org authority,
+uses one operation context across those authorities, adopts each typed result
+through the exact association, and reports authoritative, partial, or failed
+version evidence. A selected local authority is classified without
+constructing HTTP state and currently produces the explicit
+capability-unavailable result owned by #5400.
+
+Offline version enumeration and the `--versions-with-feed`,
+`--include-unlisted`, latest-version, range, payload, metadata, search, and
+extraction paths remain on the legacy composition until their package-owned
+adoption slices land. The process-global authentication decorator therefore
+also remains solely for those legacy paths; it cannot be removed until they no
+longer depend on it. This first live slice does not read or publish the legacy
+producer-keyed version-list cache; authority-safe cache adoption remains a
+later slice.
 
 The current desktop paths that derive cache authorization from source URL
 digests, collapse sources by producer-shaped endpoint identity, or iterate an

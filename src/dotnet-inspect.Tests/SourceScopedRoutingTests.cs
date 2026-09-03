@@ -8,6 +8,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspector.Tests;
 
@@ -18,6 +19,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
     private const string RefusedSource = "https://refused.invalid/v3/index.json";
     private const string SecondSource =
         "https://second.invalid/v3/index.json";
+    private const string ExcludedFlatContainer =
+        "https://excluded.invalid/v3/flat2/";
     private const string SecondFlatContainer =
         "https://second.invalid/v3/flat2/";
 
@@ -542,8 +545,15 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("requires credentials", error);
-        Assert.Contains("HTTP 401", error);
+        if (query != "all")
+            Assert.Contains("HTTP 401", error);
         Assert.Contains(RefusedSource, error);
+        Assert.Contains(
+            query == "all"
+                ? "Supply credentials for the source and retry."
+                : "The package may exist; the source was not readable.",
+            error,
+            StringComparison.Ordinal);
         Assert.DoesNotContain(
             "not found",
             error,
@@ -613,6 +623,407 @@ public sealed class SourceScopedRoutingTests : IDisposable
             url => url.Equals(
                 $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_ReportsPartialEvidenceAfterA401()
+    {
+        string packageName = $"PartialVersionList{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("results", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
+        Assert.DoesNotContain("HTTP 401", error);
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_UsesConfiguredCredentialImmediately()
+    {
+        string packageName = $"ConfiguredCredential{Guid.NewGuid():N}";
+        string configPath = Path.Combine(
+            _testRoot,
+            "configured-credential.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="{SecondSource}" />
+              </packageSources>
+              <packageSourceCredentials>
+                <private>
+                  <add key="Username" value="reader" />
+                  <add key="ClearTextPassword" value="secret" />
+                </private>
+              </packageSourceCredentials>
+            </configuration>
+            """);
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--nugetconfig",
+                    configPath,
+                ],
+                requireAuthorization: true);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task SourceClientComposition_ConfiguredCredentialBypassesPluginProvider()
+    {
+        string packageName = $"ConfiguredBypass{Guid.NewGuid():N}";
+        string configPath = Path.Combine(
+            _testRoot,
+            "configured-bypass.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="{SecondSource}" />
+              </packageSources>
+              <packageSourceCredentials>
+                <private>
+                  <add key="Username" value="reader" />
+                  <add key="ClearTextPassword" value="secret" />
+                </private>
+              </packageSourceCredentials>
+            </configuration>
+            """);
+        var credentialSource = new RecordingCredentialSource();
+        var handler = new AuthenticationIsolationHandler(
+            SecondSource,
+            SecondFlatContainer,
+            packageName,
+            "2.0.0",
+            requireAuthentication: true);
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            _ => handler);
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                packageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { ConfigFile = configPath },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["2.0.0"], result.Versions);
+        Assert.True(handler.SawAuthorization);
+        Assert.Empty(credentialSource.Queries);
+    }
+
+    [Fact]
+    public async Task SourceClientComposition_QueryDistinctAuthoritiesKeepAuthenticationSeparate()
+    {
+        const string PrivateIndex =
+            "https://feed.example/v3/index.json?tenant=private";
+        const string AnonymousIndex =
+            "https://feed.example/v3/index.json?tenant=anonymous";
+        const string PrivateFlat = "https://feed.example/private/flat2/";
+        const string AnonymousFlat = "https://feed.example/anonymous/flat2/";
+        string packageName = $"ContextIsolation{Guid.NewGuid():N}";
+        string configPath = Path.Combine(
+            _testRoot,
+            "context-isolation.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="private" value="{PrivateIndex.Replace("&", "&amp;", StringComparison.Ordinal)}" />
+                <add key="anonymous" value="{AnonymousIndex.Replace("&", "&amp;", StringComparison.Ordinal)}" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="private"><package pattern="*" /></packageSource>
+                <packageSource key="anonymous"><package pattern="*" /></packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        var credentialSource = new RecordingCredentialSource();
+        var handlers = new Dictionary<string, AuthenticationIsolationHandler>(
+            StringComparer.Ordinal)
+        {
+            ["private"] = new(
+                PrivateIndex,
+                PrivateFlat,
+                packageName,
+                "2.0.0",
+                requireAuthentication: true),
+            ["anonymous"] = new(
+                AnonymousIndex,
+                AnonymousFlat,
+                packageName,
+                "1.0.0",
+                requireAuthentication: false),
+        };
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            source => handlers[source.Name]);
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                packageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { ConfigFile = configPath },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["2.0.0", "1.0.0"], result.Versions);
+        Assert.Equal(
+            PrivateIndex,
+            Assert.Single(credentialSource.Queries).AbsoluteUri);
+        Assert.True(handlers["private"].SawAuthorization);
+        Assert.False(handlers["anonymous"].SawAuthorization);
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_CanonicalGalleryExcludesUnlistedWithoutPluginContext()
+    {
+        const string PackageName = "gallery-listing-contract";
+        const string Flat =
+            "https://globalcdn.nuget.org/v3-flatcontainer/gallery-listing-contract/index.json";
+        const string Registration =
+            "https://globalcdn.nuget.org/v3/registration5-gz-semver2/gallery-listing-contract/index.json";
+        var credentialSource = new RecordingCredentialSource();
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentialSource,
+            _ => new CannedResponseHandler(
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [Flat] =
+                        """{"versions":["1.0.0","1.1.0","2.0.0-beta.1"]}""",
+                    [Registration] = """
+                        {
+                          "items": [
+                            {
+                              "items": [
+                                {"catalogEntry":{"version":"1.0","listed":true}},
+                                {"catalogEntry":{"version":"1.1.0","listed":false}},
+                                {"catalogEntry":{"version":"2.0.0-beta.1"}}
+                              ]
+                            }
+                          ]
+                        }
+                        """,
+                }));
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: true,
+                limit: null,
+                new NuGetSourceOptions
+                {
+                    Sources =
+                        ["https://api.nuget.org/v3/index.json"],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["2.0.0-beta.1", "1.0.0"], result.Versions);
+        Assert.Empty(credentialSource.Queries);
+    }
+
+    [Fact]
+    public async Task OperationContext_OperationTimeoutIsTerminalAcrossAuthorities()
+    {
+        string[] sources =
+        [
+            "https://success.example/v3/index.json",
+            "https://timeout-2.example/v3/index.json",
+            "https://timeout-3.example/v3/index.json",
+            "https://timeout-4.example/v3/index.json",
+            "https://timeout-5.example/v3/index.json",
+            "https://timeout-6.example/v3/index.json",
+        ];
+        var handlers = new List<NeverCompletesHandler>();
+        const string SuccessFlat = "https://success.example/v3/flat2/";
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromMilliseconds(50),
+            new UnavailableCredentialSource(),
+            source =>
+            {
+                if (source.Url == sources[0])
+                {
+                    return new CannedResponseHandler(
+                        new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [sources[0]] = $$"""
+                                {
+                                  "version": "3.0.0",
+                                  "resources": [
+                                    { "@id": "{{SuccessFlat}}", "@type": "PackageBaseAddress/3.0.0" }
+                                  ]
+                                }
+                                """,
+                            [$"{SuccessFlat}timeout-contract/index.json"] =
+                                """{"versions":["1.0.0"]}""",
+                        });
+                }
+
+                var handler = new NeverCompletesHandler();
+                handlers.Add(handler);
+                return handler;
+            });
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                "timeout-contract",
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = sources },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+        Assert.Equal(["1.0.0"], result.Versions);
+        Assert.Equal(sources.Length, result.Failures.Count);
+        Assert.All(
+            result.Failures,
+            failure => Assert.Equal(
+                PackageAuthorityFailureKind.Timeout,
+                failure.Kind));
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Message.Contains(
+                "operation deadline expired",
+                StringComparison.Ordinal));
+        Assert.InRange(
+            handlers.Sum(handler => handler.RequestCount),
+            low: 1,
+            high: sources.Length - 1);
+    }
+
+    [Fact]
+    public async Task OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling()
+    {
+        const string TimedOutSource =
+            "https://timeout.example/v3/index.json";
+        const string SuccessSource =
+            "https://success.example/v3/index.json";
+        const string SuccessFlat =
+            "https://success.example/v3/flat2/";
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromMilliseconds(50),
+            new UnavailableCredentialSource(),
+            source => source.Url == TimedOutSource
+                ? new NeverCompletesHandler()
+                : new CannedResponseHandler(
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [SuccessSource] = $$"""
+                            {
+                              "version": "3.0.0",
+                              "resources": [
+                                { "@id": "{{SuccessFlat}}", "@type": "PackageBaseAddress/3.0.0" }
+                              ]
+                            }
+                            """,
+                        [$"{SuccessFlat}timeout-failover/index.json"] =
+                            """{"versions":["1.0.0"]}""",
+                    }));
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                "timeout-failover",
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions
+                {
+                    Sources = [TimedOutSource, SuccessSource],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Partial, result.State);
+        Assert.Equal(["1.0.0"], result.Versions);
+        PackageAuthorityFailure failure = Assert.Single(result.Failures);
+        Assert.Equal(PackageAuthorityFailureKind.Timeout, failure.Kind);
+        Assert.Contains(TimedOutSource, failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SourceClassification_PlainDirectoryNeverConstructsHttpTransport()
+    {
+        string packageName = $"LocalDirectory{Guid.NewGuid():N}";
+        string localSource = Path.Combine(_testRoot, "local-source");
+        Directory.CreateDirectory(localSource);
+        bool transportCreated = false;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ =>
+            {
+                transportCreated = true;
+                return new HttpClientHandler();
+            });
+        try
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--source",
+                    localSource,
+                ]);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "does not support version enumeration",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Use a package source that supports version enumeration",
+                error,
+                StringComparison.Ordinal);
+            Assert.False(transportCreated);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
     }
 
     [Fact]
@@ -902,7 +1313,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
             string packageName,
             string version,
             string[] args,
-            HttpStatusCode? refusedStatus = null)
+            HttpStatusCode? refusedStatus = null,
+            bool requireAuthorization = false)
     {
         var requests = new ConcurrentQueue<string>();
         DotnetInspector.Core.HttpClientFactory.SetAuthenticationDecorator(
@@ -911,10 +1323,20 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 packageName,
                 version,
                 refusedStatus,
+                requireAuthorization,
                 requests,
                 innerHandler));
         DotnetInspector.Core.HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ => new VersionFeedHandler(
+                SecondSource,
+                packageName,
+                version,
+                refusedStatus,
+                requireAuthorization,
+                requests,
+                new HttpClientHandler()));
         try
         {
             var result = await RunCommandAsync(args);
@@ -955,6 +1377,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         string packageName,
         string version,
         HttpStatusCode? refusedStatus,
+        bool requireAuthorization,
         ConcurrentQueue<string> requests,
         HttpMessageHandler innerHandler)
         : DelegatingHandler(innerHandler)
@@ -965,6 +1388,17 @@ public sealed class SourceScopedRoutingTests : IDisposable
         {
             string url = request.RequestUri!.GetLeftPart(UriPartial.Path);
             requests.Enqueue(url);
+            if (requireAuthorization
+                && request.Headers.Authorization?.Scheme != "Basic")
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent(""),
+                    RequestMessage = request,
+                });
+            }
+
             if (refusedStatus is { } status
                 && url.StartsWith(
                     new Uri(RefusedSource).GetLeftPart(UriPartial.Authority),
@@ -979,6 +1413,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
             string? body = url switch
             {
+                _ when url.Equals(
+                    ExcludedSource,
+                    StringComparison.OrdinalIgnoreCase) => $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "{{ExcludedFlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """,
                 _ when url.Equals(
                     sourceUrl,
                     StringComparison.OrdinalIgnoreCase) => $$"""
@@ -1005,6 +1449,126 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 Content = new StringContent(body ?? ""),
                 RequestMessage = request,
             });
+        }
+    }
+
+    private sealed class RecordingCredentialSource : ICredentialSource
+    {
+        public List<Uri> Queries { get; } = [];
+        public bool HasCredentialSources => true;
+
+        public Task<NuGetFetch.PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            Queries.Add(uri);
+            return Task.FromResult<NuGetFetch.PackageSourceCredential?>(
+                new("reader", "token"));
+        }
+    }
+
+    private sealed class AuthenticationIsolationHandler(
+        string index,
+        string flatContainer,
+        string packageName,
+        string version,
+        bool requireAuthentication) : HttpMessageHandler
+    {
+        public bool SawAuthorization { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            bool hasAuthorization = request.Headers.Authorization is not null;
+            SawAuthorization |= hasAuthorization;
+            string url = request.RequestUri!.AbsoluteUri;
+            HttpResponseMessage response;
+            if (url.Equals(index, StringComparison.Ordinal))
+            {
+                response = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            { "@id": "{{flatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                          ]
+                        }
+                        """),
+                };
+            }
+            else if (url.Equals(
+                         $"{flatContainer}{packageName.ToLowerInvariant()}/index.json",
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(
+                    requireAuthentication && !hasAuthorization
+                        ? HttpStatusCode.Unauthorized
+                        : HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        requireAuthentication && !hasAuthorization
+                            ? ""
+                            : $$"""{"versions":["{{version}}"]}"""),
+                };
+            }
+            else
+            {
+                response = new HttpResponseMessage(HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class CannedResponseHandler(
+        IReadOnlyDictionary<string, string> responses) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            bool found = responses.TryGetValue(
+                request.RequestUri!.AbsoluteUri,
+                out string? body);
+            return Task.FromResult(new HttpResponseMessage(
+                found ? HttpStatusCode.OK : HttpStatusCode.NotFound)
+            {
+                Content = new StringContent(body ?? ""),
+                RequestMessage = request,
+            });
+        }
+    }
+
+    private sealed class UnavailableCredentialSource : ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<NuGetFetch.PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "An unavailable credential source must not be queried.");
+    }
+
+    private sealed class NeverCompletesHandler : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The request unexpectedly completed.");
         }
     }
 

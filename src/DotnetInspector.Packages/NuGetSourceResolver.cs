@@ -522,17 +522,20 @@ public static class NuGetSourceResolver
                     LocalPackageSourceIdentity.CreateAbsolute(right));
         }
 
-        return NuGetCredentialScope.IsSameEndpoint(left, right);
+        return ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource("left", left))
+            .Equals(ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource("right", right)));
     }
 
     private static List<NuGetSource> CollapseAliases(
         IReadOnlyList<NuGetSource> eligibleAliases,
         string packageId)
     {
-        List<NuGetSource> producers = [];
-        foreach (IGrouping<string, NuGetSource> aliases in eligibleAliases.GroupBy(
-            source => NuGetCache.GetSourceKey(source.Url),
-            StringComparer.Ordinal))
+        List<NuGetSource> authorities = [];
+        foreach (IGrouping<ConfiguredPackageAuthorityKey, NuGetSource> aliases
+                 in eligibleAliases.GroupBy(
+                     ConfiguredPackageAuthorityKey.Create))
         {
             NuGetSource first = aliases.First();
             if (aliases.Any(alias => alias.Credential != first.Credential))
@@ -543,9 +546,9 @@ public static class NuGetSourceResolver
                     + $"'{UrlRedaction.ForDiagnostics(first.Url)}', but those names use conflicting credentials.");
             }
 
-            producers.Add(first);
+            authorities.Add(first);
         }
 
-        return producers;
+        return authorities;
     }
 }

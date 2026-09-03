@@ -1475,6 +1475,77 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public void ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct()
+    {
+        using var config = new TempNuGetConfig(
+            [("first", "https://feed.example/v3/index.json?tenant=first"),
+             ("second", "https://feed.example/v3/index.json?tenant=second")],
+            mappings: [("first", "*"), ("second", "*")]);
+
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(["first", "second"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure()
+    {
+        const string FirstSecret = "credential-slot-first";
+        const string SecondSecret = "credential-slot-second";
+        ConfiguredPackageAuthorityKey first =
+            ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource(
+                    "first",
+                    $"https://feed.example/{FirstSecret}/index.json"));
+        ConfiguredPackageAuthorityKey second =
+            ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource(
+                    "second",
+                    $"https://feed.example/{SecondSecret}/index.json"));
+
+        Assert.NotEqual(first, second);
+        Assert.DoesNotContain(FirstSecret, first.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(SecondSecret, second.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_OneTrailingSlashAliasesCollapse()
+    {
+        using var config = new TempNuGetConfig(
+            [("bare", "https://feed.example/v3/index.json"),
+             ("slashed", "https://feed.example/v3/index.json/")],
+            mappings: [("bare", "*"), ("slashed", "*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal("bare", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_RepeatedTrailingSlashAuthorityRemainsDistinct()
+    {
+        using var config = new TempNuGetConfig(
+            [("slashed", "https://feed.example/v3/index.json/"),
+             ("repeated", "https://feed.example/v3/index.json//")],
+            mappings: [("slashed", "*"), ("repeated", "*")]);
+
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["slashed", "repeated"],
+            sources.Select(source => source.Name));
+    }
+
+    [Fact]
     public void ResolveSourcesForPackage_MappingCollapsesEquivalentLocalAliases()
     {
         string feed = Path.Combine(
