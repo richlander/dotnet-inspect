@@ -307,12 +307,15 @@ workspace-owned group objects whose participants carry registrations minted by
 that session. Ownership transfer requires the complete set of current dependent
 groups; later admission remains available for unrelated work but rejects a new
 group projected from that transferred session. It observes only those groups'
-owner-issued release receipts; an unrelated, foreign, or incomplete group set
-cannot authorize release. Cleanup failures compose with, and never replace,
-group cleanup results in the workspace close report. If coordinated group close
-or its synchronous release request faults, artifact cleanup still runs and its
-failures remain available from the terminal `CloseReport` before the original
-close failure is rethrown.
+exact admission-held physical-release settlements and typed close results; an
+unrelated, foreign, or incomplete group set cannot authorize release. Cleanup
+failures compose with, and never replace, group cleanup results in the workspace
+close report. A coordinated close-result fault cannot authorize artifact
+cleanup before physical group-release settlement, while a fault after
+settlement does not skip cleanup. A synchronous coordinated release-request
+fault before terminal release remains the close failure and keeps the artifact
+session live until the adjacent owner later establishes terminal settlement;
+artifact cleanup never becomes a second physical-release authority.
 
 ### Interaction model
 
@@ -2457,9 +2460,11 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce`
 - `WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces`
 - `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`
+- `RegisterArtifactSession_RejectsLaterCoordinatedGroup`
 - `WorkspaceClose_ReportsArtifactSessionCleanupFailure`
 - `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults`
-- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows`
+- `WorkspaceClose_WaitsForPhysicalReleaseWhenCoordinatedCloseFaultsEarly`
+- `WorkspaceClose_WaitsForCoordinatedOwnerAfterReleaseRequestThrows`
 - `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
 - `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
