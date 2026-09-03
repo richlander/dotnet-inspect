@@ -20,31 +20,37 @@ node=${NODE:-node}
 mode=write
 source_assembly="$engine_dll"
 contract_output=
+contract_version_prefix=
 case "${1:-}" in
   "")
     ;;
   --check)
     if [[ "$#" != 1 ]]; then
-      echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output>]" >&2
+      echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output> <version-prefix>]" >&2
       exit 1
     fi
     mode=check
     ;;
   --contract)
-    if [[ "$#" != 3 ]]; then
-      echo "Usage: generate-inspect-web-engine-facade.sh --contract <assembly> <declaration-output>" >&2
+    if [[ "$#" != 4 ]]; then
+      echo "Usage: generate-inspect-web-engine-facade.sh --contract <assembly> <declaration-output> <version-prefix>" >&2
       exit 1
     fi
     mode=contract
     source_assembly="$2"
     contract_output="$3"
+    contract_version_prefix="$4"
     if [[ ! -f "$source_assembly" ]]; then
       echo "Assembly not found: $source_assembly" >&2
       exit 1
     fi
+    if [[ -z "$contract_version_prefix" ]]; then
+      echo "Version prefix must not be empty." >&2
+      exit 1
+    fi
     ;;
   *)
-    echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output>]" >&2
+    echo "Usage: generate-inspect-web-engine-facade.sh [--check | --contract <assembly> <declaration-output> <version-prefix>]" >&2
     exit 1
     ;;
 esac
@@ -93,9 +99,14 @@ EOF
 
 context_output="$scratch/context-facades"
 source_assembly_directory="$(dirname "$source_assembly")"
+generator_build_properties=()
+if [[ -n "$contract_version_prefix" ]]; then
+  generator_build_properties+=("-p:VersionPrefix=$contract_version_prefix")
+fi
 "$dotnet" run \
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
+  "${generator_build_properties[@]}" \
   -- \
   "$source_assembly" \
   --context "$context_type" \
@@ -121,6 +132,7 @@ context_artifact="${context_artifacts[0]}"
   --project "$repo_root/src/ts-jsexport" \
   -c Release \
   --no-build \
+  "${generator_build_properties[@]}" \
   -- \
   "$source_assembly" \
   --runtime-module ./_framework/dotnet.js \
@@ -189,6 +201,32 @@ elif [[ "$mode" == check ]]; then
   if [[ "$drifted" != 0 ]]; then
     exit 1
   fi
+
+  version_prefix=$(
+    "$dotnet" msbuild \
+      "$repo_root/src/dotnet-inspect/dotnet-inspect.csproj" \
+      -getProperty:VersionPrefix \
+      -nologo
+  )
+  if [[ -z "$version_prefix" ]]; then
+    echo "The authoritative product VersionPrefix is empty." >&2
+    exit 1
+  fi
+  "$dotnet" build \
+    "$engine_csproj" \
+    -c Release \
+    -p:VersionPrefix="$version_prefix" >&2
+  versioned_contract="$scratch/inspect-web-engine.versioned.d.ts"
+  "$0" \
+    --contract \
+    "$engine_dll" \
+    "$versioned_contract" \
+    "$version_prefix" >&2
+  if ! cmp "$versioned_contract" "$dts_output_file"; then
+    echo "The deployment-version context changed the facade declaration." >&2
+    exit 1
+  fi
+
   echo "inspect-web TypeScript facade and compiler-derived artifacts are up to date."
 else
   cp "$scratch/inspect-web-engine.ts" "$ts_output_file"

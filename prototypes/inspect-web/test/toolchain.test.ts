@@ -1038,6 +1038,12 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /context_artifact_name="InspectWeb\.Engine\.ts"/);
   assert.match(
     engineGenerationScript,
+    /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
+  assert.match(
+    engineGenerationScript,
+    /-p:VersionPrefix="\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"/);
+  assert.match(
+    engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
   assert.match(
     engineGenerationScript,

@@ -1686,9 +1686,13 @@ intermediate assembly before packaging the shipped WebCIL. The gate generates a
 declaration from each pre-link assembly with
 `generate-inspect-web-engine-facade.sh --contract`, requires both to equal the
 checked-in declaration, and invokes the canary through the generated facade in
-each published WebCIL application. The schema-3 uploaded receipt records total,
-compiler-async, and runtime-async method counts, the verified repository project
-count, and the publish assembly, shipped WebCIL, and facade-contract digests.
+each published WebCIL application. The verifier carries the same authoritative
+product `VersionPrefix` used by the deployment build into `ts-jsexport`, so the
+compiled context and generator authenticate the same exact
+`TsJsExport.Contracts` assembly identity. The schema-3 uploaded receipt records
+total, compiler-async, and runtime-async method counts, the verified repository
+project count, and the publish assembly, shipped WebCIL, and facade-contract
+digests.
 Build, staging, and production artifact checks require the expected
 all-or-nothing lowering census and a nonempty verified project graph, require
 the one named WebCIL file, and recompute its digest without executing candidate
