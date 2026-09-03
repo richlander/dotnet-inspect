@@ -2684,7 +2684,9 @@ coordinate, content generation, selection, and exact physical correspondence.
 The replacement scope contract does not retain that resource-bearing value in
 a logical occurrence. It instead consumes the `ArtifactRootCorrespondence`
 and point-in-time `ArtifactRootScopeProjection` defined above; neither retains
-package content, contexts, sessions, leases, or access authority.
+package content, contexts, sessions, leases, or access authority. The scope
+owner separately composes its typed resource-free Root descriptor from the
+exact coordinate-owner facts returned by the source composition.
 
 The runtime-identity and close gates remain
 `WorkspaceIdentity_IsStableAndExactPerInstance`,

@@ -229,8 +229,8 @@ Artifact acquisition and package realization own package coordinate,
 identity currencies. The current #5656 substrate composes a Workspace-local
 occurrence with `PackageRootBinding`; Workspace Scope and Expansion replaces
 that resource-bearing association with a complete `WorkspaceRootOccurrence`
-containing its own identity and the adjacent owner's
-`ArtifactRootCorrespondence`, plus a point-in-time
+containing its own identity, typed `WorkspaceRootDescriptor`, and the adjacent
+owner's `ArtifactRootCorrespondence`, plus a point-in-time
 `ArtifactRootScopeProjection` in the occurrence descriptor. Navigation
 consumes those owner-issued exact values. A portable package coordinate alone
 cannot identify one retained occurrence.
@@ -316,8 +316,8 @@ The conceptual subject identity family is:
 | Kind | Identity components |
 | --- | --- |
 | Workspace | Artifact-owner `InspectionWorkspaceIdentity` established by #5508 |
-| Package | Complete scope-owner `WorkspaceRootOccurrence` for one package Root: occurrence identity plus separate `ArtifactRootCorrespondence` |
-| Root | Complete scope-owner `WorkspaceRootOccurrence` for one non-package Root: occurrence identity plus separate `ArtifactRootCorrespondence` |
+| Package | Complete scope-owner `WorkspaceRootOccurrence` whose separate `WorkspaceRootDescriptor` has the Package arm |
+| Root | Complete scope-owner `WorkspaceRootOccurrence` whose separate `WorkspaceRootDescriptor` has the NonPackage arm |
 | All Libraries | Exact Package or Root plus explicit aggregate Library identity |
 | One Library | Exact Package or Root plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |
@@ -439,7 +439,8 @@ identities through typed seams; browser display text never becomes a command
 currency.
 
 Retained-coordinate descriptors separately carry an owner-issued exact
-occurrence identity and owner order from
+`WorkspaceRootOccurrence`, including its typed Root descriptor, and owner order
+from
 [Workspace Scope and Expansion](workspace-scope-and-expansion.md), current
 realization status from
 [Artifact acquisition and workspace

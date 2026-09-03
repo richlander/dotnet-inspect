@@ -41,7 +41,8 @@ logical inspection scope of one exact runtime Workspace.
 It owns:
 
 - one immutable current `WorkspaceScopeRevision` per exact open Workspace;
-- ordered committed Root occurrences and their Workspace-bound identities;
+- ordered committed Root occurrences, typed Root descriptors, and their
+  Workspace-bound identities;
 - explicit Root addition, replacement, removal, and Clear operations;
 - registered typed dependency-expansion scopes;
 - the derived closed or selectively open boundary;
@@ -300,7 +301,12 @@ A committed Root occurrence is one exact logical membership issuance:
 ```text
 WorkspaceRootOccurrence
   Identity                Workspace-bound opaque occurrence identity
+  Root                    WorkspaceRootDescriptor
   Correspondence          ArtifactRootCorrespondence
+
+WorkspaceRootDescriptor
+  = Package(owner-issued exact resolved package and selection descriptor)
+  | NonPackage(owner-issued exact resource-free Root coordinate descriptor)
 ```
 
 `ArtifactRootCorrespondence` is issued and defined by
@@ -311,6 +317,21 @@ typed coordinate or selection inputs. The adjacent owner defines equality,
 exact request matching, process locality, and resource erasure. Display text,
 paths, assembly names, definition addresses, and row indexes are neither
 occurrence identity nor correspondence.
+
+`WorkspaceRootDescriptor` is the scope-owned composition of one adjacent
+coordinate owner's resource-free exact descriptor and one closed Package versus
+non-package discriminator. The package arm exposes the exact resolved package
+ID, version, target framework, and runtime selection facts needed by current
+inventory consumers. A non-package arm retains its coordinate owner's exact
+typed Root descriptor. This owner preserves those values; it does not parse,
+construct, compare, or infer an inner coordinate. Presentation owners derive
+labels from the typed descriptor, and Workspace Definitions separately decides
+which fields have a portable representation.
+
+The descriptor strongly owns no Root realization, package content, byte
+buffer, binding, assembly context, artifact session, lease, provisional
+receipt, delegate, or access authority. Retaining a descriptor therefore
+cannot prolong physical generation lifetime.
 
 An occurrence identity remains stable while that exact occurrence is retained
 across revisions. Removing it retires the occurrence. Re-adding an equal Root
@@ -386,7 +407,7 @@ equal scope returns `NoEffect` with the retained exact scope value.
 ### Closure observation and state
 
 Closure is one immutable observation over an exact logical revision and exact
-current physical bindings:
+evaluated physical generations:
 
 ```text
 WorkspaceClosureObservation
@@ -404,9 +425,10 @@ The observation identity is opaque, process-local, and fresh for every closure
 publication or invalidation. `EvaluatedRoots` records the exact non-retaining
 generation references covered by the dependency producer. It never contains a
 `Pending` or `Failed` occurrence. Initial or invalidated `ClosedBoundary`
-observations and every `NotEvaluated` observation have empty
-`EvaluatedRoots`; only an explicit dependency evaluation publishes non-empty
-coverage.
+observations and reset-created `NotEvaluated` observations have empty
+`EvaluatedRoots`. A `NotEvaluated` observation published by explicit expansion
+may retain the exact prior Ready-generation coverage while naming a remaining
+unevaluated frontier.
 
 Closure state describes what is known for that exact coverage:
 
@@ -415,7 +437,7 @@ WorkspaceClosureState
   = ClosedBoundary(observed outside-boundary evidence)
   | CompleteForObservedEvidence(declined outside-boundary evidence)
   | Incomplete(declined evidence, unsupported, rejections, failures, limits,
-      unevaluated newly admitted Roots)
+      unevaluated Root occurrences)
   | NotEvaluated(unevaluated Root occurrences,
       current-observation outside-boundary evidence)
 ```
@@ -427,11 +449,12 @@ closed boundary.
 
 `CompleteForObservedEvidence` is always bounded by the exact dependency query,
 evidence generation, expansion depth, and operation limits that produced it.
-It is available only when membership did not change and every eligible
-candidate in that evidence was already admitted or otherwise settled without
-adding a Root. Dependencies outside registered eligibility remain visible
-declined-boundary evidence without making the operation incomplete. It never
-means universal transitive closure for every possible query.
+It is available only when membership did not change, no current Root remains
+non-Ready, and every eligible candidate in that evidence was already admitted
+or otherwise settled without adding a Root. Dependencies outside registered
+eligibility remain visible declined-boundary evidence without making the
+operation incomplete. It never means universal transitive closure for every
+possible query.
 
 `Incomplete` retains exact external dependency evidence and the typed reason
 each eligible or possibly eligible candidate could not settle. An unsupported,
@@ -677,20 +700,29 @@ occurrences in request order.
 - A fully pinned owner-issued exact request for which Artifact Acquisition's
   exact request-matching operation returns a current occurrence's
   `ArtifactRootCorrespondence` produces no acquisition for that Root.
+- Exact duplicate requests inside the Add batch are reduced before capacity
+  reservation by the source owner's equality rules, preserving the first
+  request and its order.
 - A floating, range-based, or otherwise unresolved request must realize first.
   Exact post-realization correspondence with a current Root classifies that
   request as already present and releases the redundant provisional
   realization.
-- Before preparation, each unresolved request conservatively reserves one
-  potential new Root slot. An over-capacity batch is rejected without adjacent
-  work even when later realization might have proved a duplicate; callers may
-  submit a smaller batch.
+- Exact post-realization correspondence with an earlier request in the same
+  batch retains the first request, releases the later redundant provisional
+  realization, and creates no second occurrence.
+- User-activation intent naming a reduced or coalesced request resolves to that
+  first corresponding existing or newly admitted occurrence.
+- Before preparation, each unresolved request remaining after exact request
+  reduction conservatively reserves one potential new Root slot. An
+  over-capacity batch is rejected without adjacent work even when later
+  realization might have proved a duplicate; callers may submit a smaller
+  batch.
 - If the operation carries user-activation intent for an already present Root,
   the result returns that exact existing occurrence.
 - New Roots are prepared as one all-or-failure batch.
 - A failure in any required new Root leaves the whole prior revision current.
 - Successful publication retains existing occurrence identities and appends
-  every new occurrence atomically.
+  every distinct new correspondence atomically in first-request order.
 - The whole operation returns `NoEffect` only when every request corresponds to
   a current Root and no scope data changes. If any new Root is appended, the
   operation returns `Committed`, including when the same batch also contained
@@ -752,11 +784,12 @@ evidence contract:
    inconsistent evidence. The batch's source revision and closure observation
    must still be current, and its evaluated Roots must exactly equal every
    current `Ready` occurrence and generation reference in owner order. Any
-   `Pending` or `Failed` occurrence, omitted current Root, extra Root, reordered
-   Root, or replaced generation returns `Rejected(EvidenceMismatch)`. Recheck
-   the same correspondence immediately before publication. A mismatch after
-   preparation returns `Failed(RealizationChanged)`, releases every provisional
-   receipt, and publishes neither membership nor closure.
+   included `Pending` or `Failed` occurrence, omitted current `Ready` Root,
+   extra Root, reordered Root, or replaced generation returns
+   `Rejected(EvidenceMismatch)`. Recheck current projections and the same
+   correspondence immediately before publication. A mismatch after preparation
+   returns `Failed(RealizationChanged)`, releases every provisional receipt,
+   and publishes neither membership nor closure.
 2. When no expansion scopes are registered, classify every dependency as
    intentionally outside the boundary. Publish a fresh `ClosedBoundary`
    closure observation under the unchanged logical revision when that evidence
@@ -782,17 +815,21 @@ evidence contract:
 Unlike explicit Add or Replace, expansion may commit a bounded subset because
 its input is a sequence of independently discovered optional boundary
 candidates.
-When expansion appends any Root, the resulting membership contains a new
-unevaluated frontier. The resulting closure observation therefore uses
-`NotEvaluated` when all selected candidates settled, retaining the newly
-admitted occurrences and same-operation outside-boundary evidence in that
-state. Because the batch covered every prior Ready Root, no earlier frontier
-is silently discarded. It uses `Incomplete` when any potentially eligible
-candidate was unsupported, capacity-declined, bounded, rejected, or failed.
-That incomplete state also identifies every newly admitted unevaluated Root.
+The post-operation unevaluated frontier is every resulting occurrence that is
+currently `Pending` or `Failed` or was newly admitted, in owner order. The
+resulting closure observation uses `NotEvaluated` when all selected candidates
+settled and that frontier is non-empty. It retains the exact evaluated
+Ready-generation coverage and same-operation outside-boundary evidence.
+Because the batch covered every prior Ready Root and explicitly retains every
+non-Ready Root, no earlier frontier is silently discarded.
+
+The observation uses `Incomplete` when any potentially eligible candidate was
+unsupported, capacity-declined, producer-bounded, rejected, or failed. That
+state retains the same non-Ready/newly-admitted frontier in addition to the
+exact incomplete evidence.
 
 `CompleteForObservedEvidence` is published only when membership does not change
-and the exact complete current Ready Root coverage has no remaining frontier
+and the exact complete current Ready Root coverage has no non-Ready frontier
 after every eligible candidate was already admitted or otherwise settled and
 the producer reported no candidate- or depth-bound marker. Deliberately
 declined outside-boundary evidence remains visible in that complete state. When
@@ -886,10 +923,13 @@ This owner prepares no bytes and constructs no binding context. For Add,
 Replace Scope, or eligible expansion, it submits one complete logical candidate
 to the existing source and Artifact Acquisition composition.
 
-The adjacent result must provide:
+The adjacent composition must provide:
 
-- the exact realized Root and transient physical admission facts required by
-  the existing adoption path;
+- the adjacent coordinate owner's exact resource-free Root descriptor input
+  and Package versus non-package classification from which this owner composes
+  `WorkspaceRootDescriptor`;
+- the transient physical admission facts required by the existing adoption
+  path;
 - one `ArtifactRootCorrespondence` for each corresponding logical Root;
 - one point-in-time `ArtifactRootScopeProjection` for each admitted Root;
 - complete required-Root success or typed per-Root failure;
@@ -898,11 +938,12 @@ The adjacent result must provide:
 Artifact Acquisition defines correspondence construction, exact request
 matching, projection status, generation-reference issuance, currentness, and
 resource erasure. This owner validates every request through those owner
-operations, checks logical limits, then atomically asks Artifact Acquisition to
-adopt the provisional receipt and publishes only `WorkspaceRootOccurrence`
-values and the returned point-in-time projections. Any mismatch, stale
-completion, limit rejection, or publication failure releases the receipt and
-leaves the prior revision current.
+operations, including that the resolved descriptor input matches the returned
+correspondence, checks logical limits, then atomically asks Artifact Acquisition
+to adopt the provisional receipt and publishes only `WorkspaceRootOccurrence`
+values, including their typed Root descriptors, and the returned point-in-time
+projections. Any mismatch, stale completion, limit rejection, or publication
+failure releases the receipt and leaves the prior revision current.
 
 Artifact Acquisition remains authoritative for:
 
@@ -942,6 +983,7 @@ Before implementation, a focused TLA+ model under
 - one current revision per accepting runtime Workspace;
 - one current closure observation over that revision and its evaluated
   physical bindings;
+- complete resource-free typed Root descriptors for every committed occurrence;
 - at most one preparing mutation;
 - Replace Scope and Clear supersession;
 - stale and foreign completion rejection;
@@ -953,6 +995,8 @@ Before implementation, a focused TLA+ model under
 - cancellation and deadline settlement without publication;
 - no partial explicit Add or Replace Scope publication;
 - atomic bounded expansion publication with visible incomplete evidence;
+- no complete closure while a current non-Ready or newly admitted Root remains
+  unevaluated;
 - occurrence retention only through exact correspondence;
 - no operation after runtime close; and
 - eventual settlement of every admitted operation under fair adjacent-owner
@@ -972,9 +1016,12 @@ The implementation must demonstrate:
 | Case | Required result |
 | --- | --- |
 | Add the current registered Microsoft.Extensions descriptor to an empty Workspace | One complete revision containing every current descriptor member under the 32-Root logical profile and a controlled physical receipt |
+| Render the committed package and platform inventory after preparation resources release | Each occurrence retains a resource-free typed Root descriptor with its Package/non-package kind and exact owner-issued coordinate facts |
 | The eighth package in that set fails realization | No new revision; the prior scope remains current with the exact package failure |
 | Add a pinned exact package already present | No acquisition; `NoEffect` returns the existing exact occurrence |
 | Add a floating request that resolves to a package already present | Realization runs, exact correspondence returns `NoEffect`, and redundant provisional resources release |
+| Add two equal exact requests in one batch | The first request determines order; one occurrence is appended and no duplicate preparation runs |
+| Add two unresolved requests that realize to equal correspondence | The first realized request determines order; one occurrence is appended and the redundant provisional resource releases |
 | Slow Add completes after Clear | Clear remains current; the Add is superseded and releases its provisional resources |
 | User cancels a slow Add | The Add returns `Cancelled`, the prior revision remains current, and provisional resources release |
 | Prefix scope matches text but evidence is only an `AssemblyRef` | No expansion; the exact unsupported boundary remains visible |
@@ -988,6 +1035,7 @@ The implementation must demonstrate:
 | Closed Workspace evaluates external dependencies | A closure-only `ClosedBoundary` observation retains the observed outside-boundary evidence and invokes no source or artifact owner |
 | Dependency evidence covers only one of several current Ready Roots | `Rejected(EvidenceMismatch)`; the current unevaluated frontier remains visible |
 | A Root is re-realized after complete closure and before old evidence is submitted | The logical occurrence remains, closure becomes not evaluated for the replacement realization reference, and the old batch is rejected without publication |
+| One Root is Ready and another is Pending during expansion | Ready coverage is retained, the Pending occurrence remains in the unevaluated frontier, and closure cannot become complete |
 | Remove a package-prefix scope after prior expansion | Future matching stops; admitted Roots remain |
 | Register an expansion scope already present | `NoEffect` preserves the current closure observation |
 | Remove an expansion-scope value that is absent | `NoEffect` preserves the current revision and closure observation |
@@ -1012,12 +1060,14 @@ or artifact evidence later claimed by those owners.
 | `LogicalRevision_IsCompleteImmutableAndDistinct` | Every logical membership or expansion-policy publication returns one immutable complete revision with a fresh revision identity. |
 | `ClosureObservation_IsExactAndDistinct` | Every closure publication or invalidation carries a fresh identity, exact source revision, and exact evaluated Artifact Root generation references. |
 | `RetiredScopeState_RetainsNoArtifactResources` | Revisions, snapshots, closure observations, and operation results retain no Root realization, package content, binding, context, lease, or provisional receipt. |
+| `OccurrenceDescriptor_PreservesTypedRootFactsWithoutResources` | Every occurrence retains its Package/non-package discriminator and exact adjacent-owner coordinate descriptor without retaining a physical artifact resource. |
 | `OccurrenceIdentity_IsRetainedOnlyByExactCorrespondence` | Retained Roots keep exact occurrence identity; equal display coordinates or a later re-add do not recreate it. |
 | `ReplaceScope_IsAllOrFailureAndCoalescesExactCorrespondence` | Complete success atomically replaces Roots and expansion scopes, exact post-realization duplicates retain one first-ordered occurrence, redundant receipts release, and any required input failure leaves the prior revision and policy current. |
 | `OpenWithNoExpansionPolicy_DoesNotInheritPriorScopes` | Ordinary package Open supplies an empty policy and cannot retain a prefix or set from the prior scope. |
 | `AddRoots_IsAllOrFailureAndPreservesOrder` | New Roots append atomically in request order while existing occurrences retain identity. |
 | `AddPinnedExistingRoot_ReturnsExactOccurrenceWithoutPreparation` | A fully pinned exact duplicate Add performs no adjacent-owner work and returns the existing occurrence when activation was requested. |
 | `AddResolvedExistingRoot_ReleasesRedundantPreparation` | An unresolved request may realize to an existing exact Root, return its occurrence, and release the redundant provisional receipt. |
+| `AddDuplicateRequests_CoalesceBeforePublication` | Equal exact requests reduce before preparation, and unresolved requests that realize to equal correspondence retain one first-ordered occurrence while redundant resources release. |
 | `AddMixedExistingAndNewRoots_CommitsOnlyNewRoots` | Per-Root duplicate classification does not turn a mixed batch into operation-level `NoEffect`; every new Root commits atomically. |
 | `RemoveRoot_RequiresExactCurrentOccurrence` | Foreign, absent, or retired occurrences cannot remove a Root. |
 | `Clear_SupersedesPreparationAndCommitsEmptyClosedRevision` | Clear becomes current immediately and stale preparation cannot publish. |
@@ -1034,8 +1084,9 @@ or artifact evidence later claimed by those owners.
 | `PackageExpansion_RequiresOwnerIssuedCoordinateEvidence` | Package scopes cannot match assembly names, labels, or uncorrelated references. |
 | `Expansion_CommitsSuccessfulCandidatesWithExactIncompleteEvidence` | Successfully prepared selected candidates publish atomically; every unsupported, capacity-declined, rejected, or failed relationship and every producer-bound marker remains typed and visible. |
 | `Expansion_AddingRootsLeavesUnevaluatedFrontier` | A revision containing newly expanded Roots cannot claim those Roots were already evaluated. |
-| `Expansion_AddingRootsRetainsCurrentBoundaryEvidence` | A Root-adding expansion retains its new-Root frontier and same-operation outside-boundary evidence in one `NotEvaluated` state. |
-| `Expansion_AllEligibleCandidatesSettled_IsCompleteForObservedEvidence` | With unchanged membership and exact complete current Ready Root coverage, outside-boundary declines remain visible while closure is complete when every eligible candidate settled. |
+| `Expansion_AddingRootsRetainsCurrentBoundaryEvidence` | A Root-adding expansion retains exact prior Ready-generation coverage, its new-Root frontier, and same-operation outside-boundary evidence in one `NotEvaluated` state. |
+| `Expansion_NonReadyRootsRemainUnevaluated` | Evaluating every Ready Root retains each current Pending/Failed occurrence as an unevaluated frontier and cannot publish complete closure. |
+| `Expansion_AllEligibleCandidatesSettled_IsCompleteForObservedEvidence` | With unchanged membership, no non-Ready frontier, and exact complete current Ready Root coverage, outside-boundary declines remain visible while closure is complete when every eligible candidate settled. |
 | `Expansion_RejectsIncompleteOrStaleRootCoverage` | Omitted, reordered, non-Ready, extra, or physically replaced realization coverage cannot erase a frontier or publish closure. |
 | `Expansion_RealizationChangeBeforePublicationReleasesPreparation` | A physical-binding change after admission fails the operation, releases provisional receipts, and publishes neither membership nor closure. |
 | `Expansion_CoalescesExactCandidatesBeforeCapacity` | Relationship rows naming one exact acquisition coordinate consume one Root slot and retain all relationship evidence. |
