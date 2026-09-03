@@ -881,10 +881,9 @@ kbd {
 .api-row code { overflow: hidden; color: var(--text); font: 12px/1.5 var(--mono); white-space: nowrap; text-overflow: ellipsis; }
 .api-row small { color: var(--dim); font: 10px var(--mono); }
 .api-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; background: var(--bg); }
-.api-surface-head { min-width: 0; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.api-surface-head h1 { min-width: 0; margin: 0; font-size: 17px; letter-spacing: -.025em; }
+.api-surface-head { min-width: 0; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.api-surface-head h1 { min-width: 0; margin: 0; color: var(--muted); font: 10px var(--mono); font-weight: 400; letter-spacing: .12em; text-transform: uppercase; }
 .api-surface-head p { flex: none; display: flex; align-items: baseline; gap: 6px; margin: 0; color: var(--dim); font: 10px var(--mono); }
-.api-surface-head p strong { color: var(--text); font-size: 13px; font-weight: 500; }
 .api-surface-controls { margin: 0; border: 0; border-bottom: 1px solid var(--line); }
 .api-surface-controls .member-filter-disclosure { border-top: 0; }
 .api-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }

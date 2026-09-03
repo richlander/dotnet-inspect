@@ -4756,7 +4756,7 @@ test("type API reports the filtered member count once in its header", () => {
     /<h1 id="api-surface-title">Members<\/h1>/);
   assert.match(
     renderApi,
-    /<strong>\$\{visibleGroups\.length} of \$\{publicGroups\.length}<\/strong> member groups/);
+    /<p>\$\{visibleGroups\.length} of \$\{publicGroups\.length} member groups/);
   assert.doesNotMatch(renderApi, /member-filter-result/);
 });
 

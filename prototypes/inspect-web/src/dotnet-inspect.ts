@@ -4396,7 +4396,7 @@ function renderApiLens(item: AppTypeSurface) {
     <section class="api-surface" aria-labelledby="api-surface-title">
       <header class="api-surface-head">
         <h1 id="api-surface-title">Members</h1>
-        <p><strong>${visibleGroups.length} of ${publicGroups.length}</strong> member groups <span>· ${item.members} overloads</span></p>
+        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span></p>
       </header>
       <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
       <div class="api-surface-scroll">
