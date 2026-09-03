@@ -307,12 +307,15 @@ workspace-owned group objects whose participants carry registrations minted by
 that session. Ownership transfer requires the complete set of current dependent
 groups; later admission remains available for unrelated work but rejects a new
 group projected from that transferred session. It observes only those groups'
-owner-issued release receipts; an unrelated, foreign, or incomplete group set
-cannot authorize release. Cleanup failures compose with, and never replace,
-group cleanup results in the workspace close report. If coordinated group close
-or its synchronous release request faults, artifact cleanup still runs and its
-failures remain available from the terminal `CloseReport` before the original
-close failure is rethrown.
+exact admission-held physical-release settlements and typed close results; an
+unrelated, foreign, or incomplete group set cannot authorize release. Cleanup
+failures compose with, and never replace, group cleanup results in the workspace
+close report. A coordinated close-result fault cannot authorize artifact
+cleanup before physical group-release settlement, while a fault after
+settlement does not skip cleanup. A synchronous coordinated release-request
+fault before terminal release remains the close failure and keeps the artifact
+session live until the adjacent owner later establishes terminal settlement;
+artifact cleanup never becomes a second physical-release authority.
 
 ### Interaction model
 
@@ -2211,6 +2214,59 @@ match those source-specific provenance variants.
 
 ## Workspace and query boundary
 
+### Runtime Workspace and coordinate-occurrence identity
+
+`InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
+exact runtime instance. The identity is stable for that instance and differs
+from every replacement or independently opened Workspace, even when both were
+activated from equal portable
+`WorkspaceContextAddress` values. Definition IDs, context names, URLs, cache
+keys, and display text do not participate in runtime identity.
+
+While its state is `Open`, the Workspace may issue an opaque coordinate
+occurrence. Each issuance is distinct even for the same root currency, so a
+stale result cannot become current again merely because a root binding recurs.
+Synchronous `Dispose()` and asynchronous `CloseAsync()` stop issuance in the
+same critical section that changes the Workspace state to `Closing`. Existing
+identities remain comparable after close, but neither identity nor equality
+authorizes later Workspace operations or package-content access.
+
+The package arm is `PackageRootOccurrenceBinding`. It carries the exact
+Workspace identity and exact acquisition-issued `PackageRootBinding`.
+`PackageRootBinding` remains authoritative for package coordinate,
+content-generation, selection, and their correspondence. The occurrence adds
+only Workspace-local issuance identity; it does not mint a second package
+identity. The non-package arm is an opaque
+`NonPackageRootOccurrenceIdentity`; a later root adapter composes its own
+owner-issued root facts with that exact occurrence rather than deriving them
+from display or portable address fields.
+
+The currency contract is:
+
+| Property | Workspace identity | Coordinate occurrence |
+| --- | --- | --- |
+| Authority | Issued once by the exact `InspectionWorkspace` instance | Issued by that Workspace only while it is `Open` |
+| Scope | One runtime Workspace occurrence | One issuance inside one exact Workspace |
+| Lifetime | Equality remains meaningful after close; operations still require a live owner | Equality remains meaningful after close; use does not outlive owner authorization |
+| Portability | Process-local and never serialized | Process-local and never serialized |
+| Erasure | Carries no definition, context, inventory, or presentation facts | Carries no membership, order, status, successor, or presentation facts |
+| Rebinding | No value can reconstruct or rebind it in another Workspace | Only future Workspace membership operations may associate it with retained state |
+| Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same issuance; package correspondence additionally uses the exact carried `PackageRootBinding` |
+
+This first slice issues the currencies and enforces their construction
+lifetime. It does not yet claim that an issued occurrence is admitted or
+retained, expose ordered descriptors, define membership transition semantics,
+or implement Navigation adoption. Those remain later slices of #5508, #5583,
+and #5584. The gates are
+`WorkspaceIdentity_IsStableAndExactPerInstance`,
+`PackageOccurrence_IsExactPerIssuanceAndCarriesBinding`,
+`PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration`,
+`NonPackageOccurrence_IsExactAndWorkspaceScoped`,
+`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
+`AsynchronousClose_StopsOccurrenceIssuanceImmediately`.
+
+### Workspace composition and query execution
+
 The workspace owns one or more artifact set sessions and one or more assembly
 context groups. When an authorized query plan first demands a context, the
 artifact owner issues its admission lease; the context loader constructs and
@@ -2470,9 +2526,11 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce`
 - `WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces`
 - `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`
+- `RegisterArtifactSession_RejectsLaterCoordinatedGroup`
 - `WorkspaceClose_ReportsArtifactSessionCleanupFailure`
 - `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults`
-- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows`
+- `WorkspaceClose_WaitsForPhysicalReleaseWhenCoordinatedCloseFaultsEarly`
+- `WorkspaceClose_WaitsForCoordinatedOwnerAfterReleaseRequestThrows`
 - `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
 - `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`
