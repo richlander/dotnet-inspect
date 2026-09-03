@@ -552,11 +552,22 @@ public sealed class ResolvedAssemblyReference
             catch (BadImageFormatException)
             {
                 return RejectDescriptorSelection(
-                    "The selected managed image has an invalid metadata section.",
+                    "The selected PE image has invalid CLR or metadata structure.",
                     compatibilityException: null);
             }
             if (!hasMetadata)
             {
+                PEHeader? peHeader = peReader.PEHeaders.PEHeader;
+                if (peHeader is not null
+                    && (peHeader.CorHeaderTableDirectory
+                            .RelativeVirtualAddress != 0
+                        || peHeader.CorHeaderTableDirectory.Size != 0))
+                {
+                    return RejectDescriptorSelection(
+                        "The selected PE image has an invalid CLR header.",
+                        compatibilityException: null);
+                }
+
                 return new AssemblyDescriptorSelectionResult.Descriptorless(
                     compatibilityException: null);
             }

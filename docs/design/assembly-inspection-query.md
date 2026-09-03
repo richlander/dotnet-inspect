@@ -229,10 +229,12 @@ classification.
 The existing nullable factories are shims over this result while preserving
 their exact compatibility behavior: they return the descriptor, return `null`
 for images with no managed metadata, retain the prior non-assembly exception
-for managed netmodules, retain `null` for a recognized assembly with no usable
-identity, and rethrow the original metadata-decode exception for other
-`Rejected` results. Typed consumers receive `Descriptorless` for managed
-netmodules and `Rejected` for both rejected managed-assembly cases.
+for managed netmodules, and retain `null` for a recognized assembly with no
+usable identity or a structural PE/CLR rejection that has no original decode
+exception. Other `Rejected` results rethrow the original metadata-decode
+exception. Typed consumers receive `Descriptorless` for managed netmodules and
+`Rejected` for structural PE/CLR failures and unusable managed-assembly
+metadata or identity.
 Artifact-backed factories intentionally retain their existing nullable
 classification as well as their separate registration and MVID semantics;
 this compatibility correction does not change artifact selection.
@@ -249,6 +251,7 @@ selection contract is gated by
 `PathFactories_BlankAssemblyName_IsRejected`,
 `DescriptorSelection_RejectsMalformedManagedMetadata`,
 `DescriptorSelection_RejectsMalformedMetadataSection`,
+`DescriptorSelection_RejectsUnmappableCorHeader`,
 `DescriptorSelection_PreservesLegacyMetadataExceptionType`,
 `SelectFromStream_UsesTheSameTypedClassification`, and
 `SelectFromStream_InvalidOpenerRemainsVisible`,

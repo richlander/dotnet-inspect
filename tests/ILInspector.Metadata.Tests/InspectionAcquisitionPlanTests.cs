@@ -305,6 +305,61 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void DescriptorSelection_RejectsUnmappableCorHeader()
+    {
+        byte[] malformed = BuildUnmappableCorHeader();
+        using (var peReader = new PEReader(
+                   new MemoryStream(malformed, writable: false)))
+        {
+            Assert.False(peReader.HasMetadata);
+            Assert.NotEqual(
+                0,
+                peReader.PEHeaders.PEHeader?
+                    .CorHeaderTableDirectory.RelativeVirtualAddress);
+        }
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, malformed);
+
+            var pathRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                pathRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+
+            var streamRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromStream(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false),
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                streamRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void DescriptorSelection_PreservesLegacyMetadataExceptionType()
     {
         string path = Path.GetTempFileName();
@@ -2050,6 +2105,33 @@ public class InspectionAcquisitionPlanTests
         BinaryPrimitives.WriteInt32LittleEndian(
             bytes.AsSpan(corHeaderStart + 12, sizeof(int)),
             0);
+        return bytes;
+    }
+
+    static byte[] BuildUnmappableCorHeader()
+    {
+        byte[] bytes = SelfBytes();
+        int directoryOffset;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            PEHeader peHeader = peReader.PEHeaders.PEHeader
+                ?? throw new InvalidOperationException(
+                    "The test assembly has no PE header.");
+            int dataDirectoriesOffset =
+                peHeader.Magic == PEMagic.PE32Plus ? 112 : 96;
+            directoryOffset =
+                peReader.PEHeaders.PEHeaderStartOffset
+                + dataDirectoriesOffset
+                + (14 * 8);
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(directoryOffset, sizeof(int)),
+            int.MaxValue);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(directoryOffset + sizeof(int), sizeof(int)),
+            0x48);
         return bytes;
     }
 
