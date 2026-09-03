@@ -50,7 +50,8 @@ subject-transition graph.
 
 ## Product query
 
-The browser needs a comparison query distinct from the existing source query.
+The CLI and browser need a comparison query distinct from the existing source
+query.
 `AssemblyContextSourceQuery.ExecuteMemberAsync` preserves the behavior-safe
 Source default: it returns verified PDB source when available and decompiles
 only as a fallback. A diff request explicitly pays for both endpoints.
@@ -74,6 +75,10 @@ decompiler implementation.
 
 The comparison query is moderated and gesture-triggered. Ordinary Source
 requests remain unchanged and do not acquire or decompile a second endpoint.
+The first implementation slice migrates the CLI's existing Source Diff
+acquisition to this query while preserving its current summary, detailed
+Markout rendering, projections, and explicit unavailable outcomes. Inspect Web
+then consumes the same query through its browser export adapter.
 
 ## Browser transport
 
@@ -85,8 +90,9 @@ The DTO contains:
 - explicit comparison availability or failure;
 - browser-consumer accounting with added and removed counts plus separate Before
   and After cardinalities for changed and moved populations;
-- the complete `AnalysisDiff<string>` relation population projected as
-  endpoint coordinates plus content and placement classifications; and
+- the complete `AnalysisDiff<string>` relation population projected as three
+  distinct relation kinds, with content and placement classifications present
+  only on correspondences; and
 - the complete `MappedTextDiff` endpoint line sequences and changed ranges.
 
 The browser-local DTO is an adaptation boundary, not a parallel analytical
@@ -226,8 +232,8 @@ pathological gate:
 
 The implementation is delivered as focused stack slices:
 
-1. product member source-comparison query, typed browser export, and worker
-   operation;
+1. product member source-comparison query, CLI Source Diff migration, typed
+   browser export, and worker operation;
 2. member Diff section with unified and side-by-side rendering, change
    navigation, responsive fallback, and bounded large-input behavior; and
 3. producer-backed multi-subject `ComparisonDocument<T>` adoption plus the
@@ -243,6 +249,8 @@ The delivery names the following Release gates:
 
 - query tests prove both-endpoint success, identical text, PDB unavailable,
   decompilation unavailable, cancellation, and binding-policy invalidation;
+- CLI tests prove the migrated Source Diff path preserves its current summary,
+  detailed Markout output, non-text projections, and unavailable outcomes;
 - presentation tests prove the consumer accounting policy for one-sided,
   unequal changed, moved, and overlapping changed-plus-moved populations, and
   prove mapped ranges come from `TextAnalysisDiffPresentation`;
