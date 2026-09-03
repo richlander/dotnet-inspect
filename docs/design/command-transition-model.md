@@ -476,8 +476,12 @@ does not reinterpret them against another working directory. When package
 resolution used the ambient `NuGet.Config` hierarchy, the address also carries
 the absolute discovery directory through `--nugetconfig-directory`; replay
 discovers the same hierarchy rather than a hierarchy rooted at its later
-working directory
-(`Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory`). Relative
+working directory. This context is captured for every discovery source shape
+that can resolve package dependencies, including a local `.nupkg` and a
+directly named library whose global-cache location supplies package context
+(`Similar_AmbientNuGetConfigReplayRetainsTheDiscoveryDirectory`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`).
+Relative
 local source paths are likewise disclosed as their canonical absolute paths
 from the discovery working directory
 (`ReplaySources_MakesRelativeLocalSourcesIndependentOfTheNextWorkingDirectory`).
@@ -499,9 +503,10 @@ URL
 When range or floating resolution selects an exact version, only the sources
 that reported that selected version authorize its replay. The disclosure
 retains that selected producer set, not the wider source set that participated
-in discovery, while preserving the original config path for matching
-credentials and aliases
-(`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`).
+in discovery, while preserving the original config path or config-discovery
+directory for matching credentials, aliases, and mapping
+(`Similar_SelectedVersionProducer_ReplayReopensTheSamePayload`,
+`Similar_SelectedVersionReplayRetainsAmbientConfigDirectory`).
 That restriction belongs to the package identity whose version was selected.
 If a tool wrapper redirects acquisition to another package, the wrapper's
 reporting sources do not transfer to the target; replay of the final package
@@ -525,6 +530,7 @@ override also does not hide a retained target in the default secondary root
 (`ResolveAll_SourcePolicyUsesTheSameAdmittedCachePayloadAsPackageReplay`,
 `ListCachedPackageContent_UsesASecondaryGlobalPackagesRoot`,
 `Similar_PackageForwarderUsesOnlyAnAuthorizedDependencyPayload`,
+`Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy`,
 `Similar_PackageForwardedPopulation_DisclosesTheExactReplayAddress`,
 `Similar_PackageSameImage_DisclosesTheExactReplayAddress`). An image the caller
 supplied directly outlives the command and is disclosed by its canonical path

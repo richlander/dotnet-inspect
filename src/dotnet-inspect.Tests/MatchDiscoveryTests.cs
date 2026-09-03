@@ -1769,6 +1769,269 @@ public sealed class MatchDiscoveryTests
     }
 
     [Fact]
+    public async Task Similar_DirectCacheAndLocalPackageForwardersRetainAmbientSourcePolicy()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-ambient-forwarding-replay-{Guid.NewGuid():N}");
+        string appCache = Path.Combine(root, "app-cache");
+        string globalRoot = Path.Combine(root, "global");
+        string discoveryDirectory = Path.Combine(root, "discovery");
+        string replayDirectory = Path.Combine(root, "replay");
+        string rootPackageDirectory = Path.Combine(
+            globalRoot,
+            "forwarding.root",
+            "1.0.0");
+        string directFacade = Path.Combine(
+            rootPackageDirectory,
+            "lib",
+            "net10.0",
+            "Facade.dll");
+        string localPackage = Path.Combine(
+            discoveryDirectory,
+            "Forwarding.Root.1.0.0.nupkg");
+        string dependencyId = $"Forwarding.Ambient.{Guid.NewGuid():N}";
+        const string dependencyVersion = "1.0.0";
+        const string authorizedSource =
+            "https://ambient-authorized.invalid/v3/index.json";
+        const string unauthorizedSource =
+            "https://ambient-unauthorized.invalid/v3/index.json";
+        const string targetNamespace = "Forwarding.Ambient";
+        const string targetTypeName = "Sample";
+        string targetSelector = $"{targetNamespace}.{targetTypeName}.Seed";
+        string targetType = $"{targetNamespace}.{targetTypeName}";
+        string dependencyAsset = $"lib/net10.0/{dependencyId}.dll";
+        byte[] facadeImage = BuildForwarderFacade(
+            "Facade",
+            new AssemblyReferenceIdentity(
+                dependencyId,
+                new Version(1, 0, 0, 0),
+                Culture: null,
+                PublicKeyToken: null),
+            targetNamespace,
+            targetTypeName);
+        string rootNuspec =
+            $"""
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>Forwarding.Root</id>
+                <version>1.0.0</version>
+                <authors>dotnet-inspect tests</authors>
+                <description>ambient forwarding fixture</description>
+                <dependencies>
+                  <group targetFramework="net10.0">
+                    <dependency id="{dependencyId}" version="{dependencyVersion}" />
+                  </group>
+                </dependencies>
+              </metadata>
+            </package>
+            """;
+        string dependencyDirectory = Path.Combine(
+            globalRoot,
+            dependencyId.ToLowerInvariant(),
+            dependencyVersion);
+        string dependencyAssetPath = Path.Combine(
+            dependencyDirectory,
+            dependencyAsset.Replace('/', Path.DirectorySeparatorChar));
+        string metadataPath = Path.Combine(
+            dependencyDirectory,
+            ".nupkg.metadata");
+        string? previousNuGetPackages =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        string originalWorkingDirectory = Directory.GetCurrentDirectory();
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        Directory.CreateDirectory(Path.GetDirectoryName(directFacade)!);
+        Directory.CreateDirectory(discoveryDirectory);
+        Directory.CreateDirectory(replayDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(dependencyAssetPath)!);
+
+        try
+        {
+            File.WriteAllBytes(directFacade, facadeImage);
+            File.WriteAllText(
+                Path.Combine(rootPackageDirectory, "Forwarding.Root.nuspec"),
+                rootNuspec);
+            using (ZipArchive archive = ZipFile.Open(
+                       localPackage,
+                       ZipArchiveMode.Create))
+            {
+                ZipArchiveEntry facade =
+                    archive.CreateEntry("lib/net10.0/Facade.dll");
+                await using (Stream stream = facade.Open())
+                {
+                    await stream.WriteAsync(
+                        facadeImage,
+                        TestContext.Current.CancellationToken);
+                }
+
+                ZipArchiveEntry nuspec =
+                    archive.CreateEntry("Forwarding.Root.nuspec");
+                await using Stream stream2 = nuspec.Open();
+                await using var writer = new StreamWriter(stream2);
+                await writer.WriteAsync(rootNuspec);
+            }
+
+            File.WriteAllBytes(
+                dependencyAssetPath,
+                BuildMatchTargetAssembly(
+                    dependencyId,
+                    targetNamespace,
+                    targetTypeName));
+            File.WriteAllText(
+                Path.Combine(
+                    dependencyDirectory,
+                    $"{dependencyId}.nuspec"),
+                $"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{dependencyId}</id>
+                    <version>{dependencyVersion}</version>
+                    <authors>dotnet-inspect tests</authors>
+                    <description>ambient forwarding target</description>
+                  </metadata>
+                </package>
+                """);
+            File.WriteAllText(
+                Path.Combine(discoveryDirectory, "NuGet.Config"),
+                $"""
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="ambient" value="{authorizedSource}" />
+                  </packageSources>
+                  <packageSourceMapping>
+                    <packageSource key="ambient">
+                      <package pattern="{dependencyId}" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """);
+            File.WriteAllText(
+                metadataPath,
+                $$"""{"source":"{{unauthorizedSource}}"}""");
+
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                globalRoot);
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-ambient-forwarding-replay",
+                appCache,
+                skipNuGetCache: false);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            Directory.SetCurrentDirectory(discoveryDirectory);
+            string configDirectory = Directory.GetCurrentDirectory();
+            string[] directArguments =
+            [
+                "match",
+                targetSelector,
+                targetType,
+                "--similar",
+                "--library",
+                directFacade,
+                "--all",
+                "--json",
+            ];
+
+            var (unauthorizedExit, unauthorizedOutput, unauthorizedError) =
+                await RunCliAsync(directArguments);
+
+            Assert.True(
+                unauthorizedExit == 1,
+                $"Expected unavailable forwarding.\nOutput:\n{unauthorizedOutput}\nError:\n{unauthorizedError}");
+            Assert.Empty(unauthorizedOutput);
+            Assert.Contains("UnboundBinding", unauthorizedError);
+
+            File.WriteAllText(
+                metadataPath,
+                $$"""{"source":"{{authorizedSource}}"}""");
+            var (directExit, directOutput, directError) =
+                await RunCliAsync(directArguments);
+            var (localExit, localOutput, localError) =
+                await RunCliAsync(
+                    "match",
+                    targetSelector,
+                    targetType,
+                    "--similar",
+                    "--package",
+                    localPackage,
+                    "--library",
+                    "lib/net10.0/Facade.dll",
+                    "--all",
+                    "--json");
+
+            Assert.Equal(0, directExit);
+            Assert.Empty(directError);
+            Assert.Equal(0, localExit);
+            Assert.Empty(localError);
+            foreach (string output in new[] { directOutput, localOutput })
+            {
+                string disclosure = Parse(output)
+                    .GetProperty("disclosure")
+                    .GetString()!;
+                Assert.Contains(
+                    $"--package '{dependencyId.ToLowerInvariant()}@{dependencyVersion}'",
+                    disclosure);
+                Assert.Contains(
+                    $"--nugetconfig-directory {ShellCommandText.Quote(configDirectory)}",
+                    disclosure);
+            }
+
+            string candidateToken = Parse(localOutput)
+                .GetProperty("candidates")
+                .EnumerateArray()
+                .First()
+                .GetProperty("token")
+                .GetString()!;
+            string[] replayArguments =
+            [
+                "match",
+                targetSelector,
+                candidateToken,
+                "--package",
+                $"{dependencyId}@{dependencyVersion}",
+                "--library",
+                dependencyAsset,
+                "--tfm",
+                "net10.0",
+                "--all",
+                "--json",
+            ];
+            Directory.SetCurrentDirectory(replayDirectory);
+            var (replayExit, _, replayError) =
+                await RunCliAsync(
+                    [
+                        .. replayArguments,
+                        "--nugetconfig-directory",
+                        configDirectory,
+                    ]);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(replayArguments);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Equal(1, staleExit);
+            Assert.Contains("not available offline", staleError);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalWorkingDirectory);
+            Environment.SetEnvironmentVariable(
+                "NUGET_PACKAGES",
+                previousNuGetPackages);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReplayAddress_AppCachePathRequiresTypedPackageProvenance()
     {
         string cacheRoot = Path.Combine(
@@ -2155,6 +2418,173 @@ public sealed class MatchDiscoveryTests
         }
         finally
         {
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Similar_SelectedVersionReplayRetainsAmbientConfigDirectory()
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            $"match-selected-version-ambient-config-{Guid.NewGuid():N}");
+        string cacheRoot = Path.Combine(root, "cache");
+        string discoveryDirectory = Path.Combine(root, "discovery");
+        string replayDirectory = Path.Combine(root, "replay");
+        string packageName = $"Match.Selected.Ambient.{Guid.NewGuid():N}";
+        const string version = "1.0.0";
+        string asset = $"lib/net10.0/{Path.GetFileName(TestAssembly)}";
+        string originalWorkingDirectory = Directory.GetCurrentDirectory();
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        Directory.CreateDirectory(discoveryDirectory);
+        Directory.CreateDirectory(replayDirectory);
+        using var feed = new RangeReplayFeed(packageName, version);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(discoveryDirectory, "NuGet.Config"),
+                $"""
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="feed-a" value="{feed.SourceA}" />
+                    <add key="feed-b" value="{feed.SourceB}" />
+                  </packageSources>
+                </configuration>
+                """);
+            File.WriteAllText(
+                Path.Combine(replayDirectory, "NuGet.Config"),
+                $"""
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="blocked" value="https://blocked.invalid/v3/index.json" />
+                  </packageSources>
+                  <packageSourceMapping>
+                    <packageSource key="blocked">
+                      <package pattern="{packageName}" />
+                    </packageSource>
+                  </packageSourceMapping>
+                </configuration>
+                """);
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = false });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-match-selected-version-ambient-config",
+                cacheRoot,
+                skipNuGetCache: true);
+            string packageA = CreatePackageArchive(
+                root,
+                "package-a",
+                packageName,
+                version,
+                asset,
+                [1, 2, 3, 4]);
+            string packageB = CreatePackageArchive(
+                root,
+                "package-b",
+                packageName,
+                version,
+                asset,
+                File.ReadAllBytes(TestAssembly));
+            CommitCachedPackage(
+                root,
+                "staged-a",
+                packageA,
+                packageName,
+                version,
+                feed.SourceA);
+            CommitCachedPackage(
+                root,
+                "staged-b",
+                packageB,
+                packageName,
+                version,
+                feed.SourceB);
+
+            Directory.SetCurrentDirectory(discoveryDirectory);
+            string configDirectory = Directory.GetCurrentDirectory();
+            var (discoveryExit, discoveryOutput, discoveryError) =
+                await RunCliAsync(
+                    "match",
+                    SampleSeed,
+                    "--similar",
+                    "--package",
+                    packageName,
+                    "--library",
+                    asset,
+                    "--all",
+                    "--json");
+
+            Assert.True(
+                discoveryExit == 0,
+                $"Expected discovery success, got {discoveryExit}: {discoveryError}");
+            Assert.Empty(discoveryError);
+            JsonElement discovery = Parse(discoveryOutput);
+            string disclosure = discovery
+                .GetProperty("disclosure")
+                .GetString()!;
+            Assert.Contains(
+                $"--source {ShellCommandText.Quote(feed.SourceB)}",
+                disclosure);
+            Assert.Contains(
+                $"--nugetconfig-directory {ShellCommandText.Quote(configDirectory)}",
+                disclosure);
+            string candidateToken = discovery.GetProperty("candidates")
+                .EnumerateArray()
+                .Single(candidate => candidate.GetProperty("member").GetString()!
+                    .EndsWith(".ExactPeer", StringComparison.Ordinal))
+                .GetProperty("token")
+                .GetString()!;
+
+            Core.HttpClientFactory.Initialize(
+                new Core.HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            Directory.SetCurrentDirectory(replayDirectory);
+            string[] replayArguments =
+            [
+                "match",
+                SampleSeed,
+                candidateToken,
+                "--package",
+                $"{packageName}@{version}",
+                "--library",
+                asset,
+                "--tfm",
+                "net10.0",
+                "--all",
+                "--json",
+                "--source",
+                feed.SourceB,
+            ];
+            var (replayExit, replayOutput, replayError) =
+                await RunCliAsync(
+                    [
+                        .. replayArguments,
+                        "--nugetconfig-directory",
+                        configDirectory,
+                    ]);
+            var (staleExit, _, staleError) =
+                await RunCliAsync(replayArguments);
+
+            Assert.Equal(0, replayExit);
+            Assert.Empty(replayError);
+            Assert.Equal(
+                "Exact",
+                Parse(replayOutput).GetProperty("relation").GetString());
+            Assert.Equal(1, staleExit);
+            Assert.Contains("maps to source", staleError);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalWorkingDirectory);
             Core.HttpClientFactory.Initialize(
                 new Core.HttpClientFactoryOptions { Offline = wasOffline });
             Core.HttpClientFactory.ResetSharedForTesting();

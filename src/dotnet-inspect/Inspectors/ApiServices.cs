@@ -58,7 +58,8 @@ internal static class ApiServices
         string? selectedTfm,
         VerboseLogger logger,
         ApiOptions options,
-        string? packageExtractPath = null)
+        string? packageExtractPath = null,
+        bool usePackageSourcePolicy = false)
     {
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
@@ -85,7 +86,8 @@ internal static class ApiServices
                     options.PlatformFramework,
                     packageExtractPath,
                     options.SourceOptions,
-                    usePackageSourcePolicy: packageExtractPath is not null);
+                    usePackageSourcePolicy:
+                        usePackageSourcePolicy || packageExtractPath is not null);
         ApiSurface? api =
             resolution is not null
                 ? resolution.ExtractApiSurface(

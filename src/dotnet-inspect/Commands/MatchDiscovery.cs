@@ -79,46 +79,45 @@ internal static class MatchDiscovery
             return 1;
         }
 
-        if (options.PackagePath is string packagePath
-            && !packagePath.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
+        NuGetSourceOptions sourceOptions =
+            options.SourceOptions ?? NuGetSourceOptions.Default;
+        if (sourceOptions.ConfigFile is null)
         {
-            NuGetSourceOptions sourceOptions =
-                options.SourceOptions ?? NuGetSourceOptions.Default;
-            if (sourceOptions.ConfigFile is null)
+            string configDirectory;
+            try
             {
-                string configDirectory;
-                try
-                {
-                    configDirectory = Path.GetFullPath(
-                        sourceOptions.ConfigDirectory ?? replayWorkingDirectory,
-                        replayWorkingDirectory);
-                }
-                catch (Exception ex) when (ex is
-                    ArgumentException
-                    or IOException
-                    or NotSupportedException)
-                {
-                    CommandError.Write(
-                        "--nugetconfig-directory must identify a usable directory.");
-                    return 1;
-                }
-
-                if (!Directory.Exists(configDirectory))
-                {
-                    CommandError.Write(
-                        $"NuGet config discovery directory not found: '{configDirectory}'.");
-                    return 1;
-                }
-
-                options = options with
-                {
-                    SourceOptions = sourceOptions with
-                    {
-                        ConfigDirectory = configDirectory,
-                    },
-                };
+                configDirectory = Path.GetFullPath(
+                    sourceOptions.ConfigDirectory ?? replayWorkingDirectory,
+                    replayWorkingDirectory);
+            }
+            catch (Exception ex) when (ex is
+                ArgumentException
+                or IOException
+                or NotSupportedException)
+            {
+                CommandError.Write(
+                    "--nugetconfig-directory must identify a usable directory.");
+                return 1;
             }
 
+            if (!Directory.Exists(configDirectory))
+            {
+                CommandError.Write(
+                    $"NuGet config discovery directory not found: '{configDirectory}'.");
+                return 1;
+            }
+
+            options = options with
+            {
+                SourceOptions = sourceOptions with
+                {
+                    ConfigDirectory = configDirectory,
+                },
+            };
+        }
+
+        if (options.PackagePath is not null)
+        {
             if (!TryGetReplaySources(
                     options.SourceOptions,
                     out _,
@@ -642,6 +641,7 @@ internal static class MatchDiscovery
         {
             Sources = [.. reportingSourceUrls],
             ConfigFile = original?.ConfigFile,
+            ConfigDirectory = original?.ConfigDirectory,
         };
     }
 
@@ -875,7 +875,8 @@ internal static class MatchDiscovery
         ApiServices.LoadedApiSurface? loaded = ApiServices.LoadFullApi(
             source.SearchPath, source.RuntimeAssemblyPath, sideOptions.PackagePath,
             source.PackageName, source.ApiSource, source.ApiVersion, source.SelectedTfm,
-            source.Context.Logger, sideOptions, source.PackageExtractPath);
+            source.Context.Logger, sideOptions, source.PackageExtractPath,
+            usePackageSourcePolicy: true);
         if (loaded is null)
         {
             CommandError.Write("Could not extract API from library.");
