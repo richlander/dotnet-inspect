@@ -614,17 +614,22 @@ while IFS= read -r -d '' file; do
   # CodeQL lane selection. CodeQL analyzes whole source trees, so each lane
   # is selected by the extensions its extractor reads rather than by the
   # project graph the build gates use. A lane that runs when it did not have
-  # to costs analysis minutes; a lane that fails to run leaves an unscanned
-  # change until the next push to the default branch re-analyzes everything.
-  case "$file" in
+  # to costs analysis minutes; a lane that fails to run leaves the change
+  # unscanned until the weekly full analysis in codeql-scheduled.yml, because
+  # a push to the default branch applies this same routing rather than
+  # re-analyzing the whole tree. Matching folds case so that an uppercase
+  # extension cannot silently skip a lane.
+  case "$file_lower" in
     *.cs|*.csx|*.csproj|*.props|*.targets|*.slnx|*.sln|global.json) \
       CODEQLCSHARP=true ;;
   esac
-  case "$file" in
+  case "$file_lower" in
     *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.mts|*.cts|*.html|*.htm) \
       CODEQLJAVASCRIPT=true ;;
+    # Dependency and compiler inputs change what the extractor resolves.
+    *package.json|*tsconfig*.json) CODEQLJAVASCRIPT=true ;;
   esac
-  case "$file" in
+  case "$file_lower" in
     *.yml|*.yaml) CODEQLACTIONS=true ;;
   esac
 done < "$DECODED_FILES"

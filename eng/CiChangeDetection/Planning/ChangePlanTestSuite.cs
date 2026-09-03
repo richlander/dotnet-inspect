@@ -212,6 +212,12 @@ internal static class ChangePlanTestSuite
             ("misc/probe.html", "codeqljavascript"),
             ("misc/probe.htm", "codeqljavascript"),
             ("misc/config.yaml", "codeqlactions"),
+            // Case folding: an uppercase extension must not skip a lane.
+            ("misc/probe.CS", "codeqlcsharp"),
+            ("misc/probe.JS", "codeqljavascript"),
+            // Dependency and compiler inputs for the JavaScript extractor.
+            ("misc/package.json", "codeqljavascript"),
+            ("misc/tsconfig.node.json", "codeqljavascript"),
             ("misc/notes.rst", ""),
         ];
 

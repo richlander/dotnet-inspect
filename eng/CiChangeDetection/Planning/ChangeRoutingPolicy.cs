@@ -183,14 +183,18 @@ internal sealed class ChangeRoutingPolicy
     // extensions its extractor reads rather than by the project graph the
     // build gates use. The lists are deliberately whole extension families:
     // a lane that runs when it did not have to costs analysis minutes, while
-    // a lane that fails to run leaves an unscanned change until the next
-    // push to the default branch re-analyzes the whole tree.
+    // a lane that fails to run leaves the change unscanned until the weekly
+    // full analysis in codeql-scheduled.yml. A push to the default branch
+    // applies this same routing rather than re-analyzing the whole tree, so
+    // the scheduled scan is the only routing-independent backstop.
     private static void RouteCodeql(
         ReadOnlySpan<byte> path,
         ref RoutingState state)
     {
+        // Folded so that an uppercase extension cannot silently skip a lane.
+        ReadOnlySpan<byte> folded = BytePattern.AsciiFold(path);
         if (BytePattern.MatchesAny(
-            path,
+            folded,
             "*.cs",
             "*.csx",
             "*.csproj",
@@ -207,7 +211,7 @@ internal sealed class ChangeRoutingPolicy
         }
 
         if (BytePattern.MatchesAny(
-            path,
+            folded,
             "*.js",
             "*.jsx",
             "*.mjs",
@@ -219,12 +223,16 @@ internal sealed class ChangeRoutingPolicy
             // The JavaScript extractor also reads script content embedded in
             // HTML, which this repository's browser pages carry.
             "*.html",
-            "*.htm"))
+            "*.htm",
+            // Dependency and compiler inputs decide what the extractor
+            // resolves, in the same way the MSBuild inputs do for C#.
+            "*package.json",
+            "*tsconfig*.json"))
         {
             state.CodeqlJavaScript = true;
         }
 
-        if (BytePattern.MatchesAny(path, "*.yml", "*.yaml"))
+        if (BytePattern.MatchesAny(folded, "*.yml", "*.yaml"))
         {
             state.CodeqlActions = true;
         }

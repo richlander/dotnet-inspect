@@ -1388,10 +1388,10 @@ jobs:
   #
   # These lanes are not gated on the pre-merge event. Code scanning alerts are
   # reported against the default branch, so skipping analysis on pushes to
-  # main would freeze that baseline at whatever last ran before a merge. The
-  # same property bounds a mis-routed lane: a push to main re-analyzes the
-  # whole tree, so a missed pull-request lane delays a finding to merge time
-  # rather than losing it.
+  # main would freeze that baseline at whatever last ran before a merge. A
+  # push applies this same routing rather than re-analyzing the whole tree, so
+  # it does not bound a mis-routed lane; the weekly full analysis in
+  # codeql-scheduled.yml is that bound.
   codeql-actions:
     needs: changes
     if: fromJSON(needs.changes.outputs.plan).validations.codeqlActions
