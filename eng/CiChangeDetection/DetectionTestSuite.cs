@@ -5,12 +5,45 @@ namespace CiChangeDetection;
 
 internal static class DetectionTestSuite
 {
-    internal static void Run(
-        string repository,
-        WorkflowContractResult contract)
+    private static readonly string[] ExpectedOutputs =
+    [
+        "code",
+        "csharpdiff",
+        "decompiler",
+        "docs",
+        "ildiff",
+        "ilroundtrip",
+        "packaging",
+        "shipped",
+        "web",
+        "skills",
+        "tla",
+    ];
+
+    internal static void Run(string repository)
     {
-        string body = contract.DetectionBody;
-        IReadOnlyCollection<string> outputs = contract.Outputs;
+        const string DetectionScript = "eng/ci-detect-changes.sh";
+        string scriptPath = Path.Combine(repository, DetectionScript);
+        string body = File.ReadAllText(scriptPath);
+        if (body.Length == 0
+            || !body.StartsWith(
+                "#!/usr/bin/env bash\nset -e -o pipefail\n",
+                StringComparison.Ordinal)
+            || body.Contains("${{", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The legacy classifier must remain a standalone fail-closed "
+                + "Bash parity oracle.");
+        }
+        if (!OperatingSystem.IsWindows()
+            && (File.GetUnixFileMode(scriptPath)
+                & UnixFileMode.UserExecute) == 0)
+        {
+            throw new InvalidOperationException(
+                "The legacy classifier parity oracle must be executable.");
+        }
+
+        IReadOnlyCollection<string> outputs = ExpectedOutputs;
 
         AssertAll(
             RunDetection(
@@ -950,6 +983,25 @@ internal static class DetectionTestSuite
             packageManifestCorpusVerifier,
             selected: "code",
             notSelected: "docs");
+
+        foreach (string dependencyPolicyInput in new[]
+        {
+            "eng/dependency-policy.json",
+            "eng/DependencyPolicy/PolicyEvaluator.cs",
+            "eng/DependencyPolicy.Tests/PolicyEvaluatorTests.cs",
+        })
+        {
+            Dictionary<string, string> dependencyPolicy = RunDetection(
+                repository,
+                body,
+                "pull_request",
+                dependencyPolicyInput,
+                outputs);
+            AssertRouting(
+                dependencyPolicy,
+                selected: "code",
+                notSelected: "docs");
+        }
 
         Dictionary<string, string> workflow = RunDetection(
             repository,

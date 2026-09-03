@@ -43,12 +43,12 @@ public sealed class ArrayKindIdentityTests
             Assert.Single(md1.SignatureModel!.Parameters);
         Assert.Equal("int[*]", md1Parameter.Type);
         Assert.Equal("int[*]", md1Parameter.EffectiveCanonicalType);
-        Assert.Null(md1Parameter.StructuralType);
+        Assert.Equal("System.Int32[*]", md1Parameter.StructuralType);
         AssertDecodedParameterStructuralIdentity(
             reader,
             typeHandle,
             "Md1",
-            "System.Int32[]");
+            "System.Int32[*]");
 
         Assert.Equal(
             md1Parameter.EffectiveCanonicalType,
@@ -59,7 +59,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "Md1Twin",
-            "System.Int32[]");
+            "System.Int32[*]");
 
         ApiMember md2 = Member(type, "Md2");
         ApiParameter md2Parameter =
@@ -90,7 +90,9 @@ public sealed class ArrayKindIdentityTests
             "Nested",
             "System.Collections.Generic.List<int[*]>",
             "System.Collections.Generic.List<int[*]>",
-            "System.Collections.Generic.List{System.Int32[]}");
+            "System.Collections.Generic.List{System.Int32[*]}",
+            emittedStructural:
+                "System.Collections.Generic.List{System.Int32[*]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -98,7 +100,8 @@ public sealed class ArrayKindIdentityTests
             "Pointer",
             "int[*]*",
             "int[*]*",
-            "System.Int32[]*");
+            "System.Int32[*]*",
+            emittedStructural: "System.Int32[*]*");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -106,8 +109,9 @@ public sealed class ArrayKindIdentityTests
             "ByRef",
             "int[*]",
             "int[*]",
-            "System.Int32[]@",
-            modifier: "ref");
+            "System.Int32[*]@",
+            modifier: "ref",
+            emittedStructural: "System.Int32[*]@");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -115,7 +119,9 @@ public sealed class ArrayKindIdentityTests
             "Tuple",
             "(int[*], int[])",
             "System.ValueTuple<int[*], int[]>",
-            "System.ValueTuple{System.Int32[],System.Int32[]}");
+            "System.ValueTuple{System.Int32[*],System.Int32[]}",
+            emittedStructural:
+                "System.ValueTuple{System.Int32[*],System.Int32[]}");
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -123,9 +129,12 @@ public sealed class ArrayKindIdentityTests
             "Generic",
             "T[*]",
             "T[*]",
-            "M0[]");
-        const string modifiedArrayStructural =
+            "M0[*]",
+            emittedStructural: "M0[*]");
+        const string modifiedVectorStructural =
             "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][]";
+        const string modifiedMd1Structural =
+            "modreq{System.Runtime.CompilerServices.IsVolatile}{System.Int32}[][*]";
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -133,8 +142,8 @@ public sealed class ArrayKindIdentityTests
             "ModifiedVector",
             "int[][]",
             "int[][]",
-            modifiedArrayStructural,
-            emittedStructural: modifiedArrayStructural);
+            modifiedVectorStructural,
+            emittedStructural: modifiedVectorStructural);
         AssertParameterIdentity(
             reader,
             typeHandle,
@@ -142,8 +151,8 @@ public sealed class ArrayKindIdentityTests
             "ModifiedMd1",
             "int[][*]",
             "int[][*]",
-            modifiedArrayStructural,
-            emittedStructural: modifiedArrayStructural);
+            modifiedMd1Structural,
+            emittedStructural: modifiedMd1Structural);
 
         ApiTypeShape vectorShape = ReturnShape(type, "ReturnVector");
         ApiTypeShape vectorTwinShape = ReturnShape(type, "ReturnVectorTwin");
@@ -157,7 +166,8 @@ public sealed class ArrayKindIdentityTests
         Assert.Equal(1, md1Shape.ArrayRank);
         Assert.Null(
             Member(type, "ReturnVector").SignatureModel!.StructuralReturnType);
-        Assert.Null(
+        Assert.Equal(
+            "System.Int32[*]",
             Member(type, "ReturnMd1").SignatureModel!.StructuralReturnType);
         Assert.Null(
             Member(type, "ReturnMd2").SignatureModel!.StructuralReturnType);
@@ -170,7 +180,7 @@ public sealed class ArrayKindIdentityTests
             reader,
             typeHandle,
             "ReturnMd1",
-            "System.Int32[]");
+            "System.Int32[*]");
         AssertDecodedReturnStructuralIdentity(
             reader,
             typeHandle,

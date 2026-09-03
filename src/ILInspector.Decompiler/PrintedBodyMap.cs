@@ -1,5 +1,6 @@
 using ILInspector.Decompiler.Annotations;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 
 namespace ILInspector.Decompiler;
 
@@ -58,7 +59,10 @@ public readonly record struct PrintedAnnotationSpan(
     PrintedExtent? Extent,
     string? Detail,
     int SourceOffset,
-    int? NodeId);
+    int? NodeId)
+{
+    internal FindingInstanceKey? InstanceKey { get; init; }
+}
 
 /// <summary>Which syntactic part of a compound construct a printed region represents.</summary>
 public enum PrintedRegionRole
@@ -269,8 +273,18 @@ public sealed record PrintedBodyMap
         if (c != 0) return c;
         c = string.CompareOrdinal(a.Detail, b.Detail);
         if (c != 0) return c;
-        return Nullable.Compare(a.NodeId, b.NodeId);
+        c = Nullable.Compare(a.NodeId, b.NodeId);
+        return c != 0 ? c : Compare(a.InstanceKey, b.InstanceKey);
     }
+
+    static int Compare(
+        FindingInstanceKey? left,
+        FindingInstanceKey? right)
+        => left is null
+            ? right is null ? 0 : 1
+            : right is null
+                ? -1
+                : left.Value.Value.CompareTo(right.Value.Value);
 
     /// <summary>An empty map.</summary>
     public static PrintedBodyMap Empty { get; } = new([], [], [], []);
@@ -463,6 +477,19 @@ public sealed record PrintedBodyMap
         IrFunction function,
         IReadOnlyList<IAnnotation> annotations,
         IReadOnlySet<int>? provenanceOffsetAllowList = null)
+        => Create(
+            ranges,
+            function,
+            annotations,
+            provenanceOffsetAllowList,
+            instanceKey: null);
+
+    internal static PrintedBodyMap Create(
+        PrintedRangeMap ranges,
+        IrFunction function,
+        IReadOnlyList<IAnnotation> annotations,
+        IReadOnlySet<int>? provenanceOffsetAllowList,
+        Func<IAnnotation, FindingInstanceKey?>? instanceKey)
     {
         ArgumentNullException.ThrowIfNull(ranges);
         ArgumentNullException.ThrowIfNull(function);
@@ -507,7 +534,10 @@ public sealed record PrintedBodyMap
                 extent,
                 annotation.Detail,
                 annotation.SourceOffset,
-                nodeId));
+                nodeId)
+            {
+                InstanceKey = instanceKey?.Invoke(annotation),
+            });
         }
         facts.Sort(Compare);
 

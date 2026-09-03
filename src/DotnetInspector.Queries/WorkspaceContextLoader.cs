@@ -77,6 +77,16 @@ public sealed record WorkspaceContextLoadOptions
     public bool UseVersionCache { get; init; }
 
     /// <summary>
+    /// Whether package realizations should also issue package Root bindings.
+    /// </summary>
+    /// <remarks>
+    /// This remains opt-in because creating a Root binding freezes a separate
+    /// compile-asset selection needed by Workspace occurrence consumers.
+    /// Ordinary assembly-context loads do not pay for that projection.
+    /// </remarks>
+    public bool IncludePackageRootBindings { get; init; }
+
+    /// <summary>
     /// The bounds a downloaded package payload must respect before it may be
     /// published into <see cref="PackageStore"/>.
     /// </summary>
@@ -262,7 +272,8 @@ public static class WorkspaceContextLoader
                     new RealizedMember(
                         member,
                         realization.Realized!,
-                        assembly));
+                        assembly,
+                        realization.PackageRoot));
             }
         }
 
@@ -429,7 +440,8 @@ public static class WorkspaceContextLoader
                     new RealizedMember(
                         declared,
                         realization.Realized!,
-                        assembly));
+                        assembly,
+                        realization.PackageRoot));
             }
         }
 
@@ -994,9 +1006,17 @@ public static class WorkspaceContextLoader
                     participants[index]));
         }
 
+        ImmutableArray<PackageRootBinding> packageRoots =
+        [
+            .. realized
+                .Select(static entry => entry.PackageRoot)
+                .OfType<PackageRootBinding>()
+                .Distinct(),
+        ];
         return new WorkspaceContextLoadOutcome.Loaded(
             group,
             members.MoveToImmutable(),
+            packageRoots,
             [
                 .. availablePlatformAssemblies
                     .OrderBy(assembly => assembly.Family, StringComparer.Ordinal)
@@ -1902,6 +1922,7 @@ public static class WorkspaceContextLoader
             acquired,
             framework,
             runtimeIdentifier,
+            options.IncludePackageRootBindings,
             cancellationToken);
     }
 
@@ -2024,12 +2045,16 @@ public static class WorkspaceContextLoader
             acquired,
             framework,
             pinned.RuntimeIdentifier,
+            options.IncludePackageRootBindings,
             cancellationToken);
 
         // A re-acquired member reports the coordinate it was asked for, so a
         // caller can compare the round trip by value.
         return realization.Failure is null
-            ? new MemberRealization(pinned, realization.Assemblies)
+            ? new MemberRealization(
+                pinned,
+                realization.Assemblies,
+                realization.PackageRoot)
             : realization;
     }
 
@@ -2038,6 +2063,7 @@ public static class WorkspaceContextLoader
         AcquiredPackagePayload acquired,
         string framework,
         string? runtimeIdentifier,
+        bool includePackageRootBinding,
         CancellationToken cancellationToken)
     {
         ResolvedPackageCoordinate coordinate = acquired.Coordinate;
@@ -2150,9 +2176,44 @@ public static class WorkspaceContextLoader
                     $"The acquired package could not be named by a canonical realized coordinate: {problem}."));
         }
 
+        PackageRootBinding? packageRoot = null;
+        if (includePackageRootBinding)
+        {
+            try
+            {
+                packageRoot = PackageRootBinding.CreateFromResolved(
+                    acquired,
+                    framework,
+                    ((WorkspaceMemberCoordinate.PackageMember)member)
+                        .PackageId);
+            }
+            catch (Exception ex) when (
+                ex is ArgumentException
+                    or IOException
+                    or InvalidOperationException
+                    or NotSupportedException
+                    or ObjectDisposedException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        member,
+                        $"The package Root for '{coordinate.PackageId}' could not be bound to its acquired content."));
+            }
+            if (packageRoot.Coordinate != realizedCoordinate)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind.InvalidCoordinate,
+                        member,
+                        $"The package Root for '{coordinate.PackageId}' disagrees with the context's realized coordinate."));
+            }
+        }
+
         return new MemberRealization(
             realizedCoordinate,
-            assemblies.ToImmutable());
+            assemblies.ToImmutable(),
+            packageRoot);
     }
 
     static MemberRealization RealizeEmbedded(
@@ -2355,8 +2416,9 @@ public static class WorkspaceContextLoader
     {
         internal MemberRealization(
             RealizedMemberCoordinate realized,
-            ImmutableArray<ResolvedAssemblyReference> assemblies)
-            : this(realized, assemblies, [])
+            ImmutableArray<ResolvedAssemblyReference> assemblies,
+            PackageRootBinding? packageRoot = null)
+            : this(realized, assemblies, [], packageRoot)
         {
         }
 
@@ -2364,11 +2426,13 @@ public static class WorkspaceContextLoader
             RealizedMemberCoordinate realized,
             ImmutableArray<ResolvedAssemblyReference> assemblies,
             ImmutableArray<RealizedMemberCoordinate.Platform>
-                availablePlatformAssemblies)
+                availablePlatformAssemblies,
+            PackageRootBinding? packageRoot = null)
         {
             Realized = realized;
             Assemblies = assemblies;
             AvailablePlatformAssemblies = availablePlatformAssemblies;
+            PackageRoot = packageRoot;
             Failure = null;
         }
 
@@ -2377,6 +2441,7 @@ public static class WorkspaceContextLoader
             Realized = null;
             Assemblies = [];
             AvailablePlatformAssemblies = [];
+            PackageRoot = null;
             Failure = failure;
         }
 
@@ -2384,11 +2449,13 @@ public static class WorkspaceContextLoader
         internal ImmutableArray<ResolvedAssemblyReference> Assemblies { get; }
         internal ImmutableArray<RealizedMemberCoordinate.Platform>
             AvailablePlatformAssemblies { get; }
+        internal PackageRootBinding? PackageRoot { get; }
         internal WorkspaceContextLoadFailure? Failure { get; }
     }
 
     readonly record struct RealizedMember(
         WorkspaceMemberCoordinate Declared,
         RealizedMemberCoordinate Realized,
-        ResolvedAssemblyReference Assembly);
+        ResolvedAssemblyReference Assembly,
+        PackageRootBinding? PackageRoot = null);
 }

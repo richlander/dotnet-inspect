@@ -13,6 +13,7 @@ internal sealed record ApiSourceResult(
     string? PackageName,
     string? PackageVersion,
     string? ResolvedPackagePath,
+    string? PackageExtractPath,
     string? ApiSource,
     string? ApiVersion,
     string? PlatformFramework,
@@ -20,6 +21,8 @@ internal sealed record ApiSourceResult(
     string? ProjectAssetsPath,
     string? TempDir,
     string? TypeName,
+    IReadOnlyList<string>? PackageReplaySourceUrls,
+    bool PackageReplayUsesOriginalSources,
     CommandContext Context);
 
 internal static class ApiSourceResolver
@@ -35,11 +38,15 @@ internal static class ApiSourceResolver
         string? runtimeAssemblyPath = null;
         string? packageName = null;
         string? packageVersion = null;
+        string? packageExtractPath = null;
         string? apiSource = null;
         string? apiVersion = null;
         string? platformFramework = null;
         string? projectAssetsPath = null;
         NuGetSourceOptions? acquisitionSourceOptions = options.SourceOptions;
+        IReadOnlyList<string>? packageReplaySourceUrls = null;
+        string? packageReplaySourcePackageName = null;
+        bool packageReplayUsesOriginalSources = false;
         var typeName = options.TypeName;
         var packagePath = options.PackagePath;
 
@@ -81,6 +88,17 @@ internal static class ApiSourceResolver
                         NuGetSourceResolver.RestrictToSources(
                             options.SourceOptions,
                             address.ReportingSourceUrls);
+                    packageReplaySourceUrls =
+                        [.. address.ReportingSourceUrls];
+                    packageReplaySourcePackageName =
+                        range!.PackageId;
+                    packageReplayUsesOriginalSources =
+                        NuGetSourceResolver.ResolveSourceKeysForPackage(
+                            options.SourceOptions,
+                            range!.PackageId)
+                        .SequenceEqual(
+                            address.ReportingSourceUrls.Select(
+                                NuGetCache.GetSourceKey));
                     context.Logger.Log(
                         $"Resolved {range.PackageId}@{range.Start}..{range.End} {options.PackageRangeAddress} "
                         + $"to {address.Version} ({address.Selector} of #{vector.Addresses.Length})");
@@ -120,7 +138,27 @@ internal static class ApiSourceResolver
                 return (null!, 1);
             }
             var extracted = outcome.Result!;
+            if (extracted.SelectedVersionSourceUrls is not null)
+            {
+                packageReplaySourceUrls =
+                    extracted.SelectedVersionSourceUrls;
+                packageReplaySourcePackageName =
+                    extracted.PackageName;
+                packageReplayUsesOriginalSources =
+                    extracted.SelectedVersionUsesOriginalSources;
+            }
+            else if (packageReplaySourceUrls is not null
+                && !string.Equals(
+                    packageReplaySourcePackageName,
+                    extracted.PackageName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                packageReplaySourceUrls = null;
+                packageReplaySourcePackageName = null;
+                packageReplayUsesOriginalSources = false;
+            }
             (searchPath, tempDir, packageName, packageVersion) = (extracted.ExtractPath, extracted.TempDir, extracted.PackageName, extracted.Version);
+            packageExtractPath = extracted.ExtractPath;
             apiSource = SourceKind.NuGet;
             apiVersion = packageVersion;
 
@@ -364,6 +402,7 @@ internal static class ApiSourceResolver
         }
 
         return (new ApiSourceResult(searchPath, runtimeAssemblyPath, packageName, packageVersion, packagePath,
-            apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath, tempDir, typeName, context), null);
+            packageExtractPath, apiSource, apiVersion, platformFramework, selectedTfm, projectAssetsPath,
+            tempDir, typeName, packageReplaySourceUrls, packageReplayUsesOriginalSources, context), null);
     }
 }
