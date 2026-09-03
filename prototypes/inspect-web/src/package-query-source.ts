@@ -5,7 +5,7 @@ import type {
   BrowserPackageQueryCompletion,
   BrowserPackageQueryFailure,
   BrowserPackageQueryRow,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
   QueryFacetTerm,

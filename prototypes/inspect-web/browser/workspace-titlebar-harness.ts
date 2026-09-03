@@ -29,7 +29,9 @@ import {
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserHomeDemoResolved,
+} from "../src/facades/inspect-web-catalog.d.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import {
   bindSettingsPanel,

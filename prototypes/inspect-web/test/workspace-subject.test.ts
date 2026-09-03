@@ -7,7 +7,9 @@ import {
   renderWorkspaceSubject,
   retainWorkspacePacket,
 } from "../src/workspace-subject.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserHomeDemoResolved,
+} from "../src/facades/inspect-web-catalog.d.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
 import { fakeDom } from "./fake-dom.ts";
 

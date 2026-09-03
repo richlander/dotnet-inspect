@@ -2,7 +2,7 @@ import type { PackageControlPackage } from "./package-controls.ts";
 import type {
   BrowserHomeDemoMember,
   BrowserHomeDemoResolved,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-catalog.d.ts";
 
 export interface WorkspaceSubjectRenderOptions {
   packets: readonly BrowserHomeDemoResolved[];

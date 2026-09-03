@@ -10,7 +10,7 @@ import { createQueryRequest, withFacet } from "../src/package-query.ts";
 import type {
   BrowserPackageQueryEvent,
   BrowserPackageQueryFacetCatalog,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-package.d.ts";
 
 const completionEvent: BrowserPackageQueryEvent = {
   kind: "Completed",

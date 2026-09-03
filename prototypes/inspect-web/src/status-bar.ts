@@ -1,7 +1,7 @@
+import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserBuildIdentity,
   BrowserPackageCacheStats,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
 
 // BuildIdentity/PackageCacheStats used to be hand-written duplicates of the C# DTOs. They're now
 // aliases of the compiler-derived facade types so this module can't independently drift from
