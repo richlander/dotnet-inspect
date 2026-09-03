@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A real, restored multi-target project. Its purpose is the generated
+    $(ProjectAssetsFile) (project.assets.json), not the assembly it happens to
+    produce: net11.0 carries a project reference plus package references that
+    converge on one package transitively and directly (a diamond at
+    NuGet.Versioning), while net10.0 declares no package references of its own,
+    so the two legs together exercise both a non-vacuous declaration/graph
+    projection and a minimal one. Both legs also restore a linux-x64
+    runtime-specific target, so framework-plus-runtime selection is exercised
+    from generated assets rather than from a renamed target. See
+    docs/design/restored-project-dependency-facts.md (Evidence).
+
+    Neither leg's declaration group is empty: Directory.Build.targets adds
+    Microsoft.CodeAnalysis.BannedApiAnalyzers to every .csproj that does not own
+    its own stderr, and that reference is real project evidence rather than
+    noise, so RestoredProjectFixture.nuspec carries it in both framework groups.
+    IsAotCompatible is turned off (as other fixture projects do) because this
+    project ships nothing: leaving it on injects Microsoft.NET.ILLink.Tasks at
+    an SDK-chosen version, which is not a deterministic declaration seed.
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <PackageReference Include="NuGet.Packaging" />
+    <PackageReference Include="MarkdownTable.Formatting" />
+  </ItemGroup>
+
+  <!--
+    UseArtifactsOutput (src/Directory.Build.props) copies a multi-targeted
+    project's output into per-TFM folders (release_net10.0, release_net11.0),
+    but tests/DotnetInspector.Fixtures/FixtureCatalog.cs assumes one flat
+    per-configuration folder. project.assets.json is restore's single,
+    TFM-independent output (one file covering every target), so copying it
+    once into that flat folder makes it reachable through the existing
+    FixtureCatalog asset-path helpers without changing them. The nuspec is a
+    hand-authored sidecar, not a build output, carrying the same package
+    declaration seed as this project's generated declaration groups for later
+    composition work against docs/design/package-dependency-evidence.md;
+    RestoredProjectDependencyFactsQueryTests pins that parity.
+  -->
+  <Target Name="CopyRestoredProjectFixtureAssets" AfterTargets="Build" Condition="Exists('$(ProjectAssetsFile)')">
+    <PropertyGroup>
+      <_RestoredProjectFixtureFlatOutput>$(ArtifactsPath)\bin\$(MSBuildProjectName)\$(Configuration.ToLowerInvariant())\</_RestoredProjectFixtureFlatOutput>
+    </PropertyGroup>
+    <MakeDir Directories="$(_RestoredProjectFixtureFlatOutput)" Condition="!Exists('$(_RestoredProjectFixtureFlatOutput)')" />
+    <Copy SourceFiles="$(ProjectAssetsFile)"
+          DestinationFiles="$(_RestoredProjectFixtureFlatOutput)project.assets.json" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\RestoredProjectFixture.nuspec"
+          DestinationFiles="$(_RestoredProjectFixtureFlatOutput)RestoredProjectFixture.nuspec" />
+    <!--
+      FixtureCatalog.AssemblyPath assumes one flat-folder assembly too (see
+      tests/DotnetInspector.Fixtures.Tests, All_FixturesResolveToBuiltAssemblies).
+      Each inner per-TFM build overwrites this copy; net11.0 is declared last so
+      its assembly (the leg with the real dependency graph) is what remains.
+    -->
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFiles="$(_RestoredProjectFixtureFlatOutput)$(TargetFileName)"
+          Condition="Exists('$(TargetPath)')" />
+  </Target>
+
+</Project>

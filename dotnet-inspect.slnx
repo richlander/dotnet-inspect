@@ -26,6 +26,7 @@
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
+    <Project Path="src/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
