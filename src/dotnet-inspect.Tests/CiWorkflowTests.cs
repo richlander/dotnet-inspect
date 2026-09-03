@@ -53,16 +53,20 @@ public class CiWorkflowTests
                 Workflow,
                 "DOTNET_INSPECT_PACKAGE_FIXTURE_TOKEN: ${{ github.token }}"));
         Assert.Contains(
-            "-method '*Package_Manifest_RendersToolManifestRows*'",
-            fixtureStep);
-        Assert.Contains(
-            "Package fixture test filter selected no tests.",
+            "--filter-method '*Package_Manifest_RendersToolManifestRows*'",
             fixtureStep);
         Assert.Contains(
             "Package fixture test skipped authenticated execution.",
             fixtureStep);
         Assert.Contains(
             "grep -Eq '<assembly[^>]+skipped=\"0\"'",
+            fixtureStep);
+        Assert.Contains("--report-xunit", fixtureStep);
+        Assert.Contains(
+            "--report-xunit-filename \"$results_name\"",
+            fixtureStep);
+        Assert.Contains(
+            "--results-directory \"$results_dir\"",
             fixtureStep);
         Assert.Contains("continue-on-error: true", fixtureStep);
         Assert.Contains("id: package_fixture", fixtureStep);

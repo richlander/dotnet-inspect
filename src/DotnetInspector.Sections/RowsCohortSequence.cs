@@ -23,6 +23,6 @@ public sealed class RowsCohortSequence<TIdentity, T>
         ArgumentNullException.ThrowIfNull(values);
         return new(
             identity,
-            RowsCohortSnapshot.Copy(values));
+            SectionContractSnapshot.Copy(values));
     }
 }

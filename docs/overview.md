@@ -97,7 +97,13 @@ substrates, and inspection producers that will extend that space.
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
   network-policy enforcement, network telemetry, and hardened XML/JSON readers.
 - `src/ILInspector.Decompiler/` emits lowered C#, raw IL, and structural annotated IL from method bodies.
-- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis and Decompiler: its registry orders fact producers, joins R1 analysis occurrences with R2 decompiler projections, and projects facts into the Annotated Source, annotated IL, and Facts views used by `member`.
+- `src/ILInspector.Research/` owns the offset-keyed fact overlay above Analysis
+  and Decompiler: its registry orders fact producers, joins R1 analysis
+  occurrences with R2 decompiler projections, and projects facts into the
+  Annotated Source, annotated IL, and Facts views used by `member`.
+  [Research Finding census projection](design/research-finding-census-projection.md)
+  owns preservation of one producer-sealed body-fact receipt and its instance
+  keys across those projections.
 - `prototypes/annotated-source-viewer/` is the dependency-free browser consumer
   for `AnnotatedSourceDocument`: it derives lines from the canonical text buffer,
   resolves facts through targets to multi-span nodes, filters the stable node-kind
@@ -303,6 +309,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Finding instance census](design/finding-instance-census.md): producer-issued
   receipt and per-instance keys for one sealed execution census, with
   bijection and exact-association validation.
+- [Research Finding census projection](design/research-finding-census-projection.md):
+  Research preservation of one body-fact census through Facts and Annotated
+  Source.
 - [Finding value semantics](design/finding-value-equality.md): .NET equality
   and hashing for Finding-owned structural values, ordered collections,
   identity sets, union cases, and reference-identity operation objects.

@@ -49,6 +49,8 @@ const ROOT_COMMANDS: readonly CommandDefinition[] = [
   ["find", "search the current package", "text"],
   ["clear", "clear the current filter", "none"],
   ["share", "copy a link to this selection", "none"],
+  ["settings", "open application settings", "none"],
+  ["keyboard help", "show keyboard commands", "none"],
 ];
 
 export function commandCompletions(
@@ -98,6 +100,7 @@ export function commandCompletions(
     }));
   }
 
+  if (!tokens.length) return entries;
   if (input.endsWith(" ")) return entries.slice(0, 8);
   const needle = tokens.at(-1)?.toLowerCase() || "";
   return entries
@@ -123,6 +126,18 @@ export function commandPaletteResults(
 ): CommandPaletteResult[] {
   const input = context.command.trimStart();
   const tokens = input.split(/\s+/).filter(Boolean);
+  const exactRoot =
+    ROOT_COMMANDS.find(([value]) => value === input.trim());
+  if (exactRoot?.[2] === "none") {
+    return [{
+      kind: "command",
+      value: exactRoot[0],
+      hint: exactRoot[1],
+      category: "command",
+      command: exactRoot[0],
+      action: "execute",
+    }];
+  }
   const root = ROOT_COMMANDS.find(([value]) => value === tokens[0]);
 
   if (root && tokens.length === 1
