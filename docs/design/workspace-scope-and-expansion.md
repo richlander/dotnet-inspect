@@ -434,7 +434,8 @@ Closure state describes what is known for that exact coverage:
 
 ```text
 WorkspaceClosureState
-  = ClosedBoundary(observed outside-boundary evidence)
+  = ClosedBoundary(observed outside-boundary evidence,
+      producer-bound evidence)
   | CompleteForObservedEvidence(declined outside-boundary evidence)
   | Incomplete(declined evidence, unsupported, rejections, failures, limits,
       unevaluated Root occurrences)
@@ -462,16 +463,17 @@ failed, rejected, depth-bounded, candidate-bounded, or capacity-declined
 candidate cannot disappear from the result or become a complete closure.
 
 Every logical membership or scope-policy change publishes a fresh revision and
-closure observation. It produces `ClosedBoundary` with empty observed evidence
-and empty evaluated coverage when no expansion scopes remain. Otherwise it
-resets closure to `NotEvaluated` with empty evaluated coverage, the complete
-current Root sequence as its unevaluated frontier, and empty evidence. An
+closure observation. It produces `ClosedBoundary` with empty observed,
+producer-bound, and evaluated evidence when no expansion scopes remain.
+Otherwise it resets closure to `NotEvaluated` with empty evaluated coverage,
+the complete current Root sequence as its unevaluated frontier, and empty
+evidence. An
 expansion whose evidence covered the complete prior Ready Root sequence and
-then appends Roots may instead retain that exact coverage, identify only those
-newly admitted occurrences as the frontier, and retain outside-boundary
-evidence observed by that same operation. Evidence from an earlier revision or
-physical generation is never carried across a membership, eligibility, or
-realization change.
+then appends Roots may instead retain that exact coverage, identify every
+current non-Ready or newly admitted occurrence as the frontier in owner order,
+and retain outside-boundary evidence observed by that same operation. Evidence
+from an earlier revision or physical generation is never carried across a
+membership, eligibility, or realization change.
 
 ## Scope limits and capacity
 
@@ -673,12 +675,16 @@ remain adjacent contracts.
 - The sequence is all-or-failure.
 - The complete ordered expansion-scope sequence is validated and deduplicated
   under the same operation before any publication.
+- A fully pinned owner-issued exact request for which Artifact Acquisition's
+  exact request-matching operation returns a current occurrence's
+  `ArtifactRootCorrespondence` retains that occurrence without acquisition.
 - Exact duplicate requests are reduced before realization by the source
   owner's equality rules, preserving the first request.
 - After realization, requests with exact adjacent-owner Root correspondence
   are coalesced, preserving the first request and releasing every redundant
   provisional receipt.
-- Every required Root must realize and pass both logical and physical limits.
+- Every unmatched required Root must realize and pass both logical and
+  physical limits.
 - Publication atomically installs the complete new occurrence sequence and
   complete expansion-scope sequence, retires every occurrence not retained by
   exact correspondence, and creates the initial closure observation for that
@@ -690,7 +696,9 @@ remain adjacent contracts.
 If an existing occurrence has exact adjacent-owner correspondence with one
 requested Root, the operation retains that exact occurrence at the order
 position determined by the first corresponding replacement request. Equal
-display coordinates without that proof do not retain identity.
+display coordinates without that proof do not retain identity. User-activation
+intent naming any reduced, matched, or coalesced replacement request maps to
+that first corresponding retained or newly admitted occurrence.
 
 ### Add Roots
 
@@ -749,7 +757,7 @@ Clear commits one empty revision:
 
 - no Roots;
 - no expansion scopes;
-- `ClosedBoundary` with empty observed evidence; and
+- `ClosedBoundary` with empty observed and producer-bound evidence; and
 - the same exact runtime Workspace identity.
 
 Clear supersedes pending preparation. Physical generations are retired and
@@ -770,8 +778,8 @@ and closure observation. Effective registration resets closure to
 `NotEvaluated` with empty evaluated coverage, the complete current Root
 sequence as its frontier, and empty observed evidence. Effective removal does
 the same unless it removes the final scope, in which case closure becomes
-`ClosedBoundary` with empty evaluated coverage and observed evidence. No
-Workspace-bound scope descriptor or retired-registration identity exists.
+`ClosedBoundary` with empty evaluated, observed, and producer-bound evidence.
+No Workspace-bound scope descriptor or retired-registration identity exists.
 
 ### Expand dependencies
 
@@ -886,10 +894,13 @@ evaluated-Root coverage.
 
 `BoundEvidence` records valid producer truncation within the operation
 envelope. It is empty only when the producer reports no candidate or depth
-boundary. A bound marker is durable incomplete evidence, not permission to
-invent an omitted relationship or acquisition coordinate. A batch whose
-materialized rows or declared depths exceed the envelope is rejected as
-malformed instead of being converted into a bound marker.
+boundary. In a selectively open scope, a bound marker is durable incomplete
+evidence. In a closed scope, it remains visible in `ClosedBoundary` without
+overriding closed precedence, because no observed or omitted candidate is
+eligible for acquisition. A bound marker is never permission to invent an
+omitted relationship or acquisition coordinate. A batch whose materialized
+rows or declared depths exceed the envelope is rejected as malformed instead
+of being converted into a bound marker.
 
 The host or query coordinator is the operation driver. After an explicit query
 returns evidence, the Browser or CLI may submit `ExpandDependencies` and then
@@ -1031,8 +1042,10 @@ The implementation must demonstrate:
 | Eligible expansion candidates exceed remaining Root capacity | Producer order selects the candidates attempted; every later candidate is visible as `CapacityDeclined` |
 | Open an unrelated package after a prefix scope was registered | One `ReplaceScope` atomically installs the new Root with an empty expansion-scope set and a closed initial observation; the old prefix cannot authorize acquisition |
 | Restore Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the restored revision |
+| Open one fully pinned exact Root already present | `ReplaceScope` retains its exact occurrence without source or artifact preparation |
 | All eligible dependencies are already admitted and two are outside the scopes | A closure-only observation is complete for the exact current Ready Root coverage and retains the two declined boundaries |
 | Closed Workspace evaluates external dependencies | A closure-only `ClosedBoundary` observation retains the observed outside-boundary evidence and invokes no source or artifact owner |
+| Closed Workspace receives producer-bound dependency evidence | `ClosedBoundary` retains the typed bound marker and still invokes no source or artifact owner |
 | Dependency evidence covers only one of several current Ready Roots | `Rejected(EvidenceMismatch)`; the current unevaluated frontier remains visible |
 | A Root is re-realized after complete closure and before old evidence is submitted | The logical occurrence remains, closure becomes not evaluated for the replacement realization reference, and the old batch is rejected without publication |
 | One Root is Ready and another is Pending during expansion | Ready coverage is retained, the Pending occurrence remains in the unevaluated frontier, and closure cannot become complete |
@@ -1063,6 +1076,7 @@ or artifact evidence later claimed by those owners.
 | `OccurrenceDescriptor_PreservesTypedRootFactsWithoutResources` | Every occurrence retains its Package/non-package discriminator and exact adjacent-owner coordinate descriptor without retaining a physical artifact resource. |
 | `OccurrenceIdentity_IsRetainedOnlyByExactCorrespondence` | Retained Roots keep exact occurrence identity; equal display coordinates or a later re-add do not recreate it. |
 | `ReplaceScope_IsAllOrFailureAndCoalescesExactCorrespondence` | Complete success atomically replaces Roots and expansion scopes, exact post-realization duplicates retain one first-ordered occurrence, redundant receipts release, and any required input failure leaves the prior revision and policy current. |
+| `ReplaceScope_ExactCurrentRootRequiresNoPreparation` | A fully pinned exact request matching current logical correspondence retains that occurrence without source or artifact work and maps activation intent to it. |
 | `OpenWithNoExpansionPolicy_DoesNotInheritPriorScopes` | Ordinary package Open supplies an empty policy and cannot retain a prefix or set from the prior scope. |
 | `AddRoots_IsAllOrFailureAndPreservesOrder` | New Roots append atomically in request order while existing occurrences retain identity. |
 | `AddPinnedExistingRoot_ReturnsExactOccurrenceWithoutPreparation` | A fully pinned exact duplicate Add performs no adjacent-owner work and returns the existing occurrence when activation was requested. |
@@ -1080,7 +1094,7 @@ or artifact evidence later claimed by those owners.
 | `RemoveExpansionScope_IsValueBasedAndIdempotent` | Removal uses typed scope-value equality; an absent value returns `NoEffect`, and no Workspace-bound registration identity exists. |
 | `EmptyExpansionScopes_MeanClosedBoundary` | Closed is derived from the empty scope set and causes no acquisition. |
 | `ExpansionScopeRegistration_PerformsNoDiscoveryOrAcquisition` | Registration only changes logical eligibility. |
-| `ClosedExpansion_EvidenceRemainsClosedAndPerformsNoPreparation` | An empty scope set has precedence, records observed outside-boundary evidence, and invokes no adjacent owner. |
+| `ClosedExpansion_EvidenceRemainsClosedAndPerformsNoPreparation` | An empty scope set has precedence, records observed outside-boundary and producer-bound evidence, and invokes no adjacent owner. |
 | `PackageExpansion_RequiresOwnerIssuedCoordinateEvidence` | Package scopes cannot match assembly names, labels, or uncorrelated references. |
 | `Expansion_CommitsSuccessfulCandidatesWithExactIncompleteEvidence` | Successfully prepared selected candidates publish atomically; every unsupported, capacity-declined, rejected, or failed relationship and every producer-bound marker remains typed and visible. |
 | `Expansion_AddingRootsLeavesUnevaluatedFrontier` | A revision containing newly expanded Roots cannot claim those Roots were already evaluated. |
@@ -1093,7 +1107,7 @@ or artifact evidence later claimed by those owners.
 | `ExpansionCapacity_UsesProducerOrderAndInvokesNoDeclinedCandidate` | Remaining Root slots are assigned in deterministic producer order and capacity-declined candidates cause no adjacent-owner work. |
 | `EffectiveOperationLimits_CannotExceedWorkspaceProfile` | Each effective dimension is the stricter finite Workspace-profile or operation-envelope value. |
 | `ExpansionStructuralLimits_RejectBeforePreparation` | Materialized relationships or declared depths outside effective limits are malformed and cannot invoke adjacent owners. |
-| `ExpansionProducerBounds_RemainIncompleteEvidence` | Valid candidate- and depth-bound markers remain durable `Incomplete` evidence and never authorize work for omitted candidates. |
+| `ExpansionProducerBounds_RemainTypedEvidence` | Valid candidate- and depth-bound markers remain durable `Incomplete` evidence in selectively open scope, remain typed `ClosedBoundary` evidence in closed scope, and never authorize work for omitted candidates. |
 | `ProducerEvidenceIdentity_BindsIssuanceButNotFreshness` | Producer identity prevents batch mixing or replay while revision, closure, and exact Root-generation coverage independently establish freshness. |
 | `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The registry-issued descriptor's current complete membership fits the 32-Root profile and no existing Root is evicted. |
 | `RootCapacity_RejectionPreservesCurrentRevision` | A thirty-third distinct Root fails visibly without truncation or replacement. |

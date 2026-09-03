@@ -2692,7 +2692,8 @@ The runtime-identity and close gates remain
 `WorkspaceIdentity_IsStableAndExactPerInstance`,
 `SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
 `AsynchronousClose_StopsOccurrenceIssuanceImmediately`. Existing
-`PackageOccurrence_*` gates and the order, empty-view, and repeated-binding
+`PackageOccurrence_*` gates and the order, empty-view, repeated-binding, exact
+activation, foreign-view rejection, and closed-Workspace rejection
 `PackageOccurrenceView_*` gates are implementation evidence consumed by the
 new owner; this document no longer defines their logical membership semantics.
 
