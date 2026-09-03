@@ -121,6 +121,16 @@ adoption remains
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400). This owner
 only dispatches to those boundaries and preserves their results.
 
+A caller may bind ambient configuration discovery to an explicit absolute
+directory. That directory replaces the process working directory only as the
+starting point for the `NuGet.Config` hierarchy; it does not change the base
+for a relative command-line source. This lets a replay consumer retain the
+configuration context of an earlier command without converting the hierarchy
+into one synthetic config file or reinterpreting it from the replay directory.
+`ReplayConfigDirectory_DoesNotRebaseAnExplicitRelativeSource` and
+`ReplayConfigDirectory_RejectsARelativeSourceResolutionBase` are the Release
+gates for that handoff.
+
 When the local owner classifies a valid authority but the current host lacks a
 requested local capability, the package result retains that authority and a
 typed capability-unavailable cause. It is not an HTTP failure, package absence,

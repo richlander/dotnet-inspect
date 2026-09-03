@@ -371,6 +371,10 @@ while IFS= read -r -d '' file; do
     # classifier gate and its pinned prerequisites. Editing either must run
     # the product test lane as well as executing the gate here in `changes`.
     eng/test-ci-change-detection.cs) CODE=true ;;
+    # The Release test lane builds and executes the dependency-policy owner.
+    # Policy-only changes must not skip the gate they weaken.
+    eng/dependency-policy.json) CODE=true ;;
+    eng/DependencyPolicy/*|eng/DependencyPolicy.Tests/*) CODE=true ;;
     eng/inspect-web-gate-projects.txt) CODE=true; WEB=true ;;
     eng/CiChangeDetection/PromotionWorkflowContract.cs) CODE=true; WEB=true ;;
     eng/CiChangeDetection/*) CODE=true ;;
