@@ -34,6 +34,74 @@ internal static class PackageContentAdmission
             .ConfigureAwait(false)
         == Outcome.Admissible;
 
+    /// <summary>
+    /// Applies the same admission contract synchronously to retained filesystem
+    /// content. Path-based assembly binding is synchronous, so it uses this
+    /// cache-only form rather than blocking on the asynchronous acquisition
+    /// path.
+    /// </summary>
+    internal static Outcome EvaluateFileSystem(
+        IPackageContent content,
+        PackagePayloadLimits limits,
+        CancellationToken cancellationToken)
+    {
+        Stream? archiveStream = null;
+        bool opened;
+        try
+        {
+            opened = content.TryOpenArchive(out archiveStream);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return content.RequiresArchiveTreeMatch
+                ? Outcome.MissingArchive
+                : Outcome.LimitsExceeded;
+        }
+
+        if (opened && archiveStream is not null)
+        {
+            try
+            {
+                byte[]? archive;
+                using (archiveStream)
+                {
+                    archive = ReadBounded(
+                        archiveStream,
+                        limits.MaxArchiveBytes,
+                        cancellationToken);
+                }
+
+                return archive is null
+                    ? Outcome.LimitsExceeded
+                    : EvaluateArchive(
+                        content,
+                        archive,
+                        limits,
+                        cancellationToken);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Outcome.LimitsExceeded;
+            }
+        }
+
+        if (content.RequiresArchiveTreeMatch)
+            return Outcome.MissingArchive;
+
+        if (content.RootPath is null
+            || !HasTopLevelNuspec(content.RootPath))
+        {
+            return Outcome.MissingArchive;
+        }
+
+        return IsExtractedTreeWithinLimits(
+                content.RootPath,
+                retainedNupkgPath: null,
+                limits)
+            ? Outcome.Admissible
+            : Outcome.LimitsExceeded;
+    }
+
     internal static async Task<Outcome> EvaluateAsync(
         IPackageContent content,
         PackagePayloadLimits limits,
@@ -714,6 +782,69 @@ internal static class PackageContentAdmission
                     buffer.AsMemory(total, buffer.Length - total),
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (read == 0)
+            {
+                if (total == 0)
+                    return [];
+                if (total != buffer.Length)
+                    Array.Resize(ref buffer, total);
+                return buffer;
+            }
+
+            total += read;
+        }
+    }
+
+    static byte[]? ReadBounded(
+        Stream source,
+        long maxBytes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        if (maxBytes > int.MaxValue)
+            maxBytes = int.MaxValue;
+
+        int max = (int)maxBytes;
+        int initialCapacity = max == 0 ? 0 : Math.Min(81920, max);
+        if (source.CanSeek)
+        {
+            long remaining = source.Length - source.Position;
+            if (remaining < 0)
+                remaining = 0;
+            if (remaining > max)
+                return null;
+            if (remaining > initialCapacity)
+                initialCapacity = (int)remaining;
+        }
+
+        byte[] buffer = initialCapacity == 0 ? [] : new byte[initialCapacity];
+        int total = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (total == buffer.Length)
+            {
+                int extra = source.ReadByte();
+                if (extra < 0)
+                    return total == 0 ? [] : buffer;
+                if (total == max)
+                    return null;
+
+                int growTo = (int)Math.Min(
+                    max,
+                    Math.Max((long)buffer.Length * 2, 81920));
+                if (growTo <= buffer.Length)
+                    growTo = max;
+                Array.Resize(ref buffer, growTo);
+                buffer[total++] = (byte)extra;
+                continue;
+            }
+
+            int read = source.Read(
+                buffer,
+                total,
+                buffer.Length - total);
             if (read == 0)
             {
                 if (total == 0)

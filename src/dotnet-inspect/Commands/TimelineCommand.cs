@@ -1184,15 +1184,12 @@ public static class TimelineCommand
         var address = vector.Addresses[probe];
         string range = $"{vector.PackageId}@{vector.Start.ToNormalizedString()}..{vector.End.ToNormalizedString()}";
         return $"Probe {address.Selector} ({address.Version.ToNormalizedString()}): "
-            + $"dotnet-inspect timeline --package {ShellQuote(range)} "
-            + $"--type {ShellQuote(typeFullName)} "
-            + (memberName is null ? "" : $"--member {ShellQuote(memberName)} ")
-            + $"--finding {ShellQuote(descriptor)} "
-            + $"--at {ShellQuote(address.Selector)}";
+            + $"dotnet-inspect timeline --package {ShellCommandText.Quote(range)} "
+            + $"--type {ShellCommandText.Quote(typeFullName)} "
+            + (memberName is null ? "" : $"--member {ShellCommandText.Quote(memberName)} ")
+            + $"--finding {ShellCommandText.Quote(descriptor)} "
+            + $"--at {ShellCommandText.Quote(address.Selector)}";
     }
-
-    static string ShellQuote(string value)
-        => $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
 
     static bool TryValidate(
         TimelineOptions options,
