@@ -291,6 +291,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   [navigation consumer](design/inspect-web-navigation-consumer.md),
   [shell interaction](design/inspect-web-shell-interaction.md), and
   [surface composition](design/inspect-web-surface-composition.md).
+- [Inspect Web diff presentation](design/inspect-web-diff-presentation.md):
+  typed member source-comparison consumption, browser accounting, Markout
+  mapped-range rendering, bounded interactive views, and staged multi-subject
+  adoption.
 - [Annotated Source viewer interaction](design/annotated-source-viewer-interaction.md):
   viewer-local disclosure, actions, selection, annotations, media, Escape, and
   focus inside the embedded reader and modal viewer.

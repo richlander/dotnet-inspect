@@ -81,15 +81,26 @@ The DTO contains:
 - Before and After source descriptors with provider, provenance, optional URL,
   text, and final-line-terminator state;
 - explicit comparison availability or failure;
-- producer-owned added, removed, changed, and moved counts;
+- browser-consumer accounting with added and removed counts plus separate Before
+  and After cardinalities for changed and moved populations;
 - the complete `AnalysisDiff<string>` relation population projected as
   endpoint coordinates plus content and placement classifications; and
 - the complete `MappedTextDiff` endpoint line sequences and changed ranges.
 
 The browser-local DTO is an adaptation boundary, not a parallel analytical
 model. It carries only closed JSON shapes that source-generated serialization
-and `ts-jsexport` can project. Statistics are copied from
-`AnalysisDiff<string>` and are never reconstructed from mapped ranges.
+and `ts-jsexport` can project. The browser projection owns the accounting policy
+and computes it directly from `AnalysisDiff<string>` relations:
+
+- additions and removals count their one-sided endpoint populations;
+- changed counts retain separate Before and After cardinalities;
+- moved counts retain separate Before and After cardinalities; and
+- changed and moved overlap rather than form one exclusive partition.
+
+Statistics are never reconstructed from mapped ranges. The mapped endpoint
+line sequences are authoritative for rendered rows and relation coordinates.
+Raw endpoint text remains available for copy and provenance operations; the
+browser does not split it again to build the diff.
 
 The mapped ranges are the shared rendering shape. The browser may arrange
 those ranges into interactive DOM for unified or side-by-side presentation,
@@ -126,10 +137,11 @@ The working-surface action region contains:
 - a change position such as `2 of 7`; and
 - endpoint-specific Open actions when an endpoint has a URL.
 
-The content begins with a compact factual summary for added, removed, changed,
-and moved lines, followed by the complete diff. Identical inputs remain an
-explicit `No source differences` result with both provenances; they do not
-render as an empty success.
+The content begins with a compact factual summary such as `+4 -2 changed 3 → 5
+moved 1 → 1`, followed by the complete diff. Changed and moved are explicitly
+labelled as overlapping facets. Identical inputs remain an explicit `No source
+differences` result with both provenances; they do not render as an empty
+success.
 
 ### Unified mode
 
@@ -160,13 +172,16 @@ pointer hover or color.
 
 ## Large inputs
 
-The transport always preserves the complete diff. Rendering may window stable
-context for large inputs, but every changed range remains represented and
-reachable. A windowed renderer:
+The transport always preserves the complete diff. Rendering windows rows across
+both stable and changed populations for large inputs, while every changed range
+remains represented and reachable. A windowed renderer:
 
-- keeps the active change and bounded surrounding context mounted;
+- keeps a bounded window around the active row and surrounding context mounted;
 - exposes omitted stable spans as explicit expandable rows;
-- never omits changed rows;
+- represents omitted portions of a large changed range with explicit expandable
+  rows while keeping the range address and endpoint cardinalities visible;
+- lets change activation enter a bounded window at that range's first row and
+  move through later windows without mounting the complete range;
 - preserves canonical endpoint line numbers; and
 - does not alter summary counts.
 
@@ -218,15 +233,16 @@ The delivery names the following Release gates:
 
 - query tests prove both-endpoint success, identical text, PDB unavailable,
   decompilation unavailable, cancellation, and binding-policy invalidation;
-- presentation tests prove statistics come from `AnalysisDiff<string>` and
-  mapped ranges come from `TextAnalysisDiffPresentation`;
+- presentation tests prove the consumer accounting policy for one-sided,
+  unequal changed, moved, and overlapping changed-plus-moved populations, and
+  prove mapped ranges come from `TextAnalysisDiffPresentation`;
 - browser boundary tests prove the closed DTO survives source-generated JSON
   and generated TypeScript without unknown members;
 - worker tests prove request identity, cancellation, stale-result suppression,
   and typed failure settlement;
 - browser renderer tests prove all relation shapes, multi-change navigation,
-  unified and side-by-side parity, responsive fallback, text selection, and
-  window expansion;
+  unified and side-by-side parity, responsive fallback, text selection, stable
+  and changed-heavy bounded windows, and window expansion;
 - the three-way extraction gate proves root movement and subject topology
   remain distinct; and
 - the hosted workspace demo follows
