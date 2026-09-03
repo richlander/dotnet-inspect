@@ -40,7 +40,7 @@ test("the title bar contains the inspected target without tab-like workspace ide
   await expect(page.locator(".subject-zone #share")).toBeVisible();
   await expect(page.locator(".subject-zone #open-settings")).toBeVisible();
   await expect(page.locator(".subject-zone #help")).toBeVisible();
-  await expect(page.locator(".shell-actions > button").last())
+  await expect(page.locator(".legacy-application-actions > button").last())
     .toHaveAttribute("id", "help");
   await expect(page.locator(".workspace-title")).toHaveCount(0);
   await expect(page.locator(".titlebar")).not.toContainText("0:");
@@ -1008,12 +1008,89 @@ test("Annotated Source keeps its sole Explore entry under shell pressure", async
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/browser/workspace-titlebar.html?member=1&annotated=1");
 
-    const actions = await box(page, ".shell-actions");
-    const explore = await box(page, "#explore-annotated");
     await expect(page.locator("#explore-annotated")).toBeVisible();
-    expect(explore.x).toBeGreaterThanOrEqual(actions.x - 1);
-    expect(explore.x + explore.width)
-      .toBeLessThanOrEqual(actions.x + actions.width);
+    const bounds = await page.evaluate(() => {
+      const actions = document.querySelector<HTMLElement>(".shell-actions");
+      const explore = document.querySelector<HTMLElement>("#explore-annotated");
+      if (!actions || !explore)
+        throw new Error("Annotated Source actions are unavailable.");
+      const actionsRect = actions.getBoundingClientRect();
+      const exploreRect = explore.getBoundingClientRect();
+      return {
+        actionsLeft: actionsRect.left,
+        actionsRight: actionsRect.right,
+        exploreLeft: exploreRect.left,
+        exploreRight: exploreRect.right,
+      };
+    });
+    expect(bounds.exploreLeft).toBeGreaterThanOrEqual(bounds.actionsLeft - 1);
+    expect(bounds.exploreRight).toBeLessThanOrEqual(bounds.actionsRight);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
+});
+
+test("Source fills the detail area between shell actions and bottom provenance", async ({
+  page,
+}) => {
+  for (const width of [1120, 600, 400]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
+
+    await expect(page.locator("#copy-source")).toBeVisible();
+    await expect(page.locator(".shell-action-link")).toHaveText("Open");
+    await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
+    await expect(
+      page.getByRole("group", { name: "Source actions" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Application" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Source code" }),
+    ).toBeVisible();
+
+    const inspector = await box(page, "#inspector-panel");
+    const source = await box(page, ".source-result");
+    const code = await box(page, ".source-result pre");
+    const provenance = await box(page, ".source-provenance");
+    expect(source.x).toBeCloseTo(inspector.x, 0);
+    expect(source.y).toBeCloseTo(inspector.y, 0);
+    expect(source.width).toBeCloseTo(inspector.width, 0);
+    expect(source.height).toBeCloseTo(inspector.height, 0);
+    expect(code.y).toBeCloseTo(source.y, 0);
+    expect(code.y + code.height).toBeLessThanOrEqual(provenance.y + 1);
+    expect(provenance.y + provenance.height)
+      .toBeCloseTo(source.y + source.height, 0);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth
+      - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  }
+
+  for (const width of [1920, 1440, 1120, 600, 400]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&source=1&limitation=1");
+
+    const provenance = await box(
+      page,
+      ".source-provenance > span:first-of-type");
+    const limitation = await box(
+      page,
+      ".source-provenance > .graph-source-status");
+    expect(provenance.width).toBeGreaterThan(16);
+    expect(limitation.width).toBeGreaterThan(16);
+    expect(limitation.y).toBeGreaterThanOrEqual(
+      provenance.y + provenance.height - 1);
+    const limitationMetrics = await page.locator(
+      ".source-provenance > .graph-source-status",
+    ).evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(limitationMetrics.scrollWidth)
+      .toBeLessThanOrEqual(limitationMetrics.clientWidth);
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth
       - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
