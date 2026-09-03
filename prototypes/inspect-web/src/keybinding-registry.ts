@@ -9,6 +9,7 @@ export interface KeybindingModifiers {
 export interface Keybinding {
   id: string;
   key: string | readonly string[];
+  available?: () => boolean;
   modifiers?: KeybindingModifiers;
   allowExtraModifiers?: boolean;
   priority?: number;
@@ -42,6 +43,7 @@ export interface KeybindingDispatchResult {
 }
 
 interface RegisteredKeybinding {
+  available?: () => boolean;
   description: KeybindingDescription;
   order: number;
   when?: (event: KeyboardEvent) => boolean;
@@ -71,6 +73,7 @@ function matches(
   binding: RegisteredKeybinding,
   event: KeyboardEvent,
 ): boolean {
+  if (binding.available && !binding.available()) return false;
   const { description } = binding;
   if (!description.keys.includes(normalizeKey(event.key))) return false;
 
@@ -172,6 +175,7 @@ export class KeybindingRegistry {
       description,
       order: this.#nextOrder++,
       run: binding.run,
+      ...(binding.available ? { available: binding.available } : {}),
       ...(binding.when ? { when: binding.when } : {}),
     };
     const bindings = scope === undefined
@@ -193,6 +197,17 @@ export class KeybindingRegistry {
       ? this.#globalBindings
       : this.#scopedBindings.get(scope) ?? [];
     return bindings.map(binding => binding.description);
+  }
+
+  availableBindingsFor(
+    scope?: EventTarget,
+  ): readonly KeybindingDescription[] {
+    const bindings = scope === undefined
+      ? this.#globalBindings
+      : this.#scopedBindings.get(scope) ?? [];
+    return bindings
+      .filter(binding => binding.available?.() ?? true)
+      .map(binding => binding.description);
   }
 
   dispatch(event: KeyboardEvent): KeybindingDispatchResult {

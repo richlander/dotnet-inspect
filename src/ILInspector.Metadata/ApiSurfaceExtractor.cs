@@ -1665,12 +1665,14 @@ public static class ApiSurfaceExtractor
                     evt.GetCustomAttributes(),
                     out var obsoleteMessage,
                     observeDecodeWork);
+                TypeNode? structuralEventNode = null;
                 var eventType = ResolveRequiredTypeName(
                     reader,
                     evt.Type,
                     typeContext,
                     observeText,
-                    observeDecodeWork);
+                    observeDecodeWork,
+                    captureTypeNode: node => structuralEventNode = node);
                 var eventNullableBytes = NullabilityReader.GetNullableBytes(
                     reader,
                     evt.GetCustomAttributes(),
@@ -1776,6 +1778,14 @@ public static class ApiSurfaceExtractor
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,
+                        StructuralReturnType =
+                            structuralEventNode is
+                                {
+                                    IsDegraded: false,
+                                    HasStructuralPayload: true
+                                }
+                                ? structuralEventNode.StructuralIdentity()
+                                : null,
                         MemberName = eventName,
                         Accessors = accessorModels
                     },
@@ -4124,13 +4134,14 @@ public static class ApiSurfaceExtractor
         EntityHandle handle,
         GenericContext? context = null,
         Action<string>? beforeRetainText = null,
-        Action<int>? beforeDecodeWork = null)
+        Action<int>? beforeDecodeWork = null,
+        Action<TypeNode>? captureTypeNode = null)
     {
-        if (beforeDecodeWork is not null)
+        if (beforeDecodeWork is not null || captureTypeNode is not null)
         {
             var provider =
                 new TypeNodeProvider(beforeMaterialize: beforeDecodeWork);
-            _ = handle.Kind switch
+            TypeNode? typeNode = handle.Kind switch
             {
                 HandleKind.TypeDefinition => provider.GetTypeFromDefinition(
                     reader,
@@ -4148,6 +4159,8 @@ public static class ApiSurfaceExtractor
                     (TypeNode)new DegradedTypeNode()),
                 _ => null,
             };
+            if (typeNode is not null)
+                captureTypeNode?.Invoke(typeNode);
         }
 
         string resolved = TypeResolver.ResolveTypeName(reader, handle, context) switch

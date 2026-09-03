@@ -7,20 +7,25 @@ import {
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
 import { renderBrand } from "./brand.ts";
+import type { KeybindingDescription } from "./keybinding-registry.ts";
 
 /** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
 export type HomeDemo = ProductHomeDemoId;
+export type ApplicationAction = "share" | "settings" | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
+  onApplicationAction: (action: ApplicationAction) => void;
   onCopySubjectSegment: (index: number) => void;
   onDismissNotice: () => void;
   onDismissPackageNotice: () => void;
-  onHelp: () => void;
   onNavigateBack: () => void;
   onNavigateForward: () => void;
   onRetryNotice: () => void;
   onSearch: () => void;
-  onShare: () => void;
+}
+
+export interface WorkbenchShellBinding {
+  disconnect(): void;
 }
 
 export interface HomeShellBindingActions {
@@ -51,18 +56,314 @@ export function workbenchShellHtml(
       </header>`;
 }
 
+export function renderApplicationMenuButton(): string {
+  return `<div class="application-menu-slot">
+    <button id="application-menu-button" type="button"
+      aria-label="Application menu" title="Application menu"
+      aria-haspopup="menu" aria-controls="application-menu"
+      aria-expanded="false"><span aria-hidden="true">☰</span></button>
+  </div>`;
+}
+
+export function renderApplicationMenu(shareAvailable: boolean): string {
+  return `<div id="application-menu-overlay" class="application-menu-overlay">
+    <div id="application-menu" class="application-menu" role="menu"
+      aria-label="Application menu" hidden>
+      ${shareAvailable
+        ? `<button type="button" role="menuitem" data-application-action="share">Share</button>
+          <div class="application-menu-separator" role="separator"></div>`
+        : ""}
+      <button type="button" role="menuitem" data-application-action="settings">Settings</button>
+      <button type="button" role="menuitem" data-application-action="keyboard-help">Keyboard help</button>
+    </div>
+  </div>`;
+}
+
+const keyboardHelpLabels = new Map<string, string>([
+  ["workspace.open-all", "Search types, members, and packages"],
+  ["workspace.open-commands", "Open commands"],
+  ["workspace.focus-filter", "Focus the current list filter"],
+  ["workspace.focus-filter-slash", "Focus the current list filter"],
+  ["workspace.select-lens", "Select a subject or inspector"],
+  ["workspace.navigate-vertical", "Move through the current list"],
+  ["workspace.navigate-horizontal", "Move across subjects or inspectors"],
+  ["workspace.drill-in", "Open the selected item"],
+  ["workspace.drill-out-backspace", "Go to the containing subject"],
+  ["workspace.drill-out-escape", "Leave the current member or subject"],
+  ["workspace.history-alt-ArrowLeft", "Go back"],
+  ["workspace.history-alt-ArrowRight", "Go forward"],
+  ["workspace.history-shift-ArrowLeft", "Go back"],
+  ["workspace.history-shift-ArrowRight", "Go forward"],
+  ["graph.zoom", "Zoom the current graph"],
+  ["graph.pan-horizontal", "Pan the current graph horizontally"],
+  ["graph.pan-vertical", "Pan the current graph vertically"],
+]);
+
+function keyLabel(binding: KeybindingDescription): string {
+  const modifiers: string[] = [];
+  if (binding.modifiers.commandOrControl) modifiers.push("Ctrl/Command");
+  if (binding.modifiers.control) modifiers.push("Ctrl");
+  if (binding.modifiers.meta) modifiers.push("Command");
+  if (binding.modifiers.alt) modifiers.push("Alt");
+  if (binding.modifiers.shift) modifiers.push("Shift");
+  const keys = binding.keys.map(key => {
+    if (key === " ") return "Space";
+    if (key.startsWith("Arrow")) return key.slice("Arrow".length);
+    return key.length === 1 ? key.toUpperCase() : key;
+  }).join(" / ");
+  return [...modifiers, keys].join("+");
+}
+
+export function renderKeyboardHelpDialog(
+  bindings: readonly KeybindingDescription[],
+): string {
+  const entries = bindings.flatMap(binding => {
+    const label = keyboardHelpLabels.get(binding.id);
+    return label ? [{ label, shortcut: keyLabel(binding) }] : [];
+  });
+  return `<div id="keyboard-help-backdrop" class="modal-backdrop">
+    <section id="keyboard-help-dialog" class="application-dialog"
+      role="dialog" aria-modal="true" aria-labelledby="keyboard-help-title">
+      <header class="application-dialog-head">
+        <div>
+          <p class="section-eyebrow">Application</p>
+          <h2 id="keyboard-help-title" tabindex="-1">Keyboard help</h2>
+        </div>
+        <button id="keyboard-help-close" type="button">Close</button>
+      </header>
+      <div class="keyboard-help-list">
+        ${entries.map(entry => `<div class="keyboard-help-row">
+          <span>${entry.label}</span>
+          <kbd>${entry.shortcut}</kbd>
+        </div>`).join("")}
+      </div>
+    </section>
+  </div>`;
+}
+
+function applicationMenuItems(menu: HTMLElement): HTMLElement[] {
+  return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .filter(item => !item.hidden);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), maximum);
+}
+
+function setApplicationMenuOpen(
+  button: HTMLElement,
+  menu: HTMLElement,
+  open: boolean,
+): void {
+  button.setAttribute("aria-expanded", String(open));
+  menu.hidden = !open;
+  if (!open) return;
+  const rect = button.getBoundingClientRect();
+  const view = button.ownerDocument.defaultView;
+  const visualViewport = view?.visualViewport;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportHeight =
+    visualViewport?.height ?? view?.innerHeight ?? 600;
+  const viewportWidth =
+    visualViewport?.width ?? view?.innerWidth ?? rect.right;
+  const margin = 8;
+  const gap = 4;
+  const usableTop = viewportTop + margin;
+  const usableBottom =
+    Math.max(usableTop, viewportTop + viewportHeight - margin);
+  const usableLeft = viewportLeft + margin;
+  const usableRight =
+    Math.max(usableLeft, viewportLeft + viewportWidth - margin);
+  const usableWidth = Math.max(0, usableRight - usableLeft);
+  const belowTop = clamp(rect.bottom + gap, usableTop, usableBottom);
+  const aboveBottom = clamp(rect.top - gap, usableTop, usableBottom);
+  const availableBelow = Math.max(0, usableBottom - belowTop);
+  const availableAbove = Math.max(0, aboveBottom - usableTop);
+  const naturalMenuHeight = menu.scrollHeight;
+  const placeBelow = availableBelow >= naturalMenuHeight
+    || (availableAbove < naturalMenuHeight
+      && availableBelow >= availableAbove);
+  const availableHeight = placeBelow ? availableBelow : availableAbove;
+  menu.style.minWidth = `${Math.min(180, usableWidth)}px`;
+  menu.style.maxWidth = `${usableWidth}px`;
+  menu.style.maxHeight = `${availableHeight}px`;
+  const menuWidth = menu.offsetWidth;
+  const menuHeight = menu.offsetHeight;
+  const maximumLeft = Math.max(usableLeft, usableRight - menuWidth);
+  const anchorRight = clamp(rect.right, usableLeft, usableRight);
+  menu.style.left =
+    `${clamp(anchorRight - menuWidth, usableLeft, maximumLeft)}px`;
+  menu.style.right = "auto";
+  const desiredTop = placeBelow ? belowTop : aboveBottom - menuHeight;
+  const maximumTop = Math.max(usableTop, usableBottom - menuHeight);
+  menu.style.top = `${clamp(desiredTop, usableTop, maximumTop)}px`;
+  menu.style.bottom = "auto";
+}
+
+function openApplicationMenu(
+  button: HTMLElement,
+  menu: HTMLElement,
+  position: "first" | "last",
+): void {
+  setApplicationMenuOpen(button, menu, true);
+  const items = applicationMenuItems(menu);
+  (position === "first" ? items[0] : items.at(-1))?.focus();
+}
+
+function closeApplicationMenu(
+  button: HTMLElement,
+  menu: HTMLElement,
+  restoreFocus: boolean,
+): void {
+  setApplicationMenuOpen(button, menu, false);
+  if (restoreFocus) button.focus();
+}
+
+function documentFocusableElements(document: Document): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
+      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter(element =>
+    !element.hidden
+    && element.getClientRects().length > 0
+    && element.closest("#application-menu") === null);
+}
+
+function continueDocumentOrder(
+  button: HTMLElement,
+  menu: HTMLElement,
+  event: KeyboardEvent,
+): void {
+  const focusable = documentFocusableElements(button.ownerDocument);
+  const buttonIndex = focusable.indexOf(button);
+  const target = event.shiftKey
+    ? focusable[buttonIndex - 1]
+    : focusable[buttonIndex + 1];
+  event.preventDefault();
+  closeApplicationMenu(button, menu, false);
+  target?.focus();
+}
+
+function isNodeTarget(target: EventTarget | null): target is Node {
+  return target !== null && "nodeType" in target;
+}
+
+export function applicationMenuOwnsFocus(document: Document): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement
+    && (active.id === "application-menu-button"
+      || active.closest("#application-menu") !== null);
+}
+
+export function focusApplicationMenuButton(document: Document): boolean {
+  const button =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  button?.focus({ preventScroll: true });
+  return button !== null;
+}
+
+export function trapModalTab(modal: HTMLElement, event: KeyboardEvent): void {
+  const focusable = [...modal.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
+      + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )].filter(element => !element.hidden && element.getClientRects().length > 0);
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) {
+    event.preventDefault();
+    modal.focus();
+    return;
+  }
+  const active = modal.ownerDocument.activeElement;
+  const activeIsNonTabStop = active instanceof HTMLElement
+    && modal.contains(active)
+    && !focusable.includes(active);
+  if (event.shiftKey && (active === first || activeIsNonTabStop)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && modal.ownerDocument.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 export function bindWorkbenchShell(
   root: ParentNode,
   actions: WorkbenchShellBindingActions,
-) {
+): WorkbenchShellBinding {
+  let outsidePointerHandler: ((event: Event) => void) | null = null;
+  let resizeHandler: (() => void) | null = null;
+  let menuView: Window | null = null;
+  let visualViewport: VisualViewport | null = null;
   root.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
     button.addEventListener("click", () => {
       const index = Number(button.dataset.subjectCopy);
       if (Number.isInteger(index) && index >= 0)
         actions.onCopySubjectSegment(index);
     }));
-  root.querySelector("#share")
-    ?.addEventListener("click", actions.onShare);
+  const menuButton =
+    root.querySelector<HTMLElement>("#application-menu-button");
+  const menu = root.querySelector<HTMLElement>("#application-menu");
+  if (menuButton && menu) {
+    menuButton.addEventListener("click", () => {
+      if (menu.hidden) openApplicationMenu(menuButton, menu, "first");
+      else closeApplicationMenu(menuButton, menu, true);
+    });
+    menuButton.addEventListener("keydown", event => {
+      if (!["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+      event.preventDefault();
+      openApplicationMenu(
+        menuButton,
+        menu,
+        event.key === "ArrowUp" ? "last" : "first");
+    });
+    menu.addEventListener("keydown", event => {
+      const items = applicationMenuItems(menu);
+      const active = menu.ownerDocument.activeElement;
+      const index = items.findIndex(item => item === active);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeApplicationMenu(menuButton, menu, true);
+      } else if (event.key === "Tab") {
+        continueDocumentOrder(menuButton, menu, event);
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        (event.key === "Home" ? items[0] : items.at(-1))?.focus();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const offset = event.key === "ArrowDown" ? 1 : -1;
+        items[(index + offset + items.length) % items.length]?.focus();
+      }
+    });
+    menu.querySelectorAll<HTMLElement>("[data-application-action]")
+      .forEach(item => item.addEventListener("click", () => {
+        const action = item.dataset.applicationAction;
+        if (action !== "share"
+          && action !== "settings"
+          && action !== "keyboard-help") return;
+        closeApplicationMenu(menuButton, menu, action === "share");
+        actions.onApplicationAction(action);
+      }));
+    outsidePointerHandler = event => {
+      if (menu.hidden) return;
+      const target = event.target;
+      if (isNodeTarget(target)
+        && (menu.contains(target)
+          || menuButton.contains(target))) return;
+      closeApplicationMenu(menuButton, menu, false);
+    };
+    root.addEventListener("pointerdown", outsidePointerHandler);
+    menuView = menu.ownerDocument.defaultView;
+    visualViewport = menuView?.visualViewport ?? null;
+    resizeHandler = () => {
+      if (!menu.hidden)
+        setApplicationMenuOpen(menuButton, menu, true);
+    };
+    menuView?.addEventListener("resize", resizeHandler);
+    visualViewport?.addEventListener("resize", resizeHandler);
+    visualViewport?.addEventListener("scroll", resizeHandler);
+  }
   root.querySelector("#dismiss-notice")
     ?.addEventListener("click", actions.onDismissNotice);
   root.querySelector("#retry-notice")
@@ -75,8 +376,62 @@ export function bindWorkbenchShell(
     ?.addEventListener("click", actions.onNavigateForward);
   root.querySelector("#open-search")
     ?.addEventListener("click", () => actions.onSearch());
-  root.querySelector("#help")
-    ?.addEventListener("click", actions.onHelp);
+
+  const helpBackdrop =
+    root.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  const helpDialog =
+    root.querySelector<HTMLElement>("#keyboard-help-dialog");
+  const closeKeyboardHelp = () =>
+    actions.onApplicationAction("keyboard-help");
+  root.querySelector("#keyboard-help-close")?.addEventListener(
+    "click",
+    closeKeyboardHelp);
+  helpBackdrop?.addEventListener("click", event => {
+    if (event.target === helpBackdrop) closeKeyboardHelp();
+  });
+  helpDialog?.addEventListener("keydown", event => {
+    if (event.key === "Tab") trapModalTab(helpDialog, event);
+  });
+
+  return {
+    disconnect() {
+      if (outsidePointerHandler)
+        root.removeEventListener("pointerdown", outsidePointerHandler);
+      if (resizeHandler) {
+        menuView?.removeEventListener("resize", resizeHandler);
+        visualViewport?.removeEventListener("resize", resizeHandler);
+        visualViewport?.removeEventListener("scroll", resizeHandler);
+      }
+    },
+  };
+}
+
+export function captureApplicationMenuFocusOwner(
+  document: Document,
+): HTMLElement | null {
+  const menuButton =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  return document.activeElement === menuButton ? menuButton : null;
+}
+
+export function restoreApplicationMenuFocusIfOwned(
+  document: Document,
+  owner: HTMLElement | null,
+): boolean {
+  if (!owner) return false;
+  const replacement =
+    document.querySelector<HTMLElement>("#application-menu-button");
+  if (!replacement) return false;
+  if (document.activeElement === replacement) return true;
+  if (owner.isConnected) return false;
+  const active = document.activeElement;
+  if (active?.isConnected
+      && active !== document.body
+      && active !== document.documentElement) {
+    return false;
+  }
+  replacement.focus({ preventScroll: true });
+  return true;
 }
 
 export function focusWorkbenchSearch(root: ParentNode): boolean {

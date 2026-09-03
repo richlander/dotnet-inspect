@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -60,6 +61,32 @@ public sealed class AsyncLoweringFixtureMatrixTests
             runtimeArtifact.Reader.GetMethodDefinition(runtimeMethod)));
         Assert.IsType<StateMachineRelationshipResult.Absent>(
             runtimeArtifact.Relationships.GetByKickoff(runtimeMethod));
+
+        using var classicSource =
+            MetadataSource.Open(classic.AssemblyPath());
+        var classicImport = Assert.IsType<IrFunction>(
+            IrImporter.Import(
+                classicSource,
+                FixtureType,
+                FixtureMethod));
+        Assert.IsType<ClassicAsyncRequestAdapterResult.RequestAvailable>(
+            classicImport.ClassicAsyncRequest);
+
+        using var runtimeSource =
+            MetadataSource.Open(runtime.AssemblyPath());
+        var runtimeImport = Assert.IsType<IrFunction>(
+            IrImporter.Import(
+                runtimeSource,
+                FixtureType,
+                FixtureMethod));
+        var filtered = Assert.IsType<
+            ClassicAsyncRequestAdapterResult.Filtered>(
+                runtimeImport.ClassicAsyncRequest);
+        Assert.Equal(
+            MethodClassification.RuntimeAsync,
+            filtered.Evidence.Classification);
+        Assert.IsType<StateMachineRelationshipResult.Absent>(
+            filtered.Evidence.Relationship);
     }
 
     static bool HasRuntimeAsyncFlag(MethodDefinition method)

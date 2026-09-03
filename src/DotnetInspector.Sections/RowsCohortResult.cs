@@ -57,31 +57,13 @@ public sealed class RowsCohortResult<TIdentity, T>
         SelectedRowSet<TIdentity, T>[] rowSets) =>
         new(
             true,
-            RowsCohortSnapshot.Own(rowSets),
+            SectionContractSnapshot.Own(rowSets),
             null);
 
     internal static RowsCohortResult<TIdentity, T> Failed(
         RowsCohortSemanticFailure<TIdentity> failure) =>
         new(
             false,
-            RowsCohortSnapshot.Empty<SelectedRowSet<TIdentity, T>>(),
+            SectionContractSnapshot.Empty<SelectedRowSet<TIdentity, T>>(),
             failure);
-}
-
-internal static class RowsCohortSnapshot
-{
-    public static IReadOnlyList<T> Empty<T>() =>
-        Array.AsReadOnly(Array.Empty<T>());
-
-    public static IReadOnlyList<T> Copy<T>(
-        IReadOnlyList<T> values)
-    {
-        var copy = new T[values.Count];
-        for (int index = 0; index < values.Count; index++)
-            copy[index] = values[index];
-        return Own(copy);
-    }
-
-    public static IReadOnlyList<T> Own<T>(T[] values) =>
-        Array.AsReadOnly(values);
 }
