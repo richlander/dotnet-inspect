@@ -129,12 +129,12 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 
 | Scenario | Current contract | Probe | Regression gate |
 | -------- | ---------------- | ----- | --------------- |
-| Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. For body-bearing methods, parameter and retained-local identities without a lossless C# spelling or binding lower body fidelity; type self-declarations can return a typed refusal. Static argument zero named `this` and bodyless-member refusal remain explicit gaps (P29 and P30). Full Unicode admission remains incomplete (P28). | P1, P26, P28, P29, P30 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, and `UnspeakableNameFidelityTests`; whole-type composition and the generic-name portion are manually probed. |
+| Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. For body-bearing methods, parameter and retained-local identities without a lossless C# spelling or binding lower body fidelity; type self-declarations can return a typed refusal. Static argument zero named `this` and bodyless-member refusal remain explicit gaps (P29 and P30). Full Unicode admission remains incomplete (P28). | P1, P25, P26, P28, P29, P30 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `MetadataExtensionFindingsTests.GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`, and `UnspeakableNameFidelityTests`; whole-type composition remains manually probed. |
 | PDB local variables | Prefer an admitted Portable PDB local name associated with the exact IL slot and scope when the current per-slot model and function-wide collision allocation can represent it. P24 and P27 record the two scope-reuse gaps. A raised nested function checks names only for slots its final body still binds or reads, because those IR nodes do not carry the root function's explicit eliminated-slot set. | P2, P24, P27 | `IrImporterTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`; P24 is manually probed, while `PdbLocalNameScopeTests.ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss` pins P27's artifact shape and current loss. |
-| Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. Current C# permits nested parameters to reuse enclosing parameter names; same-list duplicates and unrepresentable identities lower fidelity. | P3, P26 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda`, `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda`, and `UnspeakableNameFidelityTests` |
+| Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. Current C# permits nested parameters and locals to reuse enclosing parameter or local names; same-list duplicates and collisions with an actually referenced enclosing binder lower fidelity. | P3, P26 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda`, `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda`, the `*ReusingOuter*` gates, and `UnspeakableNameFidelityTests` |
 | Expression-tree lambda parameters | When the fully owned expression-tree factory shape raises, preserve each `Expression.Parameter` string as the lambda parameter identity. | P23 | `ExpressionTreeFidelityTests.SimpleArithmeticLambda_RecoversLambda_StaysFull` |
 | Dynamic member names | When the authenticated runtime-binder call-site shape raises, preserve its member-name string as the dynamic member identity. | P23 | `DynamicCallSitePassTests.CanonicalPositive_PrintsDynamicMemberAccess` |
-| Local-function declarations and parameters | When an authenticated local-function raise succeeds, recover ordinary source function and generated-method parameter names, and bind calls to the raised declaration. Current C# permits nested parameters to reuse enclosing parameter names; same-list duplicates and unrepresentable identities lower fidelity. P28 tracks full-grammar admission across authenticated generated-name paths. | P4, P26, P28 | `LocalFunctionRaisingPassTests.StaticLocalFunction_RecoveredAsDeclarationAndUnqualifiedCall` and `UnspeakableNameFidelityTests` |
+| Local-function declarations and parameters | When an authenticated local-function raise succeeds, recover ordinary source function and generated-method parameter names, and bind calls to the raised declaration. Current C# permits nested parameters and locals to reuse enclosing parameter or local names; same-list duplicates and collisions with an actually referenced enclosing binder lower fidelity. P28 tracks full-grammar admission across authenticated generated-name paths. | P4, P26, P28 | `LocalFunctionRaisingPassTests.StaticLocalFunction_RecoveredAsDeclarationAndUnqualifiedCall`, the `*ReusingOuter*` gates, and `UnspeakableNameFidelityTests` |
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based (#5585) and uses the narrow identifier grammar tracked by #5616. | P5, P23 | `AnonymousObjectPassTests` gates ASCII positive output, not generated-type authentication or full Unicode admission. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported method returns and parameters, properties, and events. Composed field declarations remain a recoverable gap. | P6 | `TupleTypeViewTests` gates metadata decoding across all positions; method/property/event composition is manually probed. |
 | Iterator hoisted locals | Recover an ordinary source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. P28 records the keyword and full-Unicode spelling gap. | P7, P28 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
@@ -690,6 +690,9 @@ dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
 dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
   -method '*ParameterNameResolution*'
 
+dotnet run --project tests/ILInspector.Metadata.Tests -c Release --no-build -- \
+  -method '*GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback*'
+
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_MissingParameterName_SynthesizesOrdinalName*'
 
@@ -700,18 +703,17 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*Import_SynthesizedParameterName_DoesNotCollideWithMethodGenericParameter*'
 ```
 
-The first test emits a fixture method whose signature has one parameter type
-but no Param row. The second covers both that shape and a present Param row
-with an empty name; both use `arg0`, which is ordinal synthesis rather than
-source identity. The third emits an unnamed ordinal zero beside an artifact
-parameter named `arg0`; all metadata, composed-source, and Decompiler paths
-preserve the artifact name and synthesize the distinct fallback `arg0_1`.
-The fourth emits a method generic parameter named `arg0` beside an unnamed
-ordinary parameter; metadata, lightweight-signature, API-surface, and
-Decompiler paths preserve the generic binder and synthesize `arg0_1`.
-The Metadata parameter-resolution probe also emits the legal contrast: an
-enclosing type generic parameter named `arg0` does not force a rename, so the
-ordinary fallback remains `arg0`.
+The metadata gates cover a signature with no Param row and one with a present
+but empty name; both use `arg0`, which is ordinal synthesis rather than source
+identity. They also cover an unnamed ordinal zero beside an artifact parameter
+named `arg0`, preserving the artifact name and synthesizing distinct fallback
+`arg0_1`. The production extension-scanner gate emits method generic `arg0`
+beside an unnamed ordinary parameter and verifies the lightweight signature
+preserves `Echo<arg0>` while synthesizing `arg0_1`. The API-surface, composed
+declaration, and Decompiler-import gates preserve the same binding. The
+Metadata parameter-resolution probe also emits the legal contrast: enclosing
+type generic `arg0` does not force a rename, so the ordinary fallback remains
+`arg0`.
 
 ### P26: metadata identities without a C# spelling
 
@@ -721,15 +723,20 @@ dotnet run --project src/ILInspector.CSharp.Tests -c Release --no-build -- \
 
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
   -method '*UnspeakableNameFidelityTests*'
+
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
+  -method '*ReusingOuter*'
 ```
 
 The first synthetic metadata fixture uses legal type identities that C# cannot
 spell losslessly and verifies whole-type source returns a typed refusal. The
 second fixture matrix verifies unspellable member and body-bearing parameter
-identities, retained root PDB-local identities, duplicate or enclosing
-parameter bindings, and method-generic collisions lower body fidelity instead
-of being presented as preserved C# identifiers. Raised nested locals remain
-outside this claim until #5586 carries eliminated-slot evidence.
+identities, retained root and live raised nested PDB-local identities,
+same-list duplicates, actual captured-binder conflicts, and method-generic
+collisions lower body fidelity instead of being presented as preserved C#
+identifiers. The third compiler-produced gate verifies the legal contrast in
+both directions: nested parameters and locals may reuse an enclosing parameter
+or local identity, and both exact names remain preserved with Full fidelity.
 
 ### P27: different PDB names for one reused slot
 

@@ -16,7 +16,10 @@ public class LambdaRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
-    static string PrintRaised(string methodName, Type? fixtureType = null)
+    static string PrintRaised(
+        string methodName,
+        Type? fixtureType = null,
+        Action<IrFunction>? inspectFunction = null)
     {
         var type = fixtureType ?? typeof(CfgSampleClass);
         using var source = MetadataSource.Open(type.Assembly.Location);
@@ -26,6 +29,7 @@ public class LambdaRaisingPassTests
         var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
+        inspectFunction?.Invoke(function!);
         return result.Output!.ReplaceLineEndings("\n").Trim();
     }
 
@@ -53,6 +57,32 @@ public class LambdaRaisingPassTests
     [Fact]
     public void NonCapturingExpressionBody_RaisesSimpleLambda()
         => Assert.Equal("return x => x + 1;", PrintRaised(nameof(CfgSampleClass.NonCapturingLambda)));
+
+    [Fact]
+    public void ParameterReusingOuterLocal_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LambdaParameterReusesOuterLocal),
+            inspectFunction: function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = input;", output);
+        Assert.Contains("value => value + 1", output);
+        Assert.DoesNotContain("int num = input;", output);
+    }
+
+    [Fact]
+    public void LocalReusingOuterParameter_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LambdaLocalReusesOuterParameter),
+            inspectFunction: function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = 1;", output);
+        Assert.Contains("RefHelper(ref value);", output);
+        Assert.DoesNotContain("int num = 1;", output);
+    }
 
     [Fact]
     public void NonCapturingStatementBody_RaisesBlockLambda()

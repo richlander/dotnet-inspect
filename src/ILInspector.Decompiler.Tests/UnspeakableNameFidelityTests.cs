@@ -17,6 +17,9 @@ public class UnspeakableNameFidelityTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
+    static readonly TypeRef FuncInt = TypeRef.GenericInstance(
+        TypeRef.CoreLib("System", "Func`1"),
+        [Int32]);
     static readonly TypeRef FuncIntInt = TypeRef.GenericInstance(
         TypeRef.CoreLib("System", "Func`2"),
         [Int32, Int32]);
@@ -855,6 +858,34 @@ public class UnspeakableNameFidelityTests
                 new StoreLocal(0, Int32, new Constant(1, Int32)),
                 new Return(null)));
         var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(lambda);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+        Assert.Contains("conflicts with a parameter", issue?.Reason);
+    }
+
+    [Fact]
+    public void RaisedLambdaReferencedLocalMatchingCapturedArgument_DegradesToPartial()
+    {
+        var lambda = new Lambda(
+            FuncInt,
+            [],
+            [Int32],
+            ["value"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new Return(new LoadArgument(0, "value", Int32))));
+        var function = Function(
+            FuncInt,
+            [new Parameter("value", Int32)],
+            [],
+            Container(new Return(lambda)));
 
         var issue = CSharpSpellability.InspectUnrepresentableMetadataName(lambda);
 

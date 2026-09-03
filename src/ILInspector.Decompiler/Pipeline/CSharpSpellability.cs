@@ -192,8 +192,31 @@ internal static class CSharpSpellability
         BlockContainer body)
         => LocalNamesIssue(
             localNames,
-            reservedNames: parameters.Select(parameter => parameter.Name),
+            reservedNames: parameters
+                .Select(parameter => parameter.Name)
+                .Concat(ExternalArgumentNamesInScope(body, parameters)),
             retainedScope: body);
+
+    internal static IEnumerable<string> ExternalArgumentNamesInScope(
+        IrNode scope,
+        ImmutableArray<Parameter> parameters)
+    {
+        var parameterNames = new HashSet<string>(
+            parameters.Select(parameter => parameter.Name),
+            StringComparer.Ordinal);
+        foreach (var node in scope.DescendantsOutsideNestedFunctions.Prepend(scope))
+        {
+            string? name = node switch
+            {
+                LoadArgument argument => argument.Name,
+                LoadArgumentAddress address => address.Name,
+                StoreArgument store => store.Name,
+                _ => null,
+            };
+            if (name is not null && !parameterNames.Contains(name))
+                yield return name;
+        }
+    }
 
     static bool HasLosslessBodyIdentifierSpelling(string name)
         => CSharpIdentifier.IsIdentifierLike(name)

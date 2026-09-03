@@ -54,6 +54,7 @@ public sealed partial class CSharpPrinter
 
     readonly PrinterOptions _options;
     readonly HashSet<string> _reservedScopeNames;
+    readonly HashSet<string> _capturedScopeNames;
     readonly List<DecompilerDecision> _decisions;
     readonly HashSet<string> _decisionKeys;
     readonly IrNode _stackSlotTelemetryScope;
@@ -74,6 +75,13 @@ public sealed partial class CSharpPrinter
         _reservedScopeNames = reservedScopeNames is null
             ? []
             : new HashSet<string>(reservedScopeNames, StringComparer.Ordinal);
+        _capturedScopeNames = new HashSet<string>(
+            CSharpSpellability
+                .ExternalArgumentNamesInScope(
+                    function,
+                    function.Signature.Parameters)
+                .Where(_reservedScopeNames.Contains),
+            StringComparer.Ordinal);
         _stackSlotTelemetry = stackSlotTelemetry;
         _stackSlotTelemetryScope = stackSlotTelemetryScope ?? function.Body;
         _decisions = decisions ?? [];
@@ -1033,7 +1041,9 @@ public sealed partial class CSharpPrinter
             _stackSlotStoreTypes[store] = StackSlotRenderType(store.Slot, store.Value.ResultType);
 
         var ordinals = new Dictionary<int, int>();
-        var takenNames = CurrentReservedNames(includeLocals: true);
+        var takenNames = new HashSet<string>(
+            CurrentScopeNames(),
+            StringComparer.Ordinal);
 
         string NameFor(int slot, TypeRef? type)
         {
@@ -1369,6 +1379,8 @@ public sealed partial class CSharpPrinter
     IReadOnlySet<string> CurrentScopeNames()
     {
         var names = CurrentReservedNames(includeLocals: true);
+        names.UnionWith(_reservedScopeNames);
+        AddDescendantBinderNames(names);
         foreach (var (_, (name, _)) in _stackSlotDeclarations)
             names.Add(name);
         foreach (var name in _switchTemps.Values)
@@ -1382,11 +1394,27 @@ public sealed partial class CSharpPrinter
 
     HashSet<string> CurrentReservedNames(bool includeLocals = false)
     {
-        var names = new HashSet<string>(_reservedScopeNames, StringComparer.Ordinal);
+        var names = new HashSet<string>(_capturedScopeNames, StringComparer.Ordinal);
         foreach (var parameter in _function.Signature.Parameters)
             names.Add(parameter.Name);
         foreach (var genericParameter in _function.Signature.GenericParameterNames)
             names.Add(genericParameter);
+        foreach (var nested in _function
+            .DescendantsOutsideNestedFunctions
+            .OfType<LocalFunctionStatement>())
+        {
+            names.Add(nested.Name);
+        }
+        if (includeLocals)
+        {
+            for (int i = 0; i < _function.Locals.Length; i++)
+                names.Add(LocalName(i));
+        }
+        return names;
+    }
+
+    void AddDescendantBinderNames(HashSet<string> names)
+    {
         foreach (var nested in _function.Descendants.OfType<Lambda>())
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
@@ -1396,12 +1424,6 @@ public sealed partial class CSharpPrinter
             foreach (var parameter in nested.Parameters)
                 names.Add(parameter.Name);
         }
-        if (includeLocals)
-        {
-            for (int i = 0; i < _function.Locals.Length; i++)
-                names.Add(LocalName(i));
-        }
-        return names;
     }
 
     /// <summary>
@@ -5964,6 +5986,12 @@ public sealed partial class CSharpPrinter
                     }
                 }
             }
+
+            // Exact source names may legally shadow non-captured enclosing or
+            // descendant binders. Generated names remain conservative so they do
+            // not introduce new, avoidable shadowing into reconstructed source.
+            taken.UnionWith(_reservedScopeNames);
+            AddDescendantBinderNames(taken);
 
             // When enabled, a local with no usable source name gets a synthesized
             // name from IR evidence (its type, loop-counter role), collision-

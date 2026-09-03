@@ -17,7 +17,7 @@ internal static class SignatureRenderer
     public static string RenderDecodedSignature(
         MetadataReader reader,
         MethodDefinition method,
-        string name,
+        string methodName,
         MethodSignature<string> signature,
         GenericContext context,
         bool extensionThis = false)
@@ -37,6 +37,9 @@ internal static class SignatureRenderer
             parameters.Add($"{prefix}{paramTypes[i]} {parameterNames[i]}");
         }
 
-        return $"{signature.ReturnType} {name}({string.Join(", ", parameters)})";
+        string declarationName = context.MethodParameters.Count == 0
+            ? methodName
+            : $"{methodName}<{string.Join(", ", context.MethodParameters)}>";
+        return $"{signature.ReturnType} {declarationName}({string.Join(", ", parameters)})";
     }
 }

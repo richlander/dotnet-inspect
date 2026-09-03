@@ -166,7 +166,7 @@ public sealed class MetadataDeclarationQueryTests
                 SignatureRenderer.RenderDecodedSignature(
                     reader,
                     method,
-                    "Echo<arg0>",
+                    "Echo",
                     signature,
                     context));
         }

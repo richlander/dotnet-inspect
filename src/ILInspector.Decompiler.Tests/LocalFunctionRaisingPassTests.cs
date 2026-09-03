@@ -8,7 +8,9 @@ public class LocalFunctionRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
-    static string PrintRaised(string methodName)
+    static string PrintRaised(
+        string methodName,
+        Action<IrFunction>? inspectFunction = null)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
@@ -17,6 +19,7 @@ public class LocalFunctionRaisingPassTests
         var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
+        inspectFunction?.Invoke(function!);
         return result.Output!.ReplaceLineEndings("\n").Trim();
     }
 
@@ -33,6 +36,32 @@ public class LocalFunctionRaisingPassTests
         Assert.Equal(1, CountOccurrences(output, "int Twice(int v)"));
         Assert.DoesNotContain("g__", output);
         Assert.DoesNotContain("CfgSampleClass.Twice", output);
+    }
+
+    [Fact]
+    public void ParameterReusingOuterLocal_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LocalFunctionParameterReusesOuterLocal),
+            function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = input;", output);
+        Assert.Contains("static int AddOne(int value)", output);
+        Assert.DoesNotContain("int num = input;", output);
+    }
+
+    [Fact]
+    public void LocalReusingOuterParameter_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LocalFunctionLocalReusesOuterParameter),
+            function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = 1;", output);
+        Assert.Contains("RefHelper(ref value);", output);
+        Assert.DoesNotContain("int num = 1;", output);
     }
 
     [Fact]
