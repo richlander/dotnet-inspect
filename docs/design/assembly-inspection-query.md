@@ -214,6 +214,20 @@ readers all use that same check. Compatibility path and stream factories remain
 available while their callers migrate; they do not manufacture an artifact
 registration.
 
+The compatibility package-role path continues to use
+`CreateFromStreamWithFallbackIdentity`.
+`CreateFromArtifactWithFallbackIdentity` is its artifact-backed peer for a
+later migration that must preserve a selected malformed, native, module, or
+empty-MVID asset as a visible rejection carrier. An image with a decodable
+assembly identity retains that identity, and a non-empty MVID is bound when
+available. A fallback descriptor retains the exact artifact registration, but
+the fallback identity is not assembly evidence: every later artifact-backed
+open revalidates the image and rejects it. This is gated by
+`ArtifactFallbackDescriptor_PreservesExactRegistrationAndValidIdentity` and
+`ArtifactFallbackDescriptor_RetainsRejectedSelectedImages`. The content-free
+admission contract below remains stricter and does not publish these
+compatibility rejection carriers.
+
 This bridge does not consume workspace roles or source-specific provenance.
 Those remain owner-issued evidence for workspace admission and trust policy.
 PDB artifact acquisition, symbol stores, and SourceLink policy are separate
