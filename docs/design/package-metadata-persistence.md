@@ -5,10 +5,11 @@
 Target design for
 [#5601](https://github.com/richlander/dotnet-inspect/issues/5601).
 The current `metadata-v7` implementation has useful source separation,
-one-hour expiry, present and absent markers, force-refresh bypass, and partial
-result nonpublication. It does not yet consume package-owned configured
-authority, prove complete current-format serialization, or preserve every
-meaningful metadata state. The complete contract is therefore **unverified**.
+one-hour expiry, present and absent markers, full-query force-refresh bypass,
+and several partial-result nonpublication paths. It does not yet consume
+package-owned configured authority, prove complete current-format
+serialization, or preserve every meaningful metadata state. The complete
+contract is therefore **unverified**.
 
 ## Decision
 
@@ -32,6 +33,11 @@ end-to-end adoption tracker. The change adds no command, product capability,
 shared substrate, browser path, output field, or rendering route. It changes
 the existing service path without introducing a shared API, so it creates no
 new browser/Wasm enablement plan or single-host substrate exception.
+
+The full query is the existing product-consumed path. The published-only query
+is an existing public Services method and persistent namespace whose exact-head
+callers are tests; this design does not claim a current product consumer for
+that query or add a public force-refresh route to it.
 
 Rendering is unchanged. The cache continues to return typed `PackageMetadata`
 consumed by the existing package presentation path; it does not format data or
@@ -219,7 +225,7 @@ remain distinct whenever the typed model distinguishes them. In particular:
 
 | Evidence family | Persistent states |
 | --- | --- |
-| Vulnerabilities | Capability unavailable; checked with no findings; checked with findings. |
+| Vulnerabilities | Capability not offered; checked with no findings; checked with findings whose selected detail operations completed. |
 | Deprecation | Capability unsupported; supported but no coordinate-applicable evidence; checked with no deprecation; deprecation value present. |
 | Nullable scalar | Completed without a value; completed with the exact value, including `false` or zero. |
 | Nullable collection | Completed without a value; completed empty; completed with values. |
@@ -228,6 +234,13 @@ A capability not offered by the authority can be part of a complete snapshot;
 an operation that was offered but failed or became indeterminate cannot. The
 production-completion outcome distinguishes those cases instead of inferring
 them from `PackageMetadata` fields.
+
+For a full query, a vulnerability entry with a recognized GitHub advisory
+identifier selects the existing advisory-detail operation. A successful detail
+response that omits optional CVE or summary fields is complete and preserves
+those null states. A failed, timed-out, malformed, or oversized detail response
+makes the live metadata partial and ineligible for publication. A
+non-GitHub-advisory entry selects no such detail operation.
 
 The complete serializer uses a closed inventory and terminal completion
 evidence covering every member state. These prove serialized completeness,
@@ -334,7 +347,10 @@ observed after expiry; that new evidence may begin another bounded window.
 A separate completion boundary occurs when a vulnerability index yields one
 valid page and one failed page. The current operation may report the partial
 finding with its failure, but no warm operation may reinterpret that list as a
-complete vulnerability result.
+complete vulnerability result. The same rule covers a recognized GitHub
+advisory whose detail request fails after the NuGet vulnerability page
+succeeds. The neighboring complete case is a successful advisory response that
+authoritatively omits optional CVE or summary fields.
 
 ## Precedent and deliberate divergence
 
@@ -382,12 +398,15 @@ collections do not all round-trip distinctly from unavailable values.
 The current `SourcePresence` and `Cacheable` flow supplies useful partial
 behavior: definitive absence is separate from indeterminate status, empty
 present metadata can be cached, and failed full-query catalog, search,
-registration, or vulnerability enrichment does not publish. Published-only
-lookup does not carry the same completion guard: a failed or malformed
-registration operation followed by a successful package-content probe can
-publish a present entry. Existing tests establish the narrower full-query
-properties but do not prove the target authority, published-only completion,
-freshness transition, complete projection, or framing contract.
+registration, or NuGet vulnerability index/page acquisition does not publish.
+GitHub advisory detail failure is different: it currently returns without
+making the vulnerability operation incomplete, so missing CVE or summary data
+can publish as a complete-looking snapshot. Published-only lookup also does not
+carry the same completion guard: a failed or malformed registration operation
+followed by a successful package-content probe can publish a present entry.
+Existing tests establish the narrower full-query properties but do not prove
+advisory-detail completion, target authority, published-only completion,
+freshness transition, complete projection, or framing.
 
 Target adoption must use a successor subject and payload namespace rather than
 relabeling `v6`/`metadata-v7` bytes. Until package source composition supplies
@@ -413,7 +432,9 @@ The target remains unverified until Release tests establish:
   indeterminate refresh that cannot extend or replace prior evidence; and
 - `PackageMetadataPersistence_PublishesOnlyCompleteCurrentOutcomes`, covering
   complete empty and populated snapshots, present-but-partial nonpublication,
-  vulnerability and deprecation states, exact false/zero/null/empty round-trip,
+  vulnerability and deprecation states, failed advisory-detail acquisition
+  versus a successful advisory response with absent optional fields, exact
+  false/zero/null/empty round-trip,
   feed-controlled text that cannot forge outcome, member, or completion
   framing, and storage-write failure that leaves the live outcome usable,
   plus malformed, truncated, deleted-member, duplicate-member,
