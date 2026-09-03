@@ -365,6 +365,39 @@ public sealed class PolicyEvaluatorTests
     }
 
     [Fact]
+    public void App_ReportsUnstartableDotnetHostAsConfigurationError()
+    {
+        string dotnetHost = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-dotnet-{Guid.NewGuid():N}");
+        TextWriter originalError = Console.Error;
+        using var error = new StringWriter();
+
+        try
+        {
+            Console.SetError(error);
+
+            int exitCode = DependencyPolicyApp.Run(
+                [
+                    "--repository",
+                    FindRepositoryRoot(),
+                    "--dotnet",
+                    dotnetHost,
+                ]);
+
+            Assert.Equal(2, exitCode);
+            Assert.StartsWith("error DP0002:", error.ToString());
+            Assert.Contains(
+                $"Could not start '{dotnetHost}'",
+                error.ToString());
+        }
+        finally
+        {
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void CheckedInBroadProductRulesExcludeCallerGraphFixtures()
     {
         string repository = FindRepositoryRoot();

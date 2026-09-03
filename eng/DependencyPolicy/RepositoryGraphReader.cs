@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -347,9 +348,7 @@ internal static class RepositoryGraphReader
             startInfo.ArgumentList.Add(argument);
         }
 
-        using Process process = Process.Start(startInfo)
-            ?? throw new DependencyPolicyException(
-                $"Could not start '{dotnetHost}'.");
+        using Process process = StartProcess(startInfo, dotnetHost);
         Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
         Task<string> errorTask = process.StandardError.ReadToEndAsync();
         bool timedOut = !process.WaitForExit(milliseconds: 120_000);
@@ -365,6 +364,23 @@ internal static class RepositoryGraphReader
             process.ExitCode,
             outputTask.Result,
             errorTask.Result);
+    }
+
+    private static Process StartProcess(
+        ProcessStartInfo startInfo,
+        string dotnetHost)
+    {
+        try
+        {
+            return Process.Start(startInfo)
+                ?? throw new DependencyPolicyException(
+                    $"Could not start '{dotnetHost}'.");
+        }
+        catch (Win32Exception)
+        {
+            throw new DependencyPolicyException(
+                $"Could not start '{dotnetHost}'.");
+        }
     }
 
     private static HashSet<string> AssemblyProjectClosure(
