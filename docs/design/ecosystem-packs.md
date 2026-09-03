@@ -199,6 +199,11 @@ The manifest is fixed for one product build. Changing the shipped set is an
 ordinary reviewed source change. Runtime callers cannot add, remove, replace,
 reorder, or refresh registrations.
 
+The manifest sequence is authored in strictly ascending unique descriptor
+`Order`. Complete manifest validation rejects declaration order that disagrees
+with descriptor order rather than sorting it. Discovery preserves that
+validated sequence.
+
 Generic catalog mechanics in `DotnetInspector.Ecosystems` consume the
 registration contract but do not name a shipped ecosystem. A new application
 pack supplies its own descriptor, prefix data, package-set reference, scanner
@@ -529,7 +534,7 @@ ordinary non-friend consumer.
 | --- | --- |
 | `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder` | Static discovery returns a literal expected synthetic descriptor and action sequence in unique explicit order. |
 | `EcosystemPackRegistryTests.ExactLookupUsesOnlyTypedIdentity` | Exact ID lookup returns the enumerated registration view; labels, prefix text, package-set IDs, case variants, and unknown IDs do not alias a pack. |
-| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate pack order, duplicate prefix-entry IDs/order, out-of-order prefix sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
+| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate pack order, out-of-order pack sequences, duplicate prefix-entry IDs/order, out-of-order prefix sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
 | `EcosystemPackRegistryTests.CatalogMaterializationPerformsNoObservableWork` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. |
 | `EcosystemPackRegistryTests.DiscoveryDoesNotResolveOrExecuteCapabilities` | Discovery performs no package-set membership resolution, package-source work, artifact/workspace work, or scanner invocation. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
@@ -558,8 +563,7 @@ claim that cost is zero.
 
 Overall delivery is tracked by #5728.
 
-1. Lock this focused pack pattern.
-2. Advance whichever independent owner track is needed for the first real pack.
+The owner tracks may advance independently:
 
 | Independent track | Owner work |
 | --- | --- |
@@ -567,6 +571,8 @@ Overall delivery is tracked by #5728.
 | Recorded prefix | #5602 issues the typed package-prefix request currency. |
 | Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
 
+1. Lock this focused pack pattern.
+2. Advance whichever independent owner track is needed for the first real pack.
 3. Implement `DotnetInspector.Ecosystems` when any one owner-issued action
    currency supports a coherent real application row. The first slice includes
    identity, descriptors, the private manifest, discovery, exact lookup, the
