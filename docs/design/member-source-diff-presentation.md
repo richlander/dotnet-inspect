@@ -13,9 +13,9 @@ structured-comparison tracker
 The normative claim is:
 
 > Complete PDB and decompilation endpoint evidence for one member projects to
-> one canonical standalone comparison pair, one `AnalysisDiff<string>`, one
-> two-sided statistics summary, and one Markout `MappedTextDiff` shared by the
-> CLI and browser hosts.
+> one canonical placement-aligned comparison pair, one
+> `AnalysisDiff<string>`, one two-sided statistics summary, and one Markout
+> `MappedTextDiff` shared by the CLI and browser hosts.
 
 This is a focused L2 presentation design. It consumes:
 
@@ -42,7 +42,9 @@ issue #5686.
 
 The query's endpoints are intentionally not ready to compare as raw strings:
 
-- verified PDB member source is a standalone source declaration; and
+- verified PDB member source is a member slice whose producer preserves
+  placement when a column-zero directive or literal continuation prevents a
+  common dedent; and
 - `MemberRenderResult.Text` is the member's byte-identical segment in a
   whole-type listing, indented one type-body level.
 
@@ -55,9 +57,10 @@ formatting policy into the query.
 
 The shared projection therefore standardizes on the product-owned whole-member
 render, removes declaration-leading trivia from both comparison endpoints, and
-converts decompiled placement from type-body context to standalone context.
-Applying the same typed boundary to both endpoints handles an attribute or
-comment that shares the PDB signature line without manufacturing a difference.
+aligns the decompiled placement prefix to the PDB declaration's retained
+whitespace prefix. Applying the same typed boundary to both endpoints handles
+an attribute or comment that shares the PDB signature line without
+manufacturing a difference.
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No
 compatibility switch preserves the old comparison-only projection.
@@ -94,52 +97,67 @@ become empty or one-sided diffs. Hosts present those typed outcomes without a
 The checksum-verified PDB member text remains available unchanged through the
 query result for provenance and the PDB Source section. The canonical Before
 comparison starts from that text, which the producer has already dedented,
-normalized to LF, and terminal-newline-trimmed.
+when possible, normalized to LF, and terminal-newline-trimmed. A source
+construct at column zero may have prevented the producer's common dedent, so
+the declaration may retain its source placement prefix.
 
 The adapter applies the shared declaration boundary below to remove only
 declaration-leading trivia. That includes complete leading trivia lines and,
-when an attribute or comment shares the signature line, the prefix before the
-typed signature-start column. Signature text, body text, relative indentation,
-trailing whitespace, and line boundaries remain unchanged.
+when an attribute or comment shares the signature line, its non-whitespace
+prefix before the typed signature-start column. The whitespace placement prefix
+before the declaration remains unchanged, as do signature text, body text,
+relative indentation, trailing whitespace, literal content, and line
+boundaries.
 
 ### After
 
-After text is a standalone projection of complete
+After text is a placement-aligned projection of complete
 `MemberRenderResult.Text`. The product render guarantees a whole-type member
 segment indented one type-body level and may include metadata attribute lines
-before the signature. The projection first removes exactly that one leading
-four-space level from every non-empty physical line, then applies the same
-declaration boundary as Before.
+before the signature. The projection applies the same declaration boundary as
+Before, then replaces exactly the producer-guaranteed four-space placement
+prefix on every non-empty physical line with the PDB endpoint's retained
+whitespace placement prefix.
 
 ### Shared declaration boundary
 
-`CSharpText` recognizes members only inside a type. The adapter therefore places
-each standalone endpoint inside the same fixed synthetic type wrapper for
+`CSharpText` recognizes members only inside a type. The adapter therefore
+places each endpoint inside the same fixed synthetic type wrapper for
 recognition, selects exactly one child member declaration, and translates its
 line and column coordinates back to the unwrapped endpoint.
 
 The synthetic type contributes no output text, analysis item, line number, or
 Markout coordinate. It exists only to obtain the owner-issued trivia,
-signature-line, and signature-column boundary. The adapter removes the endpoint
-prefix before that boundary and retains everything from the signature token
-through the member end.
+signature-line, and signature-column boundary. The adapter removes
+non-whitespace declaration trivia before that boundary while retaining the
+endpoint's leading whitespace placement prefix and everything from the
+signature token through the member end.
+
+On a signature line with same-line trivia, the retained placement prefix is the
+maximal leading whitespace run before that trivia. When the entire prefix
+before the signature token is whitespace, the adapter retains it unchanged.
+The canonical PDB placement prefix is the resulting whitespace before the
+signature token.
 
 It does not:
 
 - reflow or unwrap the signature;
 - choose a different block or expression-body form;
-- trim nested indentation or trailing whitespace;
+- trim nested indentation, PDB placement whitespace, or trailing whitespace;
 - remove attributes or comments after the signature token;
 - use a host-owned C# parser or regenerate C#;
 - add using directives from `MemberRenderResult.Namespaces`; or
 - manufacture text for an incomplete render.
 
-Removing one producer-guaranteed placement indent preserves the member's
-relative indentation and every decompiler-owned spelling choice. Applying one
-typed declaration boundary to both endpoints prevents trivia placement from
-becoming a fake change. If a non-empty After line lacks the required prefix, or
-either wrapped endpoint does not establish one exact child member and signature
-start, projection fails visibly rather than guessing a source boundary.
+Replacing one producer-guaranteed placement prefix preserves the member's
+relative indentation and every decompiler-owned spelling choice while matching
+the source declaration's actual placement. PDB lines are never dedented as a
+group, so a column-zero directive or verbatim-string continuation remains
+unchanged. Applying one typed declaration boundary to both endpoints prevents
+trivia placement from becoming a fake change. If a non-empty After line lacks
+the required prefix, or either wrapped endpoint does not establish one exact
+child member and signature start, projection fails visibly rather than guessing
+a source boundary.
 
 `MemberRenderResult` has already normalized line endings to LF and trimmed the
 terminal newline. Canonical After therefore has an absent final terminator, as
@@ -237,13 +255,16 @@ The CLI preserves:
 - exact and line-ending-normalized checksum evidence;
 - factual two-sided statistics;
 - complete detailed Markout output;
-- the distinct `PDB comparison` and `Decompiled comparison` endpoint labels;
+- distinct comparison endpoint labelling from the separate source sections;
 - explicit identical and unavailable outcomes; and
 - structured table, TSV, and JSONL projections.
 
-The intentional compatibility change is limited to the canonical decompiled
-endpoint described above. Tests assert the new endpoint and resulting diff
-rather than freezing the superseded CLI-only projection.
+The intentional compatibility change includes both comparison endpoints and
+their labels: declaration-leading trivia may be removed from PDB comparison
+text, the decompiled comparison uses product-owned wrapping and body choices,
+and the headers change to `PDB comparison` / `Decompiled comparison`. Tests
+assert the new pair and resulting diff rather than freezing the superseded
+CLI-only projection.
 
 ## Pathological demonstration
 
@@ -252,6 +273,8 @@ The contract fixture uses a complete product render with:
 - a wrapped multi-line signature;
 - leading metadata attributes excluded from the PDB member slice;
 - an attribute sharing the PDB signature line;
+- a column-zero conditional directive inside an otherwise indented PDB slice;
+- a column-zero verbatim-string continuation;
 - nested block indentation;
 - an expression that differs from PDB source;
 - one moved line; and
@@ -259,12 +282,13 @@ The contract fixture uses a complete product render with:
 
 The fixture proves:
 
-- exactly one type-body indentation level is removed from every non-empty After
-  line;
+- the decompiler's four-space placement prefix is replaced with the exact PDB
+  whitespace placement prefix on every non-empty After line;
 - a synthetic type scope yields exact member signature coordinates without
   entering output or analysis coordinates;
 - separate-line and same-line declaration trivia are removed consistently from
   both endpoints and do not become attribute-only additions or removals;
+- PDB directive and literal-continuation lines remain byte-for-byte unchanged;
 - wrapped signature and nested indentation remain otherwise unchanged;
 - changed and moved counts retain separate Before and After cardinalities;
 - mapped endpoint lines are index-identical to analysis endpoint lines; and
@@ -276,8 +300,12 @@ The fixture proves:
 Release presentation tests prove:
 
 - the unchanged PDB endpoint remains available beside canonical Before text;
-- one and only one producer-guaranteed type-body indent is removed from
-  complete decompiled lines;
+- one and only one producer-guaranteed type-body placement prefix is replaced
+  on complete decompiled lines;
+- spaces, tabs, and retained nonzero PDB placement prefixes align the After
+  endpoint without changing PDB body or literal lines;
+- column-zero directives and verbatim-string continuations do not trigger PDB
+  dedenting;
 - a synthetic type wrapper produces one exact child-member boundary and
   contributes no output lines or coordinates;
 - separate-line and same-line attributes/comments before the signature token
