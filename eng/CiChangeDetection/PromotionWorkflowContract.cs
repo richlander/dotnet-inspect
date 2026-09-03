@@ -35,93 +35,6 @@ internal static class PromotionWorkflowContract
           artifacts/inspect-web-coreclr-publish/async-lowering.json \
           artifacts/inspect-web-runtime-async-receipts
         """;
-    private const string DeploymentFilesCheck =
-        """
-        set -euo pipefail
-        site=artifacts/inspect-web-publish/wwwroot
-        api=artifacts/inspect-web-publish/api
-        index="$site/index.html"
-        receipt=artifacts/inspect-web-publish/async-lowering.json
-        test -f "$index"
-        jq -e '.schema == 4 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .assembly_count == 2 and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.publish_core_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.published_core_webcil_file | test("^InspectWeb\\.Engine\\.Core\\.[A-Za-z0-9]+\\.wasm$")) and (.published_core_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
-        webcil=$(jq -r '.published_webcil_file' "$receipt")
-        core_webcil=$(jq -r '.published_core_webcil_file' "$receipt")
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' ! -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-        test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
-        test "$(sha256sum "$site/_framework/$core_webcil" | awk '{print $1}')" = "$(jq -r '.published_core_webcil_sha256' "$receipt")"
-        test -f "$site/staticwebapp.config.json"
-        test -f "$api/host.json"
-        test -f "$api/functions.metadata"
-        test -f "$api/worker.config.json"
-        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
-        manifest="$site/manifest.json"
-        test -f "$manifest"
-        jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
-        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
-        while IFS= read -r asset; do
-          [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
-          test -f "$site/$asset"
-        done <<< "$vite_assets"
-        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
-        grep -Fq "src=\"/$vite_entry\"" "$index"
-        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
-        while IFS= read -r stylesheet; do
-          grep -Fq "href=\"/$stylesheet\"" "$index"
-        done <<< "$vite_stylesheets"
-        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
-        test -n "$dotnet_module"
-        test -f "$site/_framework/$dotnet_module"
-        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
-        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
-        test "$import_map_line" -lt "$module_line"
-        """;
-    private const string CoreClrDeploymentFilesCheck =
-        """
-        set -euo pipefail
-        site=artifacts/inspect-web-coreclr-publish/wwwroot
-        api=artifacts/inspect-web-coreclr-publish/api
-        index="$site/index.html"
-        receipt=artifacts/inspect-web-coreclr-publish/async-lowering.json
-        test -f "$index"
-        jq -e '.schema == 4 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "runtime" and .result == "inspect-web-async-lowering-ok" and .assembly_count == 2 and .async_method_count > 0 and .runtime_async_method_count == .async_method_count and .compiler_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.publish_core_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.published_core_webcil_file | test("^InspectWeb\\.Engine\\.Core\\.[A-Za-z0-9]+\\.wasm$")) and (.published_core_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
-        webcil=$(jq -r '.published_webcil_file' "$receipt")
-        core_webcil=$(jq -r '.published_core_webcil_file' "$receipt")
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' ! -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-        test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
-        test "$(sha256sum "$site/_framework/$core_webcil" | awk '{print $1}')" = "$(jq -r '.published_core_webcil_sha256' "$receipt")"
-        test -f "$site/staticwebapp.config.json"
-        test -f "$api/host.json"
-        test -f "$api/functions.metadata"
-        test -f "$api/worker.config.json"
-        test -f "$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll"
-        jq -e 'any(.[]; .name == "MsdlProxy" and .language == "dotnet-isolated" and any(.bindings[]; .type == "httpTrigger" and .authLevel == "Anonymous" and .methods == ["get"] and .route == "msdl/{pdbFileName}/{symbolKey}"))' "$api/functions.metadata" >/dev/null
-        manifest="$site/manifest.json"
-        test -f "$manifest"
-        jq -e '. as $manifest | type == "object" and (.["index.html"] | type == "object") and all(to_entries[]; (.value | type == "object") and all(((.value.imports // []) + (.value.dynamicImports // []))[]; . as $key | $manifest | has($key)))' "$manifest" >/dev/null
-        vite_assets=$(jq -er '[to_entries[].value | .file, (.css[]?), (.assets[]?)] | unique | if length > 0 then join("\n") else error("empty Vite manifest") end' "$manifest")
-        while IFS= read -r asset; do
-          [[ "$asset" =~ ^assets/([A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]]
-          test -f "$site/$asset"
-        done <<< "$vite_assets"
-        vite_entry=$(jq -er '.["index.html"].file' "$manifest")
-        grep -Fq "src=\"/$vite_entry\"" "$index"
-        vite_stylesheets=$(jq -er '.["index.html"].css | if length > 0 then join("\n") else error("missing Vite stylesheet") end' "$manifest")
-        while IFS= read -r stylesheet; do
-          grep -Fq "href=\"/$stylesheet\"" "$index"
-        done <<< "$vite_stylesheets"
-        dotnet_module=$(sed -n 's#.*"\./_framework/dotnet\.js": "\./_framework/\([^"]*\.js\)".*#\1#p' "$index" | head -n 1)
-        test -n "$dotnet_module"
-        test -f "$site/_framework/$dotnet_module"
-        import_map_line=$(grep -n -m1 '<script type="importmap">' "$index" | cut -d: -f1)
-        module_line=$(grep -n -m1 '<script type="module"' "$index" | cut -d: -f1)
-        test "$import_map_line" -lt "$module_line"
-        test "$(find "$site/_framework" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)" -eq 1
-        grep -q GetDotNetRuntimeHeap "$site"/_framework/dotnet.native.*.js
-        """;
-
     internal static void AssertMutations(string repository)
     {
         string promotionPath = Path.Combine(
@@ -158,6 +71,8 @@ internal static class PromotionWorkflowContract
         ValidateCoreClrStaging(coreClrStagingWorkflow);
         ValidateAsyncDeploymentVerifier(asyncVerifier);
         ValidateAsyncLoweringReceiptTarget(asyncLoweringReceiptTarget);
+        InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(asyncVerifier);
+        InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(asyncVerifier);
 
         const string trustedCheckout =
             """
@@ -300,7 +215,7 @@ internal static class PromotionWorkflowContract
             "CoreCLR staging contract accepted async evidence from the wrong assembly.");
         AssertMutationRejected(
             asyncVerifier,
-            "  \"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"\n",
+            "  \"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facades.ts\" \\\n  \"$site\" \\\n  deployment \\\n  \"$domain\" \\\n  \"$smoke_result\"\n",
             "",
             ValidateAsyncDeploymentVerifier,
             "Async deployment verifier accepted a skipped browser invocation.");
@@ -312,10 +227,34 @@ internal static class PromotionWorkflowContract
             "Async deployment verifier accepted a receipt without the async census.");
         AssertMutationRejected(
             asyncVerifier,
-            "    repository_project_count: graphResult.repository_project_count,\n",
+            "    repository_project_count: graph.repository_project_count,\n",
             "",
             ValidateAsyncDeploymentVerifier,
             "Async deployment verifier accepted a receipt without the project count.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    generated_source_sha256: sha256(sourcePath),\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without per-facade source identity.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "    published_js_sha256: sha256(javascriptPath),\n",
+            "",
+            ValidateAsyncDeploymentVerifier,
+            "Async deployment verifier accepted a receipt without per-facade JavaScript identity.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  \"InspectWeb.Engine.SourceExports\",\n",
+            "",
+            InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet,
+            "Async deployment receipt contract accepted an omitted source facade.");
+        AssertMutationRejected(
+            asyncVerifier,
+            "  published_js_sha256: assembly.published_js_sha256,\n",
+            "",
+            InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts,
+            "Async deployment parity contract accepted unequal published JavaScript.");
         AssertMutationRejected(
             asyncLoweringReceiptTarget,
             "Condition=\"'$(InspectWebExpectedAsyncLowering)' == 'runtime' And $([System.String]::Copy(';$(Features);').Contains(';runtime-async=on;')) != 'True'\"",
@@ -1402,12 +1341,11 @@ internal static class PromotionWorkflowContract
     {
         RequireExactKeys(step, ["name", "shell", "run"], context);
         RequireScalarValue(step, "shell", "bash", context);
-        if (GetRequiredScalar(step, "run", context).TrimEnd() !=
-            CoreClrDeploymentFilesCheck)
-        {
-            throw new InvalidOperationException(
-                $"{context} does not match the trusted contract.");
-        }
+        ValidateArtifactVerificationScript(
+            GetRequiredScalar(step, "run", context),
+            "runtime",
+            coreClr: true,
+            context);
     }
 
     private static void ValidateAsyncDeploymentCheck(
@@ -1428,18 +1366,31 @@ internal static class PromotionWorkflowContract
     {
         string[] required =
         [
+            "if [[ \"${1:-}\" == \"--compare\" ]]",
+            "commonTopLevel(compiler)",
+            "compiler.assemblies.map(commonAssembly)",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-lowering.cs\"",
             "-getProperty:VersionPrefix",
             "\"$repo_root/eng/generate-inspect-web-engine-facade.sh\" \\\n  --contract",
-            "\"$scratch/inspect-web-engine.d.ts\" \\\n  \"$version_prefix\"",
-            "\"$repo_root/prototypes/inspect-web/src/inspect-web-engine.d.ts\" \\\n  \"$scratch/inspect-web-engine.d.ts\"",
-            "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facade.ts\" \\\n  \"$site\"",
+            "\"$declarations\" \\\n  \"$version_prefix\"",
+            "--context InspectWeb.Engine.InspectWebJsExportContext",
+            "compiled InspectWebJsExportContext does not declare the exact facade set",
+            "\"$tsc\" -p \"$compiled_sources/tsconfig.json\"",
+            "differs from the freshly compiled context source",
+            "\"$repo_root/prototypes/inspect-web/scripts/verify-published-engine-facades.ts\"",
+            "\"$site\" \\\n  deployment \\\n  \"$domain\"",
             "\"$repo_root/prototypes/inspect-web/scripts/verify-async-project-graph.ts\"",
             "async_method_count: census.async_method_count",
-            "assembly_count: census.assembly_count",
-            "repository_project_count: graphResult.repository_project_count",
-            "published_webcil_file: webcil[0]",
-            "published_core_webcil_file: coreWebcil[0]",
+            "assembly_count: assemblies.length",
+            "js_export_method_count: census.js_export_method_count",
+            "repository_projects: graph.repository_projects",
+            "repository_project_count: graph.repository_project_count",
+            "repository_project_sha256: graph.repository_project_sha256",
+            "generated_source_sha256: sha256(sourcePath)",
+            "declaration_sha256: sha256(declarationPath)",
+            "published_js_sha256: sha256(javascriptPath)",
+            "published_webcil_sha256: sha256(",
+            "schema: 5",
         ];
         string[] missing = required
             .Where(value =>
@@ -1450,6 +1401,84 @@ internal static class PromotionWorkflowContract
             throw new InvalidOperationException(
                 "Inspect-web async deployment verifier does not contain each "
                 + "trusted evidence step exactly once. Missing or duplicate: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet(
+        string script)
+    {
+        string[] required =
+        [
+            "InspectWebJsExportContext",
+            "census.assemblies.map",
+            "assert.equal(census.assembly_count, 7)",
+            "assert.equal(census.js_export_method_count, 45)",
+            "generated_source_file:",
+            "generated_source_sha256:",
+            "declaration_file:",
+            "declaration_sha256:",
+            "published_js_file:",
+            "published_js_sha256:",
+            "published_webcil_file:",
+            "published_webcil_sha256:",
+            "repository_projects:",
+            "repository_project_sha256:",
+            "smoke.initialized_facades",
+            "schema: 5",
+        ];
+        string[] assemblies =
+        [
+            "InspectWeb.Engine",
+            "InspectWeb.Engine.AnalysisExports",
+            "InspectWeb.Engine.CallGraphExports",
+            "InspectWeb.Engine.CatalogExports",
+            "InspectWeb.Engine.MetadataExports",
+            "InspectWeb.Engine.PackageExports",
+            "InspectWeb.Engine.SourceExports",
+        ];
+        string[] missing = required
+            .Concat(assemblies.Select(assembly => $"  \"{assembly}\","))
+            .Where(value => !script.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length != 0
+            || script.Contains("\"InspectWeb.Engine.Core\"", StringComparison.Ordinal)
+            || script.Contains("readdirSync(assemblyDirectory)", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet failed. "
+                + "Missing: ["
+                + string.Join(", ", missing)
+                + "].");
+        }
+    }
+
+    private static void
+        InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts(string script)
+    {
+        string[] required =
+        [
+            "assert.deepEqual(\n  commonTopLevel(compiler),\n  commonTopLevel(runtime)",
+            "assert.deepEqual(\n  compiler.assemblies.map(commonAssembly),\n  runtime.assemblies.map(commonAssembly)",
+            "generated_source_sha256: assembly.generated_source_sha256",
+            "declaration_sha256: assembly.declaration_sha256",
+            "published_js_sha256: assembly.published_js_sha256",
+            "repository_projects: receipt.repository_projects",
+            "repository_project_sha256: receipt.repository_project_sha256",
+            "receipt.compiler_async_method_count",
+            "receipt.runtime_async_method_count",
+            "assembly.compiler_async_method_count",
+            "assembly.runtime_async_method_count",
+        ];
+        string[] missing = required
+            .Where(value => !script.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length != 0)
+        {
+            throw new InvalidOperationException(
+                "InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts "
+                + "failed. Missing: ["
                 + string.Join(", ", missing)
                 + "].");
         }
@@ -1486,11 +1515,114 @@ internal static class PromotionWorkflowContract
     {
         RequireExactKeys(step, ["name", "shell", "run"], context);
         RequireScalarValue(step, "shell", "bash", context);
-        if (GetRequiredScalar(step, "run", context).TrimEnd() !=
-            DeploymentFilesCheck)
+        ValidateArtifactVerificationScript(
+            GetRequiredScalar(step, "run", context),
+            "compiler",
+            coreClr: false,
+            context);
+    }
+
+    private static void ValidateArtifactVerificationScript(
+        string script,
+        string lowering,
+        bool coreClr,
+        string context)
+    {
+        string publishRoot = coreClr
+            ? "artifacts/inspect-web-coreclr-publish"
+            : "artifacts/inspect-web-publish";
+        string expectedCompilerCount = lowering == "compiler"
+            ? ".compiler_async_method_count == .async_method_count"
+            : ".compiler_async_method_count == 0";
+        string expectedRuntimeCount = lowering == "runtime"
+            ? ".runtime_async_method_count == .async_method_count"
+            : ".runtime_async_method_count == 0";
+        string[] required =
+        [
+            "set -euo pipefail",
+            $"site={publishRoot}/wwwroot",
+            $"api={publishRoot}/api",
+            $"receipt={publishRoot}/async-lowering.json",
+            ".schema == 5",
+            $".lowering == \"{lowering}\"",
+            ".facade_count == 7",
+            ".assembly_count == 7",
+            ".js_export_method_count == 45",
+            expectedCompilerCount,
+            expectedRuntimeCount,
+            ".repository_projects == (.repository_projects | sort | unique)",
+            ".repository_project_sha256 | test(\"^[0-9a-f]{64}$\")",
+            "\"InspectWeb.Engine\"",
+            "\"InspectWeb.Engine.AnalysisExports\"",
+            "\"InspectWeb.Engine.CallGraphExports\"",
+            "\"InspectWeb.Engine.CatalogExports\"",
+            "\"InspectWeb.Engine.MetadataExports\"",
+            "\"InspectWeb.Engine.PackageExports\"",
+            "\"InspectWeb.Engine.SourceExports\"",
+            "\"inspect-web-host\"",
+            "\"inspect-web-analysis\"",
+            "\"inspect-web-call-graph\"",
+            "\"inspect-web-catalog\"",
+            "\"inspect-web-metadata\"",
+            "\"inspect-web-package\"",
+            "\"inspect-web-source\"",
+            ".publish_assembly_sha256 | test(\"^[0-9a-f]{64}$\")",
+            ".generated_source_sha256 | test(\"^[0-9a-f]{64}$\")",
+            ".declaration_sha256 | test(\"^[0-9a-f]{64}$\")",
+            ".published_js_sha256 | test(\"^[0-9a-f]{64}$\")",
+            "$assembly.published_webcil_file | startswith($assembly.name + \".\")",
+            ".published_webcil_sha256 | test(\"^[0-9a-f]{64}$\")",
+            "([.assemblies[].js_export_method_count] | add) == .js_export_method_count",
+            "([.assemblies[].async_method_count] | add) == .async_method_count",
+            ".smoke.sdk_create_count == 1",
+            ".smoke.sdk_runtime_count == 1",
+            ".smoke.entry_point_count == 0",
+            ".smoke.async_lowering_canary == \"inspect-web-async-lowering-ok\"",
+            "published_modules=$(find \"$site\" -maxdepth 1 -type f -name 'inspect-web-*.js' -printf '%f\\n' | sort)",
+            "test \"$published_modules\" = \"$expected_modules\"",
+            "sha256sum \"$site/$js_file\"",
+            "sha256sum \"$site/_framework/$webcil_file\"",
+            "test ! -f \"$site/inspect-web-engine.js\"",
+            "test ! -f \"$site/inspect-web-engine.ts\"",
+            "test -f \"$site/staticwebapp.config.json\"",
+            "test -f \"$api/host.json\"",
+            "test -f \"$api/functions.metadata\"",
+            "test -f \"$api/worker.config.json\"",
+            "test -f \"$api/.azurefunctions/Microsoft.Azure.WebJobs.Extensions.FunctionMetadataLoader.dll\"",
+            "route == \"msdl/{pdbFileName}/{symbolKey}\"",
+            "manifest=\"$site/manifest.json\"",
+            ". as $manifest | type == \"object\" and (.[\"index.html\"] | type == \"object\")",
+            "vite_assets=$(jq -er",
+            "test -f \"$site/$asset\"",
+            "grep -Fq \"src=\\\"/$vite_entry\\\"\" \"$index\"",
+            "grep -Fq \"href=\\\"/$stylesheet\\\"\" \"$index\"",
+            "test -f \"$site/_framework/$dotnet_module\"",
+            "test \"$import_map_line\" -lt \"$module_line\"",
+        ];
+        if (coreClr)
+        {
+            required =
+            [
+                .. required,
+                "test \"$(find \"$site/_framework\" -maxdepth 1 -type f -name 'dotnet.native.*.js' | wc -l)\" -eq 1",
+                "grep -q GetDotNetRuntimeHeap \"$site\"/_framework/dotnet.native.*.js",
+            ];
+        }
+
+        string[] missing = required
+            .Where(value => !script.Contains(value, StringComparison.Ordinal))
+            .ToArray();
+        if (missing.Length != 0
+            || script.Contains("|| true", StringComparison.Ordinal)
+            || script.Contains(".schema == 4", StringComparison.Ordinal)
+            || script.Contains("publish_core_assembly", StringComparison.Ordinal)
+            || script.Contains("published_core_webcil", StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                $"{context} does not match the trusted contract.");
+                $"{context} does not preserve the exact seven-facade deployment "
+                + "receipt and site contract. Missing: ["
+                + string.Join(", ", missing)
+                + "].");
         }
     }
 

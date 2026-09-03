@@ -36,6 +36,12 @@
     <ProjectReference Include="..\engine.SourceExports\InspectWeb.Engine.SourceExports.csproj" />
     <ProjectReference Include="..\engine.CallGraphExports\InspectWeb.Engine.CallGraphExports.csproj" />
     <ProjectReference Include="..\engine.CatalogExports\InspectWeb.Engine.CatalogExports.csproj" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.PackageExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.MetadataExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.AnalysisExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.SourceExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.CallGraphExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.CatalogExports" />
     <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Content Include="..\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
