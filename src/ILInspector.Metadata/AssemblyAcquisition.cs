@@ -229,17 +229,17 @@ public sealed class AssemblyAcquisitionRegistration
 }
 
 /// <summary>
-/// Total result of selecting an assembly acquisition descriptor from one
+/// Typed result of selecting an assembly acquisition descriptor from one
 /// compatibility path or stream.
 /// </summary>
-public abstract record AssemblyDescriptorSelectionResult
+public abstract class AssemblyDescriptorSelectionResult
 {
     private protected AssemblyDescriptorSelectionResult()
     {
     }
 
     /// <summary>The selected image produced a valid assembly descriptor.</summary>
-    public sealed record Ready : AssemblyDescriptorSelectionResult
+    public sealed class Ready : AssemblyDescriptorSelectionResult
     {
         internal Ready(ResolvedAssemblyReference reference)
         {
@@ -254,26 +254,33 @@ public abstract record AssemblyDescriptorSelectionResult
     /// The selected image is not a managed assembly and remains eligible for a
     /// descriptor-less compatibility path.
     /// </summary>
-    public sealed record Descriptorless : AssemblyDescriptorSelectionResult
+    public sealed class Descriptorless : AssemblyDescriptorSelectionResult
     {
-        internal Descriptorless()
+        internal Descriptorless(Exception? compatibilityException)
         {
+            CompatibilityException = compatibilityException;
         }
+
+        internal Exception? CompatibilityException { get; }
     }
 
     /// <summary>
     /// The selected image has managed assembly metadata that could not produce
     /// a valid descriptor.
     /// </summary>
-    public sealed record Rejected : AssemblyDescriptorSelectionResult
+    public sealed class Rejected : AssemblyDescriptorSelectionResult
     {
-        internal Rejected(CandidateOpenFailure failure)
+        internal Rejected(
+            CandidateOpenFailure failure,
+            Exception? compatibilityException)
         {
             ArgumentNullException.ThrowIfNull(failure);
             Failure = failure;
+            CompatibilityException = compatibilityException;
         }
 
         public CandidateOpenFailure Failure { get; }
+        internal Exception? CompatibilityException { get; }
     }
 }
 
@@ -523,7 +530,8 @@ public sealed class ResolvedAssemblyReference
         }
         catch (BadImageFormatException)
         {
-            return new AssemblyDescriptorSelectionResult.Descriptorless();
+            return new AssemblyDescriptorSelectionResult.Descriptorless(
+                compatibilityException: null);
         }
 
         using (peReader)
@@ -535,10 +543,14 @@ public sealed class ResolvedAssemblyReference
             }
             catch (BadImageFormatException)
             {
-                return new AssemblyDescriptorSelectionResult.Descriptorless();
+                return new AssemblyDescriptorSelectionResult.Descriptorless(
+                    compatibilityException: null);
             }
             if (!hasMetadata)
-                return new AssemblyDescriptorSelectionResult.Descriptorless();
+            {
+                return new AssemblyDescriptorSelectionResult.Descriptorless(
+                    compatibilityException: null);
+            }
 
             AssemblyReferenceIdentity identity;
             try
@@ -547,7 +559,9 @@ public sealed class ResolvedAssemblyReference
                 if (!metadata.IsAssembly)
                 {
                     return new AssemblyDescriptorSelectionResult
-                        .Descriptorless();
+                        .Descriptorless(
+                            new BadImageFormatException(
+                                "The metadata image is not an assembly."));
                 }
 
                 identity =
@@ -556,7 +570,8 @@ public sealed class ResolvedAssemblyReference
                 if (string.IsNullOrWhiteSpace(identity.Name))
                 {
                     return RejectDescriptorSelection(
-                        "The selected managed assembly has no usable identity.");
+                        "The selected managed assembly has no usable identity.",
+                        compatibilityException: null);
                 }
             }
             catch (Exception ex) when (
@@ -565,7 +580,8 @@ public sealed class ResolvedAssemblyReference
                     or OverflowException)
             {
                 return RejectDescriptorSelection(
-                    "The selected managed assembly contains invalid metadata.");
+                    "The selected managed assembly contains invalid metadata.",
+                    ex);
             }
 
             return new AssemblyDescriptorSelectionResult.Ready(
@@ -574,11 +590,14 @@ public sealed class ResolvedAssemblyReference
     }
 
     static AssemblyDescriptorSelectionResult.Rejected
-        RejectDescriptorSelection(string detail) =>
+        RejectDescriptorSelection(
+            string detail,
+            Exception? compatibilityException) =>
         new(
             new CandidateOpenFailure(
                 CandidateOpenFailureKind.InvalidImage,
-                detail));
+                detail),
+            compatibilityException);
 
     static ResolvedAssemblyReference? DescriptorOrNull(
         AssemblyDescriptorSelectionResult result) =>
@@ -586,13 +605,27 @@ public sealed class ResolvedAssemblyReference
         {
             AssemblyDescriptorSelectionResult.Ready ready =>
                 ready.Reference,
-            AssemblyDescriptorSelectionResult.Descriptorless => null,
+            AssemblyDescriptorSelectionResult.Descriptorless descriptorless =>
+                PreserveCompatibilityResult(
+                    descriptorless.CompatibilityException),
             AssemblyDescriptorSelectionResult.Rejected rejected =>
-                throw new BadImageFormatException(
-                    rejected.Failure.Detail),
+                PreserveCompatibilityResult(
+                    rejected.CompatibilityException),
             _ => throw new InvalidOperationException(
                 "Unknown assembly descriptor selection result."),
         };
+
+    static ResolvedAssemblyReference? PreserveCompatibilityResult(
+        Exception? compatibilityException)
+    {
+        if (compatibilityException is null)
+            return null;
+
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo
+            .Capture(compatibilityException)
+            .Throw();
+        return null;
+    }
 
     /// <summary>
     /// Creates a stream-backed descriptor, using the image's real assembly
