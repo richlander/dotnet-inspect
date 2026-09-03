@@ -411,45 +411,6 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                     cancellationToken:
                         TestContext.Current.CancellationToken)).Kind);
 
-        string extentRoot = Directory.CreateDirectory(
-            Path.Combine(_root, "manifest-extent")).FullName;
-        string prefix =
-            "<package><metadata><id>Extent</id><version>1.0.0</version>"
-            + "</metadata></package>";
-        string extentPath = Path.Combine(
-            extentRoot,
-            "Extent.1.0.0.nupkg");
-        WritePackage(
-            extentPath,
-            "Extent",
-            "1.0.0",
-            manifestOverride: prefix + "EXCESS",
-            compressionLevel: CompressionLevel.NoCompression);
-        UnderdeclareManifest(extentPath, prefix);
-        using IPackageSourceClient extent = CreateClient(extentRoot);
-        Assert.Equal(
-            PackageSourceFailureKind.InvalidResponse,
-            Failed(
-                await extent.SearchAsync(
-                    string.Empty,
-                    cancellationToken:
-                        TestContext.Current.CancellationToken)).Kind);
-
-        string methodRoot = Directory.CreateDirectory(
-            Path.Combine(_root, "manifest-method")).FullName;
-        string methodPath = WriteV2Package(
-            methodRoot,
-            "Method",
-            "1.0.0");
-        PatchManifestMethod(methodPath, 99);
-        using IPackageSourceClient method = CreateClient(methodRoot);
-        Assert.Equal(
-            PackageSourceFailureKind.InvalidResponse,
-            Failed(
-                await method.SearchAsync(
-                    string.Empty,
-                    cancellationToken:
-                        TestContext.Current.CancellationToken)).Kind);
     }
 
     [Fact]
@@ -527,6 +488,138 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                     string.Empty,
                     cancellationToken:
                         TestContext.Current.CancellationToken)).Kind);
+
+        string hiddenRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "hidden-aggregate")).FullName;
+        string firstManifest =
+            "<package><metadata><id>First</id><version>1.0.0</version>"
+            + "<description>"
+            + new string('a', 600)
+            + "</description></metadata></package>";
+        string secondPrefix =
+            "<package><metadata><id>Second</id><version>1.0.0</version>"
+            + "</metadata></package>";
+        WritePackage(
+            Path.Combine(hiddenRoot, "First.1.0.0.nupkg"),
+            "First",
+            "1.0.0",
+            manifestOverride: firstManifest,
+            compressionLevel: CompressionLevel.NoCompression);
+        string secondPath = Path.Combine(
+            hiddenRoot,
+            "Second.1.0.0.nupkg");
+        WritePackage(
+            secondPath,
+            "Second",
+            "1.0.0",
+            manifestOverride: secondPrefix + new string('b', 600),
+            compressionLevel: CompressionLevel.NoCompression);
+        UnderdeclareManifest(secondPath, secondPrefix);
+        using IPackageSourceClient hiddenAggregate = CreateClient(
+            hiddenRoot,
+            options: new LocalPackageSourceOptions
+            {
+                MaxManifestBytes = 2_000,
+                MaxAggregateManifestBytes =
+                    Encoding.UTF8.GetByteCount(firstManifest)
+                    + Encoding.UTF8.GetByteCount(secondPrefix)
+                    + 10,
+            });
+        Assert.Equal(
+            PackageSourceFailureKind.ResponseRejected,
+            Failed(
+                await hiddenAggregate.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
+
+        string extentRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "manifest-extent")).FullName;
+        string prefix =
+            "<package><metadata><id>Extent</id><version>1.0.0</version>"
+            + "</metadata></package>";
+        string extentPath = Path.Combine(
+            extentRoot,
+            "Extent.1.0.0.nupkg");
+        WritePackage(
+            extentPath,
+            "Extent",
+            "1.0.0",
+            manifestOverride: prefix + "EXCESS",
+            compressionLevel: CompressionLevel.NoCompression);
+        UnderdeclareManifest(extentPath, prefix);
+        using IPackageSourceClient extent = CreateClient(extentRoot);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            Failed(
+                await extent.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
+
+        string methodRoot = Directory.CreateDirectory(
+            Path.Combine(_root, "manifest-method")).FullName;
+        string methodPath = WriteV2Package(
+            methodRoot,
+            "Method",
+            "1.0.0");
+        PatchManifestMethod(methodPath, 99);
+        using IPackageSourceClient method = CreateClient(methodRoot);
+        Assert.Equal(
+            PackageSourceFailureKind.InvalidResponse,
+            Failed(
+                await method.SearchAsync(
+                    string.Empty,
+                    cancellationToken:
+                        TestContext.Current.CancellationToken)).Kind);
+
+        foreach (ushort unsupportedFlags in
+                 new ushort[] { 0x20, 0x40, 0x2000 })
+        {
+            string flagsRoot = Directory.CreateDirectory(
+                Path.Combine(
+                    _root,
+                    $"manifest-flags-{unsupportedFlags}")).FullName;
+            string flagsPath = WriteV2Package(
+                flagsRoot,
+                $"Flags{unsupportedFlags}",
+                "1.0.0");
+            PatchManifestFlags(flagsPath, unsupportedFlags);
+            using IPackageSourceClient flags = CreateClient(flagsRoot);
+            Assert.Equal(
+                PackageSourceFailureKind.InvalidResponse,
+                Failed(
+                    await flags.SearchAsync(
+                        string.Empty,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken)).Kind);
+        }
+
+        foreach (CompressionLevel supportedLevel in
+                 new[]
+                 {
+                     CompressionLevel.Fastest,
+                     CompressionLevel.SmallestSize,
+                 })
+        {
+            string levelRoot = Directory.CreateDirectory(
+                Path.Combine(
+                    _root,
+                    $"manifest-level-{supportedLevel}")).FullName;
+            WritePackage(
+                Path.Combine(levelRoot, "Level.1.0.0.nupkg"),
+                "Level",
+                "1.0.0",
+                compressionLevel: supportedLevel);
+            using IPackageSourceClient level = CreateClient(levelRoot);
+            Assert.Single(
+                Succeeded(
+                    await level.SearchAsync(
+                        string.Empty,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken))
+                    .Matches);
+        }
     }
 
     [Fact]
@@ -785,6 +878,125 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
             await Assert.ThrowsAsync<PackageSourceStreamException>(
                 async () => await payload.Content.DisposeAsync());
         Assert.Equal(PackageSourceFailureKind.Timeout, disposalTimeout.Kind);
+
+        var lateReadHost = new MemoryHost(
+            "LateRead.1.0.0.nupkg",
+            CreatePackageBytes("LateRead", "1.0.0"));
+        using IPackageSourceClient lateReadClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                lateReadHost);
+        using var lateReadContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+        PackageSourcePayload lateReadPayload = Succeeded(
+            await lateReadClient.GetPackageAsync(
+                "LateRead",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                lateReadContext));
+        lateReadHost.Stream!.ReadDelay =
+            TimeSpan.FromMilliseconds(150);
+        lateReadHost.Stream.FailReads = true;
+        PackageSourceStreamException lateReadTimeout =
+            Assert.Throws<PackageSourceStreamException>(
+                () => lateReadPayload.Content.ReadByte());
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            lateReadTimeout.Kind);
+        lateReadHost.Stream.ReadDelay = TimeSpan.Zero;
+        lateReadHost.Stream.FailReads = false;
+        await Assert.ThrowsAsync<PackageSourceStreamException>(
+            async () => await lateReadPayload.Content.DisposeAsync());
+
+        using var readCancellationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+        var readCancellationHost = new MemoryHost(
+            "ReadCancellation.1.0.0.nupkg",
+            CreatePackageBytes("ReadCancellation", "1.0.0"));
+        using IPackageSourceClient readCancellationClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                readCancellationHost);
+        PackageSourcePayload readCancellationPayload = Succeeded(
+            await readCancellationClient.GetPackageAsync(
+                "ReadCancellation",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                readCancellationContext));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(150),
+            TestContext.Current.CancellationToken);
+        using var readCancellation = new CancellationTokenSource();
+        readCancellation.Cancel();
+        OperationCanceledException readCancellationError =
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                async () =>
+                    await readCancellationPayload.Content.ReadExactlyAsync(
+                        new byte[1],
+                        readCancellation.Token));
+        Assert.Equal(
+            readCancellation.Token,
+            readCancellationError.CancellationToken);
+        await Assert.ThrowsAsync<PackageSourceStreamException>(
+            async () =>
+                await readCancellationPayload.Content.DisposeAsync());
+
+        using var eofContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+        byte[] eofPackage = CreatePackageBytes("Eof", "1.0.0");
+        var eofHost = new MemoryHost(
+            "Eof.1.0.0.nupkg",
+            eofPackage);
+        using IPackageSourceClient eofClient =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                eofHost);
+        PackageSourcePayload eofPayload = Succeeded(
+            await eofClient.GetPackageAsync(
+                "Eof",
+                "1.0.0",
+                TestContext.Current.CancellationToken,
+                eofContext));
+        await eofPayload.Content.ReadExactlyAsync(
+            new byte[eofPackage.Length],
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            0,
+            eofPayload.Content.Read(new byte[1], 0, 1));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(150),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(-1, eofPayload.Content.ReadByte());
+        await eofPayload.Content.DisposeAsync();
+
+        using IPackageSourceClient duplicateCleanup =
+            PackageSourceClientFactory.Create(
+                LocalPackageSourceIdentity.Create(_root, _root),
+                PackageSourceAssociation.Create(),
+                new DuplicateCleanupHost(
+                    "DuplicateCleanup.1.0.0.nupkg",
+                    CreatePackageBytes("DuplicateCleanup", "1.0.0")));
+        using var duplicateCleanupContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            PackageSourceFailureKind.Timeout,
+            Failed(
+                await duplicateCleanup.GetPackageAsync(
+                    "DuplicateCleanup",
+                    "1.0.0",
+                    TestContext.Current.CancellationToken,
+                    duplicateCleanupContext)).Kind);
     }
 
     [Fact]
@@ -1389,9 +1601,12 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
     {
         public bool FailReads { get; set; }
         public bool FailDisposal { get; set; }
+        public TimeSpan ReadDelay { get; set; }
+        public CancellationToken DisposalWaitToken { get; set; }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
+            WaitBeforeRead();
             if (FailReads)
                 throw new IOException("read failed");
 
@@ -1400,6 +1615,7 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
 
         public override int Read(Span<byte> buffer)
         {
+            WaitBeforeRead();
             if (FailReads)
                 throw new IOException("read failed");
 
@@ -1408,6 +1624,7 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
 
         public override int ReadByte()
         {
+            WaitBeforeRead();
             if (FailReads)
                 throw new IOException("read failed");
 
@@ -1421,10 +1638,89 @@ public sealed class LocalFolderPackageSourceTests : IDisposable
                 throw new IOException("disposal failed");
         }
 
-        public override ValueTask DisposeAsync()
+        public override async ValueTask DisposeAsync()
         {
+            if (DisposalWaitToken.CanBeCanceled)
+            {
+                try
+                {
+                    await Task.Delay(
+                        Timeout.InfiniteTimeSpan,
+                        DisposalWaitToken);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+
             Dispose();
-            return ValueTask.CompletedTask;
+        }
+
+        private void WaitBeforeRead()
+        {
+            if (ReadDelay > TimeSpan.Zero)
+                Thread.Sleep(ReadDelay);
+        }
+    }
+
+    private sealed class DuplicateCleanupHost(
+        string name,
+        byte[] content)
+        : ILocalPackageSourceFileSystem
+    {
+        private int _openCount;
+
+        public LocalPackageSourceHostCapabilities Capabilities =>
+            LocalPackageSourceHostCapabilities.List
+            | LocalPackageSourceHostCapabilities.Read
+            | LocalPackageSourceHostCapabilities.Transfer;
+
+        public bool TryGetDirectory(
+            LocalPackageSourceIdentity source,
+            out LocalPackageSourceDirectory? directory)
+        {
+            directory = new LocalPackageSourceDirectory(
+                string.Empty,
+                "root");
+            return true;
+        }
+
+        public LocalPackageSourceDirectoryListing List(
+            LocalPackageSourceDirectory directory,
+            int maximumEntries,
+            NuGetOperationDeadline operation) =>
+            directory.Handle is "root"
+                ? new(
+                    [
+                        new LocalPackageSourceDirectory("first", "first"),
+                        new LocalPackageSourceDirectory("second", "second"),
+                    ],
+                    [],
+                    HasMoreEntries: false)
+                : new(
+                    [],
+                    [
+                        new LocalPackageSourceFile(
+                            name,
+                            directory.Handle,
+                            content.Length),
+                    ],
+                    HasMoreEntries: false);
+
+        public LocalPackageSourceOpenFile OpenRead(
+            LocalPackageSourceFile file,
+            NuGetOperationDeadline operation)
+        {
+            var stream = new FaultableMemoryStream(content);
+            if (Interlocked.Increment(ref _openCount) == 2)
+            {
+                stream.FailDisposal = true;
+                stream.DisposalWaitToken = operation.OperationToken;
+            }
+
+            return new LocalPackageSourceOpenFile(
+                stream,
+                content.Length);
         }
     }
 

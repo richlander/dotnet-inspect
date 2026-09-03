@@ -227,8 +227,9 @@ internal sealed class LocalFolderPackageSourceClient
                     }
                     catch
                     {
-                        await observation.Content!.DisposeAsync()
-                            .ConfigureAwait(false);
+                        await LocalPackageSourceCleanup.DisposeAsync(
+                            observation.Content!,
+                            operation).ConfigureAwait(false);
                         throw;
                     }
 
@@ -487,8 +488,9 @@ internal sealed class LocalPackageSourceEngine
                 {
                     if (observation.Content is not null)
                     {
-                        await observation.Content.DisposeAsync()
-                            .ConfigureAwait(false);
+                        await LocalPackageSourceCleanup.DisposeAsync(
+                            observation.Content,
+                            _operation).ConfigureAwait(false);
                     }
 
                     continue;
@@ -498,8 +500,9 @@ internal sealed class LocalPackageSourceEngine
                 {
                     if (observation.Content is not null)
                     {
-                        await observation.Content.DisposeAsync()
-                            .ConfigureAwait(false);
+                        await LocalPackageSourceCleanup.DisposeAsync(
+                            observation.Content,
+                            _operation).ConfigureAwait(false);
                     }
 
                     throw new InvalidDataException(
@@ -518,8 +521,9 @@ internal sealed class LocalPackageSourceEngine
             {
                 if (retained.Content is not null)
                 {
-                    await retained.Content.DisposeAsync()
-                        .ConfigureAwait(false);
+                    await LocalPackageSourceCleanup.DisposeAsync(
+                        retained.Content,
+                        _operation).ConfigureAwait(false);
                 }
             }
 
@@ -794,16 +798,9 @@ internal sealed class LocalPackageSourceEngine
         {
             if (!ownershipTransferred)
             {
-                try
-                {
-                    await content.DisposeAsync().ConfigureAwait(false);
-                    _operation.ThrowIfExpired();
-                }
-                catch
-                {
-                    _operation.ThrowIfExpired();
-                    throw;
-                }
+                await LocalPackageSourceCleanup.DisposeAsync(
+                    content,
+                    _operation).ConfigureAwait(false);
             }
         }
     }
@@ -945,6 +942,9 @@ internal sealed class LocalPackageSourceLedger
     public int RemainingDirectoryEntries =>
         _options.MaxDirectoryEntries - _directoryEntries;
 
+    public long RemainingManifestBytes =>
+        _options.MaxAggregateManifestBytes - _manifestBytes;
+
     public void ChargeDirectoryEntries(int count)
     {
         _directoryEntries = checked(_directoryEntries + count);
@@ -964,6 +964,25 @@ internal sealed class LocalPackageSourceLedger
         _manifestBytes = checked(_manifestBytes + count);
         if (_manifestBytes > _options.MaxAggregateManifestBytes)
             throw new LocalPackageSourceLimitExceededException();
+    }
+}
+
+internal static class LocalPackageSourceCleanup
+{
+    public static async ValueTask DisposeAsync(
+        Stream content,
+        NuGetOperationDeadline operation)
+    {
+        try
+        {
+            await content.DisposeAsync().ConfigureAwait(false);
+            operation.ThrowIfExpired();
+        }
+        catch
+        {
+            operation.ThrowIfExpired();
+            throw;
+        }
     }
 }
 
@@ -1017,6 +1036,7 @@ internal sealed class LocalPackagePayloadStream : Stream
     private readonly NuGetOperationDeadline _operation;
     private readonly PackageSourceResultIdentity _source;
     private int _disposed;
+    private int _deadlineCompleted;
 
     public LocalPackagePayloadStream(
         Stream inner,
@@ -1043,7 +1063,9 @@ internal sealed class LocalPackagePayloadStream : Stream
     }
 
     public override int Read(byte[] buffer, int offset, int count) =>
-        Execute(() => _inner.Read(buffer, offset, count));
+        ReadCore(
+            () => _inner.Read(buffer, offset, count),
+            zeroIsEndOfStream: count > 0);
 
     public override int Read(Span<byte> buffer)
     {
@@ -1051,7 +1073,10 @@ internal sealed class LocalPackagePayloadStream : Stream
         try
         {
             int read = _inner.Read(buffer);
-            _operation.ThrowIfExpired();
+            ThrowIfDeadlineExpired();
+            if (read == 0 && !buffer.IsEmpty)
+                CompleteDeadline();
+
             return read;
         }
         catch (Exception exception) when (IsStreamFailure(exception))
@@ -1064,18 +1089,24 @@ internal sealed class LocalPackagePayloadStream : Stream
         Memory<byte> buffer,
         CancellationToken cancellationToken = default)
     {
-        ThrowIfUnavailable();
+        ThrowIfDisposed();
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDeadlineUnavailable();
         try
         {
-            using CancellationTokenSource linked =
-                CancellationTokenSource.CreateLinkedTokenSource(
+            using CancellationTokenSource? linked = IsDeadlineCompleted
+                ? null
+                : CancellationTokenSource.CreateLinkedTokenSource(
                     cancellationToken,
                     _operation.OperationToken);
             int read = await _inner.ReadAsync(
                 buffer,
-                linked.Token).ConfigureAwait(false);
+                linked?.Token ?? cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            _operation.ThrowIfExpired();
+            ThrowIfDeadlineExpired();
+            if (read == 0 && !buffer.IsEmpty)
+                CompleteDeadline();
+
             return read;
         }
         catch (Exception exception) when (IsStreamFailure(exception))
@@ -1097,7 +1128,9 @@ internal sealed class LocalPackagePayloadStream : Stream
             cancellationToken).AsTask();
 
     public override int ReadByte() =>
-        Execute(() => _inner.ReadByte());
+        ReadCore(
+            () => _inner.ReadByte(),
+            zeroIsEndOfStream: false);
 
     public override long Seek(long offset, SeekOrigin origin) =>
         Execute(() => _inner.Seek(offset, origin));
@@ -1128,7 +1161,7 @@ internal sealed class LocalPackagePayloadStream : Stream
             }
             try
             {
-                _operation.ThrowIfExpired();
+                ThrowIfDeadlineExpired();
             }
             catch (Exception exception)
             {
@@ -1168,7 +1201,7 @@ internal sealed class LocalPackagePayloadStream : Stream
             }
             try
             {
-                _operation.ThrowIfExpired();
+                ThrowIfDeadlineExpired();
             }
             catch (Exception exception)
             {
@@ -1197,7 +1230,27 @@ internal sealed class LocalPackagePayloadStream : Stream
         try
         {
             T result = action();
-            _operation.ThrowIfExpired();
+            ThrowIfDeadlineExpired();
+            return result;
+        }
+        catch (Exception exception) when (IsStreamFailure(exception))
+        {
+            throw Translate(exception);
+        }
+    }
+
+    private int ReadCore(
+        Func<int> action,
+        bool zeroIsEndOfStream)
+    {
+        ThrowIfUnavailable();
+        try
+        {
+            int result = action();
+            ThrowIfDeadlineExpired();
+            if (zeroIsEndOfStream ? result == 0 : result < 0)
+                CompleteDeadline();
+
             return result;
         }
         catch (Exception exception) when (IsStreamFailure(exception))
@@ -1208,12 +1261,20 @@ internal sealed class LocalPackagePayloadStream : Stream
 
     private void ThrowIfUnavailable()
     {
+        ThrowIfDisposed();
+        ThrowIfDeadlineUnavailable();
+    }
+
+    private void ThrowIfDisposed() =>
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
             this);
+
+    private void ThrowIfDeadlineUnavailable()
+    {
         try
         {
-            _operation.ThrowIfExpired();
+            ThrowIfDeadlineExpired();
         }
         catch (OperationCanceledException)
         {
@@ -1225,22 +1286,36 @@ internal sealed class LocalPackagePayloadStream : Stream
         }
     }
 
+    private void ThrowIfDeadlineExpired()
+    {
+        if (IsDeadlineCompleted)
+            return;
+
+        _operation.ThrowIfExpired();
+    }
+
+    private bool IsDeadlineCompleted =>
+        Volatile.Read(ref _deadlineCompleted) != 0;
+
+    private void CompleteDeadline()
+    {
+        if (Interlocked.Exchange(ref _deadlineCompleted, 1) == 0)
+            _operation.Dispose();
+    }
+
     private Exception Translate(Exception exception)
     {
-        if (exception is OperationCanceledException)
+        try
         {
-            try
-            {
-                _operation.ThrowIfExpired();
-            }
-            catch (OperationCanceledException callerCancellation)
-            {
-                return callerCancellation;
-            }
-            catch (NuGetOperationTimeoutException operationTimeout)
-            {
-                return TimeoutFailure(operationTimeout);
-            }
+            ThrowIfDeadlineExpired();
+        }
+        catch (OperationCanceledException callerCancellation)
+        {
+            return callerCancellation;
+        }
+        catch (NuGetOperationTimeoutException operationTimeout)
+        {
+            return TimeoutFailure(operationTimeout);
         }
 
         return exception is NuGetOperationTimeoutException timeout

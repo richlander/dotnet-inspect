@@ -22,8 +22,10 @@ internal static class LocalPackageArchiveReader
     private const int CentralDirectoryEntryLength = 46;
     private const int LocalFileHeaderLength = 30;
     private const int MaximumZipCommentLength = ushort.MaxValue;
-    private const ushort RelevantLocalFlags =
-        (1 << 0) | (1 << 3) | (1 << 11);
+    private const ushort SupportedManifestFlags =
+        (1 << 1) | (1 << 2) | (1 << 3) | (1 << 11);
+    private const ushort CorrespondingManifestFlags =
+        (1 << 3) | (1 << 11);
 
     public static async Task<LocalPackageArchive> ReadAsync(
         Stream stream,
@@ -76,12 +78,15 @@ internal static class LocalPackageArchiveReader
                     stream,
                     directory,
                     options,
+                    ledger.RemainingManifestBytes,
                     operation).ConfigureAwait(false);
             byte[] content = await ReadManifestContentAsync(
                 stream,
                 directory,
                 manifest,
-                options,
+                Math.Min(
+                    options.MaxManifestBytes,
+                    ledger.RemainingManifestBytes),
                 operation).ConfigureAwait(false);
             ledger.ChargeManifestBytes(content.Length);
 
@@ -185,6 +190,7 @@ internal static class LocalPackageArchiveReader
         Stream stream,
         ZipDirectory directory,
         LocalPackageSourceOptions options,
+        long remainingManifestBytes,
         NuGetOperationDeadline operation)
     {
         var bytes = new byte[checked((int)directory.ByteLength)];
@@ -249,8 +255,15 @@ internal static class LocalPackageArchiveReader
                         "The package archive contains multiple root manifests.");
                 }
 
+                if (HasUnsupportedManifestFlags(flags, method))
+                {
+                    throw new InvalidDataException(
+                        "The package archive uses unsupported manifest flags.");
+                }
+
                 if (compressedLength > options.MaxManifestBytes
-                    || expandedLength > options.MaxManifestBytes)
+                    || expandedLength > options.MaxManifestBytes
+                    || expandedLength > remainingManifestBytes)
                 {
                     throw new LocalPackageSourceLimitExceededException();
                 }
@@ -283,10 +296,10 @@ internal static class LocalPackageArchiveReader
         Stream stream,
         ZipDirectory directory,
         CentralDirectoryEntry entry,
-        LocalPackageSourceOptions options,
+        long maximumExpandedBytes,
         NuGetOperationDeadline operation)
     {
-        if ((entry.Flags & 1) != 0
+        if (HasUnsupportedManifestFlags(entry.Flags, entry.Method)
             || entry.Method is not 0 and not 8)
         {
             throw new InvalidDataException(
@@ -304,8 +317,9 @@ internal static class LocalPackageArchiveReader
                 localHeader.AsSpan(6));
         if (BinaryPrimitives.ReadUInt32LittleEndian(localHeader)
                 != LocalFileHeaderSignature
-            || (localFlags & RelevantLocalFlags)
-                != (entry.Flags & RelevantLocalFlags)
+            || HasUnsupportedManifestFlags(localFlags, entry.Method)
+            || (localFlags & CorrespondingManifestFlags)
+                != (entry.Flags & CorrespondingManifestFlags)
             || BinaryPrimitives.ReadUInt16LittleEndian(
                 localHeader.AsSpan(8)) != entry.Method)
         {
@@ -362,7 +376,7 @@ internal static class LocalPackageArchiveReader
         byte[] content = await ExpandAsync(
             compressed,
             entry.Method,
-            options.MaxManifestBytes,
+            maximumExpandedBytes,
             operation).ConfigureAwait(false);
         if (content.LongLength != entry.ExpandedLength
             || ComputeCrc32(content) != entry.Crc)
@@ -373,6 +387,12 @@ internal static class LocalPackageArchiveReader
 
         return content;
     }
+
+    private static bool HasUnsupportedManifestFlags(
+        ushort flags,
+        ushort method) =>
+        (flags & ~SupportedManifestFlags) != 0
+        || method != 8 && (flags & ((1 << 1) | (1 << 2))) != 0;
 
     private static async Task<byte[]> ExpandAsync(
         byte[] compressed,

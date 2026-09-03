@@ -412,8 +412,9 @@ Implementation is verified by these named Release gates:
   or filesystem-order-dependent partial result.
 - `LocalFolderSource_ArchivePreflightBoundsMaterialization` proves excessive
   central-directory count and size are rejected before archive-entry object
-  materialization; hidden expanded bytes, unsupported manifest encodings, and
-  manifest and aggregate-byte cases prove the remaining archive ledger.
+  materialization; hidden expanded bytes, unsupported manifest methods and
+  flags, and per-manifest and remaining-aggregate byte cases prove the
+  remaining archive ledger.
 - `LocalFolderSource_ExactOperationsValidateEmbeddedCoordinate` proves a
   renamed archive, malformed nuspec, missing nuspec, and multiple root nuspecs
   cannot produce manifest or payload success.
@@ -423,7 +424,8 @@ Implementation is verified by these named Release gates:
   absence.
 - `LocalFolderSource_ContextBoundsEveryOperation` proves caller cancellation
   identity, terminal operation timeout, and checks during directory, archive,
-  manifest, and payload work.
+  manifest, payload, and transferred-stream cleanup work. It also proves
+  per-read cancellation precedence and deadline completion at EOF.
 - `LocalFolderSource_PayloadTransfersValidatedStreamOwnership` proves the
   returned stream is the validated stream, remains caller-owned after client
   disposal, and translates later read and disposal failures with exact source
