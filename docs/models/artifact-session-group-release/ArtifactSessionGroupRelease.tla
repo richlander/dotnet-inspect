@@ -316,6 +316,8 @@ RequestOwnerRelease(g) ==
     /\ g \in ExactDependentGroups
        \/ /\ g = ForeignGroup
           /\ unrelatedAdmitted
+    /\ ~(g = DependentTwo
+         /\ groupCloseStatus[DependentTwo] = "Faulted")
     /\ IF g = DependentOne
        THEN DependentOneRelease!RequestRelease
        ELSE UNCHANGED oneReleaseVars
@@ -440,6 +442,7 @@ StartWorkspaceGroupClose(g) ==
 FaultSecondWorkspaceGroupClose ==
     /\ workspaceState = "ClosingGroups"
     /\ groupCloseStatus[DependentTwo] = "NotStarted"
+    /\ twoRequestedGroup = NoGroup
     /\ groupCloseStatus' =
         [groupCloseStatus EXCEPT ![DependentTwo] = "Faulted"]
     /\ UNCHANGED <<
