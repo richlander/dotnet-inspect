@@ -102,7 +102,10 @@ worktree that is not the candidate is a refusal.
 The pull-request relation is deliberately current-base-to-synthetic-candidate,
 not GitHub's documented three-dot workflow path-filter relation. Default
 pull-request checkout validates `refs/pull/<number>/merge`; routing must describe
-that same candidate.
+that same candidate. The workflow derives the current base from the checked
+candidate's first parent rather than `pull_request.base.sha`, whose event value
+may lag the base tree GitHub used to construct the merge candidate. The planner
+requires that first-parent identity and refuses a mismatched base endpoint.
 
 ## Changed-path evidence
 
@@ -312,6 +315,10 @@ compact JSON plan from a non-matrix producer, and transports scoped evidence.
 Downstream jobs use only typed field projection from that plan to determine
 candidate relevance. They may combine a selection with execution-local
 placement or outcome conditions that do not reinterpret the candidate.
+Before publication, the workflow rejects a malformed plan, a plan whose status
+is not `planned`, or an unsupported schema version. A planner step that does
+not publish a valid plan fails the producer job rather than synthesizing
+fallback selections.
 
 A matrix, if later planned, is another bounded plan field produced by the same
 operation. Matrix jobs do not contribute competing planner outputs because
@@ -366,7 +373,7 @@ PR-authored edit into a gated path in the synthetic candidate while the PR
 Files API-like path remains outside it. Planning must select the gate. The
 inverse rename must not select unchanged gated content.
 
-An implementation gate must also cover:
+The planner implementation gate must also cover:
 
 - additions, modifications, deletions, type changes, and both sides of renames;
 - spaces, leading dashes, quotes, shell metacharacters, embedded newlines, and
@@ -374,17 +381,14 @@ An implementation gate must also cover:
 - invalidly encoded path bytes;
 - a valid empty diff;
 - missing and inconsistent provenance;
+- a stale pull-request event base that differs from the checked candidate's
+  first parent;
 - unavailable endpoint trees;
 - malformed or truncated changed-path evidence;
 - policy-data absence and invalidity;
 - every job-level and named in-job validation rule, event rule, and cross-field
-  implication;
+  implication as planner values;
 - an oversized plan or scoped-evidence descriptor;
-- malformed and unsupported plan versions at the consumer boundary;
-- missing, malformed, or digest-mismatched scoped evidence at the consumer
-  boundary;
-- planner process failure and a planner job that is skipped, cancelled, or
-  never starts;
 - effective validation-selection parity with the combined existing classifier
   and workflow routing when both receive the same event and changed-path
   corpus;
@@ -394,6 +398,20 @@ An implementation gate must also cover:
   refusal; and
 - a neighboring docs-only candidate that selects documentation validation
   without unrelated content gates.
+
+Workflow-adoption evidence separately demonstrates that GitHub accepts the
+workflow, the non-matrix producer publishes exactly one compact plan, and
+jobs project the intended typed validation fields without retaining separate
+event or path policy. Review checks the fail-closed publication boundary,
+execution-local conditions such as matrix placement, and aggregate handling of
+a planner job that fails, is skipped, is cancelled, or never starts.
+
+The repository intentionally does not parse workflow YAML to pin the projection
+text or reimplement GitHub expression semantics. The actual PR workflow run and
+adversarial review are the wiring evidence, while planner values and aggregate
+result safety remain persistently gated. Consequently, the absence of
+arbitrary future duplicate routing expressions is specified and review-owned,
+not claimed as a persistently enforced repository invariant.
 
 The demo is one planner invocation for the #5347 rename-into-model fixture. Its
 plan selects TLA+ and its scoped evidence contains the planner-assigned changed
@@ -415,9 +433,13 @@ temporary Git repository fixtures including the #5347 rename fixtures, raw
 parser fixtures with invalidly encoded path bytes, the refusal contract, and
 deterministic serialization with strict deserialization rejection.
 
-Workflow consumption remains **unverified**. The workflow still runs the legacy
-Bash classifier, so no gate yet proves a job consuming this exact plan object
-or its scoped evidence. Adoption slice 2 owns that proof.
+The workflow consumes the planner's compact JSON as its sole
+candidate-relevance output and projects `validations.*` fields for job and
+named in-job selection. GitHub workflow parsing and the live CI run demonstrate
+that transport and projection wiring; the repository does not add a custom
+workflow-expression gate. Scoped-evidence consumption remains **unverified**:
+the TLA+ job is selected by the plan but still acquires its paths independently
+until adoption slice 3.
 
 ## Adoption sequence
 
@@ -428,16 +450,16 @@ Adoption proceeds in focused slices:
    authoritative in CI. The planner ships as the file-based entrypoint
    `eng/ci-plan.cs`, which takes the event kind, both endpoint object IDs, and
    an explicit evidence directory, and whose gate is
-   `dotnet run eng/test-ci-change-detection.cs`. Because the legacy classifier
-   does not yet route `eng/ci-plan.cs`, that gate pins the entrypoint shim to
-   the planner façade; slice 2 enrolls the file directly.
-2. Make the workflow's change-planning job consume the planner and replace
+   `dotnet run eng/test-ci-change-detection.cs`. Before workflow adoption, that
+   gate pinned the entrypoint shim to the planner façade independently of the
+   legacy classifier.
+2. The workflow's change-planning job consumes the planner and replaces
    candidate-relevance conditions with mechanical plan projections. Existing
-   event gates and named in-job selectors become planner validation fields;
+   event gates and named in-job selectors are planner validation fields;
    execution-local placement conditions remain with the workflow. This slice
    owns the intentional exact-candidate provenance and blocking-refusal
-   changes, and it updates the aggregate gate's structural assertions as a
-   named sequencing dependency.
+   changes. GitHub workflow parsing, live execution, and review provide its
+   wiring evidence rather than a repository-owned YAML expression evaluator.
 3. Move each scoped-path consumer, beginning with TLA+, to planner-produced
    evidence and remove its independent provenance and path acquisition.
 4. Remove the legacy shell classifier and obsolete structural seams only after

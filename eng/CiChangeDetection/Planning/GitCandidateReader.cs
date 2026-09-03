@@ -49,6 +49,23 @@ internal static class GitCandidateReader
                 "the checked HEAD commit is not the candidate endpoint");
         }
 
+        if (kind == PlanEventKind.PullRequestSyntheticCandidate)
+        {
+            string? firstParent = RevParse(
+                repository,
+                $"{provenance.CandidateObjectId}^1");
+            if (!string.Equals(
+                firstParent,
+                provenance.BaseObjectId,
+                StringComparison.Ordinal))
+            {
+                throw new PlanRefusalException(
+                    PlanRefusalCategory.CandidateMismatch,
+                    "the pull-request base endpoint is not the checked "
+                    + "candidate's first parent");
+            }
+        }
+
         return provenance;
     }
 
