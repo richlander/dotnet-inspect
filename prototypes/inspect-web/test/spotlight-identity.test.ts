@@ -5693,6 +5693,9 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onClose: closeWorkspacePackage/);
   assert.match(
     appSource,
+    /onSelect: selectWorkspacePacket,\s+onOpen: runHomeDemo/);
+  assert.match(
+    appSource,
     /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
   assert.match(
     appSource,

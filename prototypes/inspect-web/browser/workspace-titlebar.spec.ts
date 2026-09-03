@@ -1239,22 +1239,67 @@ test("the title line advertises the typed Package, Type, and Member path", async
   expect(zone.y + zone.height).toBeLessThanOrEqual(workspace.y);
 });
 
-test("Workspace gives retained coordinates the pane and keeps the menu fixed", async ({
+test("Workspace gives retained packets the pane and keeps the menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
 
-  const list = await box(page, ".workspace-coordinate-list");
-  const lastCoordinate = await box(page, ".workspace-coordinate:last-child");
+  const list = await box(page, ".workspace-packet-list");
+  const lastPacket = await box(page, ".workspace-packet:last-child");
   const applicationMenu = await box(page, "#application-menu-button");
 
   expect(list.height).toBeGreaterThan(200);
-  expect(lastCoordinate.y + lastCoordinate.height)
+  expect(lastPacket.y + lastPacket.height)
     .toBeLessThanOrEqual(list.y + list.height);
   expect(applicationMenu.width).toBeCloseTo(30, 0);
   await page.locator("#application-menu-button").click();
   await expect(page.getByRole("menuitem", { name: "Share" })).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
+});
+
+test("Workspace packet selection is observational and Open executes", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const packets = page.locator("[data-workspace-packet]");
+  await expect(packets).toHaveCount(3);
+  expect(await packets.evaluateAll(elements =>
+    elements.map(element => element.getAttribute("data-workspace-packet"))))
+    .toEqual([
+    "stj-serializer",
+    "stj-serialize-callgraph",
+    "stj-getdecimal-callgraph",
+  ]);
+  const href = page.url();
+  const serialize = page.locator(
+    '[data-workspace-packet="stj-serialize-callgraph"]');
+  await serialize.click();
+
+  await expect(serialize).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator(".subject-path-segment"))
+    .toHaveText("Serialize call graph");
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "0");
+  expect(page.url()).toBe(href);
+
+  const getDecimal = page.locator(
+    '[data-workspace-packet="stj-getdecimal-callgraph"]');
+  await getDecimal.click();
+  await expect(getDecimal).toBeFocused();
+  await expect(page.locator(".workspace-heading h1"))
+    .toHaveText("JsonElement.GetDecimal");
+  expect(page.url()).toBe(href);
+
+  await page.getByRole("button", { name: "Open workspace" }).click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-execution-count", "1");
+  await expect(page.locator("body"))
+    .toHaveAttribute(
+      "data-workspace-execution",
+      "stj-getdecimal-callgraph");
 });
