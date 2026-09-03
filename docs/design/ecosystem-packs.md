@@ -452,9 +452,12 @@ catalog or rediscover the pack.
 
 The current browser exception names `InspectWeb.Engine`. If the proposed
 JSExport facade partition lands first, its owner must designate exactly one
-managed composition facade as the replacement exception. Other export projects
-consume that facade's projected operations or DTOs and do not reference the
-catalog. Core and every other reusable browser project remain forbidden.
+managed export facade as the replacement exception and assign the complete
+ecosystem discovery, selection, execution adaptation, and facade-local DTO
+closure to it. Sibling export facades neither consume that facade nor reference
+the catalog. The TypeScript application composes the separate facade result
+into its application model. Core and every other reusable browser project
+remain forbidden.
 
 The registry preserves typed data through both host boundaries. This design
 defines no broad report or output format; hosts render focused discovery and
