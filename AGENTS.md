@@ -578,7 +578,8 @@ that race in the same files. `docs/stacked-prs.md` owns the mechanics.
   its parent; only the bottom open slice uses `main`. During a GitHub outage,
   branch from the recorded last-known base or parent, then update and
   validate bottom-up on recovery before pushing.
-- Merge bottom-up and confirm each retargeted diff still shows only its slice.
+- Merge bottom-up. After each merge, complete the theme handoff; if another
+  slice remains, propose confirming its retargeted diff as the next task.
 - Restacking your own slices is the exception to the no-force-push rule. Use
   `--force-with-lease` and post a `range-diff` proving only the base changed.
 - Apply review depth and the canonical eligibility table per slice and

@@ -123,7 +123,7 @@ Update both window-scoped options whenever state changes:
 tmux set -w -t "${TMUX_PANE:?}" @agent \
   "theme agent-session-clarity; round 6 on pr4405, waiting on CI"
 tmux set -w -t "${TMUX_PANE:?}" @agent_state \
-  "theme=agent-session-clarity pr=4463 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
+  "theme=agent-session-clarity pr=4405 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
 # Clear when this window no longer owns the PR.
 tmux set -w -t "${TMUX_PANE:?}" -u @agent

@@ -192,7 +192,7 @@ unrelated members such as `review`. In the table, **status members** means
 
 | Status snapshot says | Round transition |
 | --- | --- |
-| PR is merged | Leave the status wait, relinquish ownership, perform the [theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff), and end. |
+| PR is merged | Leave the status wait, perform the [theme handoff](agent-session-state.md#complete-a-merge-with-a-theme-handoff), relinquish ownership, and end. |
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
@@ -255,6 +255,7 @@ Emit this report as visible session output, never inside an approval prompt:
 
 ```text
 Status not observed for PR <number> at round <n> after <mm> minutes.
+- Theme: <one-sentence session theme>.
 - Head: <40-character SHA>
 - Unresolved: <waiting predicates>
 - Last observation: ci-required=<state|not-observed>,
