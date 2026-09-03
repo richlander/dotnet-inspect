@@ -89,7 +89,8 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
         bool hasTypeFilter =
-            !string.IsNullOrWhiteSpace(typeFilter);
+            new TypeGestureIntent(typeFilter)
+                .SelectsListingCatalog(typeName);
         InspectionCatalogIdentity catalog =
             hasTypeFilter
             || string.IsNullOrWhiteSpace(typeName)

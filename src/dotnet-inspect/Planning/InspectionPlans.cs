@@ -65,9 +65,13 @@ public sealed record InspectionSectionIntent(
     InspectionDiscoveryMode DiscoveryMode)
 {
     public ImmutableArray<string> DemandSelectors =>
-        !Selectors.IsEmpty || SelectDefault
+        SelectDefault
             ? Selectors
-            : DiscoverySelectors;
+            : Selectors.IsEmpty
+                ? DiscoverySelectors
+                : SelectResolver.IsAllSelector([.. Selectors])
+                    ? [.. Selectors, .. DiscoverySelectors]
+                    : Selectors;
 }
 
 public sealed record InspectionProjectionIntent(
@@ -96,9 +100,20 @@ public sealed record MemberGestureIntent(
     string? DigestPrefix,
     int? GenericArity);
 
+public sealed record TypeGestureIntent(string? Filter)
+{
+    public bool SelectsListingCatalog(string? target) =>
+        !string.IsNullOrWhiteSpace(Filter)
+        && !string.Equals(
+            Filter,
+            target,
+            StringComparison.OrdinalIgnoreCase);
+}
+
 public sealed record ParsedInspectionIntent(
     InspectionSurface Surface,
     InspectionAddressIntent Address,
+    TypeGestureIntent Type,
     MemberGestureIntent Members,
     InspectionSectionIntent Sections,
     InspectionProjectionIntent Projection,
@@ -126,6 +141,8 @@ public sealed record ParsedInspectionIntent(
                 source,
                 options.TypeName,
                 options.PackageRangeAddress),
+            new TypeGestureIntent(
+                (options as TypeOptions)?.TypeFilter),
             new MemberGestureIntent(
                 [.. options.MemberFilter],
                 memberOptions?.OverloadIndex,
@@ -300,7 +317,9 @@ public sealed record ResolvedMemberInspectionPlan(
     {
         if (intent.Surface == InspectionSurface.Type)
         {
-            return string.IsNullOrWhiteSpace(intent.Address.TypeOrMember)
+            return intent.Type.SelectsListingCatalog(
+                       intent.Address.TypeOrMember)
+                || string.IsNullOrWhiteSpace(intent.Address.TypeOrMember)
                 || TypeMatcher.IsTypeGlobPattern(intent.Address.TypeOrMember)
                     ? InspectionCatalogIdentity.ApiType
                     : InspectionCatalogIdentity.ApiMember;
@@ -308,7 +327,8 @@ public sealed record ResolvedMemberInspectionPlan(
 
         if (intent.Members.OverloadIndex is not null
             || !string.IsNullOrWhiteSpace(intent.Members.DigestPrefix)
-            || targetRequirement == InspectionTargetRequirement.ExactMember)
+            || (targetRequirement == InspectionTargetRequirement.ExactMember
+                && intent.Members.Selectors.Length == 1))
         {
             return InspectionCatalogIdentity.ApiMemberDetail;
         }

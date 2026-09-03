@@ -307,6 +307,31 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public async Task CommandlessLeadingSchema_PreservesPackageTypePrecedence()
+    {
+        string[] trailing =
+        [
+            "Missing.Package",
+            "Missing.Type",
+            "-D",
+            "Package Info",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var leadingSchema = await RunAppAsync(
+            ["--schema", .. trailing]);
+        var trailingSchema = await RunAppAsync(
+            [.. trailing, "--schema"]);
+
+        Assert.Equal(trailingSchema, leadingSchema);
+        Assert.Equal(1, leadingSchema.Exit);
+        Assert.Contains(
+            "Section 'Package Info' not found.",
+            leadingSchema.Error);
+    }
+
+    [Fact]
     public async Task StaticPackageLibrarySchema_RejectsProjectedOutCategory()
     {
         var result = await RunAppAsync(
@@ -366,7 +391,6 @@ public sealed class InspectionPlanningTests
     [Theory]
     [InlineData("package-type")]
     [InlineData("member-option")]
-    [InlineData("source-identity")]
     [InlineData("package-library")]
     public async Task CommandlessStructuralSchema_MatchesNormalSyntaxPrecedence(
         string scenario)
@@ -377,13 +401,6 @@ public sealed class InspectionPlanningTests
                 ["Missing.Package", "Missing.Type"],
             "member-option" =>
                 ["Missing.Type", "-m", "Run"],
-            "source-identity" =>
-                [
-                    "Missing.Package",
-                    "--package",
-                    "Missing.Package",
-                    "Missing.Type",
-                ],
             "package-library" =>
                 [
                     "Missing.Package",
@@ -401,8 +418,6 @@ public sealed class InspectionPlanningTests
                 ["type", "Missing.Type", "--package", "Missing.Package"],
             "member-option" =>
                 ["member", "Missing.Type", "-m", "Run"],
-            "source-identity" =>
-                ["type", "Missing.Type", "--package", "Missing.Package"],
             "package-library" =>
                 [
                     "package",
@@ -529,6 +544,57 @@ public sealed class InspectionPlanningTests
         Assert.Contains(
             $"Section '{SectionNames.TypeInfo}' not found.",
             commandless.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveCommandlessTypeFilter_UsesListingCatalog()
+    {
+        var result = await RunAppAsync(
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "-t",
+            "*String*",
+            "-D",
+            SectionNames.ApiInfo,
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("Library", result.Output);
+        Assert.Contains("Types", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task TypeFilterMatchingTarget_RetainsSingleTypeCatalog()
+    {
+        string[] common =
+        [
+            "type",
+            "JsonSerializer",
+            "--platform",
+            "System.Text.Json",
+            "-D",
+            SectionNames.TypeInfo,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var baseline = await RunAppAsync(common);
+        var matchingFilter = await RunAppAsync(
+            [
+                .. common[..4],
+                "-t",
+                "JsonSerializer",
+                .. common[4..],
+            ]);
+
+        Assert.Equal(baseline, matchingFilter);
+        Assert.Equal(0, matchingFilter.Exit);
+        Assert.Contains("Type", matchingFilter.Output);
     }
 
     [Fact]
@@ -696,6 +762,59 @@ public sealed class InspectionPlanningTests
             "[member/type-view/",
             explicitIndex.Output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DottedOrdinalWithDistinctExplicitMember_IsRejectedConsistently()
+    {
+        string[] common =
+        [
+            "member",
+            "System.String.Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "StartsWith",
+            "-D",
+            SectionNames.Signature,
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var structural = await RunAppAsync(
+            [.. common, "--schema"]);
+        var effective = await RunAppAsync(common);
+
+        Assert.Equal(1, structural.Exit);
+        Assert.Equal(1, effective.Exit);
+        Assert.Contains(
+            "exactly one member name.",
+            structural.Error);
+        Assert.Contains(
+            "exactly one member name.",
+            effective.Error);
+    }
+
+    [Fact]
+    public async Task DottedOrdinalWithMatchingExplicitMember_RemainsValid()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String.Contains:1",
+            "--platform",
+            "System.Private.CoreLib",
+            "-m",
+            "Contains",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("Canonical Signature", result.Output);
+        Assert.Empty(result.Error);
     }
 
     [Fact]
@@ -1145,6 +1264,123 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Members", result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveDiscovery_AllSelectionRetainsExactDemand()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.String",
+            "-m",
+            "Contains",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SelectResolver.AllSelector,
+            "-D",
+            SectionNames.Signature,
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "require a single selected overload for member 'Contains'",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveMemberTypeView_RejectsExactSectionBeforeAcquisition()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "MissingType",
+            "--library",
+            missing,
+            "-D",
+            SectionNames.Signature,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Select value '{SectionNames.Signature}' not found.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Fact]
+    public async Task EffectiveExactDiscovery_MultipleMembersRejectsBeforeAcquisition()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "MissingType",
+            "-m",
+            "Run",
+            "-m",
+            "Stop",
+            "--library",
+            missing,
+            "-D",
+            SectionNames.Signature,
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Exact-member section selection requires exactly one member name.",
+            result.Error);
+        Assert.DoesNotContain("File not found", result.Error);
+    }
+
+    [Theory]
+    [InlineData(
+        "System.Private.CoreLib",
+        "--platform",
+        "System.String.Contains")]
+    [InlineData(
+        "Missing.Package",
+        "--package",
+        "Missing.Type.Run")]
+    public async Task ExplicitSourceIdentitySchema_RetainsDottedAlternatives(
+        string source,
+        string sourceOption,
+        string target)
+    {
+        var result = await RunAppAsync(
+            source,
+            sourceOption,
+            source,
+            target,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail]",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[member/type-view/ApiMember]",
+            result.Output,
+            StringComparison.Ordinal);
         Assert.Empty(result.Error);
     }
 

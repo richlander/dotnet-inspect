@@ -49,6 +49,7 @@ public static class MemberOptionsParser
         ApplySyntacticMemberSplit(
             sourceInputs,
             routerDeferredTypeOrMember: false,
+            mergeExplicitMemberSelectors: true,
             ref typeName,
             positionalMembers,
             optionMembers);
@@ -119,6 +120,7 @@ public static class MemberOptionsParser
         ApplySyntacticMemberSplit(
             sourceInputs,
             routerDeferredTypeOrMember: false,
+            mergeExplicitMemberSelectors: true,
             ref typeName,
             positionalMembers,
             optionMembers);
@@ -217,6 +219,14 @@ public static class MemberOptionsParser
                 [.. sectionSelectors],
                 hasSelection && selectDefault,
                 baseRequirement);
+        if (demand.RequiredTarget
+                == InspectionTargetRequirement.ExactMember
+            && memberFilter.Count > 1)
+        {
+            error = new OptionError(
+                "Exact-member section selection requires exactly one member name.");
+            return true;
+        }
         bool exactMember =
             index is not null
             || shorthandIndex is not null
@@ -528,6 +538,7 @@ public static class MemberOptionsParser
         ApplySyntacticMemberSplit(
             sourceInputs,
             routerDeferredTypeOrMember,
+            mergeExplicitMemberSelectors: false,
             ref typeName,
             positionalMembers,
             optionMembers);
@@ -678,10 +689,18 @@ public static class MemberOptionsParser
                 ? TipLevel.Quiet : opts.ParseTipLevel(parseResult)
         };
 
-        return new Success(
-            options,
+        ResolvedMemberInspectionPlan plan =
             ResolvedMemberInspectionPlan
-                .FromCompatibilityOptions(options));
+                .FromCompatibilityOptions(options);
+        if (plan.Selection.RequiredTarget
+                == InspectionTargetRequirement.ExactMember
+            && options.MemberFilter.Count > 1)
+        {
+            return new VersionError(
+                "Exact-member section selection requires exactly one member name.");
+        }
+
+        return new Success(options, plan);
     }
 
     /// <summary>
@@ -741,6 +760,7 @@ public static class MemberOptionsParser
     private static void ApplySyntacticMemberSplit(
         SharedParsers.SourceSelectionInputs sourceInputs,
         bool routerDeferredTypeOrMember,
+        bool mergeExplicitMemberSelectors,
         ref string? typeName,
         List<string> positionalMembers,
         string[] optionMembers)
@@ -759,7 +779,9 @@ public static class MemberOptionsParser
                 && !explicitSourceSelectorSplit)
             || !typeName.Contains('.')
             || positionalMembers.Count != 0
-            || optionMembers.Length != 0)
+            || (optionMembers.Length != 0
+                && (!mergeExplicitMemberSelectors
+                    || !explicitSourceSelectorSplit)))
         {
             return;
         }

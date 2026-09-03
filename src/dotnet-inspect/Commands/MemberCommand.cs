@@ -47,6 +47,16 @@ public static class MemberCommand
             return 1;
         }
 
+        bool catalogIsSyntacticallyResolved =
+            options.MemberFilter.Count > 0
+            || options.TypeName is { } syntacticTypeName
+                && CSharpText.FqnParser.LastTopLevelDot(
+                    syntacticTypeName) < 0;
+        if (catalogIsSyntacticallyResolved
+            && RejectTotalEffectiveDiscoveryMiss(plan))
+        {
+            return 1;
+        }
         if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
@@ -232,6 +242,11 @@ public static class MemberCommand
                     ResolvedMemberInspectionPlan
                         .FromCompatibilityOptions(
                             planningOptions);
+                if (RejectTotalEffectiveDiscoveryMiss(
+                        executionPlan))
+                {
+                    return 1;
+                }
                 var (preamble, error) =
                     ApiCommand.RunPreamble(
                         planningOptions,
@@ -894,6 +909,21 @@ public static class MemberCommand
             .Where(includeSections.Contains)
             .ToList();
         return sections.Count > 0;
+    }
+
+    private static bool RejectTotalEffectiveDiscoveryMiss(
+        ResolvedMemberInspectionPlan plan)
+    {
+        if (plan.Intent.Sections.DiscoveryMode
+                != InspectionDiscoveryMode.Effective
+            || plan.Selection.UnresolvedSelectors.IsEmpty
+            || !plan.Selection.ResolvedSections.IsEmpty)
+        {
+            return false;
+        }
+
+        return SelectOutput.WriteUnresolved(
+            plan.Selection.ToSelectResult());
     }
 
     private static MemberOptions IncludeCallersSection(MemberOptions options)

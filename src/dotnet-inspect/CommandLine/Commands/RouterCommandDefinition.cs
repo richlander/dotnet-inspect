@@ -719,20 +719,23 @@ public static class RouterCommandDefinition
                 return true;
             }
 
-            if (tokens.Length >= 2
-                && !tokens[1].StartsWith(
-                    "-",
-                    StringComparison.Ordinal)
+            if (TryFindPositionalIndex(
+                    tail,
+                    rootCommand,
+                    out int secondTargetIndex)
+                && secondTargetIndex >= 0
                 && !CommandLineHelpers.LooksLikeVersionNumber(
-                    tokens[1]))
+                    tail[secondTargetIndex]))
             {
+                string secondTarget = tail[secondTargetIndex];
                 rewritten =
                 [
                     "type",
-                    tokens[1],
+                    secondTarget,
                     "--package",
                     target,
-                    .. tokens[2..],
+                    .. tail[..secondTargetIndex],
+                    .. tail[(secondTargetIndex + 1)..],
                 ];
                 return true;
             }
@@ -1289,11 +1292,22 @@ public static class RouterCommandDefinition
                 return true;
             }
 
-            rewritten = structuralSchema
-                ? ["type", targetToken, .. sourceTail]
-                : targetToken.Contains('.')
-                    ? RouteDeferredTypeOrMember(targetToken, sourceTail)
-                    : ["type", targetToken, .. sourceTail];
+            bool structurallyProvenGenericType =
+                structuralSchema
+                && StructuralViewRegistry
+                    .HasExplicitGenericTypeTail(targetToken)
+                && !StructuralViewRegistry
+                    .HasGenericTypeAndGenericTailAmbiguity(targetToken)
+                && !StructuralViewRegistry
+                    .HasUnambiguousMemberTail(targetToken);
+            rewritten =
+                structurallyProvenGenericType
+                    ? ["type", targetToken, .. sourceTail]
+                    : targetToken.Contains('.')
+                        ? RouteDeferredTypeOrMember(
+                            targetToken,
+                            sourceTail)
+                        : ["type", targetToken, .. sourceTail];
             return true;
         }
 

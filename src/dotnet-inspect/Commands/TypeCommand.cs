@@ -130,7 +130,11 @@ public static class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
-            if (string.IsNullOrEmpty(typeName))
+            if (string.IsNullOrEmpty(typeName)
+                || new TypeGestureIntent(
+                        options.TypeFilter)
+                    .SelectsListingCatalog(
+                        options.TypeName))
             {
                 // No type specified - list all types
                 var loaded = loadedSurface

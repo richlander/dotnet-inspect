@@ -393,10 +393,12 @@ public static class StructuralViewRegistry
                 .LastOrDefault();
         var (typeOptionFilter, _) =
             SharedParsers.ParseTypeFilter(typeOptionValue);
+        bool typeOptionSelectsListing =
+            new TypeGestureIntent(typeOptionFilter)
+                .SelectsListingCatalog(target);
         if (hasTypeOption
             && (hasExplicitApiSource
-                || !string.IsNullOrWhiteSpace(
-                    typeOptionFilter)))
+                || typeOptionSelectsListing))
         {
             classification = new CommandlessStructuralRoute(
                 Route(
@@ -539,7 +541,8 @@ public static class StructuralViewRegistry
         var (typeFilter, _) =
             SharedParsers.ParseTypeFilter(typeMarkerValue);
         bool hasTypeFilter =
-            !string.IsNullOrWhiteSpace(typeFilter);
+            new TypeGestureIntent(typeFilter)
+                .SelectsListingCatalog(target);
         var routes = new List<StructuralRoute>();
         if (!hasExplicitApiSource)
         {
