@@ -38,6 +38,15 @@ public sealed class PackageSourceMappingException(
     public PackageSourceMappingFailure Failure { get; } = failure;
 }
 
+internal sealed record PackageSourceResolutionFailure(
+    string Name,
+    InertString Authority,
+    string Message);
+
+internal sealed record PackageSourceResolution(
+    List<NuGetSource> Sources,
+    List<PackageSourceResolutionFailure> Failures);
+
 /// <summary>
 /// Resolves NuGet sources by delegating to NuGetFetch.SourceResolver.
 /// </summary>
@@ -229,10 +238,11 @@ public static class NuGetSourceResolver
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
 
         options ??= NuGetSourceOptions.Default;
-        PackageSourceMapping mapping = ResolvePackageSourceMapping(options, workingDirectory);
+        PackageSourceMapping mapping =
+            ResolvePackageSourceMapping(options, workingDirectory);
         if (!mapping.IsEnabled)
         {
-            return CollapseAliases(
+            return CollapseLegacyAliases(
                 ResolveSources(options, workingDirectory),
                 packageId);
         }
@@ -247,9 +257,7 @@ public static class NuGetSourceResolver
         }
 
         if (options.ConfigFile is not null)
-        {
             ValidateExplicitConfig(options.ConfigFile);
-        }
 
         var allowedNames = new HashSet<string>(
             mappedNames,
@@ -306,7 +314,104 @@ public static class NuGetSourceResolver
                 + $"{(mappedNames.Count == 1 ? "it is not" : "none are")} active.");
         }
 
-        return CollapseAliases(eligibleAliases, packageId);
+        return CollapseLegacyAliases(eligibleAliases, packageId);
+    }
+
+    internal static PackageSourceResolution ResolveSourcesForPackageWithFailures(
+        NuGetSourceOptions? options,
+        string packageId,
+        string? workingDirectory = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+
+        options ??= NuGetSourceOptions.Default;
+        PackageSourceMapping mapping = ResolvePackageSourceMapping(options, workingDirectory);
+        if (!mapping.IsEnabled)
+        {
+            PackageSourceResolution resolution =
+                ResolveSourcesWithFailures(options, workingDirectory);
+            return resolution with
+            {
+                Sources = CollapseAliases(
+                    resolution.Sources,
+                    packageId),
+            };
+        }
+
+        IReadOnlyList<string> mappedNames =
+            mapping.GetConfiguredPackageSources(packageId);
+        if (mappedNames.Count == 0)
+        {
+            throw new PackageSourceMappingException(
+                PackageSourceMappingFailure.NoPattern,
+                $"Package source mapping has no pattern for package '{packageId}'.");
+        }
+
+        if (options.ConfigFile is not null)
+        {
+            ValidateExplicitConfig(options.ConfigFile);
+        }
+
+        var allowedNames = new HashSet<string>(
+            mappedNames,
+            StringComparer.OrdinalIgnoreCase);
+        PackageSourceResolution selected;
+        if (options.ResolvedSources is { } resolvedSources)
+        {
+            selected = ClassifySources(resolvedSources);
+        }
+        else
+        {
+            IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
+                SourceResolver.GetEffectiveSourceDeclarations(
+                    options.ConfigFile,
+                    workingDirectory);
+            IReadOnlyList<PackageSourceDeclaration> configuredAliases =
+                options.Sources.Length > 0
+                    || options.AdditionalSources.Length > 0
+                    ? SourceResolver.GetConfiguredSourceAliasDeclarations(
+                        options.ConfigFile,
+                        workingDirectory)
+                    : activeDeclarations;
+
+            selected = options.Sources.Length > 0
+                ? ResolveExplicitSources(
+                    options.Sources,
+                    configuredAliases,
+                    workingDirectory)
+                : ResolveDeclarations(
+                    activeDeclarations.Where(declaration =>
+                        allowedNames.Contains(declaration.Name)));
+            AddExplicitSourcesWithFailures(
+                selected,
+                options.AdditionalSources,
+                configuredAliases,
+                workingDirectory);
+        }
+
+        List<NuGetSource> eligibleAliases =
+        [
+            .. selected.Sources.Where(source =>
+                allowedNames.Contains(source.Name)),
+        ];
+        List<PackageSourceResolutionFailure> eligibleFailures =
+        [
+            .. selected.Failures.Where(failure =>
+                allowedNames.Contains(failure.Name)),
+        ];
+        if (eligibleAliases.Count == 0 && eligibleFailures.Count == 0)
+        {
+            throw new PackageSourceMappingException(
+                PackageSourceMappingFailure.InactiveSource,
+                $"Package '{packageId}' maps to source"
+                + $"{(mappedNames.Count == 1 ? "" : "s")} "
+                + $"'{string.Join("', '", mappedNames)}', but "
+                + $"{(mappedNames.Count == 1 ? "it is not" : "none are")} active.");
+        }
+
+        return new PackageSourceResolution(
+            CollapseAliases(eligibleAliases, packageId),
+            eligibleFailures);
     }
 
     internal static PackageSourceMapping ResolvePackageSourceMapping(
@@ -346,7 +451,7 @@ public static class NuGetSourceResolver
             return false;
         }
 
-        _ = CollapseAliases(eligibleAliases, packageId);
+        _ = CollapseLegacyAliases(eligibleAliases, packageId);
         return allowedNames.Contains(source.Name);
     }
 
@@ -443,6 +548,187 @@ public static class NuGetSourceResolver
         return selected;
     }
 
+    private static PackageSourceResolution ResolveSourcesWithFailures(
+        NuGetSourceOptions options,
+        string? workingDirectory)
+    {
+        if (options.ConfigFile is not null)
+            ValidateExplicitConfig(options.ConfigFile);
+
+        if (options.ResolvedSources is { } resolvedSources)
+            return ClassifySources(resolvedSources);
+
+        IReadOnlyList<PackageSourceDeclaration> activeDeclarations =
+            SourceResolver.GetEffectiveSourceDeclarations(
+                options.ConfigFile,
+                workingDirectory);
+        IReadOnlyList<PackageSourceDeclaration> configuredAliases =
+            options.Sources.Length > 0 || options.AdditionalSources.Length > 0
+                ? SourceResolver.GetConfiguredSourceAliasDeclarations(
+                    options.ConfigFile,
+                    workingDirectory)
+                : activeDeclarations;
+
+        PackageSourceResolution selected = options.Sources.Length > 0
+            ? ResolveExplicitSources(
+                options.Sources,
+                configuredAliases,
+                workingDirectory)
+            : ResolveDeclarations(activeDeclarations);
+        AddExplicitSourcesWithFailures(
+            selected,
+            options.AdditionalSources,
+            configuredAliases,
+            workingDirectory);
+        return selected;
+    }
+
+    private static PackageSourceResolution ResolveDeclarations(
+        IEnumerable<PackageSourceDeclaration> declarations)
+    {
+        var sources = new List<NuGetSource>();
+        var failures = new List<PackageSourceResolutionFailure>();
+        foreach (PackageSourceDeclaration declaration in declarations)
+        {
+            try
+            {
+                AddClassifiedSource(
+                    declaration.Resolve(),
+                    sources,
+                    failures);
+            }
+            catch (UnsupportedSourceException exception)
+            {
+                AddResolutionFailure(
+                    declaration.Name,
+                    url: null,
+                    exception.Message,
+                    failures);
+            }
+        }
+
+        return new PackageSourceResolution(sources, failures);
+    }
+
+    private static PackageSourceResolution ResolveExplicitSources(
+        IEnumerable<string> urls,
+        IReadOnlyList<PackageSourceDeclaration> configured,
+        string? workingDirectory)
+    {
+        var resolution = new PackageSourceResolution(
+            new List<NuGetSource>(),
+            new List<PackageSourceResolutionFailure>());
+        AddExplicitSourcesWithFailures(
+            resolution,
+            urls,
+            configured,
+            workingDirectory);
+        return resolution;
+    }
+
+    private static PackageSourceResolution ClassifySources(
+        IEnumerable<NuGetSource> sources)
+    {
+        var classified = new List<NuGetSource>();
+        var failures = new List<PackageSourceResolutionFailure>();
+        foreach (NuGetSource source in sources)
+            AddClassifiedSource(source, classified, failures);
+
+        return new PackageSourceResolution(classified, failures);
+    }
+
+    private static void AddClassifiedSource(
+        NuGetSource source,
+        List<NuGetSource> sources,
+        List<PackageSourceResolutionFailure> failures)
+    {
+        if (ConfiguredPackageAuthorityKey.TryCreate(
+                source,
+                out _,
+                out string? problem))
+        {
+            sources.Add(source);
+            return;
+        }
+
+        AddResolutionFailure(
+            source.Name,
+            source.Url,
+            problem,
+            failures);
+    }
+
+    private static void AddResolutionFailure(
+        string name,
+        string? url,
+        string message,
+        List<PackageSourceResolutionFailure> failures)
+    {
+        InertString authority = PackageSourceDisplay.ForDiagnostics(name, url);
+        failures.Add(new PackageSourceResolutionFailure(
+            name,
+            authority,
+            $"Package source {authority} is unusable. {message}"));
+    }
+
+    private static void AddExplicitSourcesWithFailures(
+        PackageSourceResolution resolution,
+        IEnumerable<string> urls,
+        IReadOnlyList<PackageSourceDeclaration> configured,
+        string? workingDirectory)
+    {
+        foreach (string url in urls)
+        {
+            string resolved;
+            try
+            {
+                resolved = SourceResolver.ResolveSourceValue(
+                    url,
+                    workingDirectory);
+            }
+            catch (UnsupportedSourceException exception)
+            {
+                PackageSourceDeclaration[] matchingDeclarations =
+                [
+                    .. configured.Where(declaration =>
+                        declaration.MatchesUnclassifiedValue(url)),
+                ];
+                if (matchingDeclarations.Length == 0)
+                {
+                    AddResolutionFailure(
+                        url,
+                        url,
+                        exception.Message,
+                        resolution.Failures);
+                }
+                else
+                {
+                    foreach (PackageSourceDeclaration declaration in
+                             matchingDeclarations)
+                    {
+                        AddResolutionFailure(
+                            declaration.Name,
+                            url,
+                            exception.Message,
+                            resolution.Failures);
+                    }
+                }
+                continue;
+            }
+
+            foreach (NuGetSource match in Match(resolved, configured))
+            {
+                if (!resolution.Sources.Contains(match))
+                {
+                    AddClassifiedSource(
+                        match,
+                        resolution.Sources,
+                        resolution.Failures);
+                }
+            }
+        }
+    }
+
     private static void AddExplicitSources(
         List<NuGetSource> selected,
         IEnumerable<string> urls,
@@ -473,7 +759,10 @@ public static class NuGetSourceResolver
     /// <c>/FeedA</c> and <c>/feeda</c>, which are different feeds on servers with case-sensitive
     /// paths, and would hand one feed's credentials to the other. Origin is compared
     /// case-insensitively because scheme and host are case-insensitive by definition; path and
-    /// query are compared ordinally on their escaped form because they are not.
+    /// query are compared ordinally on their raw form, normalizing only
+    /// percent-escape hex casing and one trailing path slash. This preserves
+    /// encoded-unreserved and dot-segment distinctions that
+    /// <see cref="Uri"/> otherwise collapses.
     ///
     /// Every configured alias for the endpoint is retained. Package source mapping names those
     /// aliases, so selecting one before the package id is known would either bypass mapping or
@@ -499,7 +788,11 @@ public static class NuGetSourceResolver
                 continue;
             }
 
-            if (IsSameSource(source.Url, url))
+            if (string.Equals(
+                    source.Url,
+                    url,
+                    StringComparison.Ordinal)
+                || IsSameSource(source.Url, url))
             {
                 matches.Add(source with { Url = url });
             }
@@ -522,20 +815,44 @@ public static class NuGetSourceResolver
                     LocalPackageSourceIdentity.CreateAbsolute(right));
         }
 
-        return ConfiguredPackageAuthorityKey.Create(
-                new NuGetSource("left", left))
-            .Equals(ConfiguredPackageAuthorityKey.Create(
-                new NuGetSource("right", right)));
+        var leftSource = new NuGetSource("left", left);
+        var rightSource = new NuGetSource("right", right);
+        return ConfiguredPackageAuthorityKey.TryCreate(
+                leftSource,
+                out ConfiguredPackageAuthorityKey? leftKey,
+                out _)
+            && ConfiguredPackageAuthorityKey.TryCreate(
+                rightSource,
+                out ConfiguredPackageAuthorityKey? rightKey,
+                out _)
+            && leftKey.Equals(rightKey);
     }
 
     private static List<NuGetSource> CollapseAliases(
         IReadOnlyList<NuGetSource> eligibleAliases,
-        string packageId)
+        string packageId) =>
+        CollapseAliases(
+            eligibleAliases,
+            packageId,
+            ConfiguredPackageAuthorityKey.Create);
+
+    private static List<NuGetSource> CollapseLegacyAliases(
+        IReadOnlyList<NuGetSource> eligibleAliases,
+        string packageId) =>
+        CollapseAliases(
+            eligibleAliases,
+            packageId,
+            LegacyAuthorityKey);
+
+    private static List<NuGetSource> CollapseAliases<TKey>(
+        IReadOnlyList<NuGetSource> eligibleAliases,
+        string packageId,
+        Func<NuGetSource, TKey> keySelector)
+        where TKey : notnull
     {
         List<NuGetSource> authorities = [];
-        foreach (IGrouping<ConfiguredPackageAuthorityKey, NuGetSource> aliases
-                 in eligibleAliases.GroupBy(
-                     ConfiguredPackageAuthorityKey.Create))
+        foreach (IGrouping<TKey, NuGetSource> aliases
+                 in eligibleAliases.GroupBy(keySelector))
         {
             NuGetSource first = aliases.First();
             if (aliases.Any(alias => alias.Credential != first.Credential))
@@ -550,5 +867,23 @@ public static class NuGetSourceResolver
         }
 
         return authorities;
+    }
+
+    private static string LegacyAuthorityKey(NuGetSource source)
+    {
+        if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
+        {
+            return
+                $"local\n{LocalPackageSourceIdentity.CreateAbsolute(source.Url).PersistentValue}";
+        }
+
+        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint))
+        {
+            throw new ArgumentException(
+                "The package source is unusable.",
+                nameof(source));
+        }
+
+        return NuGetCredentialScope.CanonicalizeEndpoint(endpoint);
     }
 }

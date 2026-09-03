@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using DotnetInspector.Core;
 using InertText;
@@ -27,6 +28,7 @@ public enum PackageAuthorityFailureKind
     InvalidResponse,
     ResponseRejected,
     Transport,
+    Input,
 }
 
 /// <summary>A credential-safe failure attributed to one configured authority.</summary>
@@ -67,7 +69,8 @@ public sealed class PackageVersionDiscoveryResult
 public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 {
     internal delegate HttpMessageHandler SourceTransportFactory(
-        PackageSource source);
+        PackageSource source,
+        bool isGallery);
 
     private readonly NuGetFetchOptions _options;
     private readonly ICredentialSource _credentialSource;
@@ -125,7 +128,7 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             return Failed(
                 new PackageAuthorityFailure(
                     InertString.Empty,
-                    PackageAuthorityFailureKind.Configuration,
+                    PackageAuthorityFailureKind.Input,
                     "The package ID must use the NuGet package ID grammar."));
         }
 
@@ -134,22 +137,72 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             return Failed(
                 new PackageAuthorityFailure(
                     InertString.Empty,
-                    PackageAuthorityFailureKind.Configuration,
+                    PackageAuthorityFailureKind.Input,
                     "The package version limit must be greater than zero."));
         }
 
-        PackageSourceAuthorization authorization =
-            new SourcePolicyPackageSourceAuthorization(sourceOptions)
-                .AuthorizeSourcesFor(packageId);
-        if (authorization.Sources.Count == 0)
+        if (sourceOptions?.ConfigFile is { } configFile
+            && NuGetSourceResolver.DescribeConfigProblem(configFile)
+                is string configProblem)
         {
-            string message = authorization.DenialReason
-                ?? $"No configured package source is authorized for '{packageId}'.";
             return Failed(
                 new PackageAuthorityFailure(
                     InertString.Empty,
                     PackageAuthorityFailureKind.Configuration,
-                    message));
+                    configProblem));
+        }
+
+        PackageSourceResolution resolution;
+        try
+        {
+            resolution =
+                NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
+                    sourceOptions,
+                    packageId);
+        }
+        catch (PackageSourceMappingException exception)
+        {
+            return Failed(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Configuration,
+                    exception.Message));
+        }
+        catch (InvalidDataException)
+        {
+            return Failed(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Configuration,
+                    "The NuGet package source mapping configuration is malformed, so no source can be authorized."));
+        }
+
+        IReadOnlyList<PackageSource> sources =
+            NuGetSourceResolver.ResolveAuthorizedSources(
+                sourceOptions,
+                resolution.Sources);
+        var failures = resolution.Failures
+            .Select(failure => new PackageAuthorityFailure(
+                failure.Authority,
+                PackageAuthorityFailureKind.Configuration,
+                failure.Message))
+            .ToList();
+        if (sources.Count == 0)
+        {
+            if (failures.Count > 0)
+            {
+                return new PackageVersionDiscoveryResult(
+                    PackageVersionDiscoveryState.Failed,
+                    [],
+                    failures,
+                    hasAnyCandidate: false);
+            }
+
+            return Failed(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Configuration,
+                    $"No configured package source is authorized for '{packageId}'."));
         }
 
         using var operation = new NuGetOperationContext(
@@ -157,15 +210,14 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             _options.OperationTimeout,
             cancellationToken);
         var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var failures = new List<PackageAuthorityFailure>();
         bool hasAnyCandidate = false;
         bool operationTimedOut = false;
 
         for (int sourceIndex = 0;
-             sourceIndex < authorization.Sources.Count;
+             sourceIndex < sources.Count;
              sourceIndex++)
         {
-            PackageSource source = authorization.Sources[sourceIndex];
+            PackageSource source = sources[sourceIndex];
             try
             {
                 operation.ThrowIfExpired();
@@ -175,11 +227,11 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 operationTimedOut = true;
                 AddOperationTimeoutFailure(failures);
                 for (int remainingIndex = sourceIndex;
-                     remainingIndex < authorization.Sources.Count;
+                     remainingIndex < sources.Count;
                      remainingIndex++)
                 {
                     PackageSource remaining =
-                        authorization.Sources[remainingIndex];
+                        sources[remainingIndex];
                     failures.Add(new PackageAuthorityFailure(
                         PackageSourceDisplay.ForDiagnostics(remaining),
                         PackageAuthorityFailureKind.Timeout,
@@ -201,7 +253,41 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 continue;
             }
 
-            AuthorityEntry authority = GetOrCreateAuthority(source);
+            if (!ConfiguredPackageAuthorityKey.TryCreate(
+                    source,
+                    out ConfiguredPackageAuthorityKey? authorityKey,
+                    out string? authorityProblem))
+            {
+                InertString sourceDisplay =
+                    PackageSourceDisplay.ForDiagnostics(source);
+                failures.Add(new PackageAuthorityFailure(
+                    sourceDisplay,
+                    PackageAuthorityFailureKind.Configuration,
+                    $"Package source {sourceDisplay} is unusable. {authorityProblem}"));
+                continue;
+            }
+
+            bool isGallery =
+                authorityKey.IsNuGetOrg && source.Credential is null;
+            if (!isGallery
+                && source.Credential is null
+                && !PluginAuthenticationContext.CanScopeProviderQuery(
+                    endpoint))
+            {
+                InertString sourceDisplay =
+                    PackageSourceDisplay.ForDiagnostics(source);
+                failures.Add(new PackageAuthorityFailure(
+                    sourceDisplay,
+                    PackageAuthorityFailureKind.Configuration,
+                    $"Package source {sourceDisplay} cannot be used with credential-provider authentication because its service-index scope is unusable."));
+                continue;
+            }
+
+            AuthorityEntry authority = GetOrCreateAuthority(
+                source,
+                authorityKey,
+                endpoint,
+                isGallery);
             log?.Invoke(
                 $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(source)}.");
             PackageSourceOperationResult<PackageVersionResult> outcome =
@@ -267,11 +353,11 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 operationTimedOut = true;
                 AddOperationTimeoutFailure(failures);
                 for (int remainingIndex = sourceIndex + 1;
-                     remainingIndex < authorization.Sources.Count;
+                     remainingIndex < sources.Count;
                      remainingIndex++)
                 {
                     PackageSource remaining =
-                        authorization.Sources[remainingIndex];
+                        sources[remainingIndex];
                     failures.Add(new PackageAuthorityFailure(
                         PackageSourceDisplay.ForDiagnostics(remaining),
                         PackageAuthorityFailureKind.Timeout,
@@ -317,10 +403,12 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             hasAnyCandidate);
     }
 
-    private AuthorityEntry GetOrCreateAuthority(PackageSource source)
+    private AuthorityEntry GetOrCreateAuthority(
+        PackageSource source,
+        ConfiguredPackageAuthorityKey key,
+        Uri endpoint,
+        bool isGallery)
     {
-        ConfiguredPackageAuthorityKey key =
-            ConfiguredPackageAuthorityKey.Create(source);
         if (_authorities.TryGetValue(key, out AuthorityEntry? existing))
         {
             if (existing.Source.Credential == source.Credential)
@@ -338,8 +426,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         IPackageSourceClient? client = null;
         try
         {
-            transport = _createTransport(source);
-            if (source.IsNuGetOrg && source.Credential is null)
+            transport = _createTransport(source, isGallery);
+            if (isGallery)
             {
                 client = PackageSourceClientFactory.CreateGallery(
                     association,
@@ -348,16 +436,19 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             }
             else
             {
-                owner = PluginAuthenticationContextOwner.Create(
-                    association,
-                    new Uri(source.Url),
-                    _credentialSource);
+                if (source.Credential is null)
+                {
+                    owner = PluginAuthenticationContextOwner.Create(
+                        association,
+                        endpoint,
+                        _credentialSource);
+                }
                 client = PackageSourceClientFactory.Create(
                     source,
                     association,
                     transport,
                     _options,
-                    owner.Context);
+                    owner?.Context);
             }
 
             var authority =
@@ -414,8 +505,9 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
     }
 
     private static HttpMessageHandler CreateProductionTransport(
-        PackageSource source) =>
-        source.IsNuGetOrg && source.Credential is null
+        PackageSource source,
+        bool isGallery) =>
+        isGallery
             ? HttpClientFactory.CreateCredentialFreeHandler()
             : HttpClientFactory.CreateCredentialFreePackageSourceHandler(
                 source.Url);
@@ -574,6 +666,9 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 internal sealed class ConfiguredPackageAuthorityKey :
     IEquatable<ConfiguredPackageAuthorityKey>
 {
+    private static readonly ConfiguredPackageAuthorityKey NuGetOrg =
+        Create(PackageSource.NuGetOrg);
+
     private readonly string _value;
 
     private ConfiguredPackageAuthorityKey(string value) => _value = value;
@@ -581,18 +676,95 @@ internal sealed class ConfiguredPackageAuthorityKey :
     public static ConfiguredPackageAuthorityKey Create(PackageSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (TryCreate(source, out ConfiguredPackageAuthorityKey? key, out _))
+            return key;
+
+        throw new ArgumentException(
+            "The package source endpoint is unusable.",
+            nameof(source));
+    }
+
+    public static bool TryCreate(
+        PackageSource source,
+        [NotNullWhen(true)] out ConfiguredPackageAuthorityKey? key,
+        [NotNullWhen(false)] out string? problem)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        key = null;
+        problem = null;
         if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
         {
-            return new ConfiguredPackageAuthorityKey(
-                $"local\n{LocalPackageSourceIdentity.CreateAbsolute(source.Url).PersistentValue}");
+            try
+            {
+                key = new ConfiguredPackageAuthorityKey(
+                    $"local\n{LocalPackageSourceIdentity.CreateAbsolute(source.Url).PersistentValue}");
+                return true;
+            }
+            catch (Exception exception) when (exception is
+                ArgumentException
+                or IOException
+                or NotSupportedException)
+            {
+                problem = "The local package source path is unusable.";
+                return false;
+            }
         }
 
-        if (!Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? endpoint))
-            throw new ArgumentException("The package source is unusable.", nameof(source));
+        int schemeEnd = source.Url.IndexOf(
+            "://",
+            StringComparison.Ordinal);
+        if (schemeEnd <= 0
+            || !Uri.TryCreate(
+                source.Url,
+                UriKind.Absolute,
+                out Uri? endpoint)
+            || endpoint.Scheme is not ("http" or "https")
+            || !NuGetHttpRequest.HasValidRawText(
+                source.Url,
+                allowNonAscii: true)
+            || !NuGetSourceRequest.TryEndpointUrl(source.Url, out _))
+        {
+            problem =
+                "The package source service-index endpoint is unusable.";
+            return false;
+        }
 
-        return new ConfiguredPackageAuthorityKey(
-            NuGetCredentialScope.CanonicalizeEndpoint(endpoint));
+        string host;
+        try
+        {
+            host = endpoint.HostNameType == UriHostNameType.IPv6
+                ? $"[{endpoint.IdnHost}]"
+                : endpoint.IdnHost.ToLowerInvariant();
+        }
+        catch (UriFormatException)
+        {
+            problem =
+                "The package source service-index endpoint has an unusable host.";
+            return false;
+        }
+
+        int suffixStart = source.Url.IndexOfAny(
+            ['/', '?', '#'],
+            schemeEnd + 3);
+        string suffix = suffixStart < 0
+            ? string.Empty
+            : source.Url[suffixStart..];
+        int pathEnd = suffix.IndexOfAny(['?', '#']);
+        if (pathEnd < 0)
+            pathEnd = suffix.Length;
+        string path = suffix[..pathEnd];
+        if (path.EndsWith("/", StringComparison.Ordinal))
+            path = path[..^1];
+        string remainder = suffix[pathEnd..];
+        string origin =
+            $"{endpoint.Scheme.ToLowerInvariant()}://{host}:{endpoint.Port}";
+        key = new ConfiguredPackageAuthorityKey(
+            $"{origin}{NuGetCredentialScope.NormalizeEscapes(path)}"
+            + NuGetCredentialScope.NormalizeEscapes(remainder));
+        return true;
     }
+
+    public bool IsNuGetOrg => Equals(NuGetOrg);
 
     public bool Equals(ConfiguredPackageAuthorityKey? other) =>
         other is not null

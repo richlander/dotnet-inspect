@@ -1248,6 +1248,11 @@ public class PackageCommand
             .Select(failure => failure.Kind)
             .ToHashSet();
         var remediation = new List<string>();
+        if (kinds.Contains(PackageAuthorityFailureKind.Input))
+        {
+            remediation.Add(
+                "Correct the package command input and retry.");
+        }
         if (kinds.Contains(PackageAuthorityFailureKind.Configuration))
         {
             remediation.Add(

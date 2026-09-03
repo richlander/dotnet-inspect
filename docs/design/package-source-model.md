@@ -80,6 +80,14 @@ An authority can additionally have a durable cache key only when the package
 owner can project a stable key without credential-dependent input while still
 preserving every authority distinction.
 
+For HTTP declarations, runtime authority equality canonicalizes only the
+scheme, IDN host, effective port, percent-escape hex casing, and one trailing
+path slash. It preserves the raw path, query, and fragment spelling, including
+encoded-unreserved characters, dot segments, repeated slashes, and an empty
+query or fragment marker. This stricter process-local key is neither the
+NuGetFetch producer identity nor the legacy persistent-cache key. It must not
+be rendered, persisted, or hashed into a cache path.
+
 An HTTP declaration containing a query, fragment, or redacted credential-like
 path component cannot use a durable key derived from that text. Hashing the
 untreated value would retain a credential guess verifier, while using the
@@ -94,9 +102,11 @@ provide such an independent stable ID under their own contracts. The package
 owner combines that ID with a versioned authority namespace; it does not hash a
 credential-bearing URL to fill a missing identity.
 
-`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct` and
-`ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`
-are the required Release gates for these distinctions.
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure`,
+`ConfiguredAuthority_RawPathDistinctionsRemainSeparate`, and
+`PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath` are the
+required Release gates for these distinctions.
 
 ## Classification precedes authority and transport
 
@@ -136,6 +146,9 @@ The classification boundary is gated by
 `SourceClassification_FileUriNeverConstructsHttpTransport`,
 `SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`, and
 `LocalCapabilityAbsence_IsVisibleNonHttpAndIncomplete`.
+`PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport` additionally
+gates malformed HTTP syntax and an unusable credential-provider scope at the
+live CLI boundary.
 
 ## Resolving active and eligible authorities
 
@@ -165,6 +178,10 @@ authorize bytes. `PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`,
 `ResolveSourcesForPackage_MappingClassifiesOnlySelectedAliases`,
 `PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`, and
 `SourceOrder_DoesNotChooseVersionOrSameTierPayload` gate these rules.
+`ResolveSourcesForPackageWithFailures_RetainsValidPeer`,
+`ResolveSourcesForPackageWithFailures_MappedUnsupportedAliasIsNotInactive`,
+and `PackageVersionListing_UnsupportedConfiguredSourceRetainsValidPeer` gate
+per-alias pre-client failure without suppressing valid selected authorities.
 
 ## Associations, routes, and authentication
 
@@ -438,6 +455,10 @@ capability-unavailable result owned by #5400.
 When the Gallery route cannot complete its registration listing-state join,
 its retained flat-container candidates are explicitly partial rather than
 authoritative.
+Malformed selected declarations and unusable configurable authentication
+scopes become attributed pre-client failures before transport construction.
+Other valid selected authorities still run, and usable peer evidence is
+reported as partial.
 
 Offline version enumeration and the `--versions-with-feed`,
 `--include-unlisted`, latest-version, range, payload, metadata, search, and

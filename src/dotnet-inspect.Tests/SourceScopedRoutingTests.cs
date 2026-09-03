@@ -724,6 +724,67 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
+    public async Task PackageVersionListing_EncodedPathCredentialDoesNotCrossToLiteralPath()
+    {
+        const string ConfiguredIndex =
+            "https://feed.example/%7E/private/index.json";
+        const string RequestedIndex =
+            "https://feed.example/~/private/index.json";
+        const string Flat =
+            "https://feed.example/flat2/";
+        const string PackageName = "path-authority-isolation";
+        string configPath = Path.Combine(
+            _testRoot,
+            "path-authority-isolation.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="encoded" value="{ConfiguredIndex}" />
+              </packageSources>
+              <packageSourceCredentials>
+                <encoded>
+                  <add key="Username" value="reader" />
+                  <add key="ClearTextPassword" value="secret" />
+                </encoded>
+              </packageSourceCredentials>
+            </configuration>
+            """);
+        var handler = new AuthenticationIsolationHandler(
+            RequestedIndex,
+            Flat,
+            PackageName,
+            "1.0.0",
+            requireAuthentication: false);
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            new UnavailableCredentialSource(),
+            (_, isGallery) =>
+            {
+                Assert.False(isGallery);
+                return handler;
+            });
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions
+                {
+                    ConfigFile = configPath,
+                    Sources = [RequestedIndex],
+                },
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["1.0.0"], result.Versions);
+        Assert.False(handler.SawAuthorization);
+    }
+
+    [Fact]
     public async Task SourceClientComposition_ConfiguredCredentialBypassesPluginProvider()
     {
         string packageName = $"ConfiguredBypass{Guid.NewGuid():N}";
@@ -755,7 +816,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5),
             credentialSource,
-            _ => handler);
+            (_, _) => handler);
 
         PackageVersionDiscoveryResult result =
             await composition.GetVersionsAsync(
@@ -819,7 +880,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5),
             credentialSource,
-            source => handlers[source.Name]);
+            (source, _) => handlers[source.Name]);
 
         PackageVersionDiscoveryResult result =
             await composition.GetVersionsAsync(
@@ -851,7 +912,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5),
             credentialSource,
-            _ => new CannedResponseHandler(
+            (_, _) => new CannedResponseHandler(
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [Flat] =
@@ -899,7 +960,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(5),
             credentialSource,
-            _ => new CannedResponseHandler(
+            (_, _) => new CannedResponseHandler(
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [Flat] = """{"versions":["1.0.0","1.1.0"]}""",
@@ -968,7 +1029,117 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 " at DotnetInspector.",
                 error,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "Correct the package command input",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "Correct the package source configuration",
+                error,
+                StringComparison.Ordinal);
             Assert.False(transportCreated);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_UnsupportedConfiguredSourceRetainsValidPeer()
+    {
+        string packageName = $"UnsupportedPeer{Guid.NewGuid():N}";
+        string configPath = Path.Combine(
+            _testRoot,
+            "unsupported-peer.nuget.config");
+        Directory.CreateDirectory(_testRoot);
+        File.WriteAllText(configPath, $"""
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="valid" value="{SecondSource}" />
+                <add key="legacy" value="ftp://legacy.example/v3/index.json" />
+              </packageSources>
+            </configuration>
+            """);
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--nugetconfig",
+                    configPath,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("legacy", error, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ftp://legacy.example",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(SecondSource, requests);
+    }
+
+    [Theory]
+    [InlineData("https://example.invalid/%zz/index.json")]
+    [InlineData("https://pkgs.dev.azure.com/")]
+    public async Task PackageVersionListing_UnusableSourceSetupIsTypedBeforeTransport(
+        string unusableSource)
+    {
+        string packageName = $"UnusableSetup{Guid.NewGuid():N}";
+        bool invalidTransportCreated = false;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Core.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            sourceUrl =>
+            {
+                if (sourceUrl == unusableSource)
+                    invalidTransportCreated = true;
+
+                return new VersionFeedHandler(
+                    SecondSource,
+                    packageName,
+                    "2.0.0",
+                    refusedStatus: null,
+                    requireAuthorization: false,
+                    new ConcurrentQueue<string>(),
+                    new HttpClientHandler());
+            });
+        try
+        {
+            var (exit, output, error) = await RunCommandAsync(
+                [
+                    "package",
+                    packageName,
+                    "--versions",
+                    "--source",
+                    SecondSource,
+                    "--source",
+                    unusableSource,
+                ]);
+
+            Assert.True(
+                exit == 0,
+                $"Expected success but got exit {exit}. stderr: {error}");
+            Assert.Equal("2.0.0", output.Trim());
+            Assert.Contains(
+                "partial",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                " at DotnetInspector.",
+                error,
+                StringComparison.Ordinal);
+            Assert.False(invalidTransportCreated);
         }
         finally
         {
@@ -995,7 +1166,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromMilliseconds(50),
             new UnavailableCredentialSource(),
-            source =>
+            (source, _) =>
             {
                 if (source.Url == sources[0])
                 {
@@ -1060,7 +1231,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromMilliseconds(50),
             new UnavailableCredentialSource(),
-            source => source.Url == TimedOutSource
+            (source, _) => source.Url == TimedOutSource
                 ? new NeverCompletesHandler()
                 : new CannedResponseHandler(
                     new Dictionary<string, string>(StringComparer.Ordinal)

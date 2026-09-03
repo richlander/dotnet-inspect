@@ -897,8 +897,10 @@ public static class NuGetCache
     /// HTTP canonicalization is delegated to
     /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/>. Local
     /// canonicalization is delegated to
-    /// <see cref="LocalPackageSourceIdentity"/>. Each source kind therefore has
-    /// one identity across resolution, authorization, and cache provenance.
+    /// <see cref="LocalPackageSourceIdentity"/>. This legacy producer identity
+    /// is intentionally distinct from the package owner's stricter,
+    /// process-local configured-authority identity; cache provenance cannot
+    /// authorize credentials or source results.
     /// </remarks>
     /// <param name="sourceUrl">
     /// The source URL, or an absolute local folder path.
