@@ -12,6 +12,10 @@ are enforced by `prototypes/inspect-web/test/operation-authority.test.ts` and
 the Type Source adoption cases in
 `prototypes/inspect-web/test/source-inspection.test.ts`.
 
+Issue #5672 adds atomic unexpected-terminal publication for the Worker runtime
+consumer in #5636. It remains an operation-authority contract: producer
+placement and Worker settlement decoding stay outside this owner.
+
 The checked
 [operation-authority model](models/inspect-web-operation-authority/README.md)
 establishes only the bounded abstract properties recorded with that model. It
@@ -68,6 +72,8 @@ The producer adapter accepts one cancellation request and reports:
 
 - optional typed progress;
 - exactly one physical terminal result;
+- an unexpected terminal failure through one atomic diagnostic-and-terminal
+  report when that classification applies;
 - physical quiescence after its operation-scoped resources are released; and
 - unexpected late failures to a diagnostic observer.
 
@@ -206,6 +212,10 @@ interface OperationProducerSink<TValue, TError, TProgress> {
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
+  readonly reportUnexpectedTerminal: (
+    error: TError,
+    diagnostic: unknown,
+  ) => undefined;
   readonly reportQuiesced: () => undefined;
   readonly reportUnexpectedFailure: (error: unknown) => undefined;
 }
@@ -305,6 +315,17 @@ diagnostic delivery, so the observer may reenter operation APIs. If diagnostic
 delivery throws, the authority catches it and writes the original diagnostic
 plus observer failure to the browser's last-resort console sink without
 recursively invoking the observer.
+
+`reportUnexpectedTerminal(error, diagnostic)` is the producer's atomic form
+for a terminal failure that also requires unexpected-failure reporting. It
+validates the producer record once, commits the failed outcome, and reserves
+the terminal feature event before delivering the diagnostic. The observer
+therefore sees final authority state: cancellation cannot replace the failure,
+while replacement or disposal may proceed normally. After diagnostic delivery
+or its contained exception, the owner exercises the already-reserved terminal
+event even if reentrancy changed current authority. Physical quiescence remains
+a later independent producer report. `reportUnexpectedFailure` remains the
+diagnostic-only path for a late failure that is not itself a terminal result.
 
 `OperationId` is opaque. Feature code cannot construct one from a request,
 package identity, display string, or local counter. The page owner atomically
@@ -448,6 +469,8 @@ The first authorized logical-completion transition atomically resolves
 `outcome` exactly once and reserves exactly one corresponding feature event:
 
 - producer success or failure reserves `terminal`;
+- atomic unexpected terminal failure reserves `terminal` before delivering its
+  diagnostic and exercises that reservation after diagnostic delivery;
 - direct cancellation reserves `canceled`;
 - replacement reserves `replaced`, which also announces the new operation; and
 - disposal reserves `disposed`.
@@ -702,6 +725,12 @@ under the ordinary inspect-web `npm test` gate and include:
   feature event, one diagnostic, and no escaping exception;
 - diagnostic observers that throw or reenter, requiring final authority state,
   no escaping exception, and one last-resort console report without recursion;
+- atomic unexpected terminal failure committing the failed outcome before
+  diagnostic reentrancy, rejecting outcome replacement by cancellation,
+  preserving its terminal reservation across reentrant replacement, delivering
+  diagnostic before terminal publication, and surviving observer failure;
+- stale atomic unexpected terminal failure remaining diagnostic-only without
+  replacing its prior logical cancellation or publishing feature state;
 - unexpected stale failure reaching diagnostics without reaching feature
   state;
 - terminal, cancel, and release races;

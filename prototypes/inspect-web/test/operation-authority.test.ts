@@ -1222,6 +1222,151 @@ test("unexpected stale failure remains diagnostic without feature publication", 
   }]);
 });
 
+test("unexpected terminal commits authority before diagnostic and publishes in order", async () => {
+  const order: string[] = [];
+  let handle: TestHandle;
+  let cancelResult: OperationControlResult | undefined;
+  const harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    event => {
+      order.push(`feature:${event.kind}`);
+      return undefined;
+    },
+    () => {
+      order.push("diagnostic");
+      cancelResult = handle.cancel("user");
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  handle = started(harness.session.start("work", activeProducer.adapter));
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.equal(await promiseSettled(handle.quiesced), false);
+  assert.deepEqual(order, [
+    "feature:started",
+    "diagnostic",
+    "feature:terminal",
+  ]);
+  activeProducer.attempts[0]?.sink.reportQuiesced();
+  assert.equal(await promiseSettled(handle.quiesced), true);
+});
+
+test("unexpected terminal reservation survives diagnostic reentrant replacement", async () => {
+  const order: string[] = [];
+  const nestedProducer = producer();
+  let harness: SessionHarness;
+  let nestedResult: TestStartResult | undefined;
+  harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    event => {
+      order.push(`feature:${event.kind}`);
+      return undefined;
+    },
+    () => {
+      order.push("diagnostic");
+      nestedResult = harness.session.start("nested", nestedProducer.adapter);
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("original", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.equal(nestedResult?.kind, "started");
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(order, [
+    "feature:started",
+    "diagnostic",
+    "feature:replaced",
+    "feature:terminal",
+  ]);
+});
+
+test("unexpected terminal survives throwing diagnostic observation", async () => {
+  const observerFailure = new Error("observer");
+  const fallbacks: {
+    readonly diagnostic: OperationDiagnostic;
+    readonly observerError: unknown;
+  }[] = [];
+  const page = createOperationAuthorityPage({
+    ...deterministicOptions(),
+    lastResortConsole: {
+      report: (diagnostic, observerError) => {
+        fallbacks.push({ diagnostic, observerError });
+        return undefined;
+      },
+    },
+  });
+  const harness = sessionHarness(page, undefined, () => {
+    throw observerFailure;
+  });
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("work", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+  assert.equal(fallbacks.length, 1);
+  assert.equal(fallbacks[0]?.observerError, observerFailure);
+});
+
+test("unexpected terminal on a stale operation remains diagnostic only", async () => {
+  const harness = sessionHarness();
+  const staleProducer = producer();
+  const staleHandle = started(
+    harness.session.start("stale", staleProducer.adapter),
+  );
+  started(harness.session.start("current", producer().adapter));
+  const eventsBefore = harness.events.length;
+
+  staleProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "late-error",
+    "late-unexpected-failure",
+  );
+
+  assert.deepEqual(await staleHandle.outcome, {
+    kind: "canceled",
+    reason: "superseded",
+  });
+  assert.equal(harness.events.length, eventsBefore);
+  assert.deepEqual(harness.diagnostics, [{
+    kind: "producer-contract",
+    operationId: staleProducer.attempts[0]?.identity.id ?? null,
+    error: "late-unexpected-failure",
+  }]);
+});
+
 test("stale progress, success, failure, and release cannot change the current view", async () => {
   const harness = sessionHarness();
   const progressProducer = producer();
@@ -1621,6 +1766,7 @@ function compileTimeCallbackContracts(): void {
   const validSink: TestSink = {
     reportProgress: _value => undefined,
     reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
@@ -1659,6 +1805,7 @@ function compileTimeCallbackContracts(): void {
     // @ts-expect-error Producer sink callbacks never return Promises.
     reportProgress: async _value => {},
     reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
@@ -1668,6 +1815,7 @@ function compileTimeCallbackContracts(): void {
     reportTerminal: (
       _outcome: { readonly kind: "succeeded"; readonly value: string },
     ) => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
