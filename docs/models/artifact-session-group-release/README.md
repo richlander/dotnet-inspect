@@ -64,6 +64,8 @@ The model does not cover:
   owner-supplied boolean per group;
 - a workspace-level result fault after the owner request has started; the
   bounded fault path covers failure before that request;
+- an owner recovery request between that fault and artifact-cleanup start; the
+  bounded recovery transition begins from the retained cleanup wait;
 - exception payloads, cleanup-failure ordering, close-report serialization,
   or thread scheduling;
 - later session-related group rejection, which remains gated by
@@ -100,6 +102,7 @@ terminal receipt cannot authorize release for the second exact dependency.
 | `TransferWaitsForCompletedAdmissions` | Transfer does not compute its exact current set while a group admission remains incomplete. |
 | `ArtifactReleaseWaitsForExactReceipts` | Query-lease/session cleanup starts only after both exact dependent owners issue terminal receipts. |
 | `ReleaseRequestsCarryOwnerAuthority` | Every imported owner request has a recorded issuer, and artifact cleanup is never that issuer. |
+| `RecoveryPrecedesPostFaultRequest` | A requested second group after the modeled fault can arise only through the explicit adjacent-owner recovery transition. |
 | `ArtifactCleanupResultRemainsVisible` | Terminal close publishes the artifact cleanup result, including failure. |
 | `GroupCloseFailureRemainsVisible` | Terminal close preserves whether any workspace-level group close faulted. |
 | `Dependent*CompletionMatchesRequest` and `Dependent*CompletionCarriesResult` | Each exact owner issues a receipt only for its requested group and publishes identity/result together. |
@@ -138,9 +141,12 @@ issued that request.
 
 The reachability configurations intentionally negate their named observations,
 so exit code 12 means TLC reached the required neighboring positive behavior.
-`ReachabilityOwnerRecoveryRequest.cfg` is an exact-outcome gate because its
-fault-before-request ordering is contract-defining. The other reachability
-probes remain unlisted in the sparse manifest.
+`Safety.cfg` enforces fault-before-request ordering through
+`RecoveryPrecedesPostFaultRequest`.
+`ReachabilityOwnerRecoveryRequest.cfg` is an exact-outcome gate proving that
+the required explicit recovery path remains reachable rather than making that
+safety invariant vacuous. The other reachability probes remain unlisted in the
+sparse manifest.
 
 ## Running TLC
 

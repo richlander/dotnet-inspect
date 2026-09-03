@@ -658,6 +658,11 @@ ReleaseRequestsCarryOwnerAuthority ==
         /\ (RequestedGroup(g) = NoGroup) = (requestIssuer[g] = "None")
         /\ requestIssuer[g] # "ArtifactCleanup"
 
+RecoveryPrecedesPostFaultRequest ==
+    (/\ groupCloseStatus[DependentTwo] = "Faulted"
+     /\ twoRequestedGroup = DependentTwo)
+        => faultRecoveryRequestObserved
+
 ArtifactCleanupResultRemainsVisible ==
     workspaceState = "Closed"
         => reportedArtifactCleanupResult = artifactCleanupResult
