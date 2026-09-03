@@ -63,7 +63,10 @@ public sealed class WorkspaceContextLoaderTests
                     Framework = Framework,
                     Members = [PackageMember(Version)],
                 },
-                Options(client, store),
+                Options(client, store) with
+                {
+                    IncludePackageRootBindings = true,
+                },
                 TestContext.Current.CancellationToken);
 
         var loaded = Loaded(outcome);
@@ -71,6 +74,17 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(Framework, loaded.Framework);
         Assert.Null(loaded.RuntimeIdentifier);
         Assert.Equal(2, loaded.Group.Participants.Length);
+        PackageRootBinding packageRoot =
+            Assert.Single(loaded.PackageRoots);
+        Assert.Equal(PackageId, packageRoot.Root.PackageId);
+        Assert.Equal(Version, packageRoot.Root.PackageVersion);
+        Assert.Equal(
+            Framework,
+            packageRoot.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized),
+            packageRoot.Coordinate);
         Assert.Equal(
             [
                 Path.GetFileNameWithoutExtension(CallerPath),
