@@ -168,6 +168,14 @@ gates the declared values, while the invalid-input tests gate the maximum at
 the command boundary.
 `SearchScopeResolutionTests.PackageProfileGuidance_DisclosesDefaultAndMaximum`
 gates their user-facing disclosure.
+`PackageProfileQueryTests.ExecuteAsync_ForwardsSharedOperationContext` gates
+that search and every manifest request consume one host-supplied
+`NuGetOperationContext`.
+`FindCommandTests.PackageProfileCatalog_MaterializesOnceAndForwardsOperationContext`
+gates the L2 catalog handoff. The CLI creates that context from the same
+`NuGetFetchOptions` used to create the Gallery source, so the configured
+operation deadline spans the complete profile under the
+[package-source operation-context contract](package-source-model.md#shared-operation-context-and-payload-lifetime).
 
 ### Measured package-profile limits
 

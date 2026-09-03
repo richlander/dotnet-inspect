@@ -102,11 +102,15 @@ for (int trial = 1; trial <= trials; trial++)
         }
         else
         {
+            using var operationContext = new NuGetOperationContext(
+                options.RequestTimeout,
+                options.OperationTimeout);
             PackageProfileSummary? summary = null;
             await foreach (PackageProfileEvent profileEvent
                 in PackageProfileQuery.ExecuteAsync(
                     source,
-                    new PackagePrefixProfileRequest(prefix, take)))
+                    new PackagePrefixProfileRequest(prefix, take),
+                    operationContext: operationContext))
             {
                 if (profileEvent is PackageProfileEvent.Completed completed)
                     summary = completed.Value;

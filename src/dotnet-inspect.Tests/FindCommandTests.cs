@@ -413,9 +413,14 @@ public class FindCommandTests
     }
 
     [Fact]
-    public async Task PackageProfileCatalog_MaterializesSourceExecutionOnce()
+    public async Task
+        PackageProfileCatalog_MaterializesOnceAndForwardsOperationContext()
     {
         var source = new CountingPackageSource();
+        using var operationContext = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(4),
+            TestContext.Current.CancellationToken);
         PackageProfileSectionCatalog catalog =
             PackageProfileSections.CreateCatalog();
 
@@ -427,11 +432,13 @@ public class FindCommandTests
                 .RunAsync(
                     new PackageProfileQueryContext(
                         source,
-                        new PackagePrefixProfileRequest("Contoso.")),
+                        new PackagePrefixProfileRequest("Contoso."),
+                        operationContext),
                     cancellationToken:
                         TestContext.Current.CancellationToken);
 
         Assert.Equal(1, source.SearchRequests);
+        Assert.Same(operationContext, source.SearchOperationContext);
         ImmutableArray<PackageProfileEvent> first =
             results.Get(PackageProfileQuery.Definition);
         ImmutableArray<PackageProfileEvent> second =
@@ -949,6 +956,11 @@ public class FindCommandTests
     private sealed class CountingPackageSource : IPackageSourceClient
     {
         public int SearchRequests { get; private set; }
+        public NuGetOperationContext? SearchOperationContext
+        {
+            get;
+            private set;
+        }
         public PackageSourceResultIdentity Source => TestResults.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.Search;
@@ -963,6 +975,7 @@ public class FindCommandTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             SearchRequests++;
+            SearchOperationContext = operationContext;
             return Task.FromResult<
                 PackageSourceOperationResult<PackageSearchResult>>(
                     TestResults.FailedSearch(
@@ -1903,18 +1916,16 @@ public class FindCommandIntegrationTests
     // ── Error handling tests ─────────────────────────────────────────
 
     [Fact]
-    public async Task Find_NoScope_AppliesCuratedDefault()
+    public async Task Find_NoScope_AppliesPlatformDefault()
     {
         var options = new FindOptions
         {
             Pattern = "Stream"
-            // No scope specified - should apply curated defaults
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
             () => FindCommand.ExecuteAsync(options));
 
-        // Should succeed with curated scope applied
         Assert.Equal(0, exit);
         Assert.Contains("Stream", output);
     }

@@ -336,7 +336,7 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
-    public void PackagePrefixExpansionLimit_UsesMeasuredDefault()
+    public void PackagePrefixExpansionLimit_UsesSelectedBound()
     {
         Assert.Equal(500, ScopeConstants.PackagePrefixExpansionLimit);
     }

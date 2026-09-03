@@ -17,7 +17,8 @@ public sealed record PackagePrefixProfileRequest(
 /// </summary>
 public sealed record PackageProfileQueryContext(
     IPackageSourceClient Source,
-    PackagePrefixProfileRequest Request);
+    PackagePrefixProfileRequest Request,
+    NuGetOperationContext? OperationContext = null);
 
 /// <summary>
 /// One package whose latest listed manifest was projected by a package profile.
@@ -108,13 +109,15 @@ public static class PackageProfileQuery
         ExecuteToArrayAsync(
             IPackageSourceClient source,
             PackagePrefixProfileRequest request,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
     {
         var events = ImmutableArray.CreateBuilder<PackageProfileEvent>();
         await foreach (PackageProfileEvent profileEvent in ExecuteAsync(
             source,
             request,
-            cancellationToken).ConfigureAwait(false))
+            cancellationToken,
+            operationContext).ConfigureAwait(false))
         {
             events.Add(profileEvent);
         }
@@ -125,7 +128,8 @@ public static class PackageProfileQuery
     public static async IAsyncEnumerable<PackageProfileEvent> ExecuteAsync(
         IPackageSourceClient source,
         PackagePrefixProfileRequest request,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        NuGetOperationContext? operationContext = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(request);
@@ -136,7 +140,8 @@ public static class PackageProfileQuery
                 request.Prefix,
                 request.MaximumPackages,
                 request.IncludePrerelease,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
         if (search.Failure is { } searchFailure)
         {
             yield return new PackageProfileEvent.Failure(
@@ -243,7 +248,8 @@ public static class PackageProfileQuery
                 await source.GetManifestAsync(
                     coordinate.PackageId,
                     coordinate.Version,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    operationContext).ConfigureAwait(false);
             if (manifestResult.Failure is { } manifestFailure)
             {
                 failures++;

@@ -116,10 +116,14 @@ The design does not duplicate the current catalog inventory in prose.
 
 ## Command participation
 
-Type-search `find`, `implements`, and `extensions` use this normalization.
-Patternless `find --package-prefix` instead runs the Nuspec-only profile owned
-by [the package query CLI](package-query-cli.md) and bypasses this normalizer.
-`depends` uses normalization only for type-hierarchy mode; its
+Type-search `find`, `implements`, and `extensions` use this normalization to
+select acquisition scope. Patternless `find --package-prefix` instead runs the
+Nuspec-only profile owned by
+[the package query CLI](package-query-cli.md). Its parser still normalizes raw
+search selectors so the command can reject incompatible API-search scope
+before network access, but the profile prefix is not expanded and the
+normalized result does not select profile acquisition. `depends` uses
+normalization only for type-hierarchy mode; its
 package-dependency and library-reference modes are unary source operations and
 do not acquire a search default.
 
@@ -171,8 +175,14 @@ end-to-end wiring has partial Release gate coverage:
   gate the prefix bound's user-facing help, workflow, and skill;
 - `SearchScopeResolutionTests.PackagePrefixLimitReached_IsVisible` gates its
   warning; and
-- `SearchScopeResolutionTests.PackagePrefixExpansionLimit_UsesMeasuredDefault`
+- `SearchScopeResolutionTests.PackagePrefixExpansionLimit_UsesSelectedBound`
   gates the 500-package type-search expansion bound.
+
+The search-only measurements in
+[the package query CLI](package-query-cli.md#measured-package-profile-limits)
+characterize prefix expansion through 500 coordinates. They do not measure the
+downstream package-archive acquisition that a type search may perform; that
+cost remains with the acquisition owners and is not evidence for this bound.
 
 The residual command-adapter matrix is explicitly unverified: the suite does
 not provide one outcome-level non-vacuity case for every explicit package,

@@ -199,13 +199,19 @@ public class FindCommand
             return 1;
         }
 
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(
+                context.HttpClient.Timeout);
         using IPackageSourceClient source =
             PackageSourceClientFactory.CreateGallery(
                 PackageSourceAssociation.Create(),
                 DotnetInspector.Core.HttpClientFactory
                     .CreateCredentialFreeHandler(),
-                NuGetFetchOptions.FromRequestTimeout(
-                    context.HttpClient.Timeout));
+                fetchOptions);
+        using var operationContext = new NuGetOperationContext(
+            fetchOptions.RequestTimeout,
+            fetchOptions.OperationTimeout,
+            cancellationToken);
         var request = new PackagePrefixProfileRequest(
             options.PackagePrefix!,
             maximumPackages);
@@ -217,7 +223,10 @@ public class FindCommand
             catalog.Lens.Plan(Verbosity.Normal, includeSections);
         InspectionQueryResults queryResults =
             await queryPlan.RunAsync(
-                new PackageProfileQueryContext(source, request),
+                new PackageProfileQueryContext(
+                    source,
+                    request,
+                    operationContext),
                 cancellationToken: cancellationToken).ConfigureAwait(false);
         var events = queryResults.Get(PackageProfileQuery.Definition);
 
