@@ -30,8 +30,11 @@ Supporting owners:
 - [Capability-driven section registry spike](capability-section-registry-spike.md)
   supplies comparative evidence for a static table of noncapturing execution
   bindings rather than runtime registration or an object graph.
-- [#5602](https://github.com/richlander/dotnet-inspect/issues/5602) remains the
-  composition tracker for typed source intent and staged CLI/browser adoption.
+- [#5602](https://github.com/richlander/dotnet-inspect/issues/5602) tracks typed
+  source intent and staged CLI/browser source adoption.
+- [#5728](https://github.com/richlander/dotnet-inspect/issues/5728) is the
+  non-normative end-to-end delivery tracker joining the focused owner work,
+  application catalog, both front ends, and first complete ecosystem adoption.
 
 ## Authority and exact claim
 
@@ -214,8 +217,9 @@ The repository dependency policy is the enforcing gate for application-pack
 separation. It evaluates both project references and compiled Release assembly
 references, so an unused project edge and a binary edge are both visible.
 
-Existing policy already prevents an `ILInspector.*` project from taking a
-dependency on `DotnetInspector.Ecosystems`:
+Existing policy already prevents reusable `ILInspector.*` libraries selected
+by its engine rules from taking a dependency on
+`DotnetInspector.Ecosystems`:
 
 - `engine-libraries-stay-below-tool-libraries` denies `DotnetInspector.*` from
   the broad engine-library set; and
@@ -322,6 +326,11 @@ Each prefix entry is an explicit discovery action with product-owned title and
 summary. A pack may have no prefix, one prefix, or several independently
 selectable prefixes. For example, an Aspire pack may distinguish official and
 community package families.
+
+The immutable prefix sequence is authored in strictly ascending unique
+`Order`. Complete registration validation rejects an out-of-order sequence
+rather than sorting it. Discovery preserves the validated sequence, so
+declaration order and `Order` cannot disagree across hosts.
 
 The prefix value will be carried by the owner-issued typed package-prefix
 intent tracked under #5602. The pack does not:
@@ -520,7 +529,7 @@ ordinary non-friend consumer.
 | --- | --- |
 | `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder` | Static discovery returns a literal expected synthetic descriptor and action sequence in unique explicit order. |
 | `EcosystemPackRegistryTests.ExactLookupUsesOnlyTypedIdentity` | Exact ID lookup returns the enumerated registration view; labels, prefix text, package-set IDs, case variants, and unknown IDs do not alias a pack. |
-| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate order, duplicate prefix-entry IDs/order, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
+| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate pack order, duplicate prefix-entry IDs/order, out-of-order prefix sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
 | `EcosystemPackRegistryTests.CatalogMaterializationPerformsNoObservableWork` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. |
 | `EcosystemPackRegistryTests.DiscoveryDoesNotResolveOrExecuteCapabilities` | Discovery performs no package-set membership resolution, package-source work, artifact/workspace work, or scanner invocation. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
@@ -529,7 +538,7 @@ ordinary non-friend consumer.
 | `EcosystemPackConsumerTests.PublicSurfaceSupportsStaticDiscoveryAndSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-packs-stay-out-of-reusable-product-libraries` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject every `ILInspector.*` edge. |
+| `eng/dependency-policy.json` rule `ecosystem-packs-stay-out-of-reusable-product-libraries` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
 | `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | The inspect-web project graph permits `DotnetInspector.Ecosystems` only in the current managed front-end facade and rejects it from `InspectWeb.Engine.Core` and every other browser production project. |
 
 Application adoption adds
@@ -546,6 +555,8 @@ and decide whether it warrants a retained sensor; the pattern design does not
 claim that cost is zero.
 
 ## Landing sequence
+
+Overall delivery is tracked by #5728.
 
 1. Lock this focused pack pattern.
 2. Advance whichever independent owner track is needed for the first real pack.
