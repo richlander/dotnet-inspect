@@ -20,11 +20,12 @@ order, Workspace-bound occurrence issuance, selective dependency-expansion
 eligibility, closure completeness, revision authority, and scope-operation
 results.
 
-This owner consumes the resource-free Root projection defined by the parent
-stack slice
-[#5715](https://github.com/richlander/dotnet-inspect/pull/5715); it does not
+This owner consumes the resource-free Root projection defined by parent slice
+[#5715](https://github.com/richlander/dotnet-inspect/pull/5715) and the Root
+preparation/publication handoff defined by parent slice
+[#5729](https://github.com/richlander/dotnet-inspect/pull/5729). It does not
 redefine Artifact Acquisition correspondence, generation, status, currentness,
-or resource-erasure semantics.
+receipt lifetime, physical publication, or resource-erasure semantics.
 
 The contract is unimplemented beyond the exact runtime Workspace identity and
 transitional package occurrence primitives established by
@@ -229,6 +230,7 @@ InspectionWorkspaceIdentity              artifact owner
         ScopeLimits
         |
         +-- WorkspaceScopeSnapshot
+              Physical composition epoch
               Ordered current Root descriptors
               ClosureObservation
               Optional preparation
@@ -248,6 +250,16 @@ two runtime Workspaces equal.
 User-facing **closed** and **selectively open** describe dependency-expansion
 eligibility. They do not rename or replace the artifact owner's runtime
 accepting/closing/closed lifetime states.
+
+Every new scope operation and current snapshot refresh first consumes
+Artifact Acquisition's gate-observing runtime and physical-composition status.
+An absent runtime for a retained scope identity is an invariant or stale-
+composition failure, not an empty Workspace. Closing or closed rejects new
+scope operations. Snapshot refresh returns a typed
+`Unavailable(RuntimeCompositionUnavailable)` result and may expose the last
+retained resource-free snapshot only as historical diagnostic evidence; it
+does not fabricate `Pending`, `Failed`, an empty Root sequence, or another
+success-shaped current result.
 
 ### Scope revision
 
@@ -276,6 +288,7 @@ new mutation.
 ```text
 WorkspaceScopeSnapshot
   Revision                WorkspaceScopeRevision
+  PhysicalComposition     ArtifactRootCompositionGenerationIdentity
   Roots                   ordered WorkspaceRootOccurrenceDescriptor sequence
   Closure                 WorkspaceClosureObservation
   Preparing               optional WorkspaceScopePreparationDescriptor
@@ -283,10 +296,11 @@ WorkspaceScopeSnapshot
 
 The immutable revision carries logical membership and expansion policy. The
 snapshot additionally projects current adjacent-owner realization status, one
-closure observation, and one preparing operation without pretending that
-uncommitted Roots are members. A closure-only publication or physical
-re-realization can replace the snapshot's closure observation without changing
-the logical revision identity.
+exact parent-owned physical-composition epoch, one closure observation, and one
+preparing operation without pretending that uncommitted Roots are members. A
+closure-only publication or physical re-realization can replace the snapshot's
+physical epoch, Root projections, and closure observation without changing the
+logical revision identity.
 
 `WorkspaceScopePreparationDescriptor` carries only the operation identity and
 kind, requested Root count, non-retaining adjacent-owner progress evidence,
@@ -355,6 +369,19 @@ published current scope snapshot refreshes each occurrence through
 `GetCurrentRootScopeProjection` or consumes a projection returned atomically by
 the adjacent operation.
 
+A current snapshot read observes the shared runtime composition gate and
+compares the snapshot's physical-composition identity with
+`GetCurrentArtifactRootCompositionGeneration`. Equal identity permits the
+already complete snapshot. Different identity requires one complete projection
+refresh and closure invalidation publication through the parent transition
+before a current snapshot returns; individual per-Root reads are never exposed
+as a mixed-epoch snapshot.
+
+An absent correspondence projection for a committed current occurrence is a
+typed invariant or stale-composition failure. A closing or closed runtime
+returns `Unavailable(RuntimeCompositionUnavailable)`. Neither case removes the
+occurrence, substitutes an empty result, or changes the logical revision.
+
 When Artifact Acquisition changes a retained occurrence from `Ready`, or
 publishes a corresponding replacement generation, the next observable scope
 snapshot atomically carries the refreshed projection while the logical revision
@@ -379,7 +406,7 @@ The version-1 expansion vocabulary is a closed union:
 ```text
 WorkspaceExpansionScope
   = ExactPackage(owner-issued exact package coordinate)
-  | PackagePrefix(owner-issued validated package-prefix intent)
+  | PackagePrefix(owner-issued validated package-name prefix value)
   | PlatformGroup(owner-issued well-known group identity)
 ```
 
@@ -392,6 +419,13 @@ Each arm retains its adjacent owner's exact typed value:
 - Workspace Definitions supplies well-known platform-group identity; and
 - this owner only asks whether exact external dependency evidence matches the
   retained value.
+
+The package-prefix arm retains only the validated package-name prefix value
+carried by owner-issued source intent. It does not retain a source selector,
+query bound, paging cursor, or completion policy. An ecosystem recorded-prefix
+action may carry that same value inside a source-query request, but executing
+or selecting the request is distinct from explicitly registering the value as
+Workspace expansion eligibility.
 
 An expansion scope is eligibility, not membership:
 
@@ -553,10 +587,11 @@ WorkspaceScopeOperation
   | ExpandDependencies
 ```
 
-Package **Open**, package-set **Open**, demo restoration, imported definitions,
-and saved definitions lower to `ReplaceScope`. Workspace-editor **Add package**
-and **Add package set** lower to `AddRoots`. Source-selection and restoration
-owners resolve their inputs before this owner receives exact Root requests.
+Package **Open**, resolved package-set **Open**, demo restoration, imported
+definitions, and saved definitions lower to `ReplaceScope`. Workspace-editor
+**Add package** and resolved **Add package set** lower to `AddRoots`.
+Source-selection and restoration owners resolve their inputs before this owner
+receives exact Root requests.
 
 ```text
 WorkspaceScopeReplacement
@@ -570,14 +605,14 @@ its own complete typed expansion policy. The previous Workspace's expansion
 scopes are never inherited by omission.
 
 Package-set Browser adoption is not enabled by this transfer alone.
-[Package Set Registry](package-set-registry.md) still assigns its current
-Browser composition to
-[#5602](https://github.com/richlander/dotnet-inspect/issues/5602). Before
-package-set Open or Add adopts this owner, that separately owned work must be
-corrected so the Browser contributes typed intent, source owners resolve
-coordinates, this owner decides logical retention, capacity, and atomic
-publication, and Artifact Acquisition decides physical admission and budgets.
-This design does not silently override the registry owner's current contract.
+[Static Ecosystem Packs](ecosystem-packs.md) may expose an **Add curated
+packages** action, but selection returns only its referenced `PackageSetId`.
+Issue #5720 preserves one Package Set Registry membership authority, while
+issue #5602 owns typed source declaration and normalization, and package-source
+owners resolve exact coordinates. Only then does the front end choose
+`ReplaceScope` for Open or `AddRoots` for editor accumulation. Pack identity,
+discovery metadata, prefix actions, and scanner bindings never enter scope
+state or Artifact publication.
 
 ### Common operation envelope
 
@@ -600,11 +635,15 @@ WorkspaceScopeOperationResult
   | Failed(current snapshot, exact failure)
   | Cancelled(current snapshot, cancelled operation)
   | Superseded(current snapshot, superseding operation)
+  | Unavailable(optional last retained snapshot, exact runtime outcome)
 ```
 
-Every arm carries the complete current scope snapshot observed when the result
-settles. No result requires Navigation or a host to reconstruct membership from
-an effect delta.
+Every arm other than `Unavailable` carries the complete current scope snapshot
+observed when the result settles. `Unavailable` is returned only when Artifact
+Acquisition reports the exact runtime Workspace absent, closing, or closed. It
+may carry the last retained resource-free snapshot as historical diagnostic
+evidence, explicitly not as current authority. No result requires Navigation
+or a host to reconstruct membership from an effect delta.
 
 `Committed` means that the observable scope state changed. A membership or
 expansion-policy effect carries a fresh logical revision and closure
@@ -622,7 +661,9 @@ mutation-authority admission. In deterministic order it validates:
 
 1. the operation union arm, required envelope fields, finite non-expired
    deadline, operation identity, and finite limits;
-2. runtime state and exact Workspace identity;
+2. runtime state and exact Workspace identity, returning `Unavailable` rather
+   than a success-shaped snapshot when the adjacent runtime is absent, closing,
+   or closed;
 3. the current base revision;
 4. the complete operation-specific request, typed values, structural limits,
    and evidence correspondence.
@@ -652,8 +693,9 @@ accepted the complete envelope and operation-specific request.
 - `ExpandDependencies` submitted while any mutation is preparing likewise
   returns `Rejected(Busy)`.
 - A valid Replace Scope or Clear supersedes the preparing operation.
-- Clear commits the empty revision immediately, retires every occurrence, and
-  leaves no expansion scopes.
+- Clear needs no source or Root preparation. It submits an empty parent
+  publication plan and becomes current at that gate's atomic commit, retiring
+  every occurrence and leaving no expansion scopes.
 - A superseded preparation releases every provisional adjacent-owner resource
   and cannot publish.
 - A completion displaced after admission returns `Superseded`; it cannot rebase
@@ -682,9 +724,14 @@ remain adjacent contracts.
   owner's equality rules, preserving the first request.
 - After realization, requests with exact adjacent-owner Root correspondence
   are coalesced, preserving the first request and releasing every redundant
-  provisional receipt.
+  parent preparation receipt.
 - Every unmatched required Root must realize and pass both logical and
   physical limits.
+- Required unmatched Roots may prepare through one or more parent receipts.
+  The required set is still all-or-failure: any preparation failure releases
+  every successful receipt and publishes nothing. When correspondence cannot
+  be known before preparation, separate receipts permit duplicate
+  correspondence to release before the publication plan is formed.
 - Publication atomically installs the complete new occurrence sequence and
   complete expansion-scope sequence, retires every occurrence not retained by
   exact correspondence, and creates the initial closure observation for that
@@ -727,8 +774,10 @@ occurrences in request order.
   batch.
 - If the operation carries user-activation intent for an already present Root,
   the result returns that exact existing occurrence.
-- New Roots are prepared as one all-or-failure batch.
-- A failure in any required new Root leaves the whole prior revision current.
+- New Roots are one all-or-failure logical set. They may use one or more parent
+  preparation receipts so post-realization duplicates can release before plan
+  construction; a failure in any required new Root releases every successful
+  receipt and leaves the whole prior revision current.
 - Successful publication retains existing occurrence identities and appends
   every distinct new correspondence atomically in first-request order.
 - The whole operation returns `NoEffect` only when every request corresponds to
@@ -886,11 +935,14 @@ owner-policy expansion; the scope owner does not prepare speculative
 candidates and deduplicate them after capacity selection.
 
 `ProducerEvidenceIdentity` is an opaque identity for one exact producer
-evaluation. It binds that batch's relationships and bound evidence against
-accidental mixing or duplicate replay, but it does not prove Workspace,
-revision, closure, Root-generation, or temporal currentness. Those freshness
-checks use the explicit source revision, source closure observation, and exact
-evaluated-Root coverage.
+evaluation. It binds that issuance's relationships and bound evidence against
+accidental cross-batch mixing, but it is not consumed authority and cannot by
+itself reject replay. Workspace, revision, closure, Root-generation, and
+temporal currentness use the explicit source revision, source closure
+observation, and exact evaluated-Root coverage. A retry after a committed
+closure change is stale through those currencies. A retry after `NoEffect` is
+permitted and returns the same state-based `NoEffect` when those currencies and
+the complete result remain current.
 
 `BoundEvidence` records valid producer truncation within the operation
 envelope. It is empty only when the producer reports no candidate or depth
@@ -916,45 +968,73 @@ guess package ownership. Exact-package and package-prefix scopes can match only
 evidence carrying package-owner-issued coordinate correspondence.
 
 Package sets are explicit Root-request producers, not dependency-expansion
-scopes. Their registry descriptors may lower to `ReplaceScope` or `AddRoots`
-only after the separately owned #5602 composition resolves every member under
-source authority. This design defines no floating-descriptor-to-exact-
-dependency membership relation.
+scopes. An ecosystem-pack package-set selection returns only `PackageSetId`;
+issue #5720 and the Package Set Registry own membership, #5602 owns typed
+declaration and normalization, and source owners resolve every member before
+the front end lowers exact requests to `ReplaceScope` or `AddRoots`. This
+design defines no pack-to-scope identity, floating-descriptor-to-exact-
+dependency membership relation, or implicit expansion policy.
 
 Package-prefix query remains a different operation:
 
-- a prefix query enumerates packages matching source-owned intent;
+- an ecosystem-pack prefix action selects only owner-issued source-query
+  intent;
+- a prefix query enumerates packages matching that source-owned intent;
 - an expansion scope authorizes exact dependency candidates already carrying
   package correspondence; and
-- adding every query result is an explicit `AddRoots` request.
+- opening or adding selected query results is an explicit `ReplaceScope` or
+  `AddRoots` request.
+
+Selecting or executing a recorded prefix action never registers a Workspace
+expansion scope. The editor may separately register a package-prefix expansion
+scope carrying validated prefix value, but that action neither runs the source
+query nor adds its results.
 
 ## Artifact realization handoff
 
-This owner prepares no bytes and constructs no binding context. For Add,
-Replace Scope, or eligible expansion, it submits one complete logical candidate
-to the existing source and Artifact Acquisition composition.
+This owner prepares no bytes and constructs no binding context. It consumes the
+[Artifact Root preparation and scope publication](artifact-acquisition-and-workspaces.md#artifact-root-preparation-and-scope-publication)
+contract for every logical publication:
 
-The adjacent composition must provide:
+1. Validate the complete logical operation, current revision, expansion
+   evidence, Root capacity, and resulting resource-free candidate before
+   adjacent preparation.
+2. Read the current owner-issued
+   `ArtifactRootCompositionGenerationIdentity`. Refresh every retained Root
+   projection and use only owner-validated current generation references.
+3. Ask source and Artifact Acquisition owners to prepare exact unmatched Root
+   candidates. Required Add or Replace candidates use one all-or-failure
+   preparation batch. Expansion may prepare independently optional candidates
+   in separate batches and retain only the successful receipts while recording
+   exact typed failure evidence.
+4. Construct one complete `ArtifactRootPublicationPlan`: retain every desired
+   current physical Root by correspondence and generation, adopt every entry
+   from every listed successful receipt exactly once, omit physical Roots to be
+   retired, and carry the exact Workspace, composition generation, deadline,
+   cancellation, and ordered desired physical set.
+5. Supply one sealed `ArtifactRootScopePublicationParticipant` containing the
+   exact current logical base revision, operation identity, prevalidated
+   resource-free candidate revision and closure, complete result, and optional
+   requested occurrence. Its side-effect-free `PrepareCommit` revalidates those
+   Scope-owned facts under the shared runtime gate and returns only the
+   parent's private no-fail current-state pointer-swap token.
+6. Invoke `PublishArtifactRootComposition`. Success returns the fresh physical-
+   composition identity and exact point-in-time Root projections while the
+   participant token publishes the logical state in the same non-yielding
+   region. Refusal preserves both prior current states and releases every
+   listed prepared batch according to the parent contract.
 
-- the adjacent coordinate owner's exact resource-free Root descriptor input
-  and Package versus non-package classification from which this owner composes
-  `WorkspaceRootDescriptor`;
-- the transient physical admission facts required by the existing adoption
-  path;
-- one `ArtifactRootCorrespondence` for each corresponding logical Root;
-- one point-in-time `ArtifactRootScopeProjection` for each admitted Root;
-- complete required-Root success or typed per-Root failure;
-- one provisional resource receipt that can be adopted once or released.
+Remove, Clear, expansion-policy edits, and closure-only publication use the
+same operation with no preparation receipts and a complete retained or empty
+physical set. Corresponding physical re-realization remains Artifact-owned and
+advances the same composition identity without changing logical occurrence
+identity.
 
 Artifact Acquisition defines correspondence construction, exact request
-matching, projection status, generation-reference issuance, currentness, and
-resource erasure. This owner validates every request through those owner
-operations, including that the resolved descriptor input matches the returned
-correspondence, checks logical limits, then atomically asks Artifact Acquisition
-to adopt the provisional receipt and publishes only `WorkspaceRootOccurrence`
-values, including their typed Root descriptors, and the returned point-in-time
-projections. Any mismatch, stale completion, limit rejection, or publication
-failure releases the receipt and leaves the prior revision current.
+matching, projection status, generation-reference issuance and currentness,
+preparation receipt lifetime, complete physical-plan validation, query
+admission, retirement, and resource erasure. This owner never adopts a receipt
+directly, swaps physical state, or redefines release and retry outcomes.
 
 Artifact Acquisition remains authoritative for:
 
@@ -977,10 +1057,12 @@ focus command. Navigation owns subject recommendation, reconciliation,
 retained intent, and active-snapshot publication.
 
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
-projection, and complete restoration. During restoration it prepares a scope
-replacement as one participant beside Navigation, view, and query state. This
-owner exposes prepare, adopt, and release behavior for its candidate but does
-not coordinate the whole commit or choose browser-history effects.
+projection, and complete restoration. A restoration lowers its complete
+resource-free definition to one ordinary `ReplaceScope`; this owner exposes no
+general restoration transaction participant beyond the sealed Artifact
+publication participant used internally for that operation. Workspace
+Definitions and the Browser owners coordinate Navigation, view, query, and
+history effects without transferring those semantics into Scope.
 
 Browser Back/Forward may restore prior committed data into a new current
 revision. It does not reactivate the old runtime revision identity or make
@@ -1013,8 +1095,11 @@ Before implementation, a focused TLA+ model under
 - eventual settlement of every admitted operation under fair adjacent-owner
   completion or the finite preparation deadline.
 
-The model composes an abstract artifact-preparation receipt. It does not copy
-Artifact Acquisition's generation, budget, or lifetime state machine.
+The model instantiates the owner-issued `PublishArtifactRootComposition`
+transition and its abstract preparation-set, physical-composition-generation,
+participant-refusal, and no-fail commit outcomes. It does not copy Artifact
+Acquisition's receipt, generation, budget, query-admission, retirement, or
+lifetime state machines.
 
 Model configurations and exact expected outcomes must enter
 `eng/tla-expected-exit-codes.txt` before implementation claims these
@@ -1026,7 +1111,7 @@ The implementation must demonstrate:
 
 | Case | Required result |
 | --- | --- |
-| Add the current registered Microsoft.Extensions descriptor to an empty Workspace | One complete revision containing every current descriptor member under the 32-Root logical profile and a controlled physical receipt |
+| Add the resolved current Microsoft.Extensions package set to an empty Workspace | One complete revision containing every current set member under the 32-Root logical profile and one atomically published parent preparation set |
 | Render the committed package and platform inventory after preparation resources release | Each occurrence retains a resource-free typed Root descriptor with its Package/non-package kind and exact owner-issued coordinate facts |
 | The eighth package in that set fails realization | No new revision; the prior scope remains current with the exact package failure |
 | Add a pinned exact package already present | No acquisition; `NoEffect` returns the existing exact occurrence |
@@ -1038,7 +1123,7 @@ The implementation must demonstrate:
 | Prefix scope matches text but evidence is only an `AssemblyRef` | No expansion; the exact unsupported boundary remains visible |
 | One successful expansion appends a Root while another dependency is outside the registered scopes | `NotEvaluated` retains the new-Root frontier and the same-operation outside-boundary evidence |
 | Two dependency relationships name the same exact acquisition coordinate with one remaining Root slot | One candidate is prepared and admitted; both relationships settle against it and neither becomes `CapacityDeclined` |
-| Three eligible dependencies realize and one fails | One atomic revision appends the three successful Roots and records the failure plus those new Roots as an unevaluated frontier |
+| Four eligible dependencies realize and one fails | One atomic revision appends the three successful Roots and records the failure plus those new Roots as an unevaluated frontier |
 | Eligible expansion candidates exceed remaining Root capacity | Producer order selects the candidates attempted; every later candidate is visible as `CapacityDeclined` |
 | Open an unrelated package after a prefix scope was registered | One `ReplaceScope` atomically installs the new Root with an empty expansion-scope set and a closed initial observation; the old prefix cannot authorize acquisition |
 | Restore Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the restored revision |
@@ -1055,6 +1140,8 @@ The implementation must demonstrate:
 | Reach 32 Roots and attempt one more Add | Typed capacity rejection; no eviction or membership change |
 | Remove the active occurrence | Scope commits removal; Navigation independently selects Workspace unless it has exact authorized retained state |
 | Artifact Acquisition retires a retained occurrence before replacement settles | `Pending` or `Failed` keeps logical identity but projects no current realization reference and invalidates prior closure evidence |
+| Artifact runtime closes while Add is preparing | Parent publication refuses and releases preparation; Scope returns `Unavailable` with at most the last resource-free snapshot as historical evidence |
+| A committed occurrence has no corresponding current Artifact projection | Typed invariant or stale-composition failure; the occurrence is neither removed nor replaced by an empty or fabricated status |
 | History retains many removed revisions after repeated package Open and Clear | Retained revisions hold only resource-free correspondence values; retired package bytes and contexts drain under Artifact Acquisition |
 | A stale-base Remove arrives while Add is preparing | `Rejected(RevisionMismatch)` wins before mutation admission can return `Busy` |
 | A malformed Replace arrives while Add is preparing | The exact validation rejection wins; the valid Add is not superseded |
@@ -1084,11 +1171,11 @@ or artifact evidence later claimed by those owners.
 | `AddDuplicateRequests_CoalesceBeforePublication` | Equal exact requests reduce before preparation, and unresolved requests that realize to equal correspondence retain one first-ordered occurrence while redundant resources release. |
 | `AddMixedExistingAndNewRoots_CommitsOnlyNewRoots` | Per-Root duplicate classification does not turn a mixed batch into operation-level `NoEffect`; every new Root commits atomically. |
 | `RemoveRoot_RequiresExactCurrentOccurrence` | Foreign, absent, or retired occurrences cannot remove a Root. |
-| `Clear_SupersedesPreparationAndCommitsEmptyClosedRevision` | Clear becomes current immediately and stale preparation cannot publish. |
+| `Clear_SupersedesPreparationAndCommitsEmptyClosedRevision` | Clear needs no Root preparation, becomes current through the parent receipt-free publication gate, and prevents stale preparation from publishing. |
 | `OrdinaryMutation_WhilePreparingReturnsBusy` | A second non-superseding mutation is visibly refused rather than queued or raced. |
 | `ValidationPrecedesBusyOrSupersession` | Structural, envelope, deadline, Workspace, revision, evidence, and operation-specific validation returns its exact rejection before `Busy` or Replace/Clear supersession. |
 | `CancellationOrDeadline_ReleasesPreparationAndPreservesRevision` | Exact cancellation and finite deadline expiry settle preparation without publication or leaked resources. |
-| `StaleCompletion_ReleasesReceiptWithoutPublication` | Revision movement prevents adoption and releases every provisional resource. |
+| `StaleCompletion_ReleasesReceiptWithoutPublication` | Revision movement prevents parent publication and releases every provisional resource. |
 | `ExpansionScopeVocabulary_IsClosedTypedAndDeduplicated` | Only the three version-1 typed arms register, and equal scopes retain one first-ordered value. |
 | `DuplicateExpansionScopeRegistration_PreservesClosure` | Equal registration returns `NoEffect` without discarding evaluated closure evidence. |
 | `RemoveExpansionScope_IsValueBasedAndIdempotent` | Removal uses typed scope-value equality; an absent value returns `NoEffect`, and no Workspace-bound registration identity exists. |
@@ -1108,11 +1195,15 @@ or artifact evidence later claimed by those owners.
 | `EffectiveOperationLimits_CannotExceedWorkspaceProfile` | Each effective dimension is the stricter finite Workspace-profile or operation-envelope value. |
 | `ExpansionStructuralLimits_RejectBeforePreparation` | Materialized relationships or declared depths outside effective limits are malformed and cannot invoke adjacent owners. |
 | `ExpansionProducerBounds_RemainTypedEvidence` | Valid candidate- and depth-bound markers remain durable `Incomplete` evidence in selectively open scope, remain typed `ClosedBoundary` evidence in closed scope, and never authorize work for omitted candidates. |
-| `ProducerEvidenceIdentity_BindsIssuanceButNotFreshness` | Producer identity prevents batch mixing or replay while revision, closure, and exact Root-generation coverage independently establish freshness. |
-| `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The registry-issued descriptor's current complete membership fits the 32-Root profile and no existing Root is evicted. |
+| `ProducerEvidenceIdentity_BindsIssuanceButNotFreshness` | Producer identity prevents cross-batch mixing but is not consumed replay authority; revision, closure, and exact Root-generation coverage establish freshness. |
+| `ExpansionRetry_IsStateIdempotent` | A retry after committed closure movement is stale, while an unchanged current batch after `NoEffect` may repeat only the same state-based `NoEffect`. |
+| `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The resolved current package-set membership fits the 32-Root profile and no existing Root is evicted. |
 | `RootCapacity_RejectionPreservesCurrentRevision` | A thirty-third distinct Root fails visibly without truncation or replacement. |
 | `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
-| `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction. |
+| `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
+| `ScopePublication_UsesArtifactRootPublicationPlan` | Every membership, policy, or closure publication supplies one complete parent-owned physical plan and sealed Scope participant; the parent gate changes both current states or neither. |
+| `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction; Unavailable is explicitly historical and carries no current authority. |
+| `CurrentSnapshot_BindsOnePhysicalCompositionEpoch` | One returned current snapshot carries the owner-issued composition identity and complete Root projections from that epoch; physical movement causes complete refresh or typed refusal, never a mixed-epoch view. |
 | `OwnerPolicyExpansion_CarriesNoActivationAuthority` | Dependency following cannot move Navigation focus. |
 | `OccurrenceSnapshot_ProjectsExactOwnerRealizationStatus` | One `ArtifactRootScopeProjection` carries the adjacent owner's point-in-time `Ready`, `Pending`, or `Failed` status without admitting an unprepared Root. |
 | `OccurrenceSnapshot_RefreshesPhysicalGenerationWithoutLogicalMutation` | A corresponding re-realization refreshes the projection, invalidates closure when generation coverage changes, and preserves logical revision and occurrence identity. |
@@ -1140,26 +1231,29 @@ action, and receipt identities.
 ## Staged adoption
 
 1. Land #5715's Artifact Acquisition-owned resource-free Root projection.
-2. Land this design and the one-donor logical-scope ownership correction.
-3. Implement the host-neutral revision, Root occurrence inventory, logical
+2. Land #5729's Artifact Acquisition-owned Root preparation/publication
+   handoff.
+3. Land this design and the one-donor logical-scope ownership correction.
+4. Implement the host-neutral revision, Root occurrence inventory, logical
    limits, and exact Add, Replace, Remove, and Clear results. This focused slice
    replaces the generalized producer scope proposed by
    [#5583](https://github.com/richlander/dotnet-inspect/issues/5583).
-4. Narrow
+5. Narrow
    [#5584](https://github.com/richlander/dotnet-inspect/issues/5584) to consume
    these concrete results in Navigation.
-5. Adopt exact package Open/Add/Remove/Clear in Inspect Web and expose the
+6. Adopt exact package Open/Add/Remove/Clear in Inspect Web and expose the
    stateless inventory through the CLI.
-6. Correct #5602's separately owned Package Set Registry composition, then
-   adopt its descriptors and prove the current complete `Microsoft.Extensions`
-   membership under the 32-Root logical profile. Browser adoption #5576
-   separately owns the physical budget needed to realize that complete
-   descriptor.
-7. Implement the three typed expansion scopes and bounded dependency-evidence
+7. Complete #5720's Package Set Registry/ecosystem-pack composition and #5602's
+   typed source-intent adoption, then lower selected package-set actions to
+   exact `ReplaceScope` or `AddRoots` requests. Prove the current complete
+   `Microsoft.Extensions` membership under the 32-Root logical profile. Browser
+   adoption #5576 separately owns the physical budget needed to realize that
+   complete set.
+8. Implement the three typed expansion scopes and bounded dependency-evidence
    loop.
-8. Adopt the full Browser Workspace viewer/editor through the Inspect Web
+9. Adopt the full Browser Workspace viewer/editor through the Inspect Web
    presentation and consumer owners.
-9. Have Workspace Definitions #5525 decide portable capacity and projection
+10. Have Workspace Definitions #5525 decide portable capacity and projection
    for the larger reachable scope under its own contract. Adopt browser history
    through its focused owner, then remove the packet inventory and
    multi-live-Workspace paths.
