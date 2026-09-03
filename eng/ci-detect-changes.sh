@@ -208,7 +208,7 @@ if [ "$RESOLVED" != "true" ]; then
   # infallible. `git ls-files` exits 128 on an unreadable index.
   # Keep this list in sync with the `outputs:` block above.
   echo "::warning title=Change detection fell back::Could not determine the changed files for $GITHUB_SHA; running every job so that no validation is skipped."
-  for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped web skills tla; do
+  for name in code csharpdiff decompiler docs ildiff ilroundtrip packaging shipped web skills tla codeqlactions codeqlcsharp codeqljavascript; do
     echo "$name=true" >> "$GITHUB_OUTPUT"
   done
   echo "Change detection fell back; every job filter forced true."
@@ -225,6 +225,9 @@ SHIPPED=false
 WEB=false
 SKILLS=false
 TLA=false
+CODEQLACTIONS=false
+CODEQLCSHARP=false
+CODEQLJAVASCRIPT=false
 DECOMPILER_SKIP_PROJECTS_READY=true
 DECOMPILER_SKIP_PROJECTS=()
 DECOMPILER_SKIP_PROJECTS_FILE=eng/decompiler-gate-skip-projects.txt
@@ -341,6 +344,9 @@ while IFS= read -r -d '' file; do
     WEB=true
     SKILLS=true
     TLA=true
+    CODEQLACTIONS=true
+    CODEQLCSHARP=true
+    CODEQLJAVASCRIPT=true
     continue
   fi
   # Portable lowercase fold (avoids bash 4+ ${var,,}, since local dev on
@@ -604,6 +610,20 @@ while IFS= read -r -d '' file; do
     global.json) SHIPPED=true ;;
     .github/workflows/ci.yml) SHIPPED=true ;;
   esac
+  # CodeQL lane selection. CodeQL analyzes whole source trees, so each lane
+  # is selected by the extensions its extractor reads rather than by the
+  # project graph the build gates use. A lane that runs when it did not have
+  # to costs analysis minutes; a lane that fails to run leaves an unscanned
+  # change until the next push to the default branch re-analyzes everything.
+  case "$file" in
+    *.cs|*.csx|*.csproj) CODEQLCSHARP=true ;;
+  esac
+  case "$file" in
+    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.mts|*.cts) CODEQLJAVASCRIPT=true ;;
+  esac
+  case "$file" in
+    *.yml|*.yaml) CODEQLACTIONS=true ;;
+  esac
 done < "$DECODED_FILES"
 rm -f "$DECODED_FILES" || true
 
@@ -672,5 +692,8 @@ echo "shipped=$SHIPPED" >> "$GITHUB_OUTPUT"
 echo "web=$WEB" >> "$GITHUB_OUTPUT"
 echo "skills=$SKILLS" >> "$GITHUB_OUTPUT"
 echo "tla=$TLA" >> "$GITHUB_OUTPUT"
+echo "codeqlactions=$CODEQLACTIONS" >> "$GITHUB_OUTPUT"
+echo "codeqlcsharp=$CODEQLCSHARP" >> "$GITHUB_OUTPUT"
+echo "codeqljavascript=$CODEQLJAVASCRIPT" >> "$GITHUB_OUTPUT"
 echo "Changed files were decoded and classified without logging raw path bytes."
-echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED web=$WEB skills=$SKILLS tla=$TLA"
+echo "code=$CODE csharpdiff=$CSHARPDIFF decompiler=$DECOMPILER docs=$DOCS ildiff=$ILDIFF ilroundtrip=$ILROUNDTRIP packaging=$PACKAGING shipped=$SHIPPED web=$WEB skills=$SKILLS tla=$TLA codeqlactions=$CODEQLACTIONS codeqlcsharp=$CODEQLCSHARP codeqljavascript=$CODEQLJAVASCRIPT"

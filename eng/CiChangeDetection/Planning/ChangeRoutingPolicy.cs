@@ -104,6 +104,9 @@ internal sealed class ChangeRoutingPolicy
 
         return new RoutingSelections(
             state.Code,
+            state.CodeqlActions,
+            state.CodeqlCSharp,
+            state.CodeqlJavaScript,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
@@ -173,6 +176,46 @@ internal sealed class ChangeRoutingPolicy
         RouteIlRoundtrip(path, ref state);
         RoutePackaging(path, ref state);
         RouteShipped(path, ref state);
+        RouteCodeql(path, ref state);
+    }
+
+    // CodeQL analyzes whole source trees, so each lane is selected by the
+    // extensions its extractor reads rather than by the project graph the
+    // build gates use. The lists are deliberately whole extension families:
+    // a lane that runs when it did not have to costs analysis minutes, while
+    // a lane that fails to run leaves an unscanned change until the next
+    // push to the default branch re-analyzes the whole tree.
+    private static void RouteCodeql(
+        ReadOnlySpan<byte> path,
+        ref RoutingState state)
+    {
+        if (BytePattern.MatchesAny(
+            path,
+            "*.cs",
+            "*.csx",
+            "*.csproj"))
+        {
+            state.CodeqlCSharp = true;
+        }
+
+        if (BytePattern.MatchesAny(
+            path,
+            "*.js",
+            "*.jsx",
+            "*.mjs",
+            "*.cjs",
+            "*.ts",
+            "*.tsx",
+            "*.mts",
+            "*.cts"))
+        {
+            state.CodeqlJavaScript = true;
+        }
+
+        if (BytePattern.MatchesAny(path, "*.yml", "*.yaml"))
+        {
+            state.CodeqlActions = true;
+        }
     }
 
     private static void RouteLanes(
@@ -531,6 +574,9 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
+        internal bool CodeqlActions;
+        internal bool CodeqlCSharp;
+        internal bool CodeqlJavaScript;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;

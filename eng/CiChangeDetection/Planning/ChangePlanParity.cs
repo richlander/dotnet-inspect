@@ -90,6 +90,12 @@ internal static class ChangePlanParity
         AssertRaw(values, "web", routing.Web, scenario);
         AssertRaw(values, "skills", routing.Skills, scenario);
         AssertRaw(values, "tla", routing.Tla, scenario);
+        AssertRaw(
+            values, "codeqlactions", routing.CodeqlActions, scenario);
+        AssertRaw(
+            values, "codeqlcsharp", routing.CodeqlCSharp, scenario);
+        AssertRaw(
+            values, "codeqljavascript", routing.CodeqlJavaScript, scenario);
 
         // The workflow gates most selections on the event. Derive the same
         // effective selections from the oracle's raw outputs and require the
@@ -148,6 +154,21 @@ internal static class ChangePlanParity
             effective.SkillGate,
             scenario);
         AssertEffective("tla", Raw(values, "tla"), effective.Tla, scenario);
+        AssertEffective(
+            "codeqlActions",
+            Raw(values, "codeqlactions"),
+            effective.CodeqlActions,
+            scenario);
+        AssertEffective(
+            "codeqlCSharp",
+            Raw(values, "codeqlcsharp"),
+            effective.CodeqlCSharp,
+            scenario);
+        AssertEffective(
+            "codeqlJavaScript",
+            Raw(values, "codeqljavascript"),
+            effective.CodeqlJavaScript,
+            scenario);
     }
 
     private static ChangeRoutingPolicy Policy(string repository)

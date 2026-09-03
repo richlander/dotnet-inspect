@@ -71,55 +71,67 @@ internal static class ChangePlanTestSuite
         [
             ("eng/ci-detect-changes.sh",
                 "code,csharpdiff,decompiler,docs,ildiff,ilroundtrip,"
-                + "packaging,shipped,web,skills,tla"),
-            ("src/NetworkDestinationPolicy.cs", "code,decompiler,shipped,web"),
-            ("src/UnionPolyfill.cs", "code,decompiler,shipped,web"),
-            ("src/dotnet-inspect/Program.cs", "code,shipped"),
+                + "packaging,shipped,web,skills,tla,codeqlactions,"
+                + "codeqlcsharp,codeqljavascript"),
+            ("src/NetworkDestinationPolicy.cs",
+                "code,decompiler,shipped,web,codeqlcsharp"),
+            ("src/UnionPolyfill.cs",
+                "code,decompiler,shipped,web,codeqlcsharp"),
+            ("src/dotnet-inspect/Program.cs", "code,shipped,codeqlcsharp"),
             ("src/ILInspector.Decompiler/Raise.cs",
-                "code,csharpdiff,decompiler,shipped,web"),
+                "code,csharpdiff,decompiler,shipped,web,codeqlcsharp"),
             ("src/ILInspector.Metadata/Reader.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,ilroundtrip,shipped,web,codeqlcsharp"),
             ("src/DotnetInspector.Core/Core.cs",
-                "code,decompiler,ilroundtrip,shipped,web"),
+                "code,decompiler,ilroundtrip,shipped,web,codeqlcsharp"),
             ("src/dotnet-inspect/dotnet-inspect.csproj",
-                "code,packaging,shipped"),
+                "code,packaging,shipped,codeqlcsharp"),
             ("src/Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped"),
-            ("src/DotnetInspector.Queries.Tests/Q.cs", "code,decompiler"),
-            ("src/DiffFixtures.V1/F.cs", "code,csharpdiff,decompiler,ildiff"),
-            ("src/DiffFixtures.V2/F.cs", "code,csharpdiff,decompiler,ildiff"),
+            ("src/DotnetInspector.Queries.Tests/Q.cs",
+                "code,decompiler,codeqlcsharp"),
+            ("src/DiffFixtures.V1/F.cs",
+                "code,csharpdiff,decompiler,ildiff,codeqlcsharp"),
+            ("src/DiffFixtures.V2/F.cs",
+                "code,csharpdiff,decompiler,ildiff,codeqlcsharp"),
             ("tests/ILInspector.MetadataPrimitives.PlatformProbe/P.cs",
-                "code,decompiler,web"),
+                "code,decompiler,web,codeqlcsharp"),
             ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
-                "code,decompiler,web"),
+                "code,decompiler,web,codeqlcsharp"),
             ("tests/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
-                "code,decompiler,web"),
-            ("tests/ILInspector.JsExportSurface.Tests/Fixtures/"
-                + "ts-jsexport-runtime/R.ts", "code,decompiler,web"),
+                "code,decompiler,web,codeqljavascript"),
+            ("tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/R.ts",
+                "code,decompiler,web,codeqljavascript"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
-                "code,decompiler,ilroundtrip"),
-            ("tests/Other/T.cs", "code,decompiler"),
+                "code,decompiler,ilroundtrip,codeqlcsharp"),
+            ("tests/Other/T.cs", "code,decompiler,codeqlcsharp"),
             ("tools/DecompilerHarness/Notes.md", "docs"),
             ("tools/DecompilerHarness/Baseline.txt", "decompiler,docs"),
-            ("tools/DecompilerHarness/Harness.cs", "code,decompiler"),
-            ("tools/CSharpDiffHarness/H.cs", "csharpdiff,decompiler"),
-            ("tools/IlDiffHarness/H.cs", "decompiler,ildiff"),
-            ("tools/DiffHarnessCommon/C.cs", "csharpdiff,decompiler,ildiff"),
-            ("eng/test-ci-change-detection.cs", "code"),
+            ("tools/DecompilerHarness/Harness.cs",
+                "code,decompiler,codeqlcsharp"),
+            ("tools/CSharpDiffHarness/H.cs",
+                "csharpdiff,decompiler,codeqlcsharp"),
+            ("tools/IlDiffHarness/H.cs", "decompiler,ildiff,codeqlcsharp"),
+            ("tools/DiffHarnessCommon/C.cs",
+                "csharpdiff,decompiler,ildiff,codeqlcsharp"),
+            ("eng/test-ci-change-detection.cs", "code,codeqlcsharp"),
             ("eng/inspect-web-gate-projects.txt", "code,docs,web"),
-            ("eng/CiChangeDetection/PromotionWorkflowContract.cs", "code,web"),
-            ("eng/CiChangeDetection/DetectionTestSuite.cs", "code"),
+            ("eng/CiChangeDetection/PromotionWorkflowContract.cs",
+                "code,web,codeqlcsharp"),
+            ("eng/CiChangeDetection/DetectionTestSuite.cs",
+                "code,codeqlcsharp"),
             ("eng/package-fixtures/a.nupkg", "code"),
             ("eng/package-manifest-corpus.json", "code"),
-            ("eng/verify-package-manifest-corpus.cs", "code"),
+            ("eng/verify-package-manifest-corpus.cs", "code,codeqlcsharp"),
             ("eng/prepare-decompiler-assertion-corpus.sh", "code"),
             ("eng/prepare-decompiler-corpus.sh", "code"),
             ("eng/prepare-decompiler-opt-in-corpus.sh", "code"),
             ("eng/prepare-decompiler-pr-corpus.sh", "code"),
             ("eng/prepare-authored-source-oracles.sh", "code"),
             ("eng/report-decompiler-opt-in-corpus-drift.sh", "code"),
-            ("eng/prepare-decompiler-package-sweep.cs", "code"),
+            ("eng/prepare-decompiler-package-sweep.cs",
+                "code,codeqlcsharp"),
             ("eng/prepare-evil-corpus.sh", "code"),
             ("docs/data/nuget-top-packages.lock.json", "code,docs"),
             ("docs/data/nuget-top-packages.json", "code,docs"),
@@ -131,7 +143,7 @@ internal static class ChangePlanTestSuite
             ("eng/test-ts-jsexport-typescript.sh", "web"),
             ("eng/generate-inspect-web-multi-facade-canary.sh", "web"),
             ("eng/test-inspect-web-multi-facade-canary.sh", "web"),
-            ("eng/validate-inspect-web-promotion.cs", "web"),
+            ("eng/validate-inspect-web-promotion.cs", "web,codeqlcsharp"),
             ("eng/validate-inspect-web-promotion.sh", "web"),
             ("eng/generate-inspect-web-engine-facade.sh", "web"),
             ("eng/InspectWebAsyncLoweringReceipt.targets",
@@ -142,13 +154,14 @@ internal static class ChangePlanTestSuite
             ("install.ps1", "code"),
             ("eng/decompiler-gate-expected-classes.txt",
                 "code,decompiler,docs"),
-            ("eng/check-decompiler-gate.cs", "decompiler"),
+            ("eng/check-decompiler-gate.cs", "decompiler,codeqlcsharp"),
             ("eng/decompiler-gate-known-red.txt", "decompiler,docs"),
             ("eng/decompiler-gate-skip-projects.txt", "decompiler,docs"),
             ("eng/restore-ilassembler.sh", "code,ilroundtrip"),
             ("prototypes/inspect-web/README.md", "docs"),
             ("prototypes/inspect-web/index.html", "web"),
-            ("prototypes/annotated-source-viewer/app.js", "web"),
+            ("prototypes/annotated-source-viewer/app.js",
+                "web,codeqljavascript"),
             ("Directory.Build.props",
                 "code,csharpdiff,decompiler,ildiff,ilroundtrip,packaging,"
                 + "shipped,web"),
@@ -163,13 +176,17 @@ internal static class ChangePlanTestSuite
             ("global.json", "decompiler,packaging,shipped"),
             (".github/workflows/ci.yml",
                 "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
-                + "skills,tla"),
-            (".github/workflows/release.yml", "code,packaging"),
-            (".github/workflows/deploy-inspect-web.yml", "web"),
-            (".github/workflows/deploy-inspect-web-coreclr.yml", "web"),
-            (".github/workflows/promote-inspect-web.yml", "web"),
-            (".github/workflows/other.yml", "code"),
-            (".markdownlint.yaml", "docs"),
+                + "skills,tla,codeqlactions"),
+            (".github/workflows/release.yml",
+                "code,packaging,codeqlactions"),
+            (".github/workflows/deploy-inspect-web.yml",
+                "web,codeqlactions"),
+            (".github/workflows/deploy-inspect-web-coreclr.yml",
+                "web,codeqlactions"),
+            (".github/workflows/promote-inspect-web.yml",
+                "web,codeqlactions"),
+            (".github/workflows/other.yml", "code,codeqlactions"),
+            (".markdownlint.yaml", "docs,codeqlactions"),
             ("docs/.markdownlint-cli2.jsonc", "docs"),
             ("docs/design/ci-change-plan.md", "docs"),
             ("skills/a/SKILL.md", "docs,skills"),
@@ -185,6 +202,12 @@ internal static class ChangePlanTestSuite
             ("eng/tla-module-overrides.txt", "docs,tla"),
             ("eng/tla-expected-exit-codes.txt", "docs,tla"),
             ("docs/design/models/m/README.md", "docs"),
+            ("misc/probe.csx", "codeqlcsharp"),
+            ("misc/probe.csproj", "codeqlcsharp"),
+            ("misc/probe.mjs", "codeqljavascript"),
+            ("misc/probe.cts", "codeqljavascript"),
+            ("misc/config.yaml", "codeqlactions"),
+            ("misc/notes.rst", ""),
         ];
 
         foreach ((string path, string selected) in canaries)
@@ -202,7 +225,7 @@ internal static class ChangePlanTestSuite
         // A change set is the union of its records, and the classifier owner
         // is absorbing.
         if (Render(policy.Route(Evidence("README.md", "src/a/b.cs")))
-            != "code,decompiler,docs,shipped")
+            != "code,decompiler,docs,shipped,codeqlcsharp")
         {
             throw new InvalidOperationException(
                 "Multi-record routing did not union its records.");
@@ -245,7 +268,7 @@ internal static class ChangePlanTestSuite
             // A missing inspect-web inventory broadens `web` to every src
             // change rather than narrowing it.
             if (Render(policy.Route(Evidence("src/dotnet-inspect/Program.cs")))
-                != "code,decompiler,shipped,web")
+                != "code,decompiler,shipped,web,codeqlcsharp")
             {
                 throw new InvalidOperationException(
                     "A missing inspect-web inventory did not broaden the "
@@ -417,7 +440,10 @@ internal static class ChangePlanTestSuite
                 buildNet10: false,
                 inspectWeb: false,
                 skillGate: false,
-                tla: false));
+                tla: false,
+                codeqlActions: false,
+                codeqlCSharp: false,
+                codeqlJavaScript: false));
     }
 
     /// <summary>
@@ -526,7 +552,9 @@ internal static class ChangePlanTestSuite
             + "\"csharpDiffSmoke\":false,\"decompilerGates\":false,"
             + "\"markdownlint\":true,\"ilDiffSmoke\":false,"
             + "\"ilRoundTrip\":false,\"pack\":false,\"buildNet10\":false,"
-            + "\"inspectWeb\":false,\"skillGate\":false,\"tla\":true},"
+            + "\"inspectWeb\":false,\"skillGate\":false,\"tla\":true,"
+            + "\"codeqlActions\":false,\"codeqlCSharp\":false,"
+            + "\"codeqlJavaScript\":false},"
             + "\"scopes\":{\"tla\":{\"artifact\":\"ci-plan-tla-paths0\","
             + "\"framing\":\"pathBytesNulTerminated\",\"recordCount\":1,"
             + "\"sha256\":\"c2965478b65cc2a4d5329c0634d39a072c6d0adf0669a2"
@@ -1430,6 +1458,21 @@ internal static class ChangePlanTestSuite
         if (selections.Tla)
         {
             selected.Add("tla");
+        }
+
+        if (selections.CodeqlActions)
+        {
+            selected.Add("codeqlactions");
+        }
+
+        if (selections.CodeqlCSharp)
+        {
+            selected.Add("codeqlcsharp");
+        }
+
+        if (selections.CodeqlJavaScript)
+        {
+            selected.Add("codeqljavascript");
         }
 
         return string.Join(',', selected);

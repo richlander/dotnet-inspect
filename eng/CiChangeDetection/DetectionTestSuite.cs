@@ -18,6 +18,9 @@ internal static class DetectionTestSuite
         "web",
         "skills",
         "tla",
+        "codeqlactions",
+        "codeqlcsharp",
+        "codeqljavascript",
     ];
 
     internal static void Run(string repository)

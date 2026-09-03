@@ -7,6 +7,9 @@ namespace CiChangeDetection.Planning;
 /// </summary>
 internal readonly record struct RoutingSelections(
     bool Code,
+    bool CodeqlActions,
+    bool CodeqlCSharp,
+    bool CodeqlJavaScript,
     bool CSharpDiff,
     bool Decompiler,
     bool Docs,
@@ -22,7 +25,8 @@ internal readonly record struct RoutingSelections(
     /// Gets the selections that a change set of every routed kind produces.
     /// </summary>
     internal static RoutingSelections All { get; } = new(
-        true, true, true, true, true, true, true, true, true, true, true);
+        true, true, true, true, true, true, true,
+        true, true, true, true, true, true, true);
 }
 
 /// <summary>
@@ -42,7 +46,10 @@ internal sealed class ValidationSelections
         bool buildNet10,
         bool inspectWeb,
         bool skillGate,
-        bool tla)
+        bool tla,
+        bool codeqlActions,
+        bool codeqlCSharp,
+        bool codeqlJavaScript)
     {
         if (ilRoundTrip && !test)
         {
@@ -62,6 +69,9 @@ internal sealed class ValidationSelections
         InspectWeb = inspectWeb;
         SkillGate = skillGate;
         Tla = tla;
+        CodeqlActions = codeqlActions;
+        CodeqlCSharp = codeqlCSharp;
+        CodeqlJavaScript = codeqlJavaScript;
     }
 
     internal bool Test { get; }
@@ -87,10 +97,30 @@ internal sealed class ValidationSelections
     internal bool Tla { get; }
 
     /// <summary>
+    /// Gets a value indicating whether CodeQL analyzes GitHub Actions
+    /// workflows.
+    /// </summary>
+    internal bool CodeqlActions { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether CodeQL analyzes C# sources.
+    /// </summary>
+    internal bool CodeqlCSharp { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether CodeQL analyzes JavaScript and
+    /// TypeScript sources.
+    /// </summary>
+    internal bool CodeqlJavaScript { get; }
+
+    /// <summary>
     /// Applies the repository's event rules to raw routing selections. A push
     /// runs neither the pre-merge test matrix nor the validations placed
-    /// behind it; documentation lint, the Browser/Wasm lane, and the TLA+ lane
-    /// have no event gate.
+    /// behind it; documentation lint, the Browser/Wasm lane, the TLA+ lane,
+    /// and the CodeQL lanes have no event gate. CodeQL keeps running on a
+    /// push because code scanning alerts are reported against the default
+    /// branch: gating it on the pre-merge event would leave that baseline
+    /// frozen at whatever last ran before the merge.
     /// </summary>
     /// <param name="selections">The raw routing selections.</param>
     /// <param name="kind">The provenance kind supplying the event rule.</param>
@@ -111,6 +141,9 @@ internal sealed class ValidationSelections
             buildNet10: selections.Shipped && preMerge,
             inspectWeb: selections.Web,
             skillGate: selections.Skills && preMerge,
-            tla: selections.Tla);
+            tla: selections.Tla,
+            codeqlActions: selections.CodeqlActions,
+            codeqlCSharp: selections.CodeqlCSharp,
+            codeqlJavaScript: selections.CodeqlJavaScript);
     }
 }

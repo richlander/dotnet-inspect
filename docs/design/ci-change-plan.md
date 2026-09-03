@@ -203,6 +203,21 @@ Inventory roots are unique canonical repository-relative lines. A duplicate
 root makes the inventory malformed even though the legacy shell reader would
 tolerate it; the conservative policy above then applies.
 
+The three CodeQL lanes route on file-extension families rather than a project
+inventory, because CodeQL's unit of analysis is a language, not a project:
+`codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on C#
+sources plus the MSBuild and SDK files that shape their compilation, and
+`codeqlJavaScript` on JavaScript and TypeScript sources. Like `markdownlint`,
+`inspectWeb`, and `tla`, they carry no pre-merge event condition, so a push to
+`main` re-analyzes whichever languages that push touched.
+
+Routing a whole-program analyzer is a scheduling decision rather than a
+coverage one. The weekly scan in `codeql-scheduled.yml` analyzes all three
+languages unconditionally, so a language this policy fails to select on some
+candidate delays a finding to the next scheduled scan rather than dropping it.
+That bound is what makes extension-family routing acceptable here even though
+it is coarser than the project-closure inventories used elsewhere.
+
 Jobs and named in-job validation units consume selections, not paths.
 Domain-specific interpretation begins only after routing. For example, the
 TLA+ job may validate model-directory layout within its assigned evidence, but
@@ -266,7 +281,8 @@ only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
 carries every field — `test`, `csharpDiffSmoke`, `decompilerGates`,
 `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`, `buildNet10`,
-`inspectWeb`, `skillGate`, and `tla` — so a consumer never distinguishes
+`inspectWeb`, `skillGate`, `tla`, `codeqlActions`, `codeqlCSharp`, and
+`codeqlJavaScript` — so a consumer never distinguishes
 "false" from "absent". `ilRoundTrip` implies `test` as a construction
 invariant. A scope descriptor names its artifact, record framing, record
 count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan

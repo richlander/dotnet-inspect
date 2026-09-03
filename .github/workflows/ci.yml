@@ -1347,6 +1347,73 @@ jobs:
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
   #
+  # CodeQL code scanning. Each language is a separate lane so a change can
+  # pay only for the extractors its file types need: the C# lane alone costs
+  # roughly nine minutes and is a fixed cost, unrelated to how much C#
+  # changed. Lane selection is by file extension rather than by the project
+  # graph the build gates use, because CodeQL analyzes whole source trees.
+  #
+  # These lanes are not gated on the pre-merge event. Code scanning alerts are
+  # reported against the default branch, so skipping analysis on pushes to
+  # main would freeze that baseline at whatever last ran before a merge. The
+  # same property bounds a mis-routed lane: a push to main re-analyzes the
+  # whole tree, so a missed pull-request lane delays a finding to merge time
+  # rather than losing it.
+  codeql-actions:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:actions
+
+  codeql-csharp:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # Buildless extraction, matching what default setup ran here. It
+          # needs no SDK and no restored solution, so this lane does not
+          # duplicate the build the test matrix already performs.
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp
+
+  codeql-javascript:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
   # Like `changes`, this always-run terminal gate uses the GA image so preview
   # capacity cannot leave an otherwise-complete PR waiting for its required
   # status. Path-gated jobs retain ubuntu-26.04 coverage.
@@ -1367,6 +1434,9 @@ jobs:
       - csharp-diff-smoke
       - il-diff-smoke
       - pack
+      - codeql-actions
+      - codeql-csharp
+      - codeql-javascript
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
