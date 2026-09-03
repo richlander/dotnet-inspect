@@ -21,6 +21,10 @@ static class NuGetTargetFrameworkIdentity
             NuGetFramework framework;
             if (source.Contains(',', StringComparison.Ordinal))
             {
+                int separatorIndex = source.IndexOf(',');
+                if (string.IsNullOrWhiteSpace(source[..separatorIndex]))
+                    return false;
+
                 string normalized = TfmSelector.NormalizeTfm(source);
                 framework = string.Equals(normalized, source, StringComparison.Ordinal)
                     ? NuGetFramework.Parse(source)

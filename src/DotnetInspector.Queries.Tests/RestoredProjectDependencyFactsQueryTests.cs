@@ -1145,6 +1145,49 @@ public sealed class RestoredProjectDependencyFactsQueryTests
         AssertNoArtifactTextInIdentities(facts);
     }
 
+    [Theory]
+    [InlineData(",")]
+    [InlineData(",,")]
+    [InlineData(",Version=v1.0")]
+    public void Execute_BlankLongFormFrameworkIdentifier_YieldsOpaqueEvidence(
+        string hostileFramework)
+    {
+        byte[] bytes = SyntheticDocument(
+            targets: new JsonObject
+            {
+                [hostileFramework] = new JsonObject(),
+            },
+            rootGroups: new JsonObject
+            {
+                [hostileFramework] = new JsonArray(),
+            },
+            frameworks: new JsonObject
+            {
+                [hostileFramework] = new JsonObject
+                {
+                    ["dependencies"] = new JsonObject(),
+                },
+            });
+
+        RestoredProjectDependencyFacts facts = Available(
+            RestoredProjectDependencyFactsQuery.Execute(bytes));
+
+        Assert.StartsWith(
+            "sha256:",
+            facts.SelectedTarget!.FrameworkIdentity,
+            StringComparison.Ordinal);
+        RestoredProjectDeclarationGroup group = Assert.Single(
+            Assert.IsType<RestoredProjectDeclarationResult.Available>(
+                facts.Declaration).Groups);
+        Assert.Equal(
+            RestoredProjectFrameworkIdentityKind.Unrecognized,
+            group.FrameworkIdentity.Kind);
+        Assert.True(
+            Assert.IsType<RestoredProjectGraphResult.Available>(
+                facts.Graph).IsComplete);
+        AssertNoArtifactTextInIdentities(facts);
+    }
+
     [Fact]
     public void Execute_UnicodeCaseEquivalentRuntimeTargets_AreAmbiguousRegardlessOfPropertyOrder()
     {
