@@ -90,9 +90,10 @@ than forming an additional host tier.
 
 These are logical boundaries, not a claim that every layer is already a
 separate reusable assembly. L1 is available through host-neutral projects.
-`DotnetInspector.Sections` contains the first reusable L2 Rows execution
-boundary. Current L2 section pipelines remain in the same namespace inside the
-CLI project; their broader migration is still incomplete.
+`DotnetInspector.Sections` contains the typed unresolved selection-operation
+intent boundary and the first reusable L2 Rows execution boundary. Current L2
+section pipelines remain in the same namespace inside the CLI project; their
+broader migration is still incomplete.
 
 The reusable L1/L2 binding is owned by
 [Compiled inspection domain composition](design/section-pipeline.md#compiled-inspection-domain-composition).
@@ -165,7 +166,7 @@ reaches through Research to redefine the other.
 | ------ | ------------- | -------------- | ----------------- |
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
 | `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
-| `DotnetInspector.Sections` | Shared L2 contracts | Typed binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
+| `DotnetInspector.Sections` | Shared L2 contracts | Typed unresolved row-selection intent plus binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
 | `DotnetInspector.Presentation` | Shared presentation composition | Host-neutral lowering from typed inspection and comparison contracts into Markout presentation shapes. | [Analysis diff](design/analysis-diff.md), [Comparison document](design/comparison-document.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
@@ -174,9 +175,10 @@ reaches through Research to redefine the other.
 Queries accept content-shaped or context-shaped inputs. They do not choose a
 renderer, parse command lines, or use display strings as identity.
 
-The reusable `DotnetInspector.Sections` project currently contains only the
-one-cohort Rows execution boundary. Existing L2 section pipelines, immutable
-catalogs, schemas, and compiled lenses remain under
+The reusable `DotnetInspector.Sections` project currently contains the
+unresolved selection-operation intent and one-cohort Rows execution
+boundaries. Existing L2 section pipelines, immutable catalogs, schemas, and
+compiled lenses remain under
 `src/dotnet-inspect/Sections` in the CLI assembly. The
 [Section model](design/section-model.md) and
 [section pipeline](design/section-pipeline.md) own those contracts;

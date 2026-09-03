@@ -15,10 +15,26 @@ import type {
   WorkspaceScope,
 } from "../src/data.ts";
 import {
+  applicationMenuOwnsFocus,
+  bindWorkbenchShell,
+  captureApplicationMenuFocusOwner,
+  focusApplicationMenuButton,
   focusWorkbenchSearch,
+  renderApplicationMenu,
+  renderApplicationMenuButton,
+  renderKeyboardHelpDialog,
+  restoreApplicationMenuFocusIfOwned,
+  type ApplicationAction,
+  type WorkbenchShellBinding,
+  type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
 import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
+import { KeybindingRegistry } from "../src/keybinding-registry.ts";
+import {
+  bindSettingsPanel,
+  renderSettingsView,
+} from "../src/settings-panel.ts";
 import {
   renderSourcePageActions,
   renderSourceResult,
@@ -35,6 +51,7 @@ declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
+    rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
 }
@@ -52,6 +69,8 @@ if (!app) throw new Error("The workspace-titlebar harness root is unavailable.")
 const appRoot: HTMLElement = app;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let workbenchShellBinding: WorkbenchShellBinding | null = null;
+let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
@@ -59,7 +78,10 @@ const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
+const graphMode = params.has("graph");
 const limitationMode = params.has("limitation");
+const historyBackMode = params.has("history-back");
+const historyForwardMode = params.has("history-forward");
 const longMode = params.has("long");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
@@ -321,6 +343,106 @@ const navigationHtml = workspaceMode
         <button class="namespace-row">System.Text.Json</button>
       </div>
     </section>`;
+const harnessKeybindings = new KeybindingRegistry();
+harnessKeybindings.register({
+  id: "workspace.open-all",
+  key: "p",
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.drill-out-escape",
+  key: "Escape",
+  available: () => !packageMode && !workspaceMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.focus-filter",
+  key: "f",
+  available: () => !workspaceMode,
+  modifiers: { commandOrControl: true },
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.select-lens",
+  key: ["1", "2", "3"],
+  available: () => !workspaceMode,
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+harnessKeybindings.register({
+  id: "workspace.navigate-horizontal",
+  key: ["ArrowLeft", "ArrowRight"],
+  available: () => !workspaceMode,
+  priority: 100,
+  run: () => true,
+});
+for (const [key, available] of [
+  ["ArrowLeft", () => historyBackMode],
+  ["ArrowRight", () => historyForwardMode],
+] as const) {
+  harnessKeybindings.register({
+    id: `workspace.history-alt-${key}`,
+    key,
+    available,
+    modifiers: { alt: true },
+    allowExtraModifiers: true,
+    priority: 100,
+    run: () => true,
+  });
+  harnessKeybindings.register({
+    id: `workspace.history-shift-${key}`,
+    key,
+    available,
+    modifiers: { shift: true },
+    priority: 100,
+    run: () => true,
+  });
+}
+harnessKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  allowExtraModifiers: true,
+  priority: 100,
+  run: () => true,
+});
+const graphHelpScope = graphMode ? new EventTarget() : null;
+if (graphHelpScope) {
+  harnessKeybindings.register({
+    id: "graph.zoom",
+    key: ["+", "=", "-", "_", "0"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-horizontal",
+    key: ["ArrowLeft", "ArrowRight"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+  harnessKeybindings.register({
+    id: "graph.pan-vertical",
+    key: ["ArrowUp", "ArrowDown"],
+    allowExtraModifiers: true,
+    priority: 200,
+    run: () => true,
+  }, graphHelpScope);
+}
+const harnessKeyboardHelpBindings = [
+  ...harnessKeybindings.availableBindingsFor(),
+  ...(graphHelpScope
+    ? harnessKeybindings.availableBindingsFor(graphHelpScope)
+    : []),
+];
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
@@ -342,8 +464,8 @@ app.innerHTML = `
       titleNavigationHtml: `
         <nav class="title-navigation" aria-label="Search and history">
           <div class="nav-history">
-            <button id="nav-back" disabled aria-label="Back">←</button>
-            <button id="nav-forward" disabled aria-label="Forward">→</button>
+            <button id="nav-back" ${historyBackMode ? "" : "disabled"} aria-label="Back">←</button>
+            <button id="nav-forward" ${historyForwardMode ? "" : "disabled"} aria-label="Forward">→</button>
           </div>
           <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
@@ -354,7 +476,7 @@ app.innerHTML = `
         </nav>`,
     })}
     <header class="subject-zone" aria-label="Subjects and inspectors">
-      ${scopeBarHtml()}
+      <div class="subject-inspector-region">${scopeBarHtml()}</div>
       <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
         ${annotatedMode || sourceMode
           ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
@@ -370,18 +492,14 @@ app.innerHTML = `
                 : ""}
             </div>`
           : ""}
-        <nav class="legacy-application-actions" aria-label="Application">
-          <button id="share">Share</button>
-          <button id="open-settings">Settings</button>
-          <button id="help" aria-label="Keyboard help">?</button>
-        </nav>
+        ${renderApplicationMenuButton()}
       </div>
     </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
       <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${sourceMode
             ? renderSourceResult({
                 source,
@@ -402,13 +520,107 @@ app.innerHTML = `
         </article>
       </section>
     </main>
-  </div>`;
+  </div>
+  ${renderApplicationMenu(true)}
+  ${renderSettingsView({
+    theme: "dark",
+    settingsReturn: "workbench",
+    styleCatalog: {
+      styleTiers: [],
+      styleOptions: [],
+      styleCatalogError: "",
+      taste: [],
+    },
+    escapeHtml,
+  }).replace(
+    'id="settings-backdrop" class="modal-backdrop"',
+    'id="settings-backdrop" class="modal-backdrop" hidden',
+  )}
+  ${renderKeyboardHelpDialog(harnessKeyboardHelpBindings).replace(
+    'id="keyboard-help-backdrop" class="modal-backdrop"',
+    'id="keyboard-help-backdrop" class="modal-backdrop" hidden',
+  )}`;
 
-document.querySelectorAll<HTMLElement>("[data-subject-copy]").forEach(button =>
-  button.addEventListener("click", () => {
-    const index = Number(button.dataset.subjectCopy);
+function setApplicationDialog(
+  next: "settings" | "keyboard-help" | null,
+): void {
+  applicationDialog = next;
+  const workbench = document.querySelector<HTMLElement>(".workbench");
+  const settings = document.querySelector<HTMLElement>("#settings-backdrop");
+  const help =
+    document.querySelector<HTMLElement>("#keyboard-help-backdrop");
+  if (workbench) workbench.inert = next !== null;
+  if (settings) settings.hidden = next !== "settings";
+  if (help) help.hidden = next !== "keyboard-help";
+  if (next === "settings") {
+    document.querySelector<HTMLElement>("#settings-title")?.focus();
+  } else if (next === "keyboard-help") {
+    document.querySelector<HTMLElement>("#keyboard-help-title")?.focus();
+  } else {
+    document.querySelector<HTMLElement>("#application-menu-button")?.focus();
+  }
+}
+
+function handleApplicationAction(action: ApplicationAction): void {
+  if (action === "share") {
+    const focusOwner = captureApplicationMenuFocusOwner(document);
+    setTimeout(() => {
+      document.body.dataset.shared = "true";
+      restoreApplicationMenuFocusIfOwned(document, focusOwner);
+    }, 50);
+    return;
+  }
+  setApplicationDialog(applicationDialog === action ? null : action);
+}
+
+const harnessDispatchKeybindings = new KeybindingRegistry();
+harnessDispatchKeybindings.register({
+  id: "workspace.drill-in",
+  key: "Enter",
+  available: () => applicationDialog === null,
+  allowExtraModifiers: true,
+  priority: 100,
+  when: event => !event.metaKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !(event.target instanceof Element
+      && event.target.matches(
+        "button, a[href], input, select, textarea, summary, "
+        + "[role=button], [role=link], [role=checkbox]")),
+  run: () => {
+    document.body.dataset.drillIn = "true";
+    return true;
+  },
+});
+harnessDispatchKeybindings.attach(document);
+
+const workbenchShellActions: WorkbenchShellBindingActions = {
+  onApplicationAction: handleApplicationAction,
+  onCopySubjectSegment: index => {
     document.body.dataset.copiedSubject = subjectPath[index]?.label ?? "";
-  }));
+  },
+  onDismissNotice() {},
+  onDismissPackageNotice() {},
+  onNavigateBack() {},
+  onNavigateForward() {},
+  onRetryNotice() {},
+  onSearch() {},
+};
+workbenchShellBinding =
+  bindWorkbenchShell(document, workbenchShellActions);
+bindSettingsPanel(document, {
+  onClose: () => setApplicationDialog(null),
+  onOpen: () => setApplicationDialog("settings"),
+  onTasteClear() {},
+  onTasteToggle() {},
+  onThemeSelect() {},
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && applicationDialog !== null) {
+    event.preventDefault();
+    setApplicationDialog(null);
+  }
+});
 
 function renderHarnessScopeBar() {
   const focusedElement = document.activeElement instanceof HTMLElement
@@ -511,5 +723,20 @@ window.renderPackageScopeProbe = () => {
   activeScope = "package";
   activePackageLens = "overview";
   renderHarnessScopeBar();
+};
+window.rerenderApplicationMenuProbe = () => {
+  const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
+  workbenchShellBinding?.disconnect();
+  const slot =
+    document.querySelector<HTMLElement>(".application-menu-slot");
+  const overlay =
+    document.querySelector<HTMLElement>(".application-menu-overlay");
+  if (!slot || !overlay)
+    throw new Error("The Application menu shell is unavailable.");
+  slot.outerHTML = renderApplicationMenuButton();
+  overlay.outerHTML = renderApplicationMenu(true);
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
+  if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
