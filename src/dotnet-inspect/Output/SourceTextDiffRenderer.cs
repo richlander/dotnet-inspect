@@ -1,14 +1,14 @@
+using System.Collections.Immutable;
+
+using DotnetInspector.Views;
 using ILInspector.Findings;
 using ILInspector.Text;
+using Markout;
 
 namespace DotnetInspector.Output;
 
 internal static class SourceTextDiffRenderer
 {
-    const int ReviewContextLines = 3;
-    const int MaximumReviewHunks = 5;
-    const int MaximumReviewLinesPerHunk = 80;
-
     static readonly FindingSubject Subject = new("source.text", "Source text");
 
     public static string CreateUnifiedDiff(
@@ -16,247 +16,214 @@ internal static class SourceTextDiffRenderer
         string? after,
         string beforeLabel,
         string afterLabel,
-        bool reviewerSized = false)
+        bool detailed = false)
+        => CreateOutput(before, after, beforeLabel, afterLabel, detailed).Content;
+
+    public static SourceDiffOutput CreateOutput(
+        string? before,
+        string? after,
+        string beforeLabel,
+        string afterLabel,
+        bool detailed = false)
     {
-        // Null is the caller-level unavailable state. Non-null empty and whitespace-only
-        // documents remain valid exact text inputs.
+        ArgumentNullException.ThrowIfNull(beforeLabel);
+        ArgumentNullException.ThrowIfNull(afterLabel);
+
         if (before is null)
-            return $"# {beforeLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
+        {
+            return new SourceDiffOutput(
+                $"{beforeLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.");
+        }
         if (after is null)
-            return $"# {afterLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.";
-
-        var comparison = TextFindings.Compare(before, after, Subject) switch
         {
-            FindingComparison<string>.Complete complete => complete,
-            FindingComparison<string>.Failed failed => throw new InvalidOperationException(
-                $"The total text producer unexpectedly failed: {failed.Failure}"),
-        };
-        if (comparison.IsExact)
-            return $"# {beforeLabel} and {afterLabel} are identical.";
+            return new SourceDiffOutput(
+                $"{afterLabel} unavailable; source diff requires both {beforeLabel} and {afterLabel}.");
+        }
 
-        var diff = RenderLines(comparison);
-        return reviewerSized
-            ? RenderReviewerDiff(diff, beforeLabel, afterLabel)
-            : RenderCompleteDiff(diff, comparison, beforeLabel, afterLabel);
+        AnalysisDiff<string> analysis =
+            TextFindings.CreateAnalysisDiff(before, after, Subject);
+        SourceTextDiffStatistics statistics = SourceTextDiffStatistics.Create(analysis);
+        if (!statistics.HasDifferences)
+            return new SourceDiffOutput($"{beforeLabel} and {afterLabel} are identical.", analysis);
+
+        MappedTextDiff mapped = CreateMappedDiff(
+            analysis,
+            before,
+            after,
+            beforeLabel,
+            afterLabel);
+        return detailed
+            ? SourceDiffOutput.CreateDetailed(analysis, mapped)
+            : SourceDiffOutput.CreateSummary(
+                analysis,
+                mapped,
+                CreateSummaryFields(statistics, beforeLabel, afterLabel));
     }
 
-    static string RenderCompleteDiff(
-        IReadOnlyList<(char Prefix, string Text)> diff,
-        FindingComparison<string>.Complete comparison,
+    static ImmutableArray<MarkoutField> CreateSummaryFields(
+        SourceTextDiffStatistics statistics,
+        string beforeLabel,
+        string afterLabel)
+        =>
+        [
+            new MarkoutField("Added lines", statistics.Added.ToString()),
+            new MarkoutField("Removed lines", statistics.Removed.ToString()),
+            new MarkoutField(
+                "Changed lines",
+                $"{statistics.ChangedBefore} {beforeLabel} -> "
+                + $"{statistics.ChangedAfter} {afterLabel}"),
+            new MarkoutField(
+                "Moved lines",
+                $"{statistics.MovedBefore} {beforeLabel} -> "
+                + $"{statistics.MovedAfter} {afterLabel}"),
+        ];
+
+    static MappedTextDiff CreateMappedDiff(
+        AnalysisDiff<string> analysis,
+        string before,
+        string after,
         string beforeLabel,
         string afterLabel)
     {
-        var output = new List<string>(diff.Count + 3)
+        var anchors = analysis.Relations
+            .OfType<AnalysisDiffRelation.Correspondence>()
+            .Where(relation =>
+                relation.Content == AnalysisDiffContentKind.Unchanged
+                && relation.Placement == AnalysisDiffPlacementKind.Stable
+                && relation.BeforeCoordinates.Length == 1
+                && relation.AfterCoordinates.Length == 1)
+            .Select(relation => (
+                Before: relation.BeforeCoordinates[0],
+                After: relation.AfterCoordinates[0]))
+            .OrderBy(anchor => anchor.Before)
+            .ToArray();
+
+        var changes = new List<TextDiffChange>();
+        int beforePosition = 0;
+        int afterPosition = 0;
+        foreach ((int beforeAnchor, int afterAnchor) in anchors)
         {
-            $"--- {beforeLabel}",
-            $"+++ {afterLabel}",
-            $"@@ -{RangeStart(comparison.OldAtoms.Length)},{comparison.OldAtoms.Length} "
-            + $"+{RangeStart(comparison.NewAtoms.Length)},{comparison.NewAtoms.Length} @@"
-        };
-        output.AddRange(diff.Select(item => $"{item.Prefix}{item.Text}"));
-        return string.Join("\n", output);
+            if (beforeAnchor < beforePosition || afterAnchor < afterPosition)
+            {
+                throw new InvalidOperationException(
+                    "Stable source-text anchors must preserve endpoint order.");
+            }
+
+            AddChange(
+                changes,
+                beforePosition,
+                beforeAnchor,
+                afterPosition,
+                afterAnchor);
+            beforePosition = beforeAnchor + 1;
+            afterPosition = afterAnchor + 1;
+        }
+        AddChange(
+            changes,
+            beforePosition,
+            analysis.Before.Length,
+            afterPosition,
+            analysis.After.Length);
+
+        return new MappedTextDiff(
+            new TextDiffSequence(
+                analysis.Before,
+                beforeLabel,
+                FinalLineTerminator(before)),
+            new TextDiffSequence(
+                analysis.After,
+                afterLabel,
+                FinalLineTerminator(after)),
+            changes);
     }
 
-    static string RenderReviewerDiff(
-        IReadOnlyList<(char Prefix, string Text)> diff,
-        string beforeLabel,
-        string afterLabel)
+    static void AddChange(
+        List<TextDiffChange> changes,
+        int beforeStart,
+        int beforeEnd,
+        int afterStart,
+        int afterEnd)
     {
-        var hunks = ReviewHunks(diff);
-        var output = new List<string>
-        {
-            $"--- {beforeLabel}",
-            $"+++ {afterLabel}",
-        };
+        int beforeCount = beforeEnd - beforeStart;
+        int afterCount = afterEnd - afterStart;
+        if (beforeCount == 0 && afterCount == 0)
+            return;
 
-        int omittedHunks = 0;
-        int omittedHunkLines = 0;
-        int omittedShownHunkLines = 0;
-        int shownHunks = 0;
-
-        foreach (var hunk in hunks)
-        {
-            int length = hunk.End - hunk.Start;
-            if (shownHunks == MaximumReviewHunks)
-            {
-                omittedHunks++;
-                omittedHunkLines += length;
-                continue;
-            }
-
-            if (length <= MaximumReviewLinesPerHunk)
-            {
-                AddHunk(output, diff, hunk.Start, hunk.End);
-                shownHunks++;
-                continue;
-            }
-
-            int leading = MaximumReviewLinesPerHunk / 2;
-            AddHunk(output, diff, hunk.Start, hunk.Start + leading);
-            shownHunks++;
-
-            int trailing = shownHunks < MaximumReviewHunks
-                ? MaximumReviewLinesPerHunk - leading
-                : 0;
-            int omitted = length - leading - trailing;
-            output.Add($"# ... {omitted} diff lines omitted from this hunk ...");
-            if (trailing > 0)
-            {
-                AddHunk(output, diff, hunk.End - trailing, hunk.End);
-                shownHunks++;
-            }
-            omittedShownHunkLines += omitted;
-        }
-
-        if (omittedHunks > 0 || omittedShownHunkLines > 0)
-        {
-            var omissions = new List<string>(2);
-            if (omittedHunks > 0)
-            {
-                omissions.Add(
-                    $"{omittedHunks} additional hunk{(omittedHunks == 1 ? "" : "s")} "
-                    + $"({omittedHunkLines} line{(omittedHunkLines == 1 ? "" : "s")})");
-            }
-            if (omittedShownHunkLines > 0)
-            {
-                omissions.Add(
-                    $"{omittedShownHunkLines} line{(omittedShownHunkLines == 1 ? "" : "s")} "
-                    + "within shown hunks");
-            }
-            output.Insert(
-                0,
-                $"# Source diff status: Partial - {string.Join(" and ", omissions)} omitted; "
-                + "use -v:d for complete line evidence.");
-        }
-
-        return string.Join("\n", output);
+        changes.Add(new TextDiffChange(
+            new TextDiffRange(beforeStart, beforeCount),
+            new TextDiffRange(afterStart, afterCount)));
     }
 
-    static List<(int Start, int End)> ReviewHunks(
-        IReadOnlyList<(char Prefix, string Text)> diff)
+    static TextDiffLineTerminator FinalLineTerminator(string text)
+        => text.Length == 0
+            ? TextDiffLineTerminator.Unknown
+            : text[^1] is '\r' or '\n'
+                ? TextDiffLineTerminator.Present
+                : TextDiffLineTerminator.Absent;
+
+    readonly record struct SourceTextDiffStatistics(
+        int Added,
+        int Removed,
+        int ChangedBefore,
+        int ChangedAfter,
+        int MovedBefore,
+        int MovedAfter)
     {
-        var hunks = new List<(int Start, int End)>();
-        int index = 0;
-        while (index < diff.Count)
+        public bool HasDifferences =>
+            Added > 0
+            || Removed > 0
+            || ChangedBefore > 0
+            || ChangedAfter > 0
+            || MovedBefore > 0
+            || MovedAfter > 0;
+
+        public static SourceTextDiffStatistics Create(AnalysisDiff<string> analysis)
         {
-            while (index < diff.Count && diff[index].Prefix == ' ')
-                index++;
-            if (index == diff.Count)
-                break;
+            int added = 0;
+            int removed = 0;
+            int changedBefore = 0;
+            int changedAfter = 0;
+            int movedBefore = 0;
+            int movedAfter = 0;
 
-            int changedStart = index;
-            while (index < diff.Count && diff[index].Prefix != ' ')
-                index++;
-            int start = Math.Max(0, changedStart - ReviewContextLines);
-            int end = Math.Min(diff.Count, index + ReviewContextLines);
-
-            if (hunks.Count > 0 && start <= hunks[^1].End)
+            foreach (AnalysisDiffRelation relation in analysis.Relations)
             {
-                var previous = hunks[^1];
-                hunks[^1] = (previous.Start, Math.Max(previous.End, end));
-            }
-            else
-            {
-                hunks.Add((start, end));
-            }
-        }
-        return hunks;
-    }
-
-    static (int OldStart, int OldCount, int NewStart, int NewCount) HunkCoordinates(
-        IReadOnlyList<(char Prefix, string Text)> diff,
-        int start,
-        int end)
-    {
-        int oldStart = 1;
-        int newStart = 1;
-        for (int index = 0; index < start; index++)
-        {
-            if (diff[index].Prefix != '+')
-                oldStart++;
-            if (diff[index].Prefix != '-')
-                newStart++;
-        }
-
-        int oldCount = 0;
-        int newCount = 0;
-        for (int index = start; index < end; index++)
-        {
-            if (diff[index].Prefix != '+')
-                oldCount++;
-            if (diff[index].Prefix != '-')
-                newCount++;
-        }
-        if (oldCount == 0)
-            oldStart--;
-        if (newCount == 0)
-            newStart--;
-        return (oldStart, oldCount, newStart, newCount);
-    }
-
-    static int RangeStart(int count) => count == 0 ? 0 : 1;
-
-    static void AddHunk(
-        List<string> output,
-        IReadOnlyList<(char Prefix, string Text)> diff,
-        int start,
-        int end)
-    {
-        var coordinates = HunkCoordinates(diff, start, end);
-        output.Add(
-            $"@@ -{coordinates.OldStart},{coordinates.OldCount} "
-            + $"+{coordinates.NewStart},{coordinates.NewCount} @@");
-        for (int index = start; index < end; index++)
-            output.Add($"{diff[index].Prefix}{diff[index].Text}");
-    }
-
-    static List<(char Prefix, string Text)> RenderLines(
-        FindingComparison<string>.Complete comparison)
-    {
-        // Unchanged Present pairs are the ordered anchors. Added, Removed, Changed, and Moved
-        // pairs remain gaps, so a typed move renders conventionally as '-' at its old position
-        // and '+' at its new position without rematching in the presentation layer.
-        var anchors = new List<(int OldPosition, int NewPosition)>();
-        foreach (var pair in comparison.Pairs)
-        {
-            if (pair is PairFinding<string>.Present
+                switch (relation)
                 {
-                    Difference: FindingDifferenceKind.None
-                } present)
-            {
-                anchors.Add((
-                    RequiredOrdinal(present.Old),
-                    RequiredOrdinal(present.New)));
+                    case AnalysisDiffRelation.Addition addition:
+                        added += addition.AfterCoordinates.Length;
+                        break;
+
+                    case AnalysisDiffRelation.Removal removal:
+                        removed += removal.BeforeCoordinates.Length;
+                        break;
+
+                    case AnalysisDiffRelation.Correspondence correspondence:
+                        if (correspondence.Content == AnalysisDiffContentKind.Changed)
+                        {
+                            changedBefore += correspondence.BeforeCoordinates.Length;
+                            changedAfter += correspondence.AfterCoordinates.Length;
+                        }
+                        if (correspondence.Placement == AnalysisDiffPlacementKind.Moved)
+                        {
+                            movedBefore += correspondence.BeforeCoordinates.Length;
+                            movedAfter += correspondence.AfterCoordinates.Length;
+                        }
+                        break;
+
+                    default:
+                        throw new InvalidOperationException(
+                            "Source-text analysis contains an unknown relation kind.");
+                }
             }
+
+            return new SourceTextDiffStatistics(
+                added,
+                removed,
+                changedBefore,
+                changedAfter,
+                movedBefore,
+                movedAfter);
         }
-
-        anchors.Sort(static (left, right) => left.OldPosition.CompareTo(right.OldPosition));
-
-        var lines = new List<(char Prefix, string Text)>(
-            comparison.OldAtoms.Length + comparison.NewAtoms.Length);
-        int oldPosition = 0;
-        int newPosition = 0;
-        foreach (var anchor in anchors)
-        {
-            while (oldPosition < anchor.OldPosition)
-                lines.Add(('-', comparison.OldAtoms[oldPosition++].Payload));
-            while (newPosition < anchor.NewPosition)
-                lines.Add(('+', comparison.NewAtoms[newPosition++].Payload));
-
-            lines.Add((' ', comparison.NewAtoms[newPosition].Payload));
-            oldPosition++;
-            newPosition++;
-        }
-
-        while (oldPosition < comparison.OldAtoms.Length)
-            lines.Add(('-', comparison.OldAtoms[oldPosition++].Payload));
-        while (newPosition < comparison.NewAtoms.Length)
-            lines.Add(('+', comparison.NewAtoms[newPosition++].Payload));
-
-        return lines;
     }
-
-    static int RequiredOrdinal(Finding<string> finding)
-        => finding.Ordinal
-            ?? throw new InvalidOperationException("A text-line finding must retain its stream ordinal.");
 }
