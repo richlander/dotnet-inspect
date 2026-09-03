@@ -1927,7 +1927,7 @@ The related identity concepts have distinct jobs:
 | `ProducerKey` | The opaque, credential-free identity of the content producer. The acquired content and payload carry this value, and the realized coordinate records the same value as `Producer`. It distinguishes sources but not successive byte generations from one source. |
 | `PackageContentGenerationIdentity` | The process-local identity of one retained immutable package-content snapshot. Cache handles over that retained snapshot may share the identity; a replacement snapshot receives a new identity. |
 | `PackageRootSelectionIdentity` | The process-local identity of one frozen package-selection occurrence. |
-| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their correspondence. |
+| `PackageRootBinding` | The acquisition-issued value that joins one Root, realized coordinate, content-snapshot identity, and frozen selection and proves their exact physical correspondence. |
 
 Acquisition issues a `PackageRootBinding` from one
 `AcquiredPackagePayload` or `AcquiredPackageSourcePayload`. The immutable
@@ -2010,118 +2010,6 @@ correspondence are gated by
 `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` and
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
-
-### Resource-free Root scope projection
-
-Artifact Acquisition issues one closed projection for a Root that has passed
-its existing realization and admission boundary:
-
-```text
-ArtifactRootScopeProjection
-  Correspondence          ArtifactRootCorrespondence
-  Status                  ArtifactRootRealizationStatus
-
-ArtifactRootRealizationStatus
-  = Ready(ArtifactRootGenerationReference)
-  | Pending(resource-free evidence)
-  | Failed(resource-free evidence)
-```
-
-`ArtifactRootCorrespondence` is opaque, process-local, and credential-free.
-Equality proves that this owner classifies two admitted or replacement
-realizations as the same logical Root request and role. For the package arm,
-construction consumes the binding's exact `RealizedMemberCoordinate.Package`
-and typed selection-target and Root-role facts. For a non-package arm,
-construction consumes that adapter's exact owner-issued Root coordinate and
-role. Display text, paths, filenames, assembly names, row indexes, and cache
-keys cannot construct or compare correspondence.
-
-Correspondence deliberately excludes physical generation. Reacquiring the same
-logical package Root from replacement content retains correspondence when the
-resolved coordinate, selection target, and Root role still correspond. A
-different package version, producer, target, runtime, Root role, or
-non-package owner coordinate receives different correspondence. This owner
-also answers exact request-to-correspondence matching for a fully resolved
-request without opening content or entering an artifact generation.
-
-`ArtifactRootGenerationReference` is a second opaque, process-local,
-credential-free value. Equality proves one exact current physical Root
-realization, including the content, selection, and binding-context generation
-facts that can change dependency evidence. Any replacement of those facts
-receives a different reference, even when logical correspondence remains
-equal. The reference is a freshness precondition only; it is not a binding,
-context handle, lease, receipt, cache key, or access grant.
-
-Both values are erasing projections. They strongly own no
-`PackageRootRealization`, package content, byte buffer, `PackageRootBinding`,
-artifact, assembly context, artifact session, lease, provisional receipt,
-stream opener, delegate, or access authority. Holding either value after
-retirement cannot delay generation quiescence or resource release.
-
-`Ready` carries the exact current generation reference. Retirement removes the
-old generation from current admission before replacement starts, so `Pending`
-and `Failed` carry no current reference. Their evidence is likewise
-resource-free and may name typed diagnostics and last-known identity facts
-without retaining a physical resource.
-
-The projection does not replace ordinary artifact authorization. A later
-physical operation still enters through the existing Workspace query or
-content-access gate, supplies the retained generation reference as a freshness
-precondition, and acquires the owner's normal lease. A stale, foreign-Workspace,
-unknown, `Pending`, or `Failed` reference returns typed
-`ArtifactGenerationMismatch` before physical access. Work that already passed
-the existing access linearization point retains its ordinary lease semantics.
-
-This projection may be retained by logical Workspace revisions, Navigation,
-history preparation, diagnostics, or serialized-output preparation. It remains
-process-local and is never serialized. A host lowers only portable coordinate,
-status, and diagnostic facts; it never lowers either opaque identity.
-
-The named consumers are:
-
-- the Workspace Scope and Expansion design in #5701, which retains
-  correspondence in logical Root occurrences and generation references in
-  current closure coverage; and
-- Inspection Subject Navigation adoption in
-  [#5584](https://github.com/richlander/dotnet-inspect/issues/5584), which
-  consumes typed status without owning artifact lifetime.
-
-The shared projection serves both Browser/Wasm and CLI hosts through those
-host-neutral consumers. It adds no host-specific storage, rendering, or
-interaction contract.
-
-The required pathological cases are:
-
-| Case | Required result |
-| --- | --- |
-| History retains many removed package Roots after repeated Open and Clear | Retained projections keep no package bytes, bindings, contexts, sessions, or leases alive |
-| The same logical package Root is reacquired from replacement content | Correspondence remains equal and the generation reference changes |
-| Package version, producer, target, runtime, or Root role changes | Correspondence changes rather than aliasing the prior logical Root |
-| Current content retires before replacement settles | Status is `Pending` or `Failed` with no current generation reference |
-| A retained old generation reference reaches a physical-access gate | Typed `ArtifactGenerationMismatch` occurs before a new lease or content access |
-| Browser in-memory package content retires while logical history remains | The byte buffer becomes collectible after existing artifact leases drain |
-
-The target Release gates are:
-
-| Gate | Property |
-| --- | --- |
-| `ArtifactRootCorrespondence_IsExactAndResourceFree` | Correspondence uses owner-issued typed Root facts and strongly retains no physical artifact resource or access capability. |
-| `ArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement` | Equal logical request and role retain correspondence across replacement; changed coordinate, target, runtime, producer, or role does not. |
-| `ArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess` | A fully resolved exact request can match correspondence without opening content, constructing a context, or acquiring a lease. |
-| `ArtifactRootGenerationReference_ChangesWithPhysicalGeneration` | Content, selection, or binding-context replacement changes the freshness reference even when correspondence remains equal. |
-| `ArtifactRootProjection_NonReadyCarriesNoCurrentReference` | `Pending` and `Failed` expose resource-free evidence and no current generation reference. |
-| `ArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess` | A stale, foreign, unknown, or non-current reference fails before physical access or lease issuance. |
-| `BrowserArtifactRootProjection_DoesNotRetainRetiredPackageBytes` | Browser package bytes can drain after artifact leases release even while logical consumers retain old projections. |
-
-Every target is **unverified** until its named Release gate exists. The
-implementation should extend the existing package binding and Workspace
-generation suites rather than create a second acquisition or admission
-protocol.
-
-This focused addition does not define logical Workspace membership, Root
-occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
-eligibility, closure evidence, Navigation focus, browser history, packet
-schema, source authorization, or a new preparation/adoption transaction.
 
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
@@ -2336,6 +2224,132 @@ match those source-specific provenance variants.
 
 ## Workspace and query boundary
 
+### Resource-free Root scope projection
+
+Artifact Acquisition issues immutable point-in-time projections for logical
+Roots that have entered its admitted Workspace composition:
+
+```text
+ArtifactRootScopeProjection
+  Correspondence          ArtifactRootCorrespondence
+  Status                  ArtifactRootRealizationStatus
+
+ArtifactRootRealizationStatus
+  = Ready(ArtifactRootGenerationReference)
+  | Pending(resource-free evidence)
+  | Failed(resource-free evidence)
+```
+
+`ArtifactRootCorrespondence` is opaque, process-local, and credential-free.
+Equality proves that this owner classifies two admitted or replacement
+realizations as the same logical Root request. For the package arm,
+construction consumes the binding's exact `RealizedMemberCoordinate.Package`
+and typed selection-target facts. For a non-package arm, construction consumes
+that adapter's exact owner-issued Root coordinate. Display text, paths,
+filenames, assembly names, row indexes, and cache keys cannot construct or
+compare correspondence.
+
+Correspondence deliberately excludes physical generation. Reacquiring the same
+logical package Root from replacement content retains correspondence when the
+resolved coordinate and selection target still correspond. A different
+package version, producer, target, runtime, or non-package owner coordinate
+receives different correspondence. This owner also answers exact
+request-to-correspondence matching for a fully resolved request without opening
+content or entering an artifact generation.
+
+`ArtifactRootGenerationReference` is a second opaque, process-local,
+credential-free value. Equality proves only the same exact generation issuance,
+including the content, selection, and binding-context generation facts that can
+change dependency evidence. References are never reused during the issuing
+Workspace process lifetime. Any replacement of those facts receives a
+different reference, even when logical correspondence remains equal. The
+reference is a freshness precondition only; it is not a binding, context
+handle, lease, receipt, cache key, or access grant.
+
+Both values are erasing projections. They strongly own no
+`PackageRootRealization`, package content, byte buffer, `PackageRootBinding`,
+artifact, assembly context, artifact session, lease, provisional receipt,
+stream opener, delegate, or access authority. Holding either value after
+retirement cannot delay generation quiescence or resource release.
+
+`ArtifactRootScopeProjection` is an immutable snapshot, not a live view.
+Consumers may retain `ArtifactRootCorrespondence` as logical identity and may
+retain an older projection as historical evidence, but must call
+`GetCurrentRootScopeProjection(Workspace, Correspondence)` for current status.
+That owner operation returns the current point-in-time projection or a typed
+foreign-Workspace, absent, closing, or closed outcome.
+
+`Ready` carries the exact current generation reference at projection time.
+Retirement removes the old generation from current admission before
+replacement starts, so a refreshed `Pending` or `Failed` projection carries no
+current reference. Its evidence is likewise resource-free and may name typed
+diagnostics and last-known identity facts without retaining a physical
+resource.
+
+The projection does not replace ordinary artifact authorization. A later
+physical operation still enters through the existing Workspace query or
+content-access gate, supplies a retained generation reference as a freshness
+precondition, and acquires the owner's normal lease. Currentness is established
+only by atomic comparison with the owner's current `Ready` projection at that
+gate, never by reference equality alone. A stale, foreign-Workspace, or unknown
+reference, or a Root whose current projection is `Pending` or `Failed`, returns
+typed `ArtifactGenerationMismatch` before physical access. This generation
+check precedes binding-policy revalidation, so a simultaneously stale
+generation reference and policy token reports `ArtifactGenerationMismatch`.
+Work that already passed the existing access linearization point retains its
+ordinary lease semantics.
+
+This projection may be retained by logical Workspace state, Navigation,
+history preparation, diagnostics, or serialized-output preparation. It remains
+process-local and is never serialized. A host lowers only portable coordinate,
+status, and diagnostic facts; it never lowers either opaque identity.
+
+The named consumers are:
+
+- the Workspace Scope and Expansion design in #5701, which consumes
+  correspondence and generation freshness without redefining them; and
+- Inspection Subject Navigation adoption in
+  [#5584](https://github.com/richlander/dotnet-inspect/issues/5584), which
+  consumes typed status without owning artifact lifetime.
+
+The shared projection serves both Browser/Wasm and CLI hosts through those
+host-neutral consumers. It adds no host-specific storage, rendering, or
+interaction contract.
+
+The required pathological cases are:
+
+| Case | Required result |
+| --- | --- |
+| History retains many removed package Roots after repeated Open and Clear | Retained projections keep no package bytes, bindings, contexts, sessions, or leases alive |
+| The same logical package Root is reacquired from replacement content | Correspondence remains equal and the generation reference changes |
+| Package version, producer, target, runtime, or non-package coordinate changes | Correspondence changes rather than aliasing the prior logical Root |
+| Current content retires before replacement settles | A refreshed projection is `Pending` or `Failed` with no current generation reference |
+| A retained old generation reference reaches a physical-access gate | Typed `ArtifactGenerationMismatch` occurs before a new lease or content access |
+| Browser in-memory package content retires while logical history remains | The byte buffer becomes collectible after existing artifact leases drain |
+
+The target Release gates are:
+
+| Gate | Property |
+| --- | --- |
+| `ArtifactRootCorrespondence_IsExactAndResourceFree` | Correspondence uses owner-issued typed Root facts and strongly retains no physical artifact resource or access capability. |
+| `ArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement` | Equal logical request retains correspondence across replacement; changed coordinate, target, runtime, producer, or non-package coordinate does not. |
+| `ArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess` | A fully resolved exact request can match correspondence without opening content, constructing a context, or acquiring a lease. |
+| `ArtifactRootGenerationReference_ChangesWithPhysicalGeneration` | Content, selection, or binding-context replacement changes the non-reused issuance reference even when correspondence remains equal. |
+| `ArtifactRootProjection_RefreshReturnsCurrentPointInTimeStatus` | A retained correspondence refreshes to the exact current `Ready`, `Pending`, or `Failed` projection; retained old projections do not claim live status. |
+| `ArtifactRootProjection_NonReadyCarriesNoCurrentReference` | A refreshed `Pending` or `Failed` projection exposes resource-free evidence and no current generation reference. |
+| `ArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess` | Owner validation, not equality alone, rejects a stale, foreign, unknown, or non-current reference before physical access or lease issuance. |
+| `BrowserArtifactRootProjection_DoesNotRetainRetiredPackageBytes` | Browser package bytes can drain after artifact leases release even while logical consumers retain old projections. |
+
+Every target is **unverified** until its named Release gate exists. The
+implementation should extend the existing package binding and Workspace
+generation suites rather than create a second acquisition or admission
+protocol.
+
+This focused addition does not define logical Workspace membership, Root
+occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
+eligibility, closure evidence, Navigation focus, browser history, packet
+schema, source authorization, or a new preparation/adoption transaction.
+
 ### Runtime Workspace and coordinate-occurrence identity
 
 `InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
@@ -2356,9 +2370,11 @@ authorizes later Workspace operations or package-content access.
 The package arm is `PackageRootOccurrenceBinding`. It carries the exact
 Workspace identity and exact acquisition-issued `PackageRootBinding`.
 `PackageRootBinding` remains authoritative for package coordinate,
-content-generation, selection, and their correspondence. The occurrence adds
-only Workspace-local issuance identity; it does not mint a second package
-identity. The non-package arm is an opaque
+content-generation, selection, and their exact physical correspondence.
+`ArtifactRootCorrespondence` is the separate generation-independent logical
+request relation defined above. The occurrence adds only Workspace-local
+issuance identity; it is a transitional physical-binding currency rather than
+the logical history value consumed by #5701. The non-package arm is an opaque
 `NonPackageRootOccurrenceIdentity`; a later root adapter composes its own
 owner-issued root facts with that exact occurrence rather than deriving them
 from display or portable address fields.
@@ -2373,7 +2389,7 @@ The currency contract is:
 | Portability | Process-local and never serialized | Process-local and never serialized |
 | Erasure | Carries no definition, context, inventory, or presentation facts | Carries no membership, order, status, successor, or presentation facts |
 | Rebinding | No value can reconstruct or rebind it in another Workspace | Only future Workspace membership operations may associate it with retained state |
-| Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same issuance; package correspondence additionally uses the exact carried `PackageRootBinding` |
+| Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same occurrence issuance; the carried `PackageRootBinding` proves exact physical correspondence, while `ArtifactRootCorrespondence` separately proves logical request correspondence |
 
 `InspectionWorkspace.CreatePackageOccurrenceView` composes an immutable
 ordered view from acquisition-issued package Root bindings. Input order is the
