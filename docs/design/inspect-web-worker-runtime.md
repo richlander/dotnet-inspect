@@ -928,16 +928,17 @@ realm release wait for that return. The host then attempts detach before
 termination under the ordinary shutdown barrier.
 
 Successful return from `Worker.terminate()` is the host's ordinary evidence
-that physical destruction completed. A browser worker crash event independently establishes that the realm is
-already gone, whether it arrives before or after a failed termination attempt.
-The host still attempts detach and `Worker.terminate()` cleanup when the crash
-arrives first, but a throwing termination call cannot revoke that destruction
-evidence or block finalization, realm release, and replacement startup. Without
-crash-established physical loss, a termination throw leaves the epoch
-unreleased, refuses replacement startup, and, for disposal, retains its clock
-and lifecycle subscriptions rather than claiming that teardown completed.
-Every termination throw remains a callback diagnostic. A detach failure does
-not block release when either destruction proof exists.
+that physical destruction completed. A browser worker crash event
+independently establishes that the realm is already gone, whether it arrives
+before or after a failed termination attempt. The host still attempts detach
+and `Worker.terminate()` cleanup when the crash arrives first, but a throwing
+termination call cannot revoke that destruction evidence or block finalization,
+realm release, and replacement startup. Without crash-established physical
+loss, a termination throw leaves the epoch unreleased, refuses replacement
+startup, and, for disposal, retains its clock and lifecycle subscriptions
+rather than claiming that teardown completed. Every termination throw remains
+a callback diagnostic. A detach failure does not block release when either
+destruction proof exists.
 
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
