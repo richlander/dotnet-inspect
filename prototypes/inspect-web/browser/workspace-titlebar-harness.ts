@@ -97,6 +97,8 @@ const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
 const packageMode = params.has("package");
 const memberMode = params.has("member");
+const memberDocumentationMode = params.get("member-docs") ?? "missing";
+const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
@@ -348,6 +350,16 @@ function detailHtml() {
     </section>`;
   }
   if (memberMode) {
+    const signature = longSignatureMode
+      ? "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)"
+      : "public static object? DeserializeSync(string json)";
+    const documentation = memberDocumentationMode === "summary"
+      ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
+      : memberDocumentationMode === "loading"
+        ? '<p class="docs-loading">Loading package documentation…</p>'
+        : memberDocumentationMode === "error"
+          ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
+          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     return `<section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">DeserializeSync</h1>
@@ -356,11 +368,41 @@ function detailHtml() {
       <div class="member-surface-scroll">
         <article class="learn-overview">
           <section class="learn-section member-overview-intro">
-            <p class="docs-unavailable">No summary was found in the package XML documentation.</p>
-            <div class="signature-panel">
-              <div class="signature-language"><span>C#</span><small>declaration</small></div>
-              <pre class="language-csharp signature-code"><code>public static object? DeserializeSync(string json)</code></pre>
-            </div>
+            <section class="signature-panel" aria-labelledby="member-declaration-title">
+              <div class="signature-language">
+                <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
+                <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+              </div>
+              <pre class="language-csharp signature-code"><code>${escapeHtml(signature)}</code></pre>
+            </section>
+            <section class="member-documentation" aria-labelledby="member-documentation-title">
+              <div class="member-documentation-heading">
+                <h2 id="member-documentation-title">Summary</h2>
+              </div>
+              ${documentation}
+            </section>
+            <section class="member-identity" aria-labelledby="member-identity-title">
+              <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
+              <dl>
+                <div><dt>Stable selector</dt><dd><code>M:System.Text.Json.JsonSerializer.DeserializeSync(System.String)</code><button type="button" aria-label="Copy stable selector">copy</button></dd></div>
+                <div><dt>Digest</dt><dd><code>sha256:14c82d85903d</code><button type="button" aria-label="Copy digest">copy</button></dd></div>
+                <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>System.Object System.Text.Json.JsonSerializer::DeserializeSync(System.String)</code><button type="button" aria-label="Copy canonical signature">copy</button></dd></div>
+              </dl>
+              <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
+            </section>
+          </section>
+          <section class="learn-section member-parameters">
+            <h2>Parameters</h2>
+            <dl class="parameter-docs">
+              <div>
+                <dt><code>json</code></dt>
+                <dd><a>string</a><p>The JSON payload to deserialize into the requested return type.</p></dd>
+              </div>
+            </dl>
+          </section>
+          <section class="learn-section member-returns">
+            <h2>Returns</h2>
+            <p class="api-summary">The value produced by deserializing the supplied JSON payload.</p>
           </section>
         </article>
       </div>
