@@ -83,12 +83,12 @@ Each row contains these fields:
 - `poolSha256`: identity of the assembly pool measured, copied from the run
   JSON. Runs derive it from the assemblies themselves (each named and
   content-hashed), so it always describes exactly what was decompiled.
-- `sweepManifestSha256`: the superseded pool identity on rows from 2026-07, a
-  hand-recorded SHA-256 of the sweep manifest *file*. It could not identify the
-  pool — the pool is the **union** of the sweep and a fixed set of real-world
-  assemblies, and the manifest described only the sweep half — so it does not
-  interoperate with `poolSha256` and rows carrying only it record no pool
-  identity under the current scheme.
+- `sweepManifestSha256`: the superseded pool identity on legacy rows through
+  2026-08-07, a hand-recorded SHA-256 of the sweep manifest *file*. It could not
+  identify the pool — the pool is the **union** of the sweep and a fixed set of
+  real-world assemblies, and the manifest described only the sweep half — so it
+  does not interoperate with `poolSha256` and rows carrying only it record no
+  pool identity under the current scheme.
 - `methodologyVersion`: which authored-corpus attribution controls were active.
   **Every version is a lower bound on decompiler-caused body defects**; a later
   version tightens the bound rather than measuring the true count. Copy this
