@@ -68,7 +68,17 @@ export type OperationStartResult<TValue, TError, TPrepareError> =
       readonly reason: OperationStartError<TPrepareError>;
     };
 
-export type OperationFeatureEvent<TValue, TError, TProgress> =
+export interface OperationDurable<TDurable> {
+  readonly operationId: OperationId;
+  readonly value: TDurable;
+}
+
+export type OperationFeatureEvent<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> =
   | {
       readonly kind: "started";
       readonly operation: OperationIdentity;
@@ -82,6 +92,10 @@ export type OperationFeatureEvent<TValue, TError, TProgress> =
   | {
       readonly kind: "progress";
       readonly progress: OperationProgress<TProgress>;
+    }
+  | {
+      readonly kind: "durable";
+      readonly durable: OperationDurable<TDurable>;
     }
   | {
       readonly kind: "terminal";
@@ -98,9 +112,14 @@ export type OperationFeatureEvent<TValue, TError, TProgress> =
       readonly operationId: OperationId | null;
     };
 
-export interface OperationFeatureObserver<TValue, TError, TProgress> {
+export interface OperationFeatureObserver<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> {
   readonly publish: (
-    event: OperationFeatureEvent<TValue, TError, TProgress>,
+    event: OperationFeatureEvent<TValue, TError, TProgress, TDurable>,
   ) => undefined;
 }
 
@@ -117,8 +136,14 @@ export interface OperationDiagnosticObserver {
   readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
-export interface OperationProducerSink<TValue, TError, TProgress> {
+export interface OperationProducerSink<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> {
   readonly reportProgress: (value: TProgress) => undefined;
+  readonly reportDurable: (value: TDurable) => undefined;
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
@@ -154,11 +179,12 @@ export interface OperationProducerAdapter<
   TError,
   TProgress,
   TPrepareError,
+  TDurable = never,
 > {
   readonly prepare: (
     identity: OperationIdentity,
     input: TInput,
-    sink: OperationProducerSink<TValue, TError, TProgress>,
+    sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
   ) => OperationPreparation<TPrepareError>;
 }
 
@@ -168,6 +194,7 @@ export interface OperationSession<
   TError,
   TProgress,
   TPrepareError,
+  TDurable = never,
 > {
   start(
     input: TInput,
@@ -176,22 +203,47 @@ export interface OperationSession<
       TValue,
       TError,
       TProgress,
-      TPrepareError
+      TPrepareError,
+      TDurable
     >,
   ): OperationStartResult<TValue, TError, TPrepareError>;
   cancelCurrent(reason?: OperationCancelReason): OperationControlResult;
   dispose(): OperationControlResult;
 }
 
-export interface OperationSessionObservers<TValue, TError, TProgress> {
-  readonly feature: OperationFeatureObserver<TValue, TError, TProgress>;
+export interface OperationSessionObservers<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> {
+  readonly feature: OperationFeatureObserver<
+    TValue,
+    TError,
+    TProgress,
+    TDurable
+  >;
   readonly diagnostic: OperationDiagnosticObserver;
 }
 
 export interface OperationAuthorityPage {
-  createSession<TInput, TValue, TError, TProgress, TPrepareError>(
-    observers: OperationSessionObservers<TValue, TError, TProgress>,
-  ): OperationSession<TInput, TValue, TError, TProgress, TPrepareError>;
+  createSession<
+    TInput,
+    TValue,
+    TError,
+    TProgress,
+    TPrepareError,
+    TDurable = never,
+  >(
+    observers: OperationSessionObservers<TValue, TError, TProgress, TDurable>,
+  ): OperationSession<
+    TInput,
+    TValue,
+    TError,
+    TProgress,
+    TPrepareError,
+    TDurable
+  >;
 }
 
 export interface OperationIdentityAllocationOptions {
@@ -226,12 +278,17 @@ interface PageState {
   featureObserverDepth: number;
 }
 
-interface OperationRecord<TValue, TError, TProgress> {
+interface OperationRecord<TValue, TError, TProgress, TDurable> {
   readonly identity: OperationIdentity;
   readonly outcomeDeferred: Deferred<OperationOutcome<TValue, TError>>;
   readonly quiescedDeferred: Deferred<void>;
   readonly handle: OperationHandle<TValue, TError>;
-  readonly sink: OperationProducerSink<TValue, TError, TProgress>;
+  readonly sink: OperationProducerSink<
+    TValue,
+    TError,
+    TProgress,
+    TDurable
+  >;
   binding: PreparedOperationProducer | null;
   outcome: OperationOutcome<TValue, TError> | null;
   activated: boolean;
@@ -240,18 +297,23 @@ interface OperationRecord<TValue, TError, TProgress> {
   released: boolean;
 }
 
-interface SessionState<TValue, TError, TProgress> {
+interface SessionState<TValue, TError, TProgress, TDurable> {
   readonly page: PageState;
   readonly diagnosticObserver: OperationDiagnosticObserver;
-  featureObserver: OperationFeatureObserver<TValue, TError, TProgress> | null;
-  current: OperationRecord<TValue, TError, TProgress> | null;
+  featureObserver: OperationFeatureObserver<
+    TValue,
+    TError,
+    TProgress,
+    TDurable
+  > | null;
+  current: OperationRecord<TValue, TError, TProgress, TDurable> | null;
   revision: number;
   disposed: boolean;
 }
 
-type PublicationAuthorityPredicate = <TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  record: OperationRecord<TValue, TError, TProgress>,
+type PublicationAuthorityPredicate = <TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
 ) => boolean;
 
 const defaultLastResortConsole: OperationLastResortConsole = {
@@ -296,8 +358,8 @@ function validateMaximumSequence(value: number): number {
   return value;
 }
 
-function reportDiagnostic<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
+function reportDiagnostic<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
   diagnostic: OperationDiagnostic,
 ): void {
   try {
@@ -311,9 +373,9 @@ function reportDiagnostic<TValue, TError, TProgress>(
   }
 }
 
-function producerContractError<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  record: OperationRecord<TValue, TError, TProgress>,
+function producerContractError<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
   message: string,
 ): void {
   reportDiagnostic(session, {
@@ -323,8 +385,8 @@ function producerContractError<TValue, TError, TProgress>(
   });
 }
 
-function resolveOutcome<TValue, TError, TProgress>(
-  record: OperationRecord<TValue, TError, TProgress>,
+function resolveOutcome<TValue, TError, TProgress, TDurable>(
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
   outcome: OperationOutcome<TValue, TError>,
 ): boolean {
   if (record.outcome !== null) return false;
@@ -333,8 +395,8 @@ function resolveOutcome<TValue, TError, TProgress>(
   return true;
 }
 
-function reserveCancellation<TValue, TError, TProgress>(
-  record: OperationRecord<TValue, TError, TProgress>,
+function reserveCancellation<TValue, TError, TProgress, TDurable>(
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
 ): boolean {
   if (!record.activated || record.cancellationReserved || record.binding === null)
     return false;
@@ -342,9 +404,9 @@ function reserveCancellation<TValue, TError, TProgress>(
   return true;
 }
 
-function invokeCancellation<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  record: OperationRecord<TValue, TError, TProgress>,
+function invokeCancellation<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
   reason: OperationCancelReason,
 ): void {
   const binding = record.binding;
@@ -360,9 +422,9 @@ function invokeCancellation<TValue, TError, TProgress>(
   }
 }
 
-function abandon<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  record: OperationRecord<TValue, TError, TProgress>,
+function abandon<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
 ): void {
   const binding = record.binding;
   if (binding === null) return;
@@ -382,14 +444,14 @@ function abandon<TValue, TError, TProgress>(
   }
 }
 
-function faultFeatureObserver<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
+function faultFeatureObserver<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
   failedOperationId: OperationId | null,
   error: unknown,
 ): {
   readonly cancellation:
     | {
-        readonly record: OperationRecord<TValue, TError, TProgress>;
+        readonly record: OperationRecord<TValue, TError, TProgress, TDurable>;
         readonly reason: OperationCancelReason;
       }
     | null;
@@ -397,7 +459,7 @@ function faultFeatureObserver<TValue, TError, TProgress>(
   session.featureObserver = null;
   let cancellation:
     | {
-        readonly record: OperationRecord<TValue, TError, TProgress>;
+        readonly record: OperationRecord<TValue, TError, TProgress, TDurable>;
         readonly reason: OperationCancelReason;
       }
     | null = null;
@@ -421,9 +483,9 @@ function faultFeatureObserver<TValue, TError, TProgress>(
   return { cancellation };
 }
 
-function publishFeature<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  event: OperationFeatureEvent<TValue, TError, TProgress>,
+function publishFeature<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  event: OperationFeatureEvent<TValue, TError, TProgress, TDurable>,
   observer = session.featureObserver,
 ): boolean {
   if (observer === null) return false;
@@ -436,6 +498,8 @@ function publishFeature<TValue, TError, TProgress>(
       ? event.operation.id
       : event.kind === "progress"
         ? event.progress.operationId
+        : event.kind === "durable"
+          ? event.durable.operationId
         : event.operationId;
     const fault = faultFeatureObserver(session, failedOperationId, error);
     if (fault.cancellation !== null)
@@ -450,14 +514,14 @@ function publishFeature<TValue, TError, TProgress>(
   return true;
 }
 
-function createRecord<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
+function createRecord<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
   identity: OperationIdentity,
   publicationAuthority: PublicationAuthorityPredicate,
-): OperationRecord<TValue, TError, TProgress> {
+): OperationRecord<TValue, TError, TProgress, TDurable> {
   const outcomeDeferred = deferred<OperationOutcome<TValue, TError>>();
   const quiescedDeferred = deferred<void>();
-  let record: OperationRecord<TValue, TError, TProgress>;
+  let record: OperationRecord<TValue, TError, TProgress, TDurable>;
 
   const reserveTerminal = (
     outcome: OperationOutcome<TValue, TError>,
@@ -503,7 +567,7 @@ function createRecord<TValue, TError, TProgress>(
     }
   };
 
-  const sink: OperationProducerSink<TValue, TError, TProgress> = {
+  const sink: OperationProducerSink<TValue, TError, TProgress, TDurable> = {
     reportProgress: value => {
       if (record.released) {
         producerContractError(
@@ -517,6 +581,31 @@ function createRecord<TValue, TError, TProgress>(
         publishFeature(session, {
           kind: "progress",
           progress: { operationId: record.identity.id, value },
+        });
+      }
+      return undefined;
+    },
+    reportDurable: value => {
+      if (record.released) {
+        producerContractError(
+          session,
+          record,
+          "Producer reported a durable event after resource release.",
+        );
+        return undefined;
+      }
+      if (record.terminalReported) {
+        producerContractError(
+          session,
+          record,
+          "Producer reported a durable event after its terminal outcome.",
+        );
+        return undefined;
+      }
+      if (publicationAuthority(session, record)) {
+        publishFeature(session, {
+          kind: "durable",
+          durable: { operationId: record.identity.id, value },
         });
       }
       return undefined;
@@ -601,9 +690,9 @@ function createRecord<TValue, TError, TProgress>(
   return record;
 }
 
-function cancelRecord<TValue, TError, TProgress>(
-  session: SessionState<TValue, TError, TProgress>,
-  record: OperationRecord<TValue, TError, TProgress>,
+function cancelRecord<TValue, TError, TProgress, TDurable>(
+  session: SessionState<TValue, TError, TProgress, TDurable>,
+  record: OperationRecord<TValue, TError, TProgress, TDurable>,
   reason: OperationCancelReason,
 ): OperationControlResult {
   if (session.page.featureObserverDepth > 0)
@@ -661,10 +750,29 @@ function createPage(
   };
 
   return {
-    createSession: <TInput, TValue, TError, TProgress, TPrepareError>(
-      observers: OperationSessionObservers<TValue, TError, TProgress>,
-    ): OperationSession<TInput, TValue, TError, TProgress, TPrepareError> => {
-      const session: SessionState<TValue, TError, TProgress> = {
+    createSession: <
+      TInput,
+      TValue,
+      TError,
+      TProgress,
+      TPrepareError,
+      TDurable = never,
+    >(
+      observers: OperationSessionObservers<
+        TValue,
+        TError,
+        TProgress,
+        TDurable
+      >,
+    ): OperationSession<
+      TInput,
+      TValue,
+      TError,
+      TProgress,
+      TPrepareError,
+      TDurable
+    > => {
+      const session: SessionState<TValue, TError, TProgress, TDurable> = {
         page,
         featureObserver: observers.feature,
         diagnosticObserver: observers.diagnostic,
@@ -693,7 +801,7 @@ function createPage(
 
           const capturedRevision = session.revision;
           const capturedCurrentId = session.current?.identity.id ?? null;
-          const candidate = createRecord<TValue, TError, TProgress>(
+          const candidate = createRecord<TValue, TError, TProgress, TDurable>(
             session,
             allocation.identity,
             publicationAuthority,
@@ -743,7 +851,12 @@ function createPage(
 
           let priorCancellation:
             | {
-                readonly record: OperationRecord<TValue, TError, TProgress>;
+                readonly record: OperationRecord<
+                  TValue,
+                  TError,
+                  TProgress,
+                  TDurable
+                >;
                 readonly reason: OperationCancelReason;
               }
             | null = null;
@@ -754,7 +867,12 @@ function createPage(
               priorCancellation = { record: previous, reason };
           }
 
-          const event: OperationFeatureEvent<TValue, TError, TProgress>
+          const event: OperationFeatureEvent<
+            TValue,
+            TError,
+            TProgress,
+            TDurable
+          >
             = previous === null
               ? { kind: "started", operation: candidate.identity }
               : {
