@@ -374,6 +374,11 @@ public static class CommandLineBuilder
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 
+        // Dependency evidence command (normalized direct declarations, not a traversal)
+        rootCommand.Subcommands.Add(
+            DependencyEvidenceCommandDefinitions
+                .CreateDependencyEvidenceCommand(opts));
+
         // Extensions command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateExtensionsCommand(opts));
 

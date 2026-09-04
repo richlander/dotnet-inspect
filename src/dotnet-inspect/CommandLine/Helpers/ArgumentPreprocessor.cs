@@ -106,7 +106,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "audit", // removed command, reserved so it is not treated as an implicit package target
-        "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     /// <summary>
