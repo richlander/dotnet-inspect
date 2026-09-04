@@ -465,9 +465,14 @@ plugin-authentication context per configurable V3 authority, uses the
 credential-free Gallery route for the exact anonymous NuGet.org authority,
 uses one operation context across those authorities, adopts each typed result
 through the exact association, and reports authoritative, partial, or failed
-version evidence. A selected local authority is classified without
-constructing HTTP state and currently produces the explicit
-capability-unavailable result owned by #5400.
+version evidence. A selected local authority invokes the existing bounded
+NuGetFetch local-folder client without constructing an HTTP transport or
+authentication context. Its complete version observations, including an empty
+result, join the same aggregate as HTTP evidence through exact association
+lookup. Unavailable local capability, missing roots, invalid archives, and
+source limits remain attributed failures rather than package absence. The
+NuGetFetch host contract is unchanged: desktop filesystems support local reads;
+Browser/Wasm without a filesystem capability returns typed unsupported.
 When the Gallery route cannot complete its registration listing-state join,
 its retained flat-container candidates are explicitly partial rather than
 authoritative.
@@ -497,6 +502,31 @@ producer identity, transport kind, source order, or a healthy subset were
 mistakenly used as authority. Existing NuGetFetch and authentication gates
 remain evidence for their owners; they do not substitute for these
 package-composition gates.
+
+### Local version-listing adoption
+
+The CLI consumer is ordinary `package <id> --versions --source <folder>` (or a
+mapped folder in `NuGet.Config`). Local and HTTP version evidence use the same
+operation context, filtering, sorting, and final result limit. Directory layout
+recognition and finite observation limits remain owned by NuGetFetch.
+
+`PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport`,
+`PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots`,
+`PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit`,
+`PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails`,
+`PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial`,
+`PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial`, and
+`OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling` are the
+Release gates for this adoption. The existing terminal-operation-timeout and
+HTTP source-association gates remain unchanged.
+
+The remaining production adoption path is tracked by
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400): after this
+version-listing slice, migrate remaining candidate selection modes, then
+payload/cache authority, then CLI and reusable workspace consumers (including
+Browser/Wasm's supported source clients). Those slices retire the corresponding
+legacy composition paths. This slice does not add browser filesystem
+registration, local payload acquisition, or offline version discovery.
 
 ### Reusable authority authorization
 

@@ -571,8 +571,9 @@ it does not join the pack-contract PR.
 
 The executable pack registration cannot land the scanner slot before that
 focused owner issues the binding currency under
-[#5719](https://github.com/richlander/dotnet-inspect/issues/5719). The pack
-design does not introduce a generic delegate or parallel scan result as a
+[#5719](https://github.com/richlander/dotnet-inspect/issues/5719), whose
+[Integration-owned contract](integration-scanner-binding.md) is design-only.
+The pack design does not introduce a generic delegate or parallel scan result as a
 placeholder.
 
 ## Discovery and selection

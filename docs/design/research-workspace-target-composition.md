@@ -523,25 +523,43 @@ either category.
 ## Two-sided comparison handoff
 
 Two independently composed side receipts do not prove that their effective
-targets correspond. A later direct-member comparison adapter must consume one
+targets correspond. A correspondence-driven comparison must consume one
 existing `ResearchTargetCorrespondenceOutcome.Paired` whose Before and After
 targets contain the exact attempt identities retained by the two receipts.
 
-If the terminal attempts occupy different Research domains, if either terminal
-domain is blocked, or if Research reports selection drift or another
-non-paired outcome, Queries publishes no comparison work item. It preserves
-that Research correspondence outcome rather than pairing endpoints by
-declaring-type text, forwarding destination name, relationship role, or
-similar MethodDef address.
+For that correspondence-driven request, if the terminal attempts occupy
+different Research domains, if either terminal domain is blocked, or if
+Research reports selection drift or another non-paired outcome, Queries
+publishes no comparison work item. It preserves that Research correspondence
+outcome rather than pairing endpoints by declaring-type text, forwarding
+destination name, relationship role, or similar MethodDef address.
+
+An explicitly designated
+[direct-member comparison](direct-member-comparison.md#adapter-contract) is a
+different request: compare these two methods, not establish that they
+correspond. Its handoff consumes the exact effective attempts from successful
+side-local receipts and the Research-owned designated-pair association planned
+in [#5877](https://github.com/richlander/dotnet-inspect/issues/5877). That
+association, not an ordinary `Paired` outcome, must bind the two selected
+attempts to the request. The designated route remains unsupported until that
+prerequisite lands; this document defines no replacement Research currency.
+
+Designation does not override side-local composition rejection,
+unavailability, terminal domain-side blocking, or binding-policy validation.
+Queries must not reinterpret a failed correspondence-driven request as an
+explicit designation. The two handoffs preserve their distinct intent and
+owner-issued evidence.
 
 The facade domain may remain blocked by its
 `Unavailable/DeclaringTypeForwarded` attempt. That does not taint a distinct
 healthy implementation domain, but it also does not authorize Queries to
 manufacture correspondence across domains.
 
-The current executable model is side-local and does not prove this later
-two-sided handoff. Divergent-domain correspondence remains **unverified** at
-this design head and is assigned to the named Release gate below.
+The current executable model is side-local and proves neither later
+two-sided handoff. Divergent-domain strict correspondence remains
+**unverified** at this design head and is assigned to the named Release gate
+below. Designated-pair handoff remains **unverified** under #5877 and the
+direct-member adapter's outcome gates.
 
 ## Workspace and acquisition boundary
 
@@ -635,8 +653,8 @@ selecting the distinct healthy terminal census. The model does not construct
 the impossible state in which one same-side terminal-domain attempt is
 resolved while a peer in that domain fails: Research classifies multiple
 same-side domain inputs as `DomainAmbiguous` before either can resolve. The
-two-sided divergent-domain handoff remains outside this side-local model and
-unverified.
+two-sided correspondence and designated-pair handoffs remain outside this
+side-local model and unverified.
 
 Focused mutations substitute the facade, cross the comparison side,
 reconstruct the Research input without the receipt, substitute another
@@ -676,8 +694,9 @@ After composition: Unavailable / UnboundBinding
 Effective target: none
 ```
 
-The pathological two-sided case points the two facades at different terminal
-implementation assemblies:
+The pathological correspondence-driven case points the two facades at
+different terminal implementation assemblies. It is not an explicit
+direct-member designation:
 
 ```text
 Before effective domain: ContractsImplementation
@@ -782,6 +801,10 @@ materialized inert locals.
 - `WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair`
 - `WorkspaceResearchTarget_PublishesNoPartialReceiptOnFailure`
 - `WorkspaceResearchTarget_DemoCoversForwardedAndMissingParticipant`
+
+`WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair` covers the
+correspondence-driven handoff, not an explicit designated-pair request.
+The latter is gated by the separately tracked Research and direct-member work.
 
 The original
 `ResearchTargetDeclaringType_DistinguishesAbsentFromForwarded` and related
