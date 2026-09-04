@@ -18,12 +18,19 @@ inventories are implemented. The pack registry, demo contribution, and their
 novel registry and application-adoption gates remain unimplemented. The
 assembly-friend tests and solution dependency-policy rule already landed with
 the application shell and remain applicable. The inspect-web facade boundary
-gate still names the former host facade; application adoption must retarget its
-sole ecosystem-catalog exception to the catalog facade.
+gate still names the former host facade and inspects only declared references;
+application adoption must retarget its sole ecosystem-catalog exception to the
+catalog facade and add compiled-reference coverage.
 Existing product demos remain in the `DotnetInspector.Queries` donor registry
 until the transfer described here lands. Every asserted target property is
 unverified until its named Release gate lands; existing package membership,
 demo behavior, and search behavior remain unchanged.
+
+Participating normative owner:
+
+- [Static workspaces: definitions, assembly groups, and projections](workspace-definitions.md#product-demos-are-closed-section-presets)
+  solely owns `ProductDemoSourceBinding` construction, validation, resolution,
+  execution handoff, and failures.
 
 Supporting owners:
 
@@ -37,9 +44,6 @@ Supporting owners:
   package discovery, paging, failures, and payload acquisition.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
   owns realization and workspace generations.
-- [Static workspaces: definitions, assembly groups, and projections](workspace-definitions.md#product-demos-are-closed-section-presets)
-  owns demo definition records, lazy source bindings, resolution, section
-  admission, run plans, execution semantics, and failures.
 - [Inspection bundles and demos](../inspection-space.md#inspection-bundles-and-demos)
   owns the bundle and runtime-workspace composition boundary.
 - [Capability-driven section registry spike](capability-section-registry-spike.md)
@@ -55,6 +59,18 @@ Supporting owners:
   Workspace viewer.
 - [#5772](https://github.com/richlander/dotnet-inspect/issues/5772) is the
   three-slice Aspire and ecosystem-demo delivery stack.
+
+## Approved composition scope
+
+The operator approved #5772 as one bounded two-owner composition: this owner
+defines the static product-demo inventory and exact dispatch, while Workspace
+Definitions issues the one lazy source-binding currency required to transfer
+application-authored demo sources out of Queries. The handoff is
+`ProductDemoSourceBinding` in and `ResolvedScenario` or an owner-domain failure
+out. This approval does not transfer record, validation, resolution, section,
+run-plan, execution, or failure semantics to the catalog and does not admit
+changes to any other Workspace Definitions contract. Package-set, prefix, and
+scanner owner tracks remain separate efforts.
 
 ## Authority and exact claim
 
@@ -178,10 +194,10 @@ EcosystemDemoSelection
 ```
 
 `ProductDemoSourceBinding` is issued by Workspace Definitions. It carries the
-exact scenario ID and one noncapturing source for that scenario's peer
-definition records. The scenario ID is the product-demo identity; the
-ecosystem catalog does not mint a parallel demo ID or infer identity from
-title, order, package coordinate, or ecosystem.
+exact scenario ID and an opaque owner-defined resolution operation. The
+scenario ID is the product-demo identity; the ecosystem catalog does not mint
+a parallel demo ID or infer identity from title, order, package coordinate, or
+ecosystem.
 
 The public discovery boundary exposes immutable pack, prefix-action, and demo
 descriptor metadata, package-set identity, and whether a scanner is available.
@@ -307,13 +323,16 @@ production target except `dotnet-inspect`.
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately adds
 `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
-evaluated MSBuild `ProjectReference` and assembly `Reference` items for the
-inspect-web production projects. Its current implementation permits either
-reference only from the former managed host facade, `InspectWeb.Engine`;
-application adoption retargets that sole exception to
-`InspectWeb.Engine.CatalogExports`. `InspectWeb.Engine.Core`, the host and
-sibling export facades, and every other inspect-web production project reject
-it. Test projects and the focused
+evaluated direct MSBuild `ProjectReference` items and each Release-built
+production assembly's metadata `AssemblyRef` rows. Its current implementation
+inspects only declared references and permits the former managed host facade,
+`InspectWeb.Engine`; application adoption adds compiled-reference coverage and
+retargets the sole exception to `InspectWeb.Engine.CatalogExports`. The
+compiled check rejects host source that consumes the catalog through the
+transitive host-to-catalog-facade project graph.
+`InspectWeb.Engine.Core`, the host and sibling export facades, and every other
+inspect-web production project reject both a declared edge and a compiled
+catalog reference. Test projects and the focused
 `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
 catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
 
@@ -400,28 +419,19 @@ Workspace Definitions retains:
 - execution semantics; and
 - visible failures.
 
-The pack registration stores one owner-issued binding and does not copy or
-reinterpret its records. Workspace Definitions exposes the public minting seam
-`ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
-method group is admitted; construction requires a one-entry invocation list and
-rejects a delegate with a non-null target before publication. Static lambdas are
-intentionally not the authoring form because the compiler may represent a
-noncapturing lambda with a cached target object. A multicast combination of
-static method groups is also rejected because invoking one binding would
-otherwise execute every combined source. The binding stores the delegate
-privately and exposes no delegate or factory property. Its resolve operation
-requires the returned records to contain exactly one `ScenarioDefinition`,
-requires that record's ID to equal the binding scenario ID, constructs the
-registry, resolves that exact ID, and enforces the demo section contract.
+The pack registration stores one owner-issued binding and does not copy,
+inspect, or reinterpret its source or records. Workspace Definitions solely
+owns binding construction, admission, private source storage, record
+validation, exact resolution, section admission, and failures. The catalog
+consumes only the binding's public scenario identity and resolution result.
 
 Complete ecosystem-manifest validation rejects duplicate scenario IDs,
 duplicate demo orders, empty title or summary, and a pack-local demo sequence
 whose orders are not strictly ascending. It does not invoke a source to
 validate its records. Catalog selection dispatches only the chosen binding;
 record construction, single-scenario validation, exact resolution, and
-owner-domain failure remain Workspace Definitions behavior. A mismatch,
-malformed record graph, unsupported section, or other owner-domain failure is
-visible rather than becoming an empty or default demo.
+owner-domain failure remain Workspace Definitions behavior. An owner-domain
+failure remains visible rather than becoming an empty or default demo.
 
 Demo order is global across the product rather than derived from pack order.
 Grouped discovery presents packs in pack order and each pack's demos in their
@@ -784,7 +794,7 @@ ordinary non-friend consumer.
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
 | `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | After application adoption retargets the existing gate, evaluated inspect-web `ProjectReference` and assembly `Reference` items permit `DotnetInspector.Ecosystems` only in `InspectWeb.Engine.CatalogExports` and reject it from `InspectWeb.Engine.Core`, the host and sibling export facades, and every other browser production project. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | After application adoption strengthens and retargets the existing gate, evaluated direct inspect-web `ProjectReference` items and Release-built metadata `AssemblyRef` rows permit `DotnetInspector.Ecosystems` only in `InspectWeb.Engine.CatalogExports`; they reject declared catalog edges or compiled catalog consumption through transitive availability from `InspectWeb.Engine.Core`, the host and sibling export facades, and every other browser production project. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
@@ -835,13 +845,13 @@ The owner tracks may advance independently:
 
 1. Lock this focused pack pattern.
 2. Advance whichever independent owner track is needed for the first real pack.
-3. In one implementation slice, issue the Workspace-Definitions-owned lazy
-   source binding; transfer the eight application-authored donor sources; add
-   the two Aspire sources; implement pack identity, descriptors, private
-   manifest, package-set and demo slots, grouped and flattened discovery, exact
-   lookup and selection; and publish the four-pack, ten-demo manifest with its
-   focused gates. Do not change current package membership, existing demo
-   execution, or search behavior.
+3. Under the approved #5772 two-owner composition, issue the
+   Workspace-Definitions-owned lazy source binding; transfer the eight
+   application-authored donor sources; add the two Aspire sources; implement
+   pack identity, descriptors, private manifest, package-set and demo slots,
+   grouped and flattened discovery, exact lookup and selection; and publish the
+   four-pack, ten-demo manifest with its focused gates. Do not change current
+   package membership, existing demo execution, or search behavior.
 4. Add each remaining action slot independently when its owner track lands; no
    later slot reopens already implemented action semantics.
 5. Adopt CLI and browser actions through the same implementation slice's

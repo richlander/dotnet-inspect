@@ -724,7 +724,9 @@ Hard constraints:
    and generated TypeScript bindings for the engine surface project that
    preset; they are not a second demo system.
 
-This revision transfers one cohesive application responsibility to
+Under the operator-approved two-owner composition recorded by
+[#5772](https://github.com/richlander/dotnet-inspect/issues/5772), this revision
+transfers one cohesive application responsibility to
 [Static Ecosystem Packs](ecosystem-packs.md#product-demos): which product demos
 ship, their ecosystem grouping and display metadata, their global product
 order, and the source-authored record factories. Workspace Definitions retains
@@ -742,6 +744,11 @@ noncapturing lambda with a cached target object. A multicast combination of
 static method groups is also rejected because one resolve would otherwise
 execute every combined source. The binding stores the source privately and
 exposes no delegate or factory property.
+
+This section is the sole authority for the binding's construction, admission,
+source lifetime, validation, resolution, execution handoff, and failure
+semantics. The ecosystem design names only the opaque handoff and the
+catalog-owned dispatch obligations.
 
 The application catalog stores that opaque owner-issued binding beside its
 application metadata. Listing is metadata-only and cannot invoke the source.
