@@ -348,9 +348,6 @@ public static class CommandLineBuilder
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
         rootCommand.Options.Add(httpTimeoutOption);
 
-        // API command (deprecated, hidden)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateDeprecatedApiCommand());
-
         // Type command (type discovery, compact table)
         rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts));
 

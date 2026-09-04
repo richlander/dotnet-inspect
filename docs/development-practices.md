@@ -69,19 +69,31 @@ developed closely with the user can reveal the actual boundary before code
 makes an accidental behavior expensive to undo. Much of the architecture is
 the act of bounding a contract and making its important properties invariant.
 
-## Start capabilities from consumers
+## Start architectures from production hosts
 
-Every new capability or substrate must name a concrete consumer from the
-start. The consumer may land in a later slice, but the focused specification
-and implementation issue must identify it, and a single overall end-to-end
-tracking issue must link the substrate and consumer work.
+Every new architecture, capability, or substrate must name a concrete consumer
+from the start. The consumer may land in a later slice, but the focused
+specification and implementation issue must identify it, and a single overall
+end-to-end tracking issue must link the architecture and consumer work.
+
+The tracker must identify each production host, enumerate the concrete adoption
+slices in order, and state the current total step count from the architecture
+to observable host behavior. A host-neutral component is not exempt: its
+tracker must explain how and in how many steps each planned production host
+will consume it. For test infrastructure, the tracker may treat the harness
+that routinely exercises the infrastructure as its production host.
+
+When the new architecture is an alternative to an existing architecture, the
+tracker must also enumerate the migration and retirement slices for the
+existing architecture. Adoption is not complete while that retirement work
+remains outstanding.
 
 Shared product substrate defaults to planned benefit in both current product
-hosts: the CLI and browser/Wasm. The end-to-end tracker records the planned
-enablement slices for both hosts from the outset. A substrate intended for only
-one consumer or host requires explicit user approval before implementation;
-record the approved scope in its specification, implementation issue, and
-end-to-end tracker from the start.
+hosts: the CLI and browser/Wasm. Both host paths must appear in the counted
+adoption plan from the outset. A substrate intended for only one consumer or
+host requires explicit user approval before implementation; record the
+approved scope in its specification, implementation issue, and end-to-end
+tracker from the start.
 
 `InertString` illustrates the shared default: its containment contract must
 work for all consumers. `ts-jsexport` is an approved exception: its website-only

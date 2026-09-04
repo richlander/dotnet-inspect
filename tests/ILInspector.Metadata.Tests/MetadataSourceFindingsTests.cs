@@ -177,6 +177,36 @@ public sealed class MetadataSourceFindingsTests
     }
 
     [Fact]
+    public void SourceDocumentComparison_ReportsResolutionStatusChanges()
+    {
+        var unmapped = new SourceDocument(
+            "/_/src/Widget.cs",
+            IsEmbedded: false,
+            ResolvedUrl: null,
+            Checksum: [0x01],
+            ChecksumAlgorithm: "SHA256",
+            DocumentRowId: 1,
+            CanonicalPath: "src/Widget.cs")
+        {
+            ResolutionStatus = SourceDocumentResolutionStatus.Unmapped,
+        };
+        var rejected = unmapped with
+        {
+            ResolutionStatus = SourceDocumentResolutionStatus.Rejected,
+        };
+
+        var changed =
+            Assert.Single(
+                Pairs(
+                    SourceLinkFindings.CompareSourceDocuments(
+                        [unmapped],
+                        [rejected],
+                        Subject)));
+
+        Assert.Equal(PairKind.Changed, changed.Kind);
+    }
+
+    [Fact]
     public void SourceDocumentIdentity_UsesMostSpecificSourceLinkMapping()
     {
         const string sourceLink = """

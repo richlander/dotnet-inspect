@@ -199,6 +199,13 @@ referencing the CLI assembly.
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
 
+Within `tools/DecompilerHarness`, `AuthoredCorpusHistoryStore` is the focused
+owner for admitting complete EVIL benchmark artifacts as durable observations
+and validating the ordered committed sequence. Its
+[committed authored-corpus history](design/authored-corpus-history.md) contract
+separates persistence evidence from benchmark production, methodology,
+ratchet comparison, and history-card rendering.
+
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
 persistent filesystem-derived package projection may replace cold inspection;
