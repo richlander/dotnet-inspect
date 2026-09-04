@@ -11311,6 +11311,29 @@ public partial class CommandExecutionTests
             output);
     }
 
+    [Theory]
+    [InlineData("get_Count")]
+    [InlineData("set_Count")]
+    public async Task Member_SourceDiff_ExplicitGetSetPrefixedMethodRetainsMethodForm(
+        string methodName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            $"explicit:DotnetInspector.Fixtures.IBodyShapePrefixMethods.{methodName}",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain(
+            "Decompiled comparison unavailable",
+            output);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+        Assert.Contains($".{methodName}", output);
+    }
+
     [Fact]
     public async Task Member_SourceDiff_ProjectedExtensionUsesPhysicalMethod()
     {

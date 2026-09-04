@@ -64,6 +64,13 @@ aligns the decompiled placement prefix to the PDB declaration's retained
 whitespace prefix. Applying the same typed boundary to both endpoints handles
 an attribute or comment that shares the PDB signature line without
 manufacturing a difference.
+
+The whole-member render preserves the selected physical MethodDef's declaration
+kind. An explicit-interface method is rendered as property syntax only when its
+metadata MethodSemantics relationship proves that it is a property accessor;
+an ordinary explicit method whose source name begins with `get_` or `set_`
+remains a method.
+
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No
 compatibility switch preserves the old comparison-only projection.
@@ -376,6 +383,8 @@ Release CLI tests prove:
 - bodyless and no-vouched-declaration states remain informational for PDB
   Source but become explicit unavailable Source Diff outcomes, including a
   visible failure when an exact non-code format cannot represent them;
+- ordinary explicit-interface methods beginning with `get_` or `set_` retain
+  method syntax while metadata-proven property accessors use property syntax;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the

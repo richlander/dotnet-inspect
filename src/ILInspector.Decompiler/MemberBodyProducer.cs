@@ -1187,14 +1187,27 @@ public static class MemberBodyProducer
                         : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
-                    // as its accessor method (Iface.get_X). Render the
+                    // as its accessor method (Iface.get_X). Require the
+                    // MethodSemantics relationship before rendering the
                     // property form the source writes: 'bool Iface.X => ...;'.
+                    Pipeline.AccessorKind explicitAccessorKind =
+                        member.Kind == "explicit-interface-implementation"
+                            && memberHandle is { } explicitAccessorHandle
+                            ? Pipeline.MethodDefinitionFacts.ReadAccessorKind(
+                                reader,
+                                reader.GetTypeDefinition(typeHandle),
+                                explicitAccessorHandle)
+                            : Pipeline.AccessorKind.None;
                     if (member.Kind == "explicit-interface-implementation"
+                        && explicitAccessorKind is
+                            Pipeline.AccessorKind.PropertyGet
+                            or Pipeline.AccessorKind.PropertySet
                         && ExplicitPropertyName(member.Name) is { } propertyPath
                         && body is not null)
                     {
                         bool isSetter =
-                            member.Name.Contains(".set_", StringComparison.Ordinal);
+                            explicitAccessorKind
+                                == Pipeline.AccessorKind.PropertySet;
                         string? accessorPropertyType = isSetter
                             ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
                             : member.ReturnType

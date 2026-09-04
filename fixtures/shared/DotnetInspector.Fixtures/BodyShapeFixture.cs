@@ -6,7 +6,16 @@ public interface IBodyShapeValue
     event Action Changed;
 }
 
-public sealed class BodyShapeFixture : IBodyShapeValue
+public interface IBodyShapePrefixMethods
+{
+    int get_Count();
+
+    void set_Count();
+}
+
+public sealed class BodyShapeFixture :
+    IBodyShapeValue,
+    IBodyShapePrefixMethods
 {
     public static object PublicCreation() => new object();
 
@@ -27,6 +36,10 @@ public sealed class BodyShapeFixture : IBodyShapeValue
         add => GC.KeepAlive(new object());
         remove { }
     }
+
+    int IBodyShapePrefixMethods.get_Count() => 1;
+
+    void IBodyShapePrefixMethods.set_Count() => GC.KeepAlive(this);
 
     public static string Classify(int value) =>
         value switch
