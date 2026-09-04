@@ -106,6 +106,7 @@ interface HarnessOptions {
   ) => BoundedPayloadDecodeResult<unknown>;
   readonly clockUnsubscribeError?: Error;
   readonly lifecycleUnsubscribeError?: Error;
+  readonly create?: () => void;
   readonly detachError?: Error;
   readonly detach?: () => void;
   readonly terminate?: () => void;
@@ -369,6 +370,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const failures: WorkerRuntimeFailure<TestDiagnostic>[] = [];
   const runtimeDiagnostics: TestDiagnostic[] = [];
   const releasedEpochs: number[] = [];
+  const createCallback = options.create;
   const detachError = options.detachError;
   const detachCallback = options.detach;
   const terminateCallback = options.terminate;
@@ -383,6 +385,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     options.synchronousStartActiveAdvanceMilliseconds;
   const queuedTransport = new QueueWorkerRuntimeTransportFactory(workers);
   const transport = detachError === undefined
+    && createCallback === undefined
     && detachCallback === undefined
     && terminateCallback === undefined
     && bindMessage === undefined
@@ -393,6 +396,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     ? queuedTransport
     : {
         create: (): WorkerRuntimeTransportBinding => {
+          createCallback?.();
           const binding = queuedTransport.create();
           let handlers: WorkerRuntimeTransportHandlers | null = null;
           const source: WorkerRuntimeSource = {
@@ -749,12 +753,53 @@ test("bootstrap encoding disposal prevents post-disposal epoch creation", () => 
   });
 });
 
+test("creation-time disposal retains subscriptions after failed unowned termination", () => {
+  const terminationError = new Error("unowned termination failed");
+  const clockError = new Error("clock cleanup must remain deferred");
+  const lifecycleError = new Error("lifecycle cleanup must remain deferred");
+  let harness: TestHarness;
+  harness = createHarness({
+    create: () => {
+      harness.host.dispose();
+    },
+    terminate: () => {
+      throw terminationError;
+    },
+    clockUnsubscribeError: clockError,
+    lifecycleUnsubscribeError: lifecycleError,
+  });
+
+  assert.deepEqual(harness.host.start("bootstrap"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
+  assert.equal(harness.workers[0]!.terminated, false);
+  assert.deepEqual(
+    harness.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [terminationError],
+  );
+});
+
 test("bind-time Ready cannot bypass initialization dispatch", () => {
-  const harness = createHarness({
+  const detachError = new Error("bind-time detach failed");
+  let releasedBeforeDetach = false;
+  let terminatedAtDetachDiagnostic = false;
+  let releasedAtDetachDiagnostic = false;
+  let harness: TestHarness;
+  harness = createHarness({
     bindMessage: workerEnvelope(1, {
       kind: "ready",
       idleHeartbeatIntervalMilliseconds: 10,
     }),
+    detachError,
+    detach: () => {
+      releasedBeforeDetach = harness.releasedEpochs.includes(1);
+    },
+    diagnostic: diagnostic => {
+      if (diagnostic.detail !== detachError) return;
+      terminatedAtDetachDiagnostic = harness.workers[0]!.terminated;
+      releasedAtDetachDiagnostic = harness.releasedEpochs.includes(1);
+    },
   });
 
   assert.deepEqual(harness.host.start("bootstrap"), {
@@ -765,6 +810,9 @@ test("bind-time Ready cannot bypass initialization dispatch", () => {
   assert.equal(harness.host.snapshot().phase, "closed");
   assert.deepEqual(harness.workers[0]!.receivedMessages, []);
   assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.equal(releasedBeforeDetach, false);
+  assert.equal(terminatedAtDetachDiagnostic, true);
+  assert.equal(releasedAtDetachDiagnostic, false);
   assert.deepEqual(harness.releasedEpochs, [1]);
 });
 
@@ -3436,6 +3484,61 @@ test("epoch-work validation mirrors high-water, active-set, allowance, and close
   assert.equal(mainDuplicate.host.snapshot().activeEpochWork, 0);
 });
 
+test("failed fake realm continues physical release evidence", async () => {
+  const firstSettlement = deferred<TestSettlement>();
+  const secondSettlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    invoke: input => input === "first"
+      ? firstSettlement.promise
+      : secondSettlement.promise,
+  });
+  await startReady(harness);
+  assert.equal(
+    harness.workers[0]!.startEpochWork("speculative", 1),
+    true,
+  );
+  const page = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `failed-drain-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = session(harness.adapter, page);
+  const secondSession = session(harness.adapter, page);
+  started(firstSession.session.start("first", harness.adapter));
+  const secondHandle = started(
+    secondSession.session.start("second", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  firstSettlement.reject(new Error("managed failure"));
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "worker-declared");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.equal(harness.host.snapshot().activeOperations, 2);
+  assert.equal(harness.host.snapshot().activeEpochWork, 1);
+
+  secondSettlement.resolve({ kind: "succeeded", value: "late" });
+  await harness.environment.flushAsync();
+  await secondHandle.quiesced;
+
+  assert.equal(harness.workers[0]!.activeOperationCount, 1);
+  assert.equal(harness.host.snapshot().activeOperations, 1);
+  assert.equal(
+    harness.workers[0]!.finishEpochWork(1),
+    true,
+  );
+  assert.equal(harness.host.snapshot().activeEpochWork, 0);
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.deepEqual(
+    harness.workers[0]!.emittedMessages.slice(-3).map(message => message.kind),
+    ["epoch-failed", "settled", "epoch-work-finished"],
+  );
+});
+
 test("main epoch-work unmatched and duplicate finishes fail closed", async () => {
   const unmatched = createHarness();
   await startReady(unmatched);
@@ -4214,6 +4317,67 @@ test("teardown diagnostics observe closed admission and completed termination", 
   });
   assert.equal(barrier.workers[0]!.terminateCount, 1);
   assert.deepEqual(barrier.releasedEpochs, [1]);
+
+  const terminationError = new Error("worker termination failed");
+  let terminationRetry: ReturnType<TestHarness["host"]["start"]> | null = null;
+  let failedTermination: TestHarness;
+  failedTermination = createHarness({
+    workerCount: 2,
+    terminate: () => {
+      throw terminationError;
+    },
+    diagnostic: diagnostic => {
+      if (diagnostic.detail !== terminationError) return;
+      terminationRetry = failedTermination.host.start("replacement");
+    },
+  });
+  await startReady(failedTermination);
+
+  failedTermination.host.restart();
+
+  assert.equal(failedTermination.workers[0]!.terminated, false);
+  assert.deepEqual(failedTermination.releasedEpochs, []);
+  assert.deepEqual(terminationRetry, {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+  assert.deepEqual(
+    failedTermination.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [terminationError],
+  );
+  assert.deepEqual(failedTermination.host.start("later"), {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+
+  const disposalTerminationError = new Error(
+    "disposal worker termination failed",
+  );
+  const deferredClockError = new Error("clock cleanup must remain deferred");
+  const deferredLifecycleError = new Error(
+    "lifecycle cleanup must remain deferred",
+  );
+  const failedDisposal = createHarness({
+    terminate: () => {
+      throw disposalTerminationError;
+    },
+    clockUnsubscribeError: deferredClockError,
+    lifecycleUnsubscribeError: deferredLifecycleError,
+  });
+  await startReady(failedDisposal);
+
+  failedDisposal.host.dispose();
+
+  assert.equal(failedDisposal.workers[0]!.terminated, false);
+  assert.deepEqual(failedDisposal.releasedEpochs, []);
+  assert.deepEqual(
+    failedDisposal.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [disposalTerminationError],
+  );
+  assert.deepEqual(failedDisposal.host.start("later"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
 
   const detachError = new Error("transport detach failed");
   let retry: ReturnType<TestHarness["host"]["start"]> | null = null;

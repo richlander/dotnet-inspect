@@ -319,6 +319,7 @@ interface MainEpoch<TDiagnostic> {
   readonly startupStartedAt: number;
   startupDeadline: number;
   initializationDispatched: boolean;
+  bindingPending: boolean;
   detach: (() => void) | null;
   phase:
     | "starting"
@@ -352,6 +353,8 @@ interface MainEpoch<TDiagnostic> {
   preparedBindings: number;
   producerCallouts: number;
   closurePublicationActive: boolean;
+  terminationAttempted: boolean;
+  terminationSucceeded: boolean;
   terminationFinalizing: boolean;
   terminationFinalized: boolean;
   realmReleased: boolean;
@@ -611,6 +614,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   #disposed = false;
   #startPending = false;
   #terminationPending = false;
+  #unownedTerminationFailed = false;
   #subscriptionsReleased = false;
 
   constructor(
@@ -698,7 +702,17 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     const epoch = this.#current;
     if (epoch !== null && epoch.phase !== "closed")
       this.restart();
-    if (this.#terminationPending) return;
+    this.#releaseDisposedSubscriptionsIfSafe();
+  }
+
+  #releaseDisposedSubscriptionsIfSafe(): void {
+    if (!this.#disposed
+      || this.#startPending
+      || this.#terminationPending
+      || this.#unownedTerminationFailed) return;
+    const epoch = this.#current;
+    if (epoch !== null
+      && (epoch.bindingPending || !epoch.terminationSucceeded)) return;
     for (const error of this.#releaseSubscriptions())
       this.#reportCallbackError(error);
   }
@@ -755,14 +769,19 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (this.#startPending || this.#terminationPending)
       return { kind: "rejected", reason: "epoch-active" };
     const current = this.#current;
-    if (current !== null && current.phase !== "closed")
+    if (current !== null
+      && (current.phase !== "closed"
+        || current.bindingPending
+        || !current.terminationSucceeded)) {
       return { kind: "rejected", reason: "epoch-active" };
+    }
 
     this.#startPending = true;
     try {
       return this.#startReserved(bootstrap);
     } finally {
       this.#startPending = false;
+      this.#releaseDisposedSubscriptionsIfSafe();
     }
   }
 
@@ -830,6 +849,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       startupStartedAt: now,
       startupDeadline: now + this.#options.startupBudgetMilliseconds,
       initializationDispatched: false,
+      bindingPending: true,
       detach: null,
       phase: "starting",
       closure: null,
@@ -854,6 +874,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       preparedBindings: 0,
       producerCallouts: 0,
       closurePublicationActive: false,
+      terminationAttempted: false,
+      terminationSucceeded: false,
       terminationFinalizing: false,
       terminationFinalized: false,
       realmReleased: false,
@@ -873,21 +895,24 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         },
       });
     } catch (error: unknown) {
+      epoch.bindingPending = false;
       this.#fail(epoch, "startup", error, true);
+      this.#hardTerminate(epoch);
       return {
         kind: "rejected",
         reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
         detail: error,
       };
     }
+    epoch.detach = detach;
+    epoch.bindingPending = false;
     if (epoch.phase === "closed") {
-      this.#detachUnownedTransport(detach);
+      this.#hardTerminate(epoch);
       return {
         kind: "rejected",
         reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
       };
     }
-    epoch.detach = detach;
 
     epoch.initializationDispatched = true;
     const initialization = this.#post(epoch, {
@@ -921,14 +946,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     try {
       transport.source.terminate();
     } catch (error: unknown) {
-      this.#reportCallbackError(error);
-    }
-  }
-
-  #detachUnownedTransport(detach: () => void): void {
-    try {
-      detach();
-    } catch (error: unknown) {
+      this.#unownedTerminationFailed = true;
       this.#reportCallbackError(error);
     }
   }
@@ -2384,10 +2402,18 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch: MainEpoch<TDiagnostic>,
   ): void {
     if (epoch.phase !== "closed") {
+      epoch.phase = "closed";
+      epoch.held.length = 0;
+      epoch.commands.clear();
+      epoch.probe = null;
+      epoch.deferredControlProbe = false;
+      epoch.epochWork.clear();
+    }
+    if (!epoch.terminationAttempted && !epoch.bindingPending) {
       const cleanupErrors: unknown[] = [];
+      epoch.terminationAttempted = true;
       this.#terminationPending = true;
       try {
-        epoch.phase = "closed";
         const detach = epoch.detach;
         epoch.detach = null;
         if (detach !== null) {
@@ -2399,18 +2425,14 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         }
         try {
           epoch.source.terminate();
+          epoch.terminationSucceeded = true;
         } catch (error: unknown) {
           cleanupErrors.push(error);
         }
-        epoch.held.length = 0;
-        epoch.commands.clear();
-        epoch.probe = null;
-        epoch.deferredControlProbe = false;
-        epoch.epochWork.clear();
       } finally {
         this.#terminationPending = false;
       }
-      if (this.#disposed)
+      if (this.#disposed && epoch.terminationSucceeded)
         cleanupErrors.push(...this.#releaseSubscriptions());
       for (const error of cleanupErrors)
         this.#reportCallbackError(error);
@@ -2427,6 +2449,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
   #finalizeHardTerminationIfReady(epoch: MainEpoch<TDiagnostic>): void {
     if (epoch.phase !== "closed"
+      || epoch.bindingPending
+      || !epoch.terminationAttempted
+      || !epoch.terminationSucceeded
       || this.#terminationPending
       || epoch.producerCallouts !== 0
       || epoch.closurePublicationActive
@@ -2891,13 +2916,14 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   finishEpochWork(sequence: number): boolean {
     if (this.#terminated
       || !this.#ready
-      || this.#failed
       || this.#epochToken === null) return false;
     if (!this.#epochWork.delete(sequence)) {
-      this.#declareFailure({
-        kind: "invalid-epoch-work-finish",
-        sequence,
-      });
+      if (!this.#failed) {
+        this.#declareFailure({
+          kind: "invalid-epoch-work-finish",
+          sequence,
+        });
+      }
       return false;
     }
     this.#emit({
@@ -3114,14 +3140,16 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     operation: WorkerWireOperationReference,
     settlement: ManagedOperationSettlement<unknown, unknown, unknown>,
   ): void {
-    if (this.#terminated || this.#failed) return;
+    if (this.#terminated) return;
     const active = this.#active.get(operation.operationId);
     if (active === undefined
       || active.operation.operationSequence !== operation.operationSequence) {
-      this.#declareFailure({
-        kind: "settlement-without-active-operation",
-        operation,
-      });
+      if (!this.#failed) {
+        this.#declareFailure({
+          kind: "settlement-without-active-operation",
+          operation,
+        });
+      }
       return;
     }
     active.settling = true;

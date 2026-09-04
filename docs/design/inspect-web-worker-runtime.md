@@ -304,7 +304,10 @@ or any other consumer-supplied creation callout. A nested `start()` therefore
 rejects as `epoch-active` rather than constructing a competing realm. The host
 rechecks terminal disposal after each pre-commit callout. If disposal occurred,
 the outer start rejects as `host-disposed`; a transport already created but not
-installed is terminated before return. Once the epoch is installed, reentrant
+installed is terminated before return. Disposal subscription cleanup remains
+reserved through that pre-commit transition; if the unowned transport cannot be
+terminated, the host reports the failure without claiming cleanup completion.
+Once the epoch is installed, reentrant
 disposal or failure uses ordinary hard termination, and the outer start cannot
 return a success-shaped epoch after any closure has committed, including a
 bounded draining closure that retains physical work.
@@ -461,7 +464,7 @@ diagnostic, or progress codecs.
 The main-to-worker inventory is:
 
 ```text
-Initialize(bootstrap, idleHeartbeatInterval)
+Initialize(bootstrap, idleHeartbeatInterval, idleAllowanceMilliseconds)
 Start(operation, kind, payload)
 Cancel(operation, reason)
 Probe(probeSequence)
@@ -867,6 +870,12 @@ crash during draining proves that the realm is already gone, so the host closes
 and releases immediately while preserving that first cause and those outcomes
 rather than waiting for the remaining drain budget.
 
+A worker that has declared epoch failure refuses new starts, cancellation
+commands, probes, and epoch-work leases. Settlement callbacks and
+epoch-work-finish calls for work admitted before that declaration still emit
+their physical release evidence. They cannot replace the committed failure,
+but they permit the main host to release the failed realm naturally.
+
 A live failed realm receives one bounded active-time drain budget. It may
 release accepted operations and epoch-work leases naturally. It is terminated
 when all assigned resources release or when the budget expires. Missing
@@ -895,6 +904,19 @@ throwing detach callback cannot prevent the host from attempting
 termination errors are reported only after both mandatory callbacks have been
 attempted, and replacement startup remains reserved through that physical
 shutdown barrier.
+
+Binding is also an epoch-visible lifetime. If a synchronous bind-time event
+closes the epoch before `bind()` returns its detach capability, logical
+authority is revoked immediately, but detach, termination, finalization, and
+realm release wait for that return. The host then attempts detach before
+termination under the ordinary shutdown barrier.
+
+Successful return from `Worker.terminate()` is the host's evidence that
+physical destruction completed. If termination throws, the host reports the
+callback failure but leaves the epoch unreleased, refuses replacement startup,
+and, for disposal, retains its clock and lifecycle subscriptions rather than
+claiming that teardown completed. A detach failure does not have that effect
+when termination succeeds.
 
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
@@ -1086,6 +1108,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   `Rejected` responses that cannot erase the sibling's committed publication
   or quiescence, including a following `CancelAcknowledged` that cannot retire
   the physically closed sibling before publication completes;
+- worker-declared failure refusing new work while later settlement and
+  epoch-work-finish callbacks for already-admitted work continue to emit
+  physical release evidence for natural failed-realm draining;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent
@@ -1150,8 +1175,12 @@ deterministic scheduling rather than a real browser worker. It includes:
   failures that cannot admit disposed work or a replacement before physical
   termination, direct reentrant starts from detach or terminate callbacks
   rejecting until that barrier completes, disposal reentered from teardown
-  deferring subscription cleanup through that barrier, cleanup diagnostics
-  observing the completed barrier, and preserved realm-release ordering, plus
+  and disposal during pre-commit transport creation deferring subscription
+  cleanup through successful termination, cleanup diagnostics observing the
+  completed barrier, bind-time closure retaining the returned detach capability
+  before teardown and release, termination failure
+  withholding realm release, replacement, and disposal subscription cleanup,
+  and preserved realm-release ordering, plus
   synchronous fake-worker admission aborting before invocation when its
   response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
