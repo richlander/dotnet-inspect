@@ -391,6 +391,19 @@ function detailHtml() {
               <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
             </section>
           </section>
+          <section class="learn-section member-parameters">
+            <h2>Parameters</h2>
+            <dl class="parameter-docs">
+              <div>
+                <dt><code>json</code></dt>
+                <dd><a>string</a><p>The JSON payload to deserialize into the requested return type.</p></dd>
+              </div>
+            </dl>
+          </section>
+          <section class="learn-section member-returns">
+            <h2>Returns</h2>
+            <p class="api-summary">The value produced by deserializing the supplied JSON payload.</p>
+          </section>
         </article>
       </div>
     </section>`;

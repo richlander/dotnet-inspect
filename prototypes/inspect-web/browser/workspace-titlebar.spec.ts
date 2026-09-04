@@ -392,9 +392,16 @@ test("Member Overview keeps declaration, summary, and identity in order", async 
   const detail = await box(page, ".detail-pane");
   const declaration = await box(page, ".signature-panel");
   const summary = await box(page, ".member-documentation");
+  const parameters = await box(page, ".member-parameters");
+  const parameterProse = await box(page, ".member-parameters dd p");
+  const returnsProse = await box(page, ".member-returns .api-summary");
   expect(detail.x + detail.width - (declaration.x + declaration.width))
     .toBeCloseTo(16, 0);
   expect(summary.width).toBeLessThan(declaration.width);
+  expect(parameters.width).toBeLessThanOrEqual(900);
+  expect(parameterProse.width).toBeLessThanOrEqual(900);
+  expect(returnsProse.width).toBeLessThanOrEqual(900);
+  expect(declaration.width).toBeGreaterThan(parameters.width);
 });
 
 test("Member Overview responds to constrained pane widths", async ({

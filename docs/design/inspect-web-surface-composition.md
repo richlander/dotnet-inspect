@@ -14,8 +14,8 @@ focused owners; this document places them.
 This owner defines:
 
 - which working surfaces exist (Type API, Member API, Type Metadata, Source,
-  Annotated Source, Package query, Diagnostics) and their page-level placement relative to
-  Type/Member navigation;
+  Annotated Source, Package query, Diagnostics) and their page-level placement
+  relative to Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
@@ -283,10 +283,11 @@ stable selector, digest, canonical signature
 ```
 
 The declaration and identity use the working surface's available width while
-summary prose retains a readable line length. At constrained widths the
-declaration scrolls horizontally without separating its Copy action, and
-identity labels stack above their values rather than forcing page-level
-horizontal overflow.
+summary prose retains a readable line length. Subsequent documentation sections
+retain their established readable measure rather than expanding with the
+declaration and identity. At constrained widths the declaration scrolls
+horizontally without separating its Copy action, and identity labels stack
+above their values rather than forcing page-level horizontal overflow.
 
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.
@@ -533,9 +534,11 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact product-information line. It does not wrap,
 expand, or host runtime diagnostics:
 
+<!-- markdownlint-disable MD013 -->
 ```text
 dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
 ```
+<!-- markdownlint-enable MD013 -->
 
 The data bar includes:
 

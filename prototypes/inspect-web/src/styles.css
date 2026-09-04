@@ -1099,6 +1099,7 @@ kbd {
 .member-surface-scroll { container: member-surface / inline-size; min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 60px; }
 .member-surface-scroll > .document-section:first-child { padding-top: 0; }
 .member-surface .learn-overview { max-width: none; }
+.member-surface .learn-overview > .learn-section:not(.member-overview-intro) { max-width: 900px; }
 .learn-section.member-overview-intro { padding-top: 0; }
 .member-overview-intro > :first-child { margin-top: 0; }
 .member-overview-intro .signature-panel { margin-top: 0; }
@@ -1743,7 +1744,7 @@ kbd {
 @media (max-width: 760px) {
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
-  .inspected-target { gap: 6px; padding: 0 10px;   }
+  .inspected-target { gap: 6px; padding: 0 10px; }
   .subject-path-separator { margin: 0 6px; }
   .workspace:not(.content-frame) { grid-template-columns: 44% 56%; }
   .type-library-context .namespace-chips, .pane-footer { display: none; }

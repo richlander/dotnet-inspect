@@ -5212,7 +5212,7 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
-    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
+    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\) \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
   assert.match(
     stylesSource,
     /\.member-documentation \{ max-width: 760px;/);
