@@ -50,9 +50,17 @@ result hierarchy. Settling that vocabulary is the main work below.
 
 ## Admission test
 
-A component is a semantic substrate when **all five** hold. Failing any one
-means it is an ordinary Metadata helper, or a composition that belongs to a
-consumer.
+A meaning is **admissible** as a semantic substrate when all five hold.
+Failing any one means it belongs in an ordinary Metadata helper, or in a
+composition owned by a consumer.
+
+Admission is necessary, not sufficient. It governs whether a *meaning* belongs
+in a substrate; a component publishing that meaning must additionally satisfy
+the publication contract below, which is where single-module scope,
+construction totality, bounds, and identity are stated. A component can hold an
+admissible meaning and still not be a substrate — `TypeResolutionContext` is
+the clearest in-tree example, since it composes answers across assemblies,
+which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-alone).
 
 1. **Derived meaning.** It establishes a relationship, contract, or
    disposition that no single metadata row states outright. Decoding one
@@ -109,9 +117,13 @@ consumer.
 4. **Policy neutrality.** It publishes what the metadata asserts, not what a
    consumer should do about it. Rendering choices, fidelity trade-offs,
    severity, and recommendations belong to consumers.
-5. **Closed outcomes.** Every reachable disposition, including failure, is
-   expressible in its published types without a consumer inspecting strings
-   or inferring meaning from absence.
+5. **Closed outcomes.** The published outcome type matches the domain in both
+   directions. Every reachable disposition, including failure, is expressible
+   without a consumer inspecting strings or inferring meaning from absence;
+   and every published case is reachable, so a consumer reading the type
+   learns exactly what it may receive. A case it can never be handed is a
+   false promise, and a shared result algebra spanning unrelated domains
+   necessarily makes several.
 
 Requirement 3 is deliberately empirical. The inventory below records demand
 that exists, not demand a substrate might create.
@@ -142,8 +154,8 @@ Decompiler, and the substrate boundary is exactly what keeps it there.
 
 Substrates share **required distinctions**, not one shared generic result
 type. A single closed generic outcome across unrelated domains would force
-every substrate to carry cases it cannot reach, which requirement 5 already
-forbids.
+every substrate to carry cases it cannot reach, which requirement 5's
+reachability half forbids.
 
 A substrate must distinguish, whenever the distinction is reachable in its
 domain:
@@ -328,28 +340,47 @@ existing components were written without. Auditing all six rows found four
 failures, so requirement 5 is stated here as a forward contract, not as
 something the precedents demonstrate.
 
-Requirement 5 is a property of the **published types**: can a consumer name
-the disposition it received without parsing prose. It fails in two ways, and
-the audit found both — a reachable disposition with *no case at all*, and one
-recoverable only from a `Detail` string.
+All four fail the same way: a reachable disposition has **no case at all**.
+In one of them the distinction survives in a `Detail` string, so a consumer
+could recover it by parsing prose — which requirement 5 exists to forbid. In
+the other three it is not recoverable by any means.
 
-**Publishing a wrong case is a second, separate defect**, and one row commits
-both. A missing case makes a substrate say *less* than it knows. A wrong case
-makes it say something **untrue about the artifact**, which is worse: a
-consumer acting on it reports a defect that does not exist. These are separate
-obligations — the vocabulary must *contain* the case, and the implementation
-must *route to* it — and satisfying the first does not discharge the second.
-Requirement 5 can only ever enforce the first, which is recorded under
-**Open questions**.
+**What gets published instead splits them again, and this is the sharper
+axis.** Two of the four publish a *truthful but coarse* case: `Unknown` and
+`AttributeUnavailable` say less than the substrate knows, but nothing they say
+is false. The other two publish a **wrong** case — both report `Malformed`,
+asserting the *artifact* is defective, when the real cause is an invalid caller
+handle in one and a bound *we* imposed in the other. A coarse case makes a
+substrate less useful; a false case makes it untrustworthy, because a consumer
+acting on it reports a defect that does not exist.
+
+That is two separate obligations — the vocabulary must *contain* the case, and
+the implementation must *route to* it — and satisfying the first does not
+discharge the second. Requirement 5 checks the published type, so it reaches
+the first directly. Routing is a behavioural obligation, recorded with its
+evidence posture under **Open questions**.
 
 | Established meaning | Requirement 5 today |
 | --- | --- |
-| State-machine claims and kickoff/type pairing | **Fails — no case at all, and the wrong case published in its place.** "The caller supplied an invalid handle" is reachable, and the vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). A nil or out-of-range handle instead routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`) — a claim about the *artifact*, when the artifact is fine. This is the only row with both defects, and adding the case would not by itself correct the routing. |
+| State-machine claims and kickoff/type pairing | **Fails — no case at all, and the wrong case published in its place.** "The caller supplied an invalid handle" is reachable, and the vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). A nil or out-of-range handle instead routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`) — a claim about the *artifact*, when the artifact is fine. Adding the case would not by itself correct the routing; they are separate corrections. |
 | Exact `MoveNext` execution-role selection | Conforming — role selection and rejection are typed. |
 | Module memory-safety rules markers | Conforming — version, malformed, conflicting, unsupported, and budget states are each typed. |
 | Member unsafe contracts | **Fails.** The attribute-row budget (`MemorySafetyMetadataIndex.cs:748`-`752`), a `MetadataBudgetException` (`:801`-`803`), and malformed metadata (`:805`-`810`) all return `Unavailable`, published as `AttributeUnavailable`; the failure enum has no budget case (`:102`-`110`). |
-| Exact TypeDef declaration | **Fails.** Budget exhaustion is reported as `Malformed`: `MetadataTypeNameFailureMechanism` declares only `Metadata`, `Relationship`, `Signature`, and `TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`), and `Malformed` hard-codes `Mechanism.Metadata` (`:76`-`:82`). |
+| Exact TypeDef declaration | **Fails — no case, and the wrong case published in its place.** `MetadataTypeNameFailureMechanism` declares only `Metadata`, `Relationship`, `Signature`, and `TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`), so budget exhaustion has no case. It is published through `Malformed`, which hard-codes `Mechanism.Metadata` (`:76`-`:82`) and surfaces `Kind` as `"MalformedMetadata"` (`:44`-`:46`) for a bound *we* imposed (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:67`-`71`). This is the one row where the `Detail` string still carries the distinction — recoverable only by parsing prose. |
 | TypeDef kind classification | **Fails.** `MetadataTypeDefinitionKind` offers only `Unknown`, `Class`, `Interface`, `ValueType` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`), and `Unknown` is returned for bound exhaustion or a cycle (`MetadataTypeDeclarationProbe.cs:785`-`789`), an unsupported TypeSpec shape (`:818`-`857`), a rejected name read (`:864`-`881`), and malformed metadata (`:910`-`915`) — inside a success-shaped `Defined` result (`:640`-`648`). |
+
+**The reachability half was audited separately, and no row fails it.** Every
+case of `StateMachineRelationshipFailureKind`, `StateMachineMethodRole`,
+`MemorySafetyMetadataFailureKind`, `MemorySafetyMemberContractFailureKind`,
+`MemorySafetyPointerEvidence`, `MemorySafetyFixedBufferEvidence`,
+`RequiresUnsafeAttributeEvidenceState`, `MetadataTypeDefinitionKind`, and
+`MetadataTypeNameFailureMechanism` has at least one construction site in
+product code. The four failures above are all failures of the first half:
+domain states with no case, never declared cases a consumer cannot receive.
+That is what the requirement predicts — these vocabularies grew from the states
+their authors met, so they under-declare rather than over-declare. A shared
+generic result algebra would have inverted that, which is why the pattern
+forbids one.
 
 Note the scope of the state-machine row precisely: it covers a **nil or
 out-of-range** handle, the case a range check can see. An in-range handle from
@@ -367,9 +398,9 @@ admitted, and **may not be cited as precedent for the requirement it fails**.
 That four of the six rows mishandle the same distinction — a bound *we* imposed
 versus a defect in the *artifact* — is the most useful thing this inventory
 found. Each component chose its own failure vocabulary in isolation, and each
-independently lost that distinction somewhere: three by omitting the case, one
-of those also publishing a wrong case in its place, and one by hiding the
-distinction in prose. A shared contract is
+independently lost that distinction somewhere: all four omitted the case, two
+of them then published a case asserting the artifact was at fault, and only one
+left the distinction recoverable at all, in a `Detail` string. A shared contract is
 the only thing that would have caught it, which is the argument for naming the
 pattern.
 
@@ -588,6 +619,18 @@ adoption that assumes equivalence rather than demonstrating it is unsafe. What
 that evidence looks like, and which gate carries it, belongs to the adopting
 owner's effort — this document does not specify another owner's gates.
 
+**Each adopting substrate must name the gate that carries its routing
+obligations, or record them as `unverified`.** Several requirements here
+constrain which case a substrate reaches for a given state rather than which
+cases it declares — requirement 2's rule that conventional evidence is labelled
+conventional and never presented as structural, requirement 5's reachability
+half, and both outcome-vocabulary rules. None of them is checked by reading a
+published type. Per
+[`docs/evidence-and-validation.md`](../evidence-and-validation.md), a soundness
+claim must name its enforcing gate or say `unverified`; this document has no
+behavior of its own to gate, so it places that obligation on each adoption.
+The repository-wide posture is recorded under **Open questions**.
+
 ## Non-goals
 
 - No registry, resolver service, or shared generic outcome type.
@@ -599,22 +642,37 @@ owner's effort — this document does not specify another owner's gates.
 
 ## Open questions
 
-**The admission test checks that a vocabulary is closed, not that it is used
-correctly.** Requirement 5 quantifies over the *existence* of cases: every
-reachable disposition must have a published one. It says nothing about the
-mapping from state to case, so a substrate whose cases are complete and whose
-routing is wrong satisfies it exactly as well as a correct one.
+**Routing soundness is `unverified` repository-wide, and this document does
+not close it.** Several requirements here constrain the *mapping* from an
+internal state to a published case, not the set of cases a type declares:
 
-This is a structural property of the requirement rather than an observation
-about any particular component, and it is stated that way deliberately. The
-tree offers no clean example — the state-machine index gets an invalid handle
-wrong, but it is *also* missing the `InvalidHandle` case, so it demonstrates
-both defects rather than isolating this one. A reviewer reading only the
-published types could not tell the two apart, which is the point.
+- Requirement 2 — conventional evidence must be **labelled** conventional and
+  must never be presented as a structural fact.
+- Requirement 5's reachability half — every declared case must actually be
+  reachable.
+- Both outcome-vocabulary rules — never collapse a failure into an absence,
+  and keep admitted absence distinct from unexamined.
 
-Requirement 5 cannot be extended to close this without changing its character
-from a property of types into a property of behaviour, which no review of a
-published surface can check. Correctness of mapping is therefore a
-**testable** obligation rather than an admission one, and this document does
-not yet say which gate owns it. Recorded as open rather than papered over with
-a requirement the admission test cannot enforce.
+A component can satisfy every one of these by declaration and still route
+wrongly, and two Established rows do exactly that: the state-machine index and
+the exact-TypeDef probe both publish `Malformed` — a claim about the
+*artifact* — for a caller error and for a bound we imposed. Nothing in a
+published type distinguishes those from a correct implementation.
+
+**This is not a category difference, and an earlier draft of this section was
+wrong to call it one.** Requirement 5 already quantifies over *reachable*
+dispositions, which is a behavioural property, and the inventory above
+established reachability by reading routing code, not signatures. The real
+obstacle is cost: reachability for a handful of failure states was tractable by
+inspection, whereas proving that every state reaches its correct case is a
+per-substrate testing obligation, not something a reviewer can discharge while
+reading a design document.
+
+So the repository-wide claim "substrates route correctly" is **`unverified`**,
+and this document deliberately does not assert it. **Gates** places the
+obligation on each adoption to name the gate that carries its routing
+properties or to record them `unverified` in turn. This matters immediately
+rather than theoretically: the next planned adoption,
+[#5253](https://github.com/richlander/dotnet-inspect/issues/5253), turns on
+exactly the structural-versus-conventional label that requirement 2 governs
+and no published type can enforce.
