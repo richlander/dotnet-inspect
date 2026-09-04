@@ -1967,8 +1967,7 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
-        byte[] image = File.ReadAllBytes(
-            typeof(BrowserPackageWorkspace).Assembly.Location);
+        byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
 
         BrowserPackageWorkspace.OpenScope(
             [Coordinate("Large.A", Package(image, "lib/net11.0/Large.A.dll", 60 * MiB))]);
