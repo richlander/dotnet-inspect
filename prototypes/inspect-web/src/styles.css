@@ -994,6 +994,7 @@ kbd {
 .detail-scroll.api-working-surface,
 .detail-scroll.metadata-working-surface,
 .detail-scroll.member-working-surface { min-height: 0; overflow: hidden; padding: 0; }
+.detail-scroll.package-dependencies-working-surface,
 .detail-scroll.package-metadata-working-surface { min-height: 0; overflow: hidden; padding: 0; }
 
 .type-heading {
@@ -1089,21 +1090,32 @@ kbd {
 .metadata-surface-footer span,
 .api-surface-footer span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .metadata-surface-footer { justify-content: space-between; }
+.package-dependencies-surface,
 .package-metadata-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px auto minmax(0, 1fr) 34px; background: var(--bg); }
+.package-dependencies-controls,
 .package-metadata-controls { min-width: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); background: var(--chrome); }
+.package-dependencies-controls .package-coordinate-fields,
 .package-metadata-controls .package-coordinate-fields { align-items: center; gap: 8px 16px; }
+.package-dependencies-controls .framework-select,
+.package-dependencies-controls .version-select,
 .package-metadata-controls .framework-select,
 .package-metadata-controls .version-select,
 .package-metadata-controls .metadata-library-select { display: flex; align-items: center; gap: 6px; }
+.package-dependencies-controls label > span,
 .package-metadata-controls label > span { color: var(--dim); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.package-dependencies-controls select,
 .package-metadata-controls select { height: 26px; }
 .package-metadata-controls .metadata-library-select { min-width: min(420px, 100%); flex: 1 1 260px; }
 .package-metadata-controls .metadata-library-select .scope-select { max-width: 420px; }
+.package-dependencies-scroll,
 .package-metadata-scroll { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 24px; }
+.package-dependencies-scroll > .document-section,
 .package-metadata-scroll > .document-section { padding: 24px 16px 0; }
 .package-metadata-scroll > .metadata-warning { padding: 14px 16px; }
 .package-metadata-scroll > .meta-assembly + .meta-assembly { margin-top: 24px; border-top: 1px solid var(--line); }
+.package-dependencies-state,
 .package-metadata-state { min-height: 100%; align-content: center; }
+.api-surface-footer.package-dependencies-surface-footer,
 .package-metadata-surface-footer { justify-content: space-between; }
 .api-surface-controls { margin: 0; border: 0; border-bottom: 1px solid var(--line); }
 .api-surface-controls .member-filter-disclosure { border-top: 0; }
@@ -1787,7 +1799,9 @@ kbd {
   .metadata-surface-scroll > .metadata-shape-section { padding-inline: 0; }
   .metadata-shape-section .section-title,
   .metadata-shape-section .fact-rows div { padding-inline: 12px; }
+  .package-dependencies-controls,
   .package-metadata-controls { padding-inline: 10px; }
+  .package-dependencies-scroll > .document-section,
   .package-metadata-scroll > .document-section { padding-inline: 12px; }
   .member-surface-scroll { padding: 12px 12px 52px; }
   .member-overload-surface .member-surface-scroll { padding: 0 0 20px; }

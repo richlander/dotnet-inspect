@@ -217,10 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Package Metadata, Source, Annotated Source,
-and Diagnostics are working surfaces rather than documents inset inside a
-general page. The Metadata Explorer retains its separately owned full-bleed
-composition.
+Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
+Source, Annotated Source, and Diagnostics are working surfaces rather than
+documents inset inside a general page. The Metadata Explorer retains its
+separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -331,6 +331,47 @@ successful empty projection.
 At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
+
+### Package Dependencies
+
+Package Dependencies uses the complete package inspector area. It does not
+retain the generic package hero or inset Package coordinate section used by
+document-style package lenses. The persistent subject path remains the owner
+of the package identity.
+
+The surface contains:
+
+```text
+Dependencies                         package and reference count or state
+Version · Framework
+target-framework groups, graph, package dependencies, assembly references
+package@version                                             active framework
+```
+
+The quiet header labels the lens and reports the selected dependency group's
+package count together with the selected assembly's direct reference count.
+A compact control row keeps Version and Framework available. Dependency-group
+selection remains with the result because it selects a manifest group rather
+than changing the active package coordinate.
+
+One independently scrolling content region retains the exact-group notice,
+target-framework selector, dependency graph, package dependency list, assembly
+references, and partial workspace warning. Selecting another manifest group
+patches its list and graph in place without changing the surface frame or
+resetting the package coordinate.
+
+The fixed bottom context row preserves the exact package coordinate and active
+framework. Loading, query failure, no-dependency, no-exact-group, graph
+failure, and partial-workspace states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from successful
+empty results.
+
+At narrow widths, the `Types` return control shares the quiet header, controls
+wrap within their row, and header and footer values may elide as complete
+strings. The surface creates no page-level horizontal overflow. This slice
+does not change dependency selection, graph construction or navigation,
+Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+the Metadata Explorer.
 
 ### Package Metadata
 
@@ -731,6 +772,27 @@ with the absence of a synthesized `Default feed` control.
 4. Repeat with long package and library names at a narrow viewport. Confirm
    that controls wrap within their row, context values elide as complete
    strings, and no page-level horizontal overflow appears.
+
+### Package Dependencies working surface
+
+1. Open package Dependencies and confirm that the quiet header, compact
+   Version and Framework controls, target-framework groups, dependency graph,
+   package dependencies, assembly references, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Switch manifest target-framework groups and confirm that the dependency
+   list and graph update in place while the surface frame, package coordinate,
+   and scroll ownership remain stable. Open or load a dependency from both the
+   list and graph and confirm that existing navigation behavior is preserved.
+3. Exercise loading, query failure, no declared dependencies, no exact group,
+   graph rendering failure, and partial workspace failure. Confirm that each
+   keeps the full-area frame and that failure is never presented as successful
+   emptiness.
+4. Open a package with enough graph and list content to scroll. Repeat with a
+   long package coordinate and narrow viewport; confirm that the `Types`
+   control shares the quiet header, controls wrap within their row, context
+   values elide as complete strings, and no page-level horizontal overflow
+   appears.
 
 ### Source working surface
 

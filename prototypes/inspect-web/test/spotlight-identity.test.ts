@@ -5289,7 +5289,7 @@ test("package metadata uses compact coordinates in a full-area working surface",
     /const contentNavigationIntegrated =[\s\S]*?\|\| packageMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
     renderPackage,
-    /if \(state\.packageLens === "metadata"\) return body;/);
+    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
@@ -5308,6 +5308,45 @@ test("package metadata uses compact coordinates in a full-area working surface",
   assert.match(
     stylesSource,
     /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
+});
+
+test("package dependencies use compact coordinates in a full-area working surface", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+    ?? "";
+  const renderDependencies =
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction assemblyReferencesSectionHtml/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && state\.packageLens === "dependencies"/);
+  assert.match(
+    appSource,
+    /packageDependenciesWorkingSurface \? " package-dependencies-working-surface" : ""/);
+  assert.match(
+    appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
+  assert.match(
+    renderPackage,
+    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+  assert.match(
+    appSource,
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+  assert.equal(
+    renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
+    5);
+  assert.match(
+    appSource,
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {
