@@ -355,8 +355,9 @@ preset never needs to "contain" its own history.
   a new request, keeping displayed counts honest.
 - No unbounded archive evaluation. Package-content facets are an explicit
   gesture and are product-gated to 20 candidates.
-- No assembly, metadata, or IL evaluation. A future promoted tier still
-  requires a separately owned product operation and UI change.
+- No assembly, metadata, or IL evaluation in the current Browser slice.
+  Adopting the separately owned promoted evaluator still requires a later
+  Browser composition and UI change.
 - No persistence, sharing, or outcome cache in the current slice.
 - No chart or aggregation surface in the current slice.
 
@@ -413,8 +414,16 @@ and browser-history and focus-return outcomes are proved by
    event adapter, product-issued facet rail, and typed Workspace handoff.
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
    facet, and the segmented .NET tool format control.
-5. Assembly/IL evaluation requires a separate product-owned query and UX
-   design; this contract does not reserve controls for it.
+5. [Package Query assembly-pattern
+   evaluation](package-query-assembly-evaluation.md) owns one-candidate
+   primary-assembly selection, semantic confirmation, evidence, and resource
+   release. A later Browser composition slice owns the explicit gesture,
+   candidate scheduling, rendering, and exact result opening. Its
+   `Open in workspace` action consumes #5837's Artifact Acquisition-owned Root
+   reacquisition request rather than applying this assembly-free slice's
+   package-ID/version handoff to a result whose selection target may differ
+   from its acquisition coordinate. This contract does not reserve controls
+   for it.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

@@ -4,13 +4,11 @@ namespace CiChangeDetection.Planning;
 
 /// <summary>
 /// The planner's path and event routing policy. Every repository path rule
-/// that decides whether a CI validation applies lives here, ported from
-/// <c>eng/ci-detect-changes.sh</c> including its first-match <c>case</c>
-/// semantics, in which <c>*</c> crosses <c>/</c>.
+/// that decides whether a CI validation applies lives here. Patterns retain
+/// the repository routing convention in which <c>*</c> crosses <c>/</c>.
 /// </summary>
 internal sealed class ChangeRoutingPolicy
 {
-    private const string DetectionScript = "eng/ci-detect-changes.sh";
     private const string TlaExpectedExitCodes =
         "eng/tla-expected-exit-codes.txt";
 
@@ -88,11 +86,6 @@ internal sealed class ChangeRoutingPolicy
         RoutingState state = default;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (BytePattern.Matches(record.Path, DetectionScript))
-            {
-                return RoutingSelections.All;
-            }
-
             RoutePath(record.Path, ref state);
         }
 
@@ -156,7 +149,6 @@ internal sealed class ChangeRoutingPolicy
         BytePattern.MatchesAny(
             path,
             ".github/workflows/ci.yml",
-            DetectionScript,
             "eng/run-tla-checks.sh",
             "eng/test-tla-checks.sh",
             "eng/tla-module-overrides.txt",
