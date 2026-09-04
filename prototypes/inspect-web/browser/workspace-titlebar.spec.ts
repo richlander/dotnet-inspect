@@ -1886,7 +1886,7 @@ test("the target row advertises the typed Package, Type, and Member path", async
   }
 });
 
-test("Workspace keeps the Default Workspace visible and menu fixed", async ({
+test("Workspace keeps the singular Workspace visible and menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -2077,9 +2077,9 @@ test("Workspace selection is observational and occurrence activation executes", 
 
   await expect(workspace).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator(".subject-path-segment"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-execution-count", "0");
   expect(page.url()).toBe(href);

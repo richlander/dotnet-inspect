@@ -346,6 +346,21 @@ test("package scope marks only the package segment and the active package lens",
   assert.doesNotMatch(html, /class="[^"]*\blens active" data-package-lens="overview"/);
 });
 
+test("workspace-only availability leaves the separate subject ladder empty", () => {
+  const html = renderScopeBar({
+    scope: "workspace",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-workspace-lens",
+    availableScopes: ["workspace"],
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(
+    html,
+    /data-scope="workspace"|data-scope="package"|data-scope="type"/);
+});
+
 test("type scope marks the type segment and renders the fixed type lenses", () => {
   const html = renderScopeBar({
     scope: "type",
