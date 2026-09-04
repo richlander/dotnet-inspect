@@ -14191,10 +14191,15 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
 
-        using var row = JsonDocument.Parse(output.Trim());
-        Assert.Equal(
-            ["type", "library"],
-            row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        foreach (string line in lines)
+        {
+            using var row = JsonDocument.Parse(line);
+            Assert.Equal(
+                ["type", "library"],
+                row.RootElement.EnumerateObject().Select(property => property.Name).ToArray());
+        }
     }
 
     [Fact]
