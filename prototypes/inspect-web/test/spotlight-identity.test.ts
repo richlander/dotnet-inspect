@@ -908,7 +908,7 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateControls\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
+    /function packageCoordinateFields\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -1131,6 +1131,9 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
+  assert.match(
+    appSource,
+    /const requiresSelection = selectedKey !== undefined && !scoped;[\s\S]*?<option value="" selected disabled>Choose a library<\/option>/);
   assert.match(
     binding,
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
@@ -4839,6 +4842,36 @@ test("type metadata uses a full-area working surface without the inset type head
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
+});
+
+test("package metadata uses compact coordinates in a full-area working surface", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+    ?? "";
+  const renderMetadata =
+    appSource.match(/function renderPackageMetadata\([\s\S]*?\n}\n\nasync function loadPackageMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const packageMetadataWorkingSurface =\s*activeScope === "package" && state\.packageLens === "metadata"/);
+  assert.match(
+    appSource,
+    /packageMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
+  assert.match(
+    renderPackage,
+    /if \(state\.packageLens === "metadata"\) return body;/);
+  assert.match(
+    renderMetadata,
+    /data-platform-metadata-library[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {

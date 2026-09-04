@@ -2882,6 +2882,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageMetadataWorkingSurface =
+    activeScope === "package" && state.packageLens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2972,7 +2974,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3379,6 +3381,22 @@ function packageHeading() {
   </header>`;
 }
 
+function packageCoordinateFields() {
+  const pkg = currentPackage();
+  return `<label class="version-select">
+    <span>Version</span>
+    <select id="package-version">
+      ${versionOptionsHtml(pkg)}
+    </select>
+  </label>
+  <label class="framework-select">
+    <span>Framework</span>
+    <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+      ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
 function packageCoordinateControls() {
   const pkg = currentPackage();
   return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
@@ -3386,25 +3404,13 @@ function packageCoordinateControls() {
       <h2 id="package-coordinate-heading">Package coordinate</h2>
       <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
     </div>
-    <div class="package-coordinate-fields">
-      <label class="version-select">
-        <span>Version</span>
-        <select id="package-version">
-          ${versionOptionsHtml(pkg)}
-        </select>
-      </label>
-      <label class="framework-select">
-        <span>Framework</span>
-        <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-          ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-        </select>
-      </label>
-    </div>
+    <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
   </section>`;
 }
 
 function renderPackageView() {
   const body = packageLensBody();
+  if (state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
@@ -3912,13 +3918,31 @@ function maybeAutoLoadPackagePerformance() {
 // it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
-  const isPlatform = state.package?.isRuntimePack === true;
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const fresh = state.packageMetadataKey === packageScopeSignature();
+  const scopedLibrary = scopedPlatformLibrary() || "";
+  const metadataLibraryControl = isPlatform
+    ? `<label class="metadata-library-select">
+        <span>Library</span>
+        ${platformLibrarySelectHtml({
+          dataAttr: "data-platform-metadata-library",
+          selected: scopedLibrary,
+        })}
+      </label>`
+    : "";
   return renderPackageMetadataHtml({
     isPlatform,
-    scopedLibrary: scopedPlatformLibrary() || "",
-    activeFramework: state.package?.activeFramework || "",
-    pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
+    scopedLibrary,
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    controlsHtml: `<section class="package-metadata-controls" aria-label="Metadata coordinate">
+      <div class="package-coordinate-fields">
+        ${packageCoordinateFields()}
+        ${metadataLibraryControl}
+      </div>
+    </section>`,
     fresh,
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
@@ -10367,9 +10391,13 @@ function platformLibrarySelectHtml(
   };
   for (const entry of state.platformRecent || []) pushRecent(byAssembly.get(entry.assembly));
   for (const lib of roster) if (lib.loaded) pushRecent(lib);
-  // The selector always shows a single "current" library: whatever is scoped,
-  // else the most-recent, else the largest library — never a useless reset row.
-  const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
+  // Lens-local selectors pass an explicit empty selection while they require the
+  // user to choose a library. Other placements keep the most-recent or largest
+  // library as their useful default.
+  const requiresSelection = selectedKey !== undefined && !scoped;
+  const current = requiresSelection
+    ? ""
+    : scoped || recent[0]?.assembly || roster[0]?.assembly || "";
   let selectedMarked = false;
   const option = (lib: PlatformLibrary) => {
     const isSel = !selectedMarked && lib.assembly === current;
@@ -10384,6 +10412,7 @@ function platformLibrarySelectHtml(
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
   return `<select class="scope-select platform-library-select" ${dataAttr} aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
+      ${requiresSelection ? '<option value="" selected disabled>Choose a library</option>' : ""}
       ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}

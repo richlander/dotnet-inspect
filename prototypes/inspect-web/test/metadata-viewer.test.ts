@@ -407,8 +407,10 @@ function lensOptions(overrides = {}) {
   return {
     isPlatform: false,
     scopedLibrary: "",
+    packageId: "Contoso",
+    packageVersion: "1.2.3",
     activeFramework: "net10.0",
-    pickerHtml: "<div id=picker></div>",
+    controlsHtml: "<section class=package-metadata-controls><div id=picker></div></section>",
     fresh: true,
     loading: false,
     error: "",
@@ -450,11 +452,15 @@ test("the metadata lens asks the platform to pick a library before reading an im
   const html = renderPackageMetadata(lensOptions({ isPlatform: true, scopedLibrary: "" }));
   assert.match(html, /Pick a library to inspect/);
   assert.match(html, /id=picker/);
+  assert.match(
+    html,
+    /class="package-metadata-surface"[\s\S]*?class=package-metadata-controls[\s\S]*?Pick a library to inspect[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
 });
 
 test("the metadata lens reports loading and failure only for the current scope", () => {
   const loading = renderPackageMetadata(lensOptions({ loading: true, metadata: null }));
   assert.match(loading, /Reading metadata…/);
+  assert.match(loading, /<p>reading<\/p>/);
 
   const failed = renderPackageMetadata(lensOptions({ error: "boom & <bang>", metadata: null }));
   assert.match(failed, /Metadata read failed/);
@@ -474,7 +480,21 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   }));
   assert.match(html, /Some assemblies could not be read/);
   assert.match(html, /Native\.dll unreadable/);
-  assert.match(html, /1 assembly · net10\.0/);
+  assert.match(html, /<p>1 assembly<\/p>/);
+  assert.match(html, /title="Contoso@1\.2\.3"/);
+  assert.match(html, /title="net10\.0"/);
+});
+
+test("the metadata lens keeps selected platform context in its stable frame", () => {
+  const html = renderPackageMetadata(lensOptions({
+    isPlatform: true,
+    scopedLibrary: "System.Runtime",
+  }));
+  assert.match(html, /<p>1 assembly<\/p>/);
+  assert.match(html, /title="net10\.0 · System\.Runtime"/);
+  assert.match(
+    html,
+    /class=package-metadata-controls[\s\S]*?class="package-metadata-scroll"[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
 });
 
 test("the metadata lens distinguishes a truncated metadata version", () => {
@@ -528,6 +548,16 @@ test("an assembly block lists non-empty heaps and tables sorted by row count", (
   assert.match(html, /2\/3 populated/);
   assert.match(html, /v2\.5 · ILOnly · entry 0x6000001/);
   assert.match(html, /Amd64 · PE32\+/);
+});
+
+test("the metadata lens places assembly content directly in its owned scroller", () => {
+  const html = renderPackageMetadata(lensOptions());
+  assert.match(
+    html,
+    /<h1 id="package-metadata-surface-title">Metadata images<\/h1>[\s\S]*?<div class="package-metadata-scroll">[\s\S]*?class="document-section meta-assembly"/);
+  assert.doesNotMatch(
+    html,
+    /<h2>Metadata image<\/h2>|class="type-heading"|package-coordinate-editor/);
 });
 
 // -- Pure derivation ---------------------------------------------------------------------------

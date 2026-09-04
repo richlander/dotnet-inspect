@@ -217,9 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Source, Annotated Source, and Diagnostics
-are working surfaces rather than documents inset inside a general page. Package
-Metadata and the Metadata Explorer retain their separately owned composition.
+Type API, Member API, Type Metadata, Package Metadata, Source, Annotated Source,
+and Diagnostics are working surfaces rather than documents inset inside a
+general page. The Metadata Explorer retains its separately owned full-bleed
+composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -303,6 +304,41 @@ successful empty projection.
 At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
+
+### Package Metadata
+
+Package Metadata uses the complete package inspector area. It does not retain
+the generic package hero or inset Package coordinate section used by the other
+package lenses. The persistent subject path remains the owner of the package
+identity.
+
+The surface contains:
+
+```text
+Metadata images                                  assembly count or state
+Version · Framework · optional platform Library
+assembly image facts, heaps, and populated tables
+package@version                           TFM · optional scoped library
+```
+
+The quiet header labels the image-level lens and reports its assembly count or
+current state. A compact control row keeps Version and Framework available and,
+for the platform package, adds the scoped Library selector. The independently
+scrolling content region begins with assembly metadata rather than a repeated
+package summary. Each assembly retains its format, header facts, heaps, and
+populated-table controls, and those controls continue to open the separately
+owned Metadata Explorer.
+
+The fixed bottom context row preserves the exact package coordinate, target
+framework, and optional scoped library. Library-required, loading, failure,
+partial-failure, and no-image states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from a successful
+empty result.
+
+At narrow widths, controls wrap within their row and header and footer values
+may elide as complete strings. The surface creates no page-level horizontal
+overflow. This slice does not change the Metadata Explorer or other package
+lenses.
 
 ### Package query
 
@@ -633,6 +669,23 @@ with the absence of a synthesized `Default feed` control.
 3. Repeat with a long generic type identity, long package coordinate, and a
    narrow viewport. Confirm that header and footer values elide as complete
    strings without selective loss or page-level horizontal overflow.
+
+### Package Metadata working surface
+
+1. Open package Metadata and confirm that the quiet header, compact Version and
+   Framework controls, assembly image facts, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Open platform Metadata before and after choosing a Library. Confirm that the
+   Library selector remains in the compact control row, the required-selection
+   state keeps the full-area frame, and the selected assembly's heap and table
+   controls still open the Metadata Explorer.
+3. Exercise loading, read failure, partial failure, no-image, and a package
+   containing enough assembly content to scroll. Confirm that only the content
+   region scrolls and that failure is never presented as successful emptiness.
+4. Repeat with long package and library names at a narrow viewport. Confirm
+   that controls wrap within their row, context values elide as complete
+   strings, and no page-level horizontal overflow appears.
 
 ### Source working surface
 
