@@ -406,6 +406,7 @@ public static class PdbSourceAcquisition
                 return Failed(
                     subject,
                     "The SourceLink mapping for the selected source document was rejected.",
+                    PdbMemberSourceOutcome.SourceAcquisitionFailed,
                     mapping,
                     document);
             }
@@ -418,6 +419,7 @@ public static class PdbSourceAcquisition
                     "The SourceLink map is unusable: "
                         + (source.SourceLinkMap.Error
                             ?? "the map contains no usable document mappings"),
+                    PdbMemberSourceOutcome.InspectionFailed,
                     mapping,
                     document);
             }
@@ -440,6 +442,7 @@ public static class PdbSourceAcquisition
             {
                 return Absent(
                     "The resolved SourceLink document was not found.",
+                    PdbMemberSourceOutcome.SourceAcquisitionUnavailable,
                     mapping,
                     document,
                     SourceChecksumVerification.Unavailable);
