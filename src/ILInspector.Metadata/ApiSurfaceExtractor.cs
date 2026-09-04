@@ -737,6 +737,11 @@ public static class ApiSurfaceExtractor
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                HasUnionAttribute = AttributeReader.HasAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    KnownAttributeNames.UnionAttribute,
+                    observeDecodeWork),
                 Attributes = AttributeReader.RenderAttributes(
                     reader,
                     typeDef.GetCustomAttributes(),
