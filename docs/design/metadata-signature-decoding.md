@@ -65,10 +65,12 @@ observe that one callback read a megabyte. The code reads as bounded and is not.
 
 The ceilings therefore need two justifications, and each answers a different
 failure. They must sit far enough above real artifacts that no legitimate
-signature is refused, which the census establishes: the largest real decode
-consumed 1,182 ledger units against a ceiling of 262,144. And they must bind on
-the quantity that actually grows, which is what the classification below is
-for.
+signature is refused. Establishing that for the planned implementation requires
+its complete pinned baseline. The historical census supplies initial magnitude
+evidence only for the quantities it measured: the largest observed decode
+consumed 1,182 ledger units against a ceiling of 262,144. And the ceilings must
+bind on the quantity that actually grows, which is what the classification
+below is for.
 
 ### The two classes of cost
 
@@ -316,9 +318,11 @@ Two results set the ceilings, for the measured quantities. Every measured
 Class A quantity stays far below its cap -- the longest single type name
 observed is 175 characters against a 4,096 ceiling, and the longest
 resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
-And no decode approached any of the three instrumented budgets, which is what
-makes those budgets available to bound repetition rather than typical cost.
-That statement does not extend to the guard's separate shape allowance.
+Across the quantities it measured, no observed decode approached any of the
+three instrumented budgets. That is initial evidence for ceilings intended to
+bound repetition rather than typical cost, not a complete margin claim; it
+does not cover the omitted declaring-chain charge or the guard's separate shape
+allowance.
 
 The headroom column divides each ceiling by a measured maximum, so where the
 maximum is understated the ratio is an **upper bound on headroom**, not
