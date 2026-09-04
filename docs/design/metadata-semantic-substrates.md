@@ -102,27 +102,24 @@ publication, identity, construction, and boundary contracts below.
 
 ### Worked admissions
 
-**Property and event backing storage - admit; accessor association rides
-along.** These are two meanings. Accessor association is structural:
-`MethodSemantics` states it directly, so it is a helper rather than an
-independently admissible meaning. Backing-storage association is conventional:
-it rests on the `<Prop>k__BackingField` grammar
-(`src/ILInspector.MetadataPrimitives/GeneratedNameGrammar.cs:57`), not on a row
-asserting the relationship.
+**Property backing storage - admit; accessor association rides along.** These
+are two meanings. Accessor association is structural: `MethodSemantics` states
+it directly, so it is a helper rather than an independently admissible meaning.
+Backing-storage association is conventional: it rests on the
+`<Prop>k__BackingField` grammar
+(`src/ILInspector.MetadataPrimitives/GeneratedNameGrammar.cs:57`-`58`), not on a
+row asserting the relationship.
 
-The conventional meaning has independent demand. Metadata derives parts of the
-association in
-`src/ILInspector.Metadata/MetadataDeclarationQuery.cs`,
-`src/ILInspector.Metadata/ApiSurfaceExtractor.cs`, and
-`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs`. The Decompiler derives
-accessor association in
-`src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:281`-`294` and
-constructs a backing-field name in
-`src/ILInspector.Decompiler/MemberBodyProducer.cs:1630`.
+The conventional meaning has independent demand. Metadata derives
+auto-property backing-field descriptors in
+`src/ILInspector.Metadata/ApiSurfaceExtractor.cs:3099`-`3104` and authenticates
+matching fields at `:3162`-`3191`. The Decompiler independently constructs and
+matches the same backing-field name in
+`src/ILInspector.Decompiler/MemberBodyProducer.cs:1630`-`1645`.
 
-The substrate is admitted on backing-storage association and may publish the
-structural accessor relationship needed to identify the property or event. It
-must label the backing result conventional, carry the matched name, remain
+The substrate is admitted on property backing-storage association and may
+publish the structural accessor relationship needed to identify the property.
+It must label the backing result conventional, carry the matched name, remain
 policy-neutral, and distinguish associated, absent, and ambiguous outcomes.
 
 **Lambda and local-function raising - reject.** It fails requirement 2. The
@@ -162,19 +159,20 @@ only meaning is presentational.
 
 ## Identity, evidence, and reader lifetime
 
-Published identities are durable. A result coordinate carries the module it
-belongs to and can detect use against a different reader. A consumer still
-validates the row against the target reader before dereferencing it; module
-identity is a misuse guard, not authentication.
-
-A raw metadata handle carries only table and row information. A substrate that
-accepts one must range-check it and return a typed invalid-coordinate outcome
-for an out-of-range row. It cannot detect an in-range handle originating from a
-different module, so such an API must document that limit.
-
 A substrate whose consumers can hold coordinates from multiple modules accepts
 a scoped identity carrying both module identity and handle. It rejects a
 foreign coordinate before reading the row.
+
+Published identities are otherwise durable within their declared scope. A
+result coordinate carries the module it belongs to and can detect use against a
+different reader. A consumer still validates the row against the target reader
+before dereferencing it; module identity is a misuse guard, not authentication.
+
+A substrate whose boundary is explicitly single-module may accept a raw
+metadata handle carrying only table and row information. It must range-check the
+handle and return a typed invalid-coordinate outcome for an out-of-range row.
+It cannot detect an in-range handle originating from a different module, so the
+API must document that limit.
 
 Published result values may outlive the `MetadataReader` that produced them.
 The substrate object may retain the reader for later queries, but retained
@@ -234,17 +232,14 @@ registration row, registry service, naming convention, or maintained census.
 
 ## Known deviations
 
-These trackers preserve gaps observed in the three precedents. They do not
-weaken the contract or admit new non-conforming work.
-
-| Gap | Tracker |
-| --- | --- |
-| Declaration-probe budget exhaustion is published as artifact malformation | [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) |
-| Reachable outcome distinctions are collapsed across existing components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) |
-| Whole-table declaration construction lacks a work bound | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) |
-| Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) |
-| A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
-| Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
+| Gap | Tracker | Relation to this contract |
+| --- | --- | --- |
+| Declaration-probe budget exhaustion is published as artifact malformation | [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) | Deviation |
+| Reachable outcome distinctions are collapsed across existing components | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) | Deviation |
+| Whole-table declaration construction lacks a work bound | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) | Deviation |
+| Published row coordinates are not durably scoped to their module | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) | Deviation |
+| A declaration failure type spans unrelated domains with mismatched codomains | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
+| Existing entry points publish result types broader than their observed codomains | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) | Context deferred to [#5838](https://github.com/richlander/dotnet-inspect/issues/5838), not a deviation from this contract |
 
 ## Counterexamples
 
