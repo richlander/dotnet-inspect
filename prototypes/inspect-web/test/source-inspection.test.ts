@@ -7,7 +7,7 @@ import {
   type SourceInspectionDependencies,
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
-import type { BrowserSource } from "../src/inspect-web-engine.d.ts";
+import type { BrowserSource } from "../src/facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 

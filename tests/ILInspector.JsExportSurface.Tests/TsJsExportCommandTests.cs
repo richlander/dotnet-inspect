@@ -127,11 +127,15 @@ public sealed class TsJsExportCommandTests
             Assert.Empty(error.ToString());
             string source = File.ReadAllText(outputPath);
             Assert.Contains(
-                """import { dotnet, type RuntimeAPI } from "./dotnet.js";""",
+                """import { dotnet } from "./dotnet.js";""",
                 source,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "export function initializeRuntime(): Promise<void>",
+                "export function createRuntime(): Promise<JsExportRuntime>",
+                source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "export function initializeRuntime(",
                 source,
                 StringComparison.Ordinal);
             Assert.Contains(

@@ -85,6 +85,8 @@ public class PackageSourceTests
     [InlineData("https://api.nuget.org/v3/index.json?source=custom")]
     [InlineData("https://api.nuget.org/v3/index.json#custom")]
     [InlineData("https://api.nuget.org/v3/index.json//")]
+    [InlineData("https://api.nuget.org/v3/%69ndex.json")]
+    [InlineData("https://api.nuget.org/other/../v3/index.json")]
     public void IsNuGetOrg_RejectsNoncanonicalEndpoint(string url)
     {
         var source = new PackageSource("custom", url);

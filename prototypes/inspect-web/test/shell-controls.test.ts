@@ -391,6 +391,8 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
 
 test("workbench shell separates navigation and inspected target rows", () => {
   const html = workbenchShellHtml({
+    applicationScopeHtml:
+      '<nav class="application-scope-strip">Query Workspace</nav>',
     contextualActionsHtml: '<div class="working-surface-actions">Copy</div>',
     inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
     subjectInspectorHtml: '<div class="lensbar">Subjects</div>',
@@ -399,7 +401,7 @@ test("workbench shell separates navigation and inspected target rows", () => {
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="application-scope-region"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,

@@ -259,7 +259,11 @@ internal sealed class PluginConnection : IAsyncDisposable
         CancellationToken cancellationToken) =>
         SendAsync(
             MessageMethods.GetAuthenticationCredentials,
-            new GetAuthenticationCredentialsRequest(uri.ToString(), isRetry, isNonInteractive, canShowDialog),
+            new GetAuthenticationCredentialsRequest(
+                uri.OriginalString,
+                isRetry,
+                isNonInteractive,
+                canShowDialog),
             PluginJsonContext.Default.EnvelopeGetAuthenticationCredentialsRequest,
             PluginJsonContext.Default.GetAuthenticationCredentialsResponse,
             cancellationToken,

@@ -4,6 +4,7 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   clampAllocationOrdinal,
+  renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
   scopeBarShortLabel,
@@ -27,6 +28,8 @@ test("scope-bar short labels are word initialisms", () => {
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   focused = false;
+  hidden = false;
+  rendered = true;
   tabIndex = 0;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -42,6 +45,10 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -71,6 +78,8 @@ class FakeRoot {
 
 function recordingActions(calls: string[]): ScopeBarBindingActions {
   return {
+    onApplicationScopeSelect: value =>
+      calls.push(`application:${value}`),
     onMemberSectionSelect: value => calls.push(`member:${value}`),
     onPackageLensSelect: value => calls.push(`package:${value}`),
     onScopeSelect: value => calls.push(`scope:${value}`),
@@ -92,6 +101,43 @@ const typeLenses = [
   ["source", "Source"],
 ] as const;
 
+test("application scopes render separately with honest selection", () => {
+  const workspace = renderApplicationScopeBar(
+    "workspace",
+    true,
+    escapeHtml);
+  const queryOnly = renderApplicationScopeBar("query", false, escapeHtml);
+  const inspection = renderApplicationScopeBar(null, true, escapeHtml);
+
+  assert.match(
+    workspace,
+    /data-application-scope="query"(?![^>]*aria-current)[^>]*>[\s\S]*data-application-scope="workspace"[^>]*aria-current="page"/);
+  assert.match(
+    queryOnly,
+    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*disabled/);
+  assert.match(
+    inspection,
+    /data-application-scope="query"(?![^>]*aria-current)[^>]*tabindex="0"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)[^>]*tabindex="-1"/);
+  assert.doesNotMatch(workspace, /role="tab(?:list)?"/);
+});
+
+test("application scope bindings dispatch independently of subjects", () => {
+  const root = new FakeRoot();
+  const query = new FakeElement({ applicationScope: "query" });
+  const workspace = new FakeElement({ applicationScope: "workspace" });
+  root.add("[data-application-scope]", query, workspace);
+  const calls: string[] = [];
+
+  bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
+  query.dispatch("click");
+  workspace.dispatch("click");
+
+  assert.deepEqual(calls, [
+    "application:query",
+    "application:workspace",
+  ]);
+});
+
 test("typed tab focus survives element replacement", () => {
   const original = new FakeElement({ lens: "metadata" });
   const target = captureScopeBarFocus(fakeDom.htmlElement(original));
@@ -111,6 +157,22 @@ test("typed tab focus survives element replacement", () => {
   assert.equal(replacement.focused, true);
   assert.equal(replacement.tabIndex, 0);
   assert.equal(selected.tabIndex, -1);
+});
+
+test("typed tab focus rejects a CSS-hidden replacement", () => {
+  const original = new FakeElement({ applicationScope: "workspace" });
+  const target = captureScopeBarFocus(fakeDom.htmlElement(original));
+  assert.ok(target);
+
+  const replacement = new FakeElement({ applicationScope: "workspace" });
+  replacement.rendered = false;
+  const root = new FakeRoot();
+  root.add("[data-application-scope]", replacement);
+
+  assert.equal(
+    restoreScopeBarFocus(fakeDom.parentNode(root), target),
+    false);
+  assert.equal(replacement.focused, false);
 });
 
 test("package scope bindings dispatch only scope and package-lens controls", () => {
@@ -139,7 +201,7 @@ test("package scope bindings dispatch only scope and package-lens controls", () 
   ]);
 });
 
-test("workspace scope leads the subject ladder without an inspector", () => {
+test("workspace application scope is separate from the subject ladder", () => {
   const html = renderScopeBar({
     scope: "workspace",
     strip: [],
@@ -150,7 +212,8 @@ test("workspace scope leads the subject ladder without an inspector", () => {
 
   assert.match(
     html,
-    /data-scope="workspace"[^>]*role="tab" aria-selected="true" tabindex="0" id="active-subject-tab" data-subject-tab aria-controls="subject-panel"[\s\S]*data-scope="package"[\s\S]*data-scope="type"/);
+    /data-scope="package"[^>]*role="tab" aria-selected="false" tabindex="0"[\s\S]*data-scope="type"/);
+  assert.doesNotMatch(html, /data-scope="workspace"/);
   assert.doesNotMatch(html, /package-coordinate-controls|class="[^"]* lens(?: |")/);
 });
 
