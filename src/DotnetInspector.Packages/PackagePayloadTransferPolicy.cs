@@ -24,6 +24,10 @@ public sealed record PackagePayloadTransfer(
 /// <para>
 /// Gated by
 /// <c>PackagePayloadAcquisitionTests.TransferPolicy_ReservesBeforeBodyReadAndCompletesAfterCommit</c>,
+/// <c>TransferPolicy_AwaitsCapacityBeforeReadingPayload</c>,
+/// <c>TransferPolicy_CancellationWhileAwaitingCapacityClosesPayload</c>,
+/// <c>TransferPolicy_AsyncRefusalClosesUnreadPayload</c>,
+/// <c>TransferPolicy_CancellationAtCapacityHandoffReleasesReservation</c>,
 /// <c>TransferPolicy_RejectedPayloadDisposesWithoutCompleting</c>, and
 /// <c>TransferPolicy_CanRequireContentLengthBeforeBodyRead</c>.
 /// </para>
@@ -31,10 +35,13 @@ public sealed record PackagePayloadTransfer(
 public interface IPackagePayloadTransferPolicy
 {
     /// <summary>
-    /// Reserves capacity for <paramref name="transfer"/>, or throws a visible host-policy failure
-    /// before the body is read.
+    /// Awaits capacity for <paramref name="transfer"/>, or throws a visible host-policy failure
+    /// before the body is read. The policy owns any pending capacity work until it returns or
+    /// throws, including releasing provisional capacity when canceled.
     /// </summary>
-    IPackagePayloadReservation Reserve(PackagePayloadTransfer transfer);
+    ValueTask<IPackagePayloadReservation> ReserveAsync(
+        PackagePayloadTransfer transfer,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>A host capacity reservation held until validated content is published or abandoned.</summary>
