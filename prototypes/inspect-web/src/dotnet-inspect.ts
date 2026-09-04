@@ -340,12 +340,14 @@ import { renderBrand } from "./brand.ts";
 import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
 import {
   createSpotlight,
+  type RemovableSpotlightResult,
   type SpotlightPackageHit,
   type SpotlightResult,
   type SpotlightScope,
   visibleSpotlightPackageHits,
 } from "./spotlight.ts";
 import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
+import { createPackageRemoval } from "./package-removal.ts";
 import {
   compareVersionsDesc,
   createCatalogRequests,
@@ -1721,6 +1723,13 @@ const catalogRequests = createCatalogRequests({
   updatePlatformVersionSelect,
   updatePackageVersionSelect: updateVersionSelect,
 });
+const packageRemoval = createPackageRemoval({
+  state,
+  persistRecent: entries =>
+    localStorage.setItem("inspect-recent-packages", JSON.stringify(entries)),
+  activate: activateAfterPackageRemoval,
+  release: finishPackageRemoval,
+});
 const spotlight = createSpotlight({
   keybindings,
   state,
@@ -1730,6 +1739,7 @@ const spotlight = createSpotlight({
   kindIcon,
   searchResults: spotlightResults,
   pickResult: pickSpotlightResult,
+  removeResult: removeSpotlightPackage,
   executeCommand,
   reportCommandError: error =>
     reportAsyncFailure("Running a Spotlight command", error),
@@ -2201,6 +2211,61 @@ function releasePackageModelCaches(packageModel: AppPackage) {
   }
 }
 
+function activateAfterPackageRemoval(next: AppPackage | null): void {
+  if (next) activatePackage(next, { resetAccessibility: true });
+  else state.package = null;
+  state.dependenciesGroupIndex = null;
+  state.atPackageRoot = true;
+  state.selectedTypeId = "";
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetLocationFilters();
+  resetMemberSectionState();
+  if (!state.home) state.workspaceSubjectOpen = true;
+}
+
+function finishPackageRemoval(removed: AppPackage): void {
+  navigationSequence.begin();
+  invalidateGraphMemberNavigation();
+  state.workspaceShareBasis = null;
+  clearWorkspaceOccurrenceView();
+  packageInspection.invalidatePackageResults();
+  spotlightCache = null;
+  spotlightMemberCache = null;
+  releasePackageModelCaches(removed);
+  if (!state.package && !state.home) {
+    state.workspaceSubjectOpen = true;
+    workspaceLocation.replace("/demos");
+  }
+  render();
+}
+
+function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {
+  try {
+    if (result.kind === "pkg-recent") {
+      packageRemoval.forgetRecent(result.entry.id);
+    } else {
+      packageRemoval.removeLoaded(packageIdentityKey({
+        ...result.pkg,
+        activeFramework: result.pkg.activeFramework ?? "",
+      }));
+    }
+    return true;
+  } catch (error) {
+    showToast(`Could not remove package: ${errorMessage(error)}`);
+    return false;
+  }
+}
+
+function removeWorkspacePackageRow(key: string): void {
+  try {
+    packageRemoval.removeLoaded(key);
+  } catch (error) {
+    showToast(`Could not remove package: ${errorMessage(error)}`);
+  }
+}
+
 function clearWorkspacePackages() {
   const discarded = state.packages;
   state.packages = [];
@@ -2303,7 +2368,7 @@ async function queryWorkspaceOccurrenceView() {
       state.workspaceOccurrenceSignature = "";
       ensureWorkspaceOccurrenceView();
     }
-    render();
+    if (ownsCurrentRequest) render();
   }
 }
 
@@ -6281,6 +6346,7 @@ function bindWorkspaceSubjectEvents() {
         "Opening the Workspace package"),
     onDemo: runHomeDemo,
     onRetry: retryWorkspaceOccurrenceView,
+    onRemove: removeWorkspacePackageRow,
   });
 }
 

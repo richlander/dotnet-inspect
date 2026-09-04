@@ -455,6 +455,9 @@ coordinates with:
 - loading, ready, or failed state; and
 - an explicit Close action.
 
+The transitional Browser-owned NuGet close control is implemented through
+[Package-row removal](inspect-web-package-removal.md), shared with Home Search.
+
 Opening a demo or closing a coordinate submits its owner-issued identity and
 renders the returned workspace outcome. The UI does not choose a subject, lens,
 successor, or fallback for the product.
