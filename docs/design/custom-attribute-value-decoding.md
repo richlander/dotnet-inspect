@@ -59,8 +59,11 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   cannot be turned into an unbounded or out-of-bounds operation, and that on
   output from compilers in the certified range they match what the producing
   compiler encoded — except for the one width case D3 explicitly carves out.
-- Not a promise that our decoder matches SRM on **illegal** input. There the
-  obligation is D1 and D2 only.
+- Not a promise that our decoder matches SRM on **illegal** input. The D2 gate
+  is one-directional and narrower than it sounds: `null` wherever SRM throws.
+  The converse — that we produce a value wherever SRM does — is a D3 claim, and
+  only over certified-range output. On illegal input the obligation is D1 and
+  D2 only.
 - Not a change to any caller's API or output shape. The decoder produces the
   same `CustomAttributeValue<string>` it produces today.
 
@@ -118,9 +121,8 @@ fix, not a behavior to document.
 >
 > **D2 — Fail closed, visibly.** A blob whose *structure* the decoder cannot
 > follow yields `null` — never a partial value, never a laundered exception,
-> never a plausible-looking guess about where the next element begins. No
-> declared count can size an allocation disproportionate to the bytes actually
-> supplied.
+> never a plausible-looking guess about where the next element begins. Where the
+> decoder must guess a width to proceed, the guess is reported on the result.
 >
 > **D3 — Fidelity.** On output from compilers in the certified range, decoded
 > values equal the values the producing compiler encoded. SRM arbitrates
@@ -162,6 +164,43 @@ the decoder is misreading. Every element of every array costs at least one byte
 in the blob, at every position, so a count larger than `RemainingBytes` is
 unsatisfiable regardless of what the elements turn out to be. Refuse it before
 sizing anything.
+
+That per-array argument extends to nesting without weakening. "Every element
+costs at least one byte" is a statement about one array, but every slot at every
+level corresponds to a *distinct* consumed byte, because a nested array's own
+elements consume bytes its parent has not already counted. Slots summed over all
+arrays at all depths are therefore bounded by bytes consumed, and the clause
+holds for jagged and nested shapes by the same argument rather than needing a
+separate depth budget.
+
+**The clause is about amplification, not about allocation in the abstract.**
+State it precisely, because two stronger-sounding versions are both wrong.
+"`OutOfMemoryException` has no path to arise" is unachievable — a large enough
+legitimate blob can exhaust a small enough host, and no parsing discipline
+prevents that. "No attacker-declared quantity can produce an
+`OutOfMemoryException`" is also wrong, because the element count `N` *is*
+attacker-declared and does size the result; what makes it safe is that the
+attacker must supply `N` bytes to declare it.
+
+The enforceable claim is therefore a **bounded amplification factor**: retained
+memory is at most a constant multiple of the bytes actually supplied, and that
+constant is a property of the output representation rather than of anything the
+blob declares. `count > RemainingBytes → null` is what establishes it, and it
+holds independently of whether the parse is correct.
+
+Sizing that constant honestly matters, because it is easy to undercount. A legal
+`SZARRAY<bool>` of `N` elements occupies about `N` bytes of blob and materializes
+`N` `CustomAttributeTypedArgument<string>` slots. Each slot is two references
+(16 bytes on a 64-bit host) — but `CustomAttributeTypedArgument<T>.Value` is
+typed `object`, so every primitive element is **boxed**, adding a separate
+heap object per element. For the densest case the true figure is tens of bytes
+retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
+the bound rather than a specific multiple, and if slice 2 wants a smaller
+constant it must introduce and gate value caching explicitly.
+
+What this removes is the amplification — the twelve-byte blob that asks for tens
+of gigabytes. A host-level memory limit is the host's concern, not this
+contract's.
 
 **Charging is now materialization accounting.** Under the previous design the
 `beforeMaterialize` observer reported work the guard had *declined* to do, so a
@@ -232,45 +271,20 @@ malformed metadata, so a caller's refusal and a malformed blob no longer share a
 catch by accident. **A caller's refusal is not a statement about the blob**, and
 it must never be laundered into one.
 
-**The claim is about amplification, not about allocation.** State it precisely,
-because two stronger-sounding versions are both wrong. "`OutOfMemoryException`
-has no path to arise" is unachievable — a large enough legitimate blob can
-exhaust a small enough host, and no parsing discipline prevents that. "No
-attacker-declared quantity can produce an `OutOfMemoryException`" is also wrong,
-because the element count `N` *is* attacker-declared and does size the result;
-what makes it safe is that the attacker must supply `N` bytes to declare it.
-
-The enforceable claim is therefore a **bounded amplification factor**: retained
-memory is at most a constant multiple of the bytes actually supplied, and that
-constant is a property of the output representation rather than of anything the
-blob declares. `count > RemainingBytes → null` is what establishes it, and it
-holds independently of whether the parse is correct.
-
-Sizing that constant honestly matters, because it is easy to undercount. A legal
-`SZARRAY<bool>` of `N` elements occupies about `N` bytes of blob and materializes
-`N` `CustomAttributeTypedArgument<string>` slots. Each slot is two references
-(16 bytes on a 64-bit host) — but `CustomAttributeTypedArgument<T>.Value` is
-typed `object`, so every primitive element is **boxed**, adding a separate
-heap object per element. For the densest case the true figure is tens of bytes
-retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
-the bound rather than a specific multiple, and if slice 2 wants a smaller
-constant it must introduce and gate value caching explicitly.
-
-What D1 removes is the amplification — the twelve-byte blob that asks for tens of
-gigabytes. A host-level memory limit is the host's concern, not this contract's.
+**D2 is outcome-shaped, and only that.** Its whole content is which of three
+outcomes a caller can observe: a complete value, `null`, or a propagated
+observer exception. Cost and allocation are [D1](#d1--bounded)'s, including the
+`count > RemainingBytes` rule — that rule *produces* a `null`, which is why it
+appears in the table above, but what it bounds is memory, and stating it as a
+D2 claim as well would give a failing gate two invariants to cite.
 
 Issue #5397 (`TryDecode` swallows `OutOfMemoryException` through a bare catch) is
-therefore **not** moot under the inversion, and this document retains it as a D2
-defect. #5288's slice 4 lists it among the issues to close; that disposition
-assumed OOM had no path at all. Swallowing `OutOfMemoryException` is precisely
-the "laundered exception" D2 forbids, and it stays forbidden whether the OOM came
-from an attack or from a large honest blob.
-
-This is a **deliberate divergence from the owning specification**, and it is
-normative here: slice 4 must not close #5397. The divergence is proposed to
-issue #5288 so the owner can fold it into the slice-4 list; until that edit
-lands, an implementer following the issue verbatim would leave a known D2
-violation in place, so this document governs.
+**not** moot under the inversion, and this document retains it as a D2 defect.
+Swallowing `OutOfMemoryException` is precisely the "laundered exception" D2
+forbids, and it stays forbidden whether the OOM came from an attack or from a
+large honest blob. #5288's slice 4 originally listed it among the issues to
+close, on the assumption that OOM had no path at all; the owner has since removed
+it from that list and grouped it with #5085.
 
 ### The `Int32` enum-width default is a named exception to "refuse; do not defer"
 
@@ -348,7 +362,7 @@ resolution logic returns our answer and the comparison proves nothing.
 
 | Where the width comes from | Oracle | Is the decoder obliged to be right? |
 | --- | --- | --- |
-| The value's type is decoded without consulting our resolution logic — primitives, strings, `System.Type` names, arrays of these | SRM equality. Cheap, broad, and sufficient. | Yes |
+| The value's type is decoded without consulting our resolution logic — primitives, strings, `System.Type` names, arrays of these | SRM equality. Cheap, broad, and sufficient. **Independent** is the load-bearing word: the oracle's `ICustomAttributeTypeProvider` must be test-owned and trivial. After slice 2 deletes `ArgTypeProvider` there is no product provider left to borrow, so this holds by construction. | Yes |
 | Our frozen adapter resolves the width from a retained defining image, where a faithful SRM oracle would have to consult that **same** adapter | **The certified corpus**, which built the assemblies and knows each enum's underlying type from source. SRM equality here is degenerate, not independent. | Yes — the information is present, so a wrong width is a fidelity defect |
 | No resolution path can establish the width, because the defining image is genuinely absent | **None exists.** Both decoders default to `Int32`. | **No.** See the carve-out below |
 
@@ -366,12 +380,14 @@ contract the component cannot satisfy at any level of effort. The decoder
 defaults to `Int32` under the [named exception](#the-int32-enum-width-default-is-a-named-exception-to-refuse-do-not-defer)
 to "refuse; do not defer".
 
-**What the carve-out costs is a success-shaped wrong value, and D2 is not a
-backstop for it.** A real `Int64` enum read as `Int32` under-consumes four bytes
-and relocates the cursor, and the remaining bytes can parse as a complete,
-structurally valid attribute. This twelve-byte blob, which its producer wrote as
-prolog + one `Int64` + zero named arguments, decodes under the fallback into one
-`Int32` argument and one fabricated named argument, consuming the blob *exactly*:
+**What the carve-out costs is a success-shaped wrong value, and D2's refusal
+machinery is not a backstop for it.** A real `Int64` enum read as `Int32`
+under-consumes four bytes and relocates the cursor, and — because the format has
+[no internal framing and no resync point](#the-formats-adversarial-properties) —
+the remaining bytes can parse as a complete, structurally valid attribute. This
+twelve-byte blob, which its producer wrote as prolog + one `Int64` + zero named
+arguments, decodes under the fallback into one `Int32` argument and one
+fabricated named argument, consuming the blob *exactly*:
 
 ```text
 blob     01 00 07 00 00 00 01 00 53 02 00 00
@@ -380,23 +396,23 @@ fallback fixed=[Int32 7]  named=[Field name='' value=False]
 ```
 
 No refusal fires, and an end-offset check cannot detect it either, because
-consumption is exact. D2's refusal machinery sees width drift only when the
-misalignment *happens* to produce a structural failure; it does not see this.
+consumption is exact. Whether drift surfaces at all is a property of the bytes
+that follow, not of the decoder: the `System.Type : long` case recorded under
+[Classification](#classification-is-a-display-name-comparison-not-an-identity-test)
+happens to fail structurally one argument later, and that is luck, not design.
 
-This is the single place where D2's "never a plausible-looking guess" does not
-hold end to end, and it is why the guess is a **named** exception rather than a
-general licence. What survives intact is D1: the misread cannot become an
-unbounded or out-of-bounds operation. The failure mode is a confidently wrong
-rendering, bounded in cost — the honest characterization, and the reason
-[Non-claims](#non-claims) states that values are not promised correct.
+**So the guess must be visible, which is D2's "visibly" clause doing real work.**
+A defaulted width is not a refusal and must not pretend to be one, but neither
+may it be indistinguishable from a resolved width. **Slice 2 defines a
+per-argument defaulted-width signal on the decoded result**; the mechanism is
+slice 2's to choose, subject to #5288 holding the `CustomAttributeValue<string>`
+output shape. Today no such signal exists — `EnumUnderlyingPrimitive` returns the
+defaulted `Int32` as an ordinary value — which is the gap
+[#5742](https://github.com/richlander/dotnet-inspect/issues/5742) tracks.
 
-A caller cannot currently tell the two apart: `EnumUnderlyingPrimitive` returns
-the defaulted `Int32` as an ordinary value, indistinguishable from a resolved
-one. Making the default *distinguishable*, so a caller that cares can know a
-width was guessed, is the one available mitigation that does not require
-refusing real attributes. It is open work on
-[#5742](https://github.com/richlander/dotnet-inspect/issues/5742), not a claim
-this document makes today.
+What survives intact regardless is [D1](#d1--bounded): the misread cannot become
+an unbounded or out-of-bounds operation. The failure mode is a confidently wrong
+rendering, bounded in cost, and reported as uncertain once slice 2 lands.
 
 Narrowing the carve-out is [#4741](https://github.com/richlander/dotnet-inspect/issues/4741)'s
 job: the more names product extraction plans into a frozen generation, the more
@@ -766,7 +782,7 @@ encoding.
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
-| **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3. | Lands with slice 2. |
+| **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
 
 Until those gates exist, any statement in this document that an invariant
@@ -932,6 +948,30 @@ place it.
 | The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
 | The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
 | Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
+
+## What slice 2 must decide
+
+Three contracts the inversion changes that this document deliberately does not
+settle, recorded so slice 2 states them rather than improvising one and leaving
+callers to infer it.
+
+- **The charge unit.** `beforeMaterialize` now reports work the decoder is about
+  to do rather than work it declined to do, so a charge means something new.
+  `DeclaredSlotCharge` is `16` today
+  ([`CustomAttributeValueGuard.cs:39`](../../src/ILInspector.MetadataPrimitives/CustomAttributeValueGuard.cs)),
+  a figure D1 has just shown undercounts retained bytes once boxing is included.
+  Slice 2 says what one unit of charge means after the inversion and whether
+  `DeclaredSlotCharge` survives. Twenty source files consume the observer and
+  their budgets depend on the answer, so this cannot be left implicit.
+- **The observer-exception contract.** D2 says an observer raising propagates and
+  never becomes a value. Slice 2 says whether `MaterializationObserverException`
+  wrapping survives with one walker or callers see the raw exception type. Either
+  is defensible; the contract must be stated.
+- **The decoder's name.** This document cites `CustomAttributeValueGuard`,
+  `IsSafeToDecode`, and test names like `_GuardSkipMatchesDecodeWidth` throughout,
+  because those are the names in the tree today and the document describes what
+  exists. They are paired-walker names for a component that will no longer be a
+  guard. Slice 2 names the decoder; slice 4 retires the guard-era test names.
 
 ## Open work
 
