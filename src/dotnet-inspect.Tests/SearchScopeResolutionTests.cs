@@ -50,12 +50,12 @@ public class SearchScopeResolutionTests
             expectedCatalogs switch
             {
                 "none" => [],
-                "extensions" => ScopeConstants.ExtensionsPackages,
-                "aspnetcore" => ScopeConstants.AspNetCorePackages,
+                "extensions" => ExpectedPackageSets.MicrosoftExtensions,
+                "aspnetcore" => ExpectedPackageSets.AspNetCore,
                 "both" =>
                 [
-                    .. ScopeConstants.ExtensionsPackages
-                        .Concat(ScopeConstants.AspNetCorePackages)
+                    .. ExpectedPackageSets.MicrosoftExtensions
+                        .Concat(ExpectedPackageSets.AspNetCore)
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                 ],
                 _ => throw new ArgumentOutOfRangeException(
@@ -91,9 +91,28 @@ public class SearchScopeResolutionTests
     }
 
     [Fact]
+    public void PackageSetFlagsUseAuditedMembership()
+    {
+        ScopeResolver.ResolvedScope extensions = ScopeResolver.Resolve(
+            new(Extensions: true),
+            [],
+            []);
+        ScopeResolver.ResolvedScope aspNetCore = ScopeResolver.Resolve(
+            new(AspNetCore: true),
+            [],
+            []);
+
+        Assert.Equal(
+            ExpectedPackageSets.MicrosoftExtensions,
+            extensions.Packages);
+        Assert.Equal(ExpectedPackageSets.AspNetCore, aspNetCore.Packages);
+    }
+
+    [Fact]
     public void ExplicitGroups_ComposeInOrderWithoutDuplicatePackages()
     {
-        string duplicate = ScopeConstants.ExtensionsPackages[0].ToUpperInvariant();
+        string duplicate =
+            ExpectedPackageSets.MicrosoftExtensions[0].ToUpperInvariant();
         string[] explicitPackages = ["Example.Package", duplicate, "example.package"];
 
         var scope = ScopeResolver.Resolve(
@@ -104,8 +123,8 @@ public class SearchScopeResolutionTests
         string[] expectedPackages =
         [
             .. explicitPackages
-                .Concat(ScopeConstants.ExtensionsPackages)
-                .Concat(ScopeConstants.AspNetCorePackages)
+                .Concat(ExpectedPackageSets.MicrosoftExtensions)
+                .Concat(ExpectedPackageSets.AspNetCore)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
         ];
 

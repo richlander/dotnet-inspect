@@ -62,6 +62,9 @@ public class PdbSourceAcquisitionTests
             "remains unresolved",
             Assert.IsType<FindingInspection<string>.Failed>(
                 member.Lines.Value).Error.Reason);
+        Assert.Equal(
+            PdbMemberSourceOutcome.PortablePdbUnavailable,
+            member.Outcome);
         Assert.Contains(
             "remains unresolved",
             Assert.IsType<FindingInspection<string>.Failed>(
@@ -131,6 +134,9 @@ public class PdbSourceAcquisitionTests
 
         var complete = Assert.IsType<FindingInspection<string>.Complete>(
             result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.Complete,
+            result.Outcome);
         Assert.Equal(SourceChecksumVerification.Exact, result.ChecksumVerification);
         Assert.Contains(
             complete.Findings,
@@ -189,8 +195,39 @@ public class PdbSourceAcquisitionTests
 
         var failed = Assert.IsType<FindingInspection<string>.Failed>(
             result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumMismatch,
+            result.Outcome);
         Assert.Equal(SourceChecksumVerification.Mismatch, result.ChecksumVerification);
         Assert.Contains("does not match", failed.Error.Reason);
+    }
+
+    [Fact]
+    public void FromContent_UnsupportedChecksumPreservesTypedOutcome()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        SourceDocumentObservation document =
+            Document(content) with
+            {
+                ChecksumAlgorithm = "MD5",
+            };
+
+        PdbMemberSourceInspection result =
+            PdbSourceAcquisition.FromContent(
+                Mapping(),
+                document,
+                content,
+                "M",
+                Subject);
+
+        Assert.IsType<FindingInspection<string>.Failed>(
+            result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumUnsupported,
+            result.Outcome);
+        Assert.Equal(
+            SourceChecksumVerification.Unsupported,
+            result.ChecksumVerification);
     }
 
     [Fact]
@@ -210,6 +247,63 @@ public class PdbSourceAcquisitionTests
 
         var failed = Assert.IsType<FindingInspection<string>.Failed>(result.Lines.Value);
         Assert.Contains("lexical complexity limit", failed.Error.Reason, StringComparison.Ordinal);
+        Assert.Equal(
+            PdbMemberSourceOutcome.SourceTooComplex,
+            result.Outcome);
+        Assert.Null(result.Text);
+    }
+
+    [Fact]
+    public void FromContent_InvalidCoordinatesPreserveTypedOutcome()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        MemberSourceObservation mapping =
+            Mapping() with
+            {
+                SequencePointStartLines = [100],
+            };
+
+        PdbMemberSourceInspection result =
+            PdbSourceAcquisition.FromContent(
+                mapping,
+                Document(content),
+                content,
+                "M",
+                Subject);
+
+        Assert.IsType<FindingInspection<string>.Failed>(
+            result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.InvalidSequencePointCoordinates,
+            result.Outcome);
+        Assert.Null(result.Text);
+    }
+
+    [Fact]
+    public void FromContent_NonDeclarationRangePreservesTypedOutcome()
+    {
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        MemberSourceObservation mapping =
+            Mapping() with
+            {
+                StartLine = 1,
+                EndLine = 1,
+                SequencePointStartLines = [1],
+            };
+
+        PdbMemberSourceInspection result =
+            PdbSourceAcquisition.FromContent(
+                mapping,
+                Document(content),
+                content,
+                "M",
+                Subject);
+
+        Assert.IsType<FindingInspection<string>.Absent>(
+            result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.NoVouchedDeclaration,
+            result.Outcome);
         Assert.Null(result.Text);
     }
 
@@ -308,6 +402,9 @@ public class PdbSourceAcquisitionTests
             Subject);
 
         Assert.IsType<FindingInspection<string>.Absent>(result.Lines.Value);
+        Assert.Equal(
+            PdbMemberSourceOutcome.ChecksumUnavailable,
+            result.Outcome);
         Assert.Equal(
             SourceChecksumVerification.Unavailable,
             result.ChecksumVerification);
