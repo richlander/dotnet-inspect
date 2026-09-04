@@ -13,8 +13,8 @@ focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Type API, Member API, Source, Annotated Source,
-  Package query, Diagnostics) and their page-level placement relative to
+- which working surfaces exist (Type API, Member API, Type Metadata, Source,
+  Annotated Source, Package query, Diagnostics) and their page-level placement relative to
   Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
@@ -24,8 +24,8 @@ This owner defines:
 - package-source presentation placement (feed tabs absence, producer-label
   display);
 - the placement and allocation of the two persistent shell rows, including the
-  subject/inspector region, inspected target, shell-owned Application menu, and
-  contextual working-surface actions;
+  application-scope and subject/inspector regions, inspected target,
+  shell-owned Application menu, and contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
 - the data bar and Diagnostics surface.
@@ -80,29 +80,41 @@ This document consumes, without redefining:
 - the Slideable Subject Strip's inventories, representations, internal
   allocation, terminal-deficit behavior, and focus contract owned by
   [Inspect Web Navigation
-  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip).
+  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
+  and
+- the Query/Workspace application-scope inventory, selection, and interaction
+  owned by
+  [Inspect Web Navigation
+  Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
 
 ## Shell navigation and application actions
 
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [subject and inspector region]
+row one: [product] [Query | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
 ```
 
-Row one contains navigation and the stable application-action home. The
-product control and Application menu occupy non-shrinking slots. The
-Navigation Presentation-owned subject/inspector region receives the primary
-flexible allocation between them, followed by the Shell Interaction-owned
-history and Search cluster. Search progresses from its full label to its
-compact label and then disappears; history disappears after Search. This
-cluster yields before the Slideable Subject Strip starts reducing active
-Subject or Inspector identity. Once those shell controls have yielded, the
-SlideStrip resolves its own normal, control-free, and terminal-deficit states
-inside the remaining page boundary.
+Row one contains navigation and the stable application-action home. The product
+control and Application menu occupy non-shrinking slots. The
+Navigation Presentation-owned application-scope strip precedes the
+subject/inspector region, which receives the primary flexible allocation. The
+Shell Interaction-owned history and Search cluster follows it. Search
+progresses from its full label to its compact label and then disappears;
+the application-scope strip yields next, while history remains available until
+a narrower width. History then disappears before the Slideable Subject Strip
+starts reducing active Subject or Inspector identity. Once those controls have
+yielded, the SlideStrip resolves its own normal, control-free, and
+terminal-deficit states inside the remaining page boundary.
+
+The application-scope strip uses a distinct quiet treatment and may be removed
+at constrained widths only after focus has left it. Query remains reachable
+through Spotlight's global keyboard entry and Workspace through hierarchical
+drill-out or a return action. On `/query`, the visible heading and
+route-specific Back action continue to orient the surface if the strip yields.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -205,9 +217,9 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Source, Annotated Source, and Diagnostics are working
-surfaces rather than documents inset inside a general page. This redesign does
-not change Metadata viewer composition.
+Type API, Member API, Type Metadata, Source, Annotated Source, and Diagnostics
+are working surfaces rather than documents inset inside a general page. Package
+Metadata and the Metadata Explorer retain their separately owned composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -259,6 +271,38 @@ success-shaped empty surfaces.
 
 At narrow widths, Type and Member header identity and status may elide, but the
 overload total or selected overload ordinal is not selectively hidden.
+
+### Type Metadata
+
+Type Metadata uses the full area to the right of Type navigation. It does not
+retain a centered document column or the large type hero. The persistent
+subject path remains the owner of the selected package and type hierarchy.
+
+The surface contains:
+
+```text
+Metadata                                  kind · accessibility
+type shape rows
+member composition and relationship sections
+exact type identity            TFM · library · package@version
+```
+
+The quiet header labels the lens and reports type kind and accessibility
+without competing with the subject path. Type shape rows begin at the top of
+the independently scrolling content region and use its full width. Member
+composition, interfaces, derived types, attributes, relationship graphs, and
+inspection warnings retain their owned semantics and follow in the same
+scroller.
+
+The fixed bottom context row preserves the exact type identity and package
+coordinate needed to compare or capture the projection without restoring a
+large duplicate heading. Loading and failure states retain the same header,
+scroll owner, and bottom context row; they remain visibly distinct from a
+successful empty projection.
+
+At narrow widths, header status and both context values may elide as complete
+strings. The surface retains one scroll owner and creates no page-level
+horizontal overflow.
 
 ### Package query
 
@@ -576,6 +620,19 @@ with the absence of a synthesized `Default feed` control.
    narrow viewport. Confirm that each surface retains its topology and creates
    no page-level horizontal overflow while preserving the overload total or
    selected overload ordinal in the rendered status.
+
+### Type Metadata working surface
+
+1. Open Type Metadata and confirm that the quiet Metadata header, full-width
+   type shape rows, scrolling relationship sections, and bottom exact-target
+   context row exactly fill the inspector pane without an inset type hero.
+2. Exercise loading, projection failure, relationship warnings, and a type with
+   enough sections to scroll. Confirm that each state keeps the same surface
+   frame, that failures remain visible, and that only the content region
+   scrolls.
+3. Repeat with a long generic type identity, long package coordinate, and a
+   narrow viewport. Confirm that header and footer values elide as complete
+   strings without selective loss or page-level horizontal overflow.
 
 ### Source working surface
 

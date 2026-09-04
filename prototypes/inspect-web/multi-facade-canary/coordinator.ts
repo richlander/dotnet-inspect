@@ -1,4 +1,5 @@
 import {
+  createRuntime,
   initializeRuntime as initializeAlpha,
 } from "./facades/alpha.js";
 import {
@@ -8,8 +9,9 @@ import {
 let initialization: Promise<void> | undefined;
 
 async function initializeCore(): Promise<void> {
-  await initializeAlpha();
-  await initializeBeta();
+  const runtime = createRuntime();
+  await initializeAlpha(runtime);
+  await initializeBeta(runtime);
 }
 
 export function initializeFacades(): Promise<void> {

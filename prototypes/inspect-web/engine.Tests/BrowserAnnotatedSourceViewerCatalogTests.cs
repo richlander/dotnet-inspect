@@ -3,6 +3,8 @@ using System.Text.Json;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Annotations;
 
+using InspectWeb.Engine.SourceFacade;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
@@ -309,7 +311,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 document,
                 "test provenance",
                 contextLimitation: null),
-            BrowserJsonContext.Default.BrowserAnnotatedSource);
+            BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
         using JsonDocument envelope = JsonDocument.Parse(envelopeJson);
         string documentJson = JsonSerializer.Serialize(
             document,
@@ -357,7 +359,7 @@ public sealed class BrowserAnnotatedSourceViewerCatalogTests
                 "test provenance",
                 contextLimitation: null,
                 [new(1, Target("n1", "Call"))]),
-            BrowserJsonContext.Default.BrowserAnnotatedSource);
+            BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
         using JsonDocument envelope = JsonDocument.Parse(envelopeJson);
         JsonElement catalog =
             envelope.RootElement.GetProperty("viewerCatalog");

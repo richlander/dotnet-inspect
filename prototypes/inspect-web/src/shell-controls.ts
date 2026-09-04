@@ -41,6 +41,7 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
+  applicationScopeHtml: string;
   contextualActionsHtml?: string;
   inspectedTargetHtml: string;
   subjectInspectorHtml: string;
@@ -53,6 +54,9 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
+        <div class="application-scope-region">
+          ${options.applicationScopeHtml}
+        </div>
         <div class="subject-inspector-region">
           ${options.subjectInspectorHtml}
         </div>
