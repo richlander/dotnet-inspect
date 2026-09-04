@@ -4,6 +4,26 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/artifact-root-publication/BrokenCheckPrecedence.cfg=12
+docs/design/models/artifact-root-publication/BrokenDeadlineSettlement.cfg=13
+docs/design/models/artifact-root-publication/BrokenHalfStateCommit.cfg=12
+docs/design/models/artifact-root-publication/BrokenLeaseDrainage.cfg=13
+docs/design/models/artifact-root-publication/BrokenParticipantReuse.cfg=12
+docs/design/models/artifact-root-publication/BrokenReceiptReuse.cfg=12
+docs/design/models/artifact-root-publication/BrokenRefusedParticipantPublishes.cfg=12
+docs/design/models/artifact-root-publication/BrokenReleaseDuringPublishing.cfg=12
+docs/design/models/artifact-root-publication/BrokenRetiredRootEntry.cfg=12
+docs/design/models/artifact-root-publication/BrokenShapeValidationOrder.cfg=12
+docs/design/models/artifact-root-publication/BrokenSynthesizedCompositionIdentity.cfg=13
+docs/design/models/artifact-root-publication/LeaseDrainLiveness.cfg=0
+docs/design/models/artifact-root-publication/ObserverSafety.cfg=0
+docs/design/models/artifact-root-publication/PreparationSettlementLiveness.cfg=0
+docs/design/models/artifact-root-publication/PublicationSettlementLiveness.cfg=0
+docs/design/models/artifact-root-publication/ReachabilityOldAndNewPairsObserved.cfg=12
+docs/design/models/artifact-root-publication/ReachabilityPublishedComposition.cfg=12
+docs/design/models/artifact-root-publication/ReachabilityReleaseRacesPublishing.cfg=12
+docs/design/models/artifact-root-publication/ReachabilityRetiredLeaseDrains.cfg=12
+docs/design/models/artifact-root-publication/Safety.cfg=0
 docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecycle.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
