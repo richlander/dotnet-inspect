@@ -210,18 +210,14 @@ public static partial class AnalysisExports
         };
 
     /// <summary>
-    /// Ecosystem integration evidence for one package/version/framework workspace, produced by
-    /// <see cref="PackageWorkspaceIntegrationsQuery"/> over the product-selected package roles.
-    /// Its group query owns every session; this method groups signals for display and composes no
-    /// evidence. Role selection is gated by
-    /// <c>PackageWorkspaceIntegrationsQuery_UsesImplementationRoleAndReferenceFallback</c> and
-    /// <c>PackageWorkspaceIntegrationsQuery_SharedRoleDoesNotDuplicateLibraries</c>.
+    /// Ecosystem integration evidence for one exact package library.
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPackageIntegrations(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string assemblyName)
     {
         BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
@@ -246,21 +242,25 @@ public static partial class AnalysisExports
                 BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
         }
 
-        PackageWorkspaceIntegrationsResult result =
-            scope.QueryIntegrations();
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyIntegrationsEntry result =
+            scope.UseMetadataParticipant(
+                participant,
+                AssemblyContextIntegrationsQuery.ExecuteParticipant);
 
         return JsonSerializer.Serialize(
             CreateIntegrations(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Libraries.Select(entry => entry.Integrations),
+                [result],
                 compileLibrary),
             BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
     }
 
     /// <summary>
-    /// Missing ecosystem integration opportunities for one package/version/framework workspace.
+    /// Missing ecosystem integration opportunities for one exact package library.
     /// The product query composes them from its typed Integrations prerequisite; the browser only
     /// groups and deduplicates the returned evidence for presentation.
     /// </summary>
@@ -268,7 +268,8 @@ public static partial class AnalysisExports
     public static async Task<string> QueryPackageOpportunities(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string assemblyName)
     {
         BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
             packageId,
@@ -293,27 +294,19 @@ public static partial class AnalysisExports
                 BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
         }
 
-        var registry = new InspectionQueryRegistry<AssemblyContextGroup>()
-            .Add(
-                AssemblyContextIntegrationsQuery.Definition,
-                AssemblyContextIntegrationsQuery.Execute)
-            .Add(
-                AssemblyContextIntegrationOpportunitiesQuery.Definition,
-                AssemblyContextIntegrationOpportunitiesQuery.Execute,
-                AssemblyContextIntegrationsQuery.Definition);
-        AssemblyContextIntegrationOpportunitiesResult result =
-            scope.UseSurface(group =>
-                registry.Run(
-                        [AssemblyContextIntegrationOpportunitiesQuery.Definition],
-                        group)
-                    .Get(AssemblyContextIntegrationOpportunitiesQuery.Definition));
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
+        AssemblyIntegrationOpportunitiesEntry result =
+            scope.UseMetadataParticipant(
+                participant,
+                AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant);
 
         return JsonSerializer.Serialize(
             CreateOpportunities(
                 coordinate.PackageId,
                 coordinate.Version,
                 coordinate.Framework,
-                result.Assemblies,
+                [result],
                 compileLibrary),
             BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
     }
@@ -488,7 +481,7 @@ public static partial class AnalysisExports
     }
 
     /// <summary>
-    /// Product-ranked optimization-opportunity members for one package workspace. Analysis owns
+    /// Product-ranked optimization-opportunity members for one exact package library. Analysis owns
     /// opportunity and member order; the query owns index lifetime and public-API attribution;
     /// this host only maps the typed rows to the existing browser wire contract.
     /// </summary>
@@ -496,7 +489,8 @@ public static partial class AnalysisExports
     public static async Task<string> QueryPackagePerformance(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string assemblyName)
     {
         BrowserInspectionScope scope =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -519,40 +513,33 @@ public static partial class AnalysisExports
                 BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
         }
 
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyName);
         ImmutableArray<BrowserWorkspaceParticipant> participants =
-            scope.ImplementationParticipants.Length > 0
-                ? scope.ImplementationParticipants
-                : scope.SurfaceParticipants;
+            [participant];
 
-        var registry =
-            new InspectionQueryRegistry<AssemblyContextGroup>()
-                .Add(
-                    AssemblyContextOptimizationOpportunitiesQuery.Definition,
-                    AssemblyContextOptimizationOpportunitiesQuery.Execute);
         AssemblyContextOptimizationOpportunitiesResult result =
-            scope.UseImplementationOrSurface(
-                group =>
-                    registry.Run(
-                            [
-                                AssemblyContextOptimizationOpportunitiesQuery
-                                    .Definition,
-                            ],
-                            group)
-                        .Get(
-                            AssemblyContextOptimizationOpportunitiesQuery
-                                .Definition));
+            scope.UseMetadataParticipant(
+                participant,
+                AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
         // The ranking only publishes members the site can navigate to, which is the same
         // browsable surface the package facade renders. The projection is DTO-neutral shared
         // mechanics in InspectWeb.Engine.Core; this facade never reaches for a sibling's wire
         // record to decide what is navigable.
-        BrowserPackageSurfaceInfo surface =
-            BrowserPackageSurfaceProjection.ProjectSurface(scope, coordinate);
+        BrowserWorkspaceParticipant? surfaceParticipant =
+            scope.TryGetSurfaceParticipant(participant);
+        BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
+            ? null
+            : BrowserPackageSurfaceProjection.ProjectParticipantSurface(
+                scope,
+                surfaceParticipant);
         HashSet<(
             string Assembly,
             string Type,
             string Selector)> navigableMembers =
         [
-            .. surface.Types.SelectMany(type =>
+            .. (surface?.Types ?? [])
+                .SelectMany(type =>
                 type.Api.Select(member => (
                     type.Assembly,
                     type.DefinitionId,
@@ -560,7 +547,7 @@ public static partial class AnalysisExports
         ];
 
         var failures = new List<string>();
-        if (!string.IsNullOrWhiteSpace(surface.InspectionError))
+        if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
             failures.Add($"API surface: {surface.InspectionError}");
         foreach (AssemblyContextEntry<
             AssemblyOptimizationOpportunityRanking> entry

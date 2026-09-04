@@ -190,6 +190,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push("copy-type-source");
     },
     onKindSelect: value => calls.push(`kind:${value}`),
+    onLibraryOpen: () => calls.push("library"),
     onListKeyDown: event => {
       calls.push(`list:${event.key}`);
       return true;
@@ -302,6 +303,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
+  const library = root.add("[data-library-root]", new FakeElement());
 
   const calls: string[] = [];
   let forwardedListEvent: KeyboardEvent | null = null;
@@ -316,6 +318,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   filter.value = "json";
 
   type.dispatch("click");
+  library.dispatch("click");
   secondType.dispatch("click");
   namespace.dispatch("click");
   secondNamespace.dispatch("click");
@@ -331,6 +334,7 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
 
   assert.deepEqual(calls, [
     "type:System.String",
+    "library",
     "type:System.Int32",
     "namespace:System",
     "namespace:System.Collections",
@@ -551,7 +555,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
     namespaceOptionsHtml: '<option value="System.Text.Json">System.Text.Json · 2</option>',
     kindFilters: ["class"],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: false,
     filterSummary: "public",
     escapeHtml,
@@ -579,6 +583,9 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
+  assert.match(html, /data-library-root/);
+  assert.match(html, />System\.Text\.Json<\/span>/);
+  assert.doesNotMatch(html, /type-library-context/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
 });
 
@@ -594,7 +601,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
     namespaceOptionsHtml: "",
     kindFilters: [],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: true,
     filterSummary: "nothing-matches · public",
     escapeHtml,
@@ -619,7 +626,7 @@ test("the type nav handles a package with no projected types", () => {
     namespaceOptionsHtml: "",
     kindFilters: [],
     accessibilityControlHtml: "",
-    libraryControlHtml: "",
+    library: "System.Text.Json",
     filtersExpanded: false,
     filterSummary: "All types",
     escapeHtml,

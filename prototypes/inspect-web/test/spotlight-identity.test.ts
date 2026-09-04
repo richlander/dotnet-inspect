@@ -973,7 +973,7 @@ test("explicit coordinate changes discard a floating canonical basis", () => {
     /if \(!loaded\)[\s\S]*appendQueryNotice\([\s\S]*render\(\);\s*return;/);
   assert.match(
     platformVersion,
-    /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*state\.libraryScope = null/);
+    /state\.workspaceShareBasis = null;\s*state\.platformStack = \[\];\s*activatePackage[\s\S]*const firstLibrary = packageLibraries\(\)\[0\];\s*state\.libraryScope = firstLibrary \? new Set\(\[firstLibrary\.id\]\) : null/);
 });
 
 test("typed package inspection owns package-root request coordination", () => {
@@ -999,7 +999,7 @@ test("typed package inspection owns package-root request coordination", () => {
       appSource,
       new RegExp(
         `${engine}\\(\\s*packageModel\\.id,\\s*`
-        + "packageModel\\.version,\\s*packageModel\\.activeFramework\\)"));
+        + "packageModel\\.version,\\s*packageModel\\.activeFramework,\\s*library\\)"));
   }
   for (const engine of [
     "inspectPlatformIntegrations",
@@ -1015,7 +1015,7 @@ test("typed package inspection owns package-root request coordination", () => {
   }
   assert.match(
     dependenciesLoader,
-    /function loadPackageDependencies\(\) \{\s*return packageInspection\.loadDependencies\(/);
+    /async function loadPackageDependencies\(\) \{[\s\S]*return packageInspection\.loadDependencies\(/);
   assert.match(appSource, /packageInspection\.ensureWorkspaceDependencies\(\)/);
   assert.match(appSource, /packageInspection\.loadIntegrations\(/);
   assert.match(appSource, /packageInspection\.loadOpportunities\(/);
@@ -1085,16 +1085,20 @@ test("typed package view owns package navigation bindings", () => {
     /state\.atPackageRoot = false;[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
   assert.match(
     libraryJump,
-    /state\.atPackageRoot = false;[\s\S]*if \(!library\) return;[\s\S]*state\.libraryScope = new Set\(\[library\]\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(library, platformPackForAssembly\(library\)\);[\s\S]*state\.kindFilter = kind;[\s\S]*state\.namespaceFilter = ""/);
+    /if \(!library\) return;[\s\S]*if \(!selectLibrarySubject\(library\)\) return;[\s\S]*if \(kind\) \{\s*state\.atLibraryRoot = false;\s*state\.kindFilter = kind;/);
+  assert.match(
+    appSource,
+    /function selectLibrarySubject\(key: string\)[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
-  for (const source of [kindJump, libraryJump, namespaceJump]) {
+  for (const source of [kindJump, namespaceJump]) {
     assert.match(
       source,
       /state\.typeFilter = "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.memberBrowseTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*state\.typeCursor = 0;[\s\S]*const first = filteredTypes\(\)\[0\];[\s\S]*if \(first\) state\.selectedTypeId = first\.id;[\s\S]*render\(\)/);
     assert.equal(source.match(/\brender\(\)/g)?.length, 1);
   }
+  assert.equal(libraryJump.match(/\brender\(\)/g)?.length, 1);
   assert.match(
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId\)/);
@@ -1151,10 +1155,10 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onAccessibilityChipSelect: accessibility => \{[\s\S]*toggleAccessibilityChip\(accessibility\);[\s\S]*afterLibraryScopeChange\(\)/);
   assert.match(
     binding,
-    /onLibraryChipSelect: library => \{[\s\S]*toggleLibraryChip\(library\);[\s\S]*afterLibraryScopeChange\(\)/);
+    /onLibraryChipSelect: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
   assert.match(
     binding,
-    /onLibraryJump: library => \{[\s\S]*state\.libraryScope = library \? new Set\(\[library\]\) : null;[\s\S]*afterLibraryScopeChange\(\)/);
+    /onLibraryJump: library => \{\s*if \(library && selectLibrarySubject\(library\)\) render\(\);/);
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
@@ -1715,6 +1719,15 @@ test("typed scope bar owns its rendered control bindings", () => {
       "call:render()",
     ]);
 
+  const libraryLens = callbackProperty(actions, "onLibraryLensSelect");
+  assert.deepEqual(
+    statementSignatures(libraryLens.body.body),
+    [
+      'assign:contentFramePane = "detail"',
+      "assign:state.libraryLens = lens",
+      "call:render()",
+    ]);
+
   const scope = callbackProperty(actions, "onScopeSelect");
   assert.deepEqual(
     statementSignatures(scope.body.body),
@@ -1725,6 +1738,7 @@ test("typed scope bar owns its rendered control bindings", () => {
         whenTrue: [
           "assign:state.workspaceSubjectOpen = true",
           "assign:state.atPackageRoot = true",
+          "assign:state.atLibraryRoot = false",
           'assign:state.selectedMemberKey = ""',
           'assign:state.memberBrowseTypeId = ""',
           "assign:state.selectedOverloadIndex = null",
@@ -1735,39 +1749,47 @@ test("typed scope bar owns its rendered control bindings", () => {
             whenTrue: [
               "assign:state.workspaceSubjectOpen = false",
               "assign:state.atPackageRoot = true",
+              "assign:state.atLibraryRoot = false",
             ],
             whenFalse: [
               {
-                if: 'target === "type"',
+                if: 'target === "library"',
                 whenTrue: [
                   "assign:state.workspaceSubjectOpen = false",
                   "assign:state.atPackageRoot = false",
-                  {
-                    if: "!state.selectedTypeId",
-                    whenTrue: [
-                      "declare:const first = filteredTypes()[0]",
-                      {
-                        if: "first",
-                        whenTrue: ["assign:state.selectedTypeId = first.id"],
-                        whenFalse: [],
-                      },
-                    ],
-                    whenFalse: [],
-                  },
+                  "assign:state.atLibraryRoot = true",
                   'assign:state.selectedMemberKey = ""',
                   'assign:state.memberBrowseTypeId = ""',
                   "assign:state.selectedOverloadIndex = null",
                 ],
                 whenFalse: [
                   {
-                    if: 'target === "member"',
+                    if: 'target === "type"',
                     whenTrue: [
                       "assign:state.workspaceSubjectOpen = false",
-                      "call:enterMemberScope()",
+                      {
+                        if: "!enterTypeSubject(selectedType())",
+                        whenTrue: ["statement:ReturnStatement:return;"],
+                        whenFalse: [],
+                      },
+                      'assign:state.selectedMemberKey = ""',
+                      'assign:state.memberBrowseTypeId = ""',
+                      "assign:state.selectedOverloadIndex = null",
                     ],
-                    // A scope this dispatch does not handle is now a compile error rather
-                    // than a silently ignored click.
-                    whenFalse: ['call:assertNever(target, "workspace scope")'],
+                    whenFalse: [
+                      {
+                        if: 'target === "member"',
+                        whenTrue: [
+                          "assign:state.workspaceSubjectOpen = false",
+                          "assign:state.atPackageRoot = false",
+                          "assign:state.atLibraryRoot = false",
+                          "call:enterMemberScope()",
+                        ],
+                        // A scope this dispatch does not handle is now a compile error rather
+                        // than a silently ignored click.
+                        whenFalse: ['call:assertNever(target, "workspace scope")'],
+                      },
+                    ],
                   },
                 ],
               }
@@ -1790,10 +1812,11 @@ test("typed scope bar owns its rendered control bindings", () => {
     ]);
   assert.match(
     scopeBarSource,
-    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
+    /export function bindScopeBar\([\s\S]*\[data-scope\][\s\S]*\[data-package-lens\][\s\S]*\[data-library-lens\][\s\S]*\[data-lens\][\s\S]*\[data-member-section\]/);
   for (const selector of [
     "[data-scope]",
     "[data-package-lens]",
+    "[data-library-lens]",
     "[data-lens]",
     "[data-member-section]",
   ]) {
@@ -2621,7 +2644,9 @@ test("shared member views use portable product identity and omit UI-local filter
   assert.match(
     capture,
     /memberAnchor = overload\.anchorDigest \|\| null;[\s\S]*memberSignature = memberAnchor \? null : overload\.canonicalSignature \|\| null/);
-  assert.match(capture, /libraries = state\.libraryScope/);
+  assert.match(
+    capture,
+    /const library = selectedLibraryRequest\(\);\s*const libraries = workspaceSubjectOpen \|\| !library \? \[\] : \[library\]/);
   assert.match(
     capture,
     /state\.libraryScope && state\.libraryScope\.size > 1[\s\S]*Select one library/);
@@ -2704,7 +2729,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /canonicalTabCountPreserved[\s\S]*canonicalTabsPreserved[\s\S]*failedTabCount > 0 \|\| !canonicalTabsPreserved[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
-    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens\)[\s\S]*failCanonicalWorkspaceRestore/);
+    /canonicalViewRestorationFailure\(targetModel, deep, loc\.lens, loc\.libraryLens\)[\s\S]*failCanonicalWorkspaceRestore/);
   assert.match(
     restore,
     /canonicalSnapshot = loc\.hasWorkspaceState[\s\S]*captureCanonicalWorkspaceRestoreSnapshot/);
@@ -2780,7 +2805,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
   assert.match(
     scopePlatform,
-    /candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
+    /resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*scopeOnly\) return hasLib \? pkg : undefined/);
   assert.match(
     validateView,
     /typeLensesFor\(pkg\)[\s\S]*deep\.section && !hasPortableMember/);
@@ -2944,7 +2969,10 @@ test("package-root Open and selected-Type activation preserve local frame state"
 
   assert.match(
     drillInSource,
-    /if \(state\.atPackageRoot\) \{\s*state\.atPackageRoot = false;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+    /if \(state\.atPackageRoot\) \{\s*const library = selectedLibrary\(\)\?\.id;\s*if \(!library \|\| !selectLibrarySubject\(library\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+  assert.match(
+    drillInSource,
+    /if \(state\.atLibraryRoot\) \{\s*if \(!enterTypeSubject\(selectedType\(\)\)\) return;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
   assert.match(
     drillInSource,
     /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
@@ -3003,7 +3031,7 @@ test("home demos restore the complete parsed location", () => {
     /applyLocationView\(loc\);[\s\S]*await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);[\s\S]*applyDeepLink\(deep\)/);
   assert.match(
     appSource,
-    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
+    /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.atLibraryRoot = !state\.atPackageRoot\s*&& \(loc\.atLibraryRoot \|\| false\);\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";\s*state\.libraryLens = loc\.libraryLens \|\| "overview";/);
   const callGraphDemo =
     appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
@@ -3017,7 +3045,7 @@ test("home demos restore the complete parsed location", () => {
     /state\.loading = false;\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*let renderResult = await renderMermaidCallGraph\(\);\s*while \(renderResult\.status === "superseded"[\s\S]*renderResult = await renderMermaidCallGraph\(\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*if \(renderResult\.status === "superseded"\) \{\s*cancelDemoNavigation\(navigationSeq\);\s*syncUrl\(\);[\s\S]*if \(renderResult\.status === "failed"\) \{\s*throw new Error\(renderResult\.message\);[\s\S]*if \(!commitDemoNavigation\(navigationSeq\)\)/);
   assert.match(
     callGraphDemo,
-    /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
+    /state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);\s*state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.atLibraryRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   assert.match(
     restoreWorkspace,
     /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);\s*\}\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
@@ -3153,7 +3181,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
     ?? "";
   assert.match(
     picker,
-    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[key\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
+    /originPackage: AppPackage = currentPackage\(\),[\s\S]*noticeRetryState: NoticeRetryState \| null = null[\s\S]*if \(!state\.packages\.includes\(originPackage\)[\s\S]*!packageIdentityEquals\(state\.package, originPackage\)[\s\S]*state\.queryNoticeRetryAction === noticeRetryState\.action[\s\S]*state\.queryNotice = removeAppendedNotice\([\s\S]*state\.queryNoticeRetryAction = null;[\s\S]*const pack = selectedPack \|\| platformPackForAssembly\(key\);[\s\S]*const runtimeResult = await loadRuntimePackAssembly\([\s\S]*\(\) => state\.packages\.includes\(originPackage\),[\s\S]*originPackage\.version\);[\s\S]*const loaded = runtimeResult\.packageModel;[\s\S]*previous: state\.queryNotice[\s\S]*const retryAction = \(\) =>\s*openPlatformLensLibrary\([\s\S]*noticeState\);[\s\S]*runtimeResult\.failureMessage[\s\S]*noticeState\.appended = state\.queryNotice;[\s\S]*if \(!isCurrent\(\)\) return;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*lens === "integrations"[\s\S]*loadPackageIntegrations\(\)[\s\S]*lens === "opportunities"[\s\S]*loadPackageOpportunities\(\)[\s\S]*lens === "analysis"[\s\S]*loadPackagePerformance\(\)[\s\S]*loadPackageMetadata\(\)/);
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
@@ -3511,7 +3539,7 @@ test("Platform scope restoration defers selection, rendering, and data loading",
     ?? "";
   assert.match(
     openPlatformLibrary,
-    /const scopeOnly = options\.scopeOnly === true;[\s\S]*candidate\.toLowerCase\(\) === key\.toLowerCase\(\)[\s\S]*state\.libraryScope = actualKey \? new Set\(\[actualKey\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
+    /const scopeOnly = options\.scopeOnly === true;[\s\S]*resolvePackageLibrary\(pkg\.assemblies, key\)[\s\S]*state\.libraryScope = library \? new Set\(\[library\.id\]\) : null;[\s\S]*if \(scopeOnly\) return hasLib \? pkg : undefined;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*render\(\);/);
   const applyScope =
     appSource.match(/async function applyPlatformLibraryScope\([\s\S]*?\n}\n\n\/\/ History/)?.[0]
     ?? "";
@@ -3975,6 +4003,7 @@ test("source operations cancel when superseded or hidden", () => {
   const hiddenOverrides: readonly SourceWorkbenchState[] = [
     { home: true },
     { atPackageRoot: true },
+    { atLibraryRoot: true },
     { settings: true },
     { loading: true },
     { error: "failed" },
@@ -5013,7 +5042,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
   assert.match(capture, /libraryScope: captureLibraryScope\(state\.libraryScope\)/);
   assert.match(
     apply,
-    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.types\.map\(type => libraryKey\(type\)\)\)/);
+    /state\.libraryScope = restoreLibraryScope\(\s*view\.libraryScope,\s*pkg\.assemblies\.map\(assembly => assembly\.id\)\)/);
   assert.match(
     callGraphInspectionSource,
     /state\.memberCallGraphSeq\+\+;\s*state\.memberCallGraphExpanding = false;\s*state\.platformDrillLoading = false;/);
@@ -5025,7 +5054,7 @@ test("graph navigation restores scope and supersedes local drills", () => {
     /else if \(disposition === "resident"\)[\s\S]*?startPlatformDrill\(target\)/);
   assert.match(
     navigation,
-    /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = null;/);
+    /state\.typeFilter = "";\s*state\.namespaceFilter = "";\s*state\.kindFilter = "";\s*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);/);
   assert.match(
     navigation,
     /state\.accessibilityFilter = accessibilityFilterIncludingType\(\s*state\.accessibilityFilter,\s*type\)/);
@@ -5050,13 +5079,13 @@ test("restored selections reveal their accessibility bucket", () => {
     ?? "";
   assert.match(
     apply,
-    /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot\) revealTypeInFilters\(type\)/);
+    /const type = pkg\.types\.find[\s\S]*?if \(!state\.atPackageRoot && !state\.atLibraryRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     deepLink,
     /const type = pkg\.types\.find[\s\S]*?revealTypeInFilters\(type\)[\s\S]*?state\.typeCursor = Math\.max/);
   assert.match(
     reveal,
-    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = null/);
+    /typeMatchesFilterText[\s\S]*?state\.typeFilter = ""[\s\S]*?state\.namespaceFilter = ""[\s\S]*?state\.kindFilter = ""[\s\S]*?state\.libraryScope = new Set\(\[libraryKey\(type\)\]\)/);
   assert.match(
     appSource,
     /function navigateToType\([^)]*\) \{[\s\S]*?revealTypeInFilters\(target\)[\s\S]*?state\.typeCursor = filteredTypes\(\)\.findIndex/);
@@ -5270,25 +5299,25 @@ test("type metadata uses a full-area working surface without the inset type head
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
-test("package metadata uses compact coordinates in a full-area working surface", () => {
-  const renderPackage =
-    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+test("library metadata uses compact coordinates in a full-area working surface", () => {
+  const renderLibrary =
+    appSource.match(/function renderLibraryView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderMetadata =
     appSource.match(/function renderPackageMetadata\([\s\S]*?\n}\n\nasync function loadPackageMetadata/)?.[0]
     ?? "";
   assert.match(
     appSource,
-    /const packageMetadataWorkingSurface =\s*activeScope === "package" && state\.packageLens === "metadata"/);
+    /const libraryMetadataWorkingSurface =\s*activeScope === "library" && state\.libraryLens === "metadata"/);
   assert.match(
     appSource,
-    /packageMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
+    /libraryMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
   assert.match(
     appSource,
-    /const contentNavigationIntegrated =[\s\S]*?\|\| packageMetadataWorkingSurface[\s\S]*?;/);
+    /const contentNavigationIntegrated =[\s\S]*?\|\| libraryMetadataWorkingSurface[\s\S]*?;/);
   assert.match(
-    renderPackage,
-    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+    renderLibrary,
+    /if \(state\.libraryLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
@@ -5321,7 +5350,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
   assert.match(
     renderPackage,
-    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+    /if \(state\.packageLens === "dependencies"\) return body;/);
   assert.match(
     appSource,
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
@@ -5451,7 +5480,7 @@ test("restored views reconcile normalization before rendering", () => {
     ?? "";
   assert.match(
     apply,
-    /if \(!state\.atPackageRoot\) revealTypeInFilters\(type\)/);
+    /if \(!state\.atPackageRoot && !state\.atLibraryRoot\) revealTypeInFilters\(type\)/);
   assert.match(
     apply,
     /graphSelection\?\.group\.key !== view\.selectedMemberKey\) \{[\s\S]*?navigationHistory\.normalizeCurrent\(\);[\s\S]*?restorePendingGraphMember\(\)/);
@@ -6344,10 +6373,10 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
   assert.match(
     appSource,
-    /const key = assemblyId \|\| `legacy:\$\{asm\}`/);
+    /function packageLibraries\(\)[\s\S]*state\.package\.assemblies\.map\(assembly =>/);
   assert.match(
     appSource,
-    /assemblyDescriptorForType\(pkg\.assemblies, stat\)/);
+    /assemblyDescriptorForType\(pkg\.assemblies, type\)/);
   assert.match(
     appSource,
     /activatePackage\(targetPackage, \{ resetAccessibility: true \}\)/);

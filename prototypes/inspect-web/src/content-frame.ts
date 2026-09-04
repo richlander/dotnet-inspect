@@ -81,7 +81,9 @@ export function decideContentFrameResize(
   };
 }
 
-export function renderContentNavigationBar(label: "Types" | "Members") {
+export function renderContentNavigationBar(
+  label: "Libraries" | "Types" | "Members",
+) {
   return `
     <div class="content-navigation-bar">
       <button id="content-navigation-toggle" class="content-navigation-toggle"

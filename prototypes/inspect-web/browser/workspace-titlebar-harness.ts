@@ -10,6 +10,7 @@ import {
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
 import type {
+  LibraryLens,
   MemberSection,
   PackageLens,
   TypeLens,
@@ -121,11 +122,17 @@ const packageIcon = params.has("fallback")
   : systemTextJsonIcon;
 const subjectPath = workspaceMode
   ? [{ kind: "workspace", label: "System.Text.Json", copyable: false }]
+  : packageMetadataMode
+    ? [
+        { kind: "package", label: "System.Text.Json", copyable: true },
+        { kind: "library", label: "System.Text.Json", copyable: true },
+      ]
   : packageMode
     ? [{ kind: "package", label: "System.Text.Json", copyable: true }]
     : memberMode
       ? [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -143,6 +150,7 @@ const subjectPath = workspaceMode
         ]
       : [
           { kind: "package", label: "System.Text.Json", copyable: true },
+          { kind: "library", label: "System.Text.Json", copyable: true },
           {
             kind: "type",
             label: longMode
@@ -207,16 +215,17 @@ function workspaceDetailHtml(): string {
 
 let activeScope: WorkspaceScope = workspaceMode
   ? "workspace"
-  : packageMode
+  : packageMetadataMode
+    ? "library"
+    : packageMode
     ? "package"
     : memberMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = packageDependenciesMode
   ? "dependencies"
-  : packageMetadataMode
-    ? "metadata"
-    : "overview";
+  : "overview";
+let activeLibraryLens: LibraryLens = packageMetadataMode ? "metadata" : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -250,6 +259,16 @@ const packageStrip: readonly (
   ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
   ["dependencies", "Dependencies", scopeBarShortLabel("Dependencies"), "⇄"],
 ];
+const libraryStrip: readonly (
+  readonly [LibraryLens, string, string, string]
+)[] = [
+  ["overview", "Overview", scopeBarShortLabel("Overview"), "◫"],
+  ["references", "References", scopeBarShortLabel("References"), "⇄"],
+  ["integrations", "Integrations", scopeBarShortLabel("Integrations"), "◇"],
+  ["opportunities", "Opportunities", scopeBarShortLabel("Opportunities"), "△"],
+  ["analysis", "Analysis", scopeBarShortLabel("Analysis"), "⌁"],
+  ["metadata", "Metadata", scopeBarShortLabel("Metadata"), "≡"],
+];
 const typeStrip: readonly (
   readonly [TypeLens, string, string, string]
 )[] = [
@@ -272,6 +291,8 @@ function scopeBarHtml() {
     ? []
     : activeScope === "package"
       ? packageStrip
+      : activeScope === "library"
+        ? libraryStrip
       : activeScope === "member"
         ? (emptyMode ? [] : memberStrip)
         : typeStrip;
@@ -283,11 +304,15 @@ function scopeBarHtml() {
       ? null
       : activeScope === "package"
         ? activePackageLens
+        : activeScope === "library"
+          ? activeLibraryLens
         : activeScope === "member"
           ? activeMemberSection
           : activeTypeLens,
     stripAttribute: activeScope === "package"
       ? "data-package-lens"
+      : activeScope === "library"
+        ? "data-library-lens"
       : activeScope === "member"
         ? "data-member-section"
         : "data-lens",
@@ -768,6 +793,10 @@ function bindHarnessScopeBar() {
     },
     onMemberSectionSelect: section => {
       activeMemberSection = section;
+      renderHarnessScopeBar();
+    },
+    onLibraryLensSelect: lens => {
+      activeLibraryLens = lens;
       renderHarnessScopeBar();
     },
     onPackageLensSelect: lens => {

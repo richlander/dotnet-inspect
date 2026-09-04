@@ -246,7 +246,7 @@ type $ManagedExports = {
   readonly "MetadataExports": {
     readonly "QueryGraphMemberSurface.1542089313": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number) => Promise<string>;
     readonly "QueryPackageHeapEntries.1330709314": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string) => Promise<string>;
-    readonly "QueryPackageMetadata.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
+    readonly "QueryPackageMetadata.1579276339": (packageId: string, version: string, targetFramework: string, assemblyFileName: string) => Promise<string>;
     readonly "QueryPackageMetadataTable.1509466830": (packageId: string, version: string, targetFramework: string, assemblyFileName: string, tableIndex: number, startRowId: number, maxRows: number) => Promise<string>;
     readonly "QueryPlatformHeapEntries.1330709314": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string, heap: string) => Promise<string>;
     readonly "QueryPlatformMetadata.1579276339": (targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string) => Promise<string>;
@@ -316,9 +316,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryPackageMetadata.1001223652");
+    value = $ownDataProperty(value, "QueryPackageMetadata.1579276339");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadata.1001223652\u0027 is not callable.");
+      throw new Error("Managed export \u0027MetadataExports.QueryPackageMetadata.1579276339\u0027 is not callable.");
     }
   }
   {
@@ -410,8 +410,8 @@ export async function queryPackageHeapEntries(packageId: string, version: string
   return $parsed as BrowserHeapListing;
 }
 
-export async function queryPackageMetadata(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageMetadata> {
-  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadata.1001223652"](packageId, version, targetFramework);
+export async function queryPackageMetadata(packageId: string, version: string, targetFramework: string, assemblyFileName: string): Promise<BrowserPackageMetadata> {
+  const $result = await $requireManagedExports()["MetadataExports"]["QueryPackageMetadata.1579276339"](packageId, version, targetFramework, assemblyFileName);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageMetadata;
 }

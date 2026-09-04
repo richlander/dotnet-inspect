@@ -3573,7 +3573,8 @@ public sealed class BrowserEngineBoundaryTests
                     await MetadataExports.QueryPackageMetadata(
                         packageId,
                         "1.0.0",
-                        framework),
+                        framework,
+                        packageId),
                     BrowserMetadataJsonContext.Default.BrowserPackageMetadata));
         Assert.Empty(metadata.Assemblies);
         Assert.Null(metadata.InspectionError);
@@ -3587,7 +3588,8 @@ public sealed class BrowserEngineBoundaryTests
                     await AnalysisExports.QueryPackageIntegrations(
                         packageId,
                         "1.0.0",
-                        framework),
+                        framework,
+                        packageId),
                     BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations));
         Assert.Empty(integrations.Categories);
         Assert.Equal(0, integrations.TotalSignals);
@@ -3601,7 +3603,8 @@ public sealed class BrowserEngineBoundaryTests
                     await AnalysisExports.QueryPackageOpportunities(
                         packageId,
                         "1.0.0",
-                        framework),
+                        framework,
+                        packageId),
                     BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities));
         Assert.Empty(opportunities.Categories);
         Assert.Equal(0, opportunities.TotalOpportunities);
@@ -3615,7 +3618,8 @@ public sealed class BrowserEngineBoundaryTests
                     await AnalysisExports.QueryPackagePerformance(
                         packageId,
                         "1.0.0",
-                        framework),
+                        framework,
+                        packageId),
                     BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
         Assert.Empty(performance.Members);
         Assert.Equal(0, performance.TotalOpportunities);
@@ -3828,6 +3832,244 @@ public sealed class BrowserEngineBoundaryTests
         return image.ToArray();
     }
 
+    static byte[] BuildIntegrationImage(
+        string assemblyName,
+        params string[] integrationTypeNames)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(assemblyName);
+        foreach (string integrationTypeName in integrationTypeNames)
+        {
+            TypeBuilder type = module.DefineType(
+                integrationTypeName,
+                TypeAttributes.Public | TypeAttributes.Class);
+            type.DefineDefaultConstructor(MethodAttributes.Public);
+            type.CreateType();
+        }
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LibraryExports_SelectOneExactPackageLibrary(bool useAssetId)
+    {
+        string PackageId = $"Browser.Library.Exact.{useAssetId}";
+        const string SelectedLibrary = "Selected.Library";
+        const string OtherLibrary = "Other.Library";
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"lib/net11.0/{SelectedLibrary}.dll",
+                        BuildIntegrationImage(
+                            SelectedLibrary,
+                            "Microsoft.Extensions.DependencyInjection"
+                            + ".IServiceCollection")),
+                    ($"lib/net11.0/{OtherLibrary}.dll",
+                        BuildIntegrationImage(
+                            OtherLibrary,
+                            "Amazon.S3.AmazonS3Client",
+                            "Microsoft.Extensions.Logging.CustomLogger"))),
+                fromCache: false));
+
+        BrowserPackageMetadata metadata =
+            Assert.IsType<BrowserPackageMetadata>(
+                JsonSerializer.Deserialize(
+                    await MetadataExports.QueryPackageMetadata(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        useAssetId
+                            ? $"compile:lib/net11.0/{SelectedLibrary}.dll"
+                            : "selected.library"),
+                    BrowserMetadataJsonContext.Default
+                        .BrowserPackageMetadata));
+        Assert.Equal(
+            $"{SelectedLibrary}.dll",
+            Assert.Single(metadata.Assemblies).Assembly);
+
+        BrowserPackageIntegrations integrations =
+            Assert.IsType<BrowserPackageIntegrations>(
+                JsonSerializer.Deserialize(
+                    await AnalysisExports.QueryPackageIntegrations(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        useAssetId
+                            ? $"compile:lib/net11.0/{SelectedLibrary}.dll"
+                            : $"{SelectedLibrary}.DLL"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageIntegrations));
+        Assert.Contains(
+            integrations.Categories,
+            category =>
+                category.Integration
+                == EcosystemIntegrationNames.DependencyInjection);
+        Assert.DoesNotContain(
+            integrations.Categories,
+            category =>
+                category.Integration
+            == EcosystemIntegrationNames.Logging);
+
+        BrowserPackageOpportunities opportunities =
+            Assert.IsType<BrowserPackageOpportunities>(
+                JsonSerializer.Deserialize(
+                    await AnalysisExports.QueryPackageOpportunities(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        useAssetId
+                            ? $"compile:lib/net11.0/{OtherLibrary}.dll"
+                            : OtherLibrary),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackageOpportunities));
+        Assert.Contains(
+            opportunities.Categories,
+            category =>
+                category.Integration
+                == EcosystemIntegrationNames.Aspire);
+        Assert.All(
+            opportunities.Categories.SelectMany(
+                category => category.Items),
+            opportunity =>
+                Assert.Equal(
+                    OtherLibrary,
+                    opportunity.SourceAssembly));
+    }
+
+    [Fact]
+    public async Task LibraryParticipant_ExactSurfaceIdUsesProductImplementationCorrespondence()
+    {
+        const string packageId = "Browser.Library.Correspondence";
+        const string fileName = "Renamed.Library.dll";
+        byte[] implementation = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] reference = BuildEmptySurfaceImage(
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+        _ = Coordinate(
+            packageId,
+            PackagePair(reference, implementation, fileName));
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+            packageId, "1.0.0", "net11.0", TestContext.Current.CancellationToken);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant surface = Assert.Single(scope.SurfaceParticipants);
+        BrowserWorkspaceParticipant selected = scope.LibraryParticipant(
+            coordinate,
+            surface.Asset.Id);
+
+        Assert.Same(scope.ImplementationParticipant(surface), selected);
+        Assert.NotSame(surface.Participant, selected.Participant);
+        Assert.Same(surface, scope.TryGetSurfaceParticipant(selected));
+        Assert.Same(selected, scope.LibraryParticipant(coordinate, "renamed.library"));
+        Assert.Same(selected, scope.LibraryParticipant(
+            coordinate,
+            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Name!));
+
+        using JsonDocument metadata = JsonDocument.Parse(
+            await MetadataExports.QueryPackageMetadata(
+                packageId, "1.0.0", "net11.0", surface.Asset.Id));
+        Assert.Equal(fileName, Assert.Single(
+            metadata.RootElement.GetProperty("assemblies").EnumerateArray())
+                .GetProperty("assembly").GetString());
+        using JsonDocument table = JsonDocument.Parse(
+            await MetadataExports.QueryPackageMetadataTable(
+                packageId, "1.0.0", "net11.0", surface.Asset.Id,
+                (int)TableIndex.TypeDef, 1, 10));
+        Assert.True(table.RootElement.GetProperty("rowCount").GetInt32() > 1);
+        using JsonDocument heap = JsonDocument.Parse(
+            await MetadataExports.QueryPackageHeapEntries(
+                packageId, "1.0.0", "net11.0", surface.Asset.Id, "String"));
+        Assert.Contains(nameof(BrowserEngineBoundaryTests), heap.RootElement.GetRawText());
+
+        BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackagePerformance(
+                    packageId, "1.0.0", "net11.0", surface.Asset.Id),
+                BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
+        Assert.True(performance.TotalOpportunities > 0);
+        Assert.Empty(performance.Members);
+        Assert.Null(performance.InspectionError);
+    }
+
+    [Fact]
+    public void LibraryParticipant_RejectsAmbiguousNamesAndMissingIds()
+    {
+        BrowserPackageCoordinate coordinate = Coordinate(
+            "Browser.Library.Ambiguous",
+            PackageEntries(
+                ("lib/net11.0/First.dll",
+                    BuildEmptySurfaceImage(new AssemblyName("First") { Version = new(1, 0, 0, 0) })),
+                ("lib/net11.0/Second.dll",
+                    BuildEmptySurfaceImage(new AssemblyName("First") { Version = new(2, 0, 0, 0) }))));
+        using var scope = new BrowserInspectionScope([coordinate]);
+
+        Assert.Contains("ambiguous", Assert.Throws<InvalidOperationException>(
+            () => scope.LibraryParticipant(coordinate, "First")).Message);
+        Assert.Contains("not part", Assert.Throws<InvalidOperationException>(
+            () => scope.LibraryParticipant(
+                coordinate, "compile:ref/net11.0/First.dll")).Message);
+        Assert.Throws<ArgumentException>(() => scope.LibraryParticipant(coordinate, ""));
+        foreach (BrowserWorkspaceParticipant participant in scope.SurfaceParticipants)
+        {
+            Assert.Same(participant, scope.LibraryParticipant(
+                coordinate, participant.Asset.Id));
+        }
+    }
+
+    [Fact]
+    public async Task LibraryExports_ExactIdPreservesReferenceOnlySelection()
+    {
+        const string packageId = "Browser.Library.ReferenceOnly";
+        const string assemblyName = "Reference.Library";
+        _ = Coordinate(
+            packageId,
+            Package(
+                BuildIntegrationImage(
+                    assemblyName,
+                    "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+                    "Amazon.S3.AmazonS3Client"),
+                $"ref/net11.0/{assemblyName}.dll"));
+        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+            packageId, "1.0.0", "net11.0", TestContext.Current.CancellationToken);
+        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserWorkspaceParticipant surface = Assert.Single(scope.SurfaceParticipants);
+        Assert.Same(surface, scope.LibraryParticipant(coordinate, surface.Asset.Id));
+        Assert.Empty(scope.ImplementationParticipants);
+
+        BrowserPackageIntegrations integrations = Assert.IsType<BrowserPackageIntegrations>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackageIntegrations(
+                    packageId, "1.0.0", "net11.0", surface.Asset.Id),
+                BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations));
+        Assert.True(integrations.IsComplete);
+        Assert.Contains(integrations.Categories, category =>
+            category.Integration == EcosystemIntegrationNames.DependencyInjection);
+        BrowserPackageOpportunities opportunities = Assert.IsType<BrowserPackageOpportunities>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackageOpportunities(
+                    packageId, "1.0.0", "net11.0", surface.Asset.Id),
+                BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities));
+        Assert.True(opportunities.IsComplete);
+        Assert.Contains(opportunities.Categories, category =>
+            category.Integration == EcosystemIntegrationNames.Aspire);
+        BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackagePerformance(
+                    packageId, "1.0.0", "net11.0", surface.Asset.Id),
+                BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
+        Assert.Equal(0, performance.TotalOpportunities);
+        Assert.Empty(performance.Members);
+        Assert.Null(performance.InspectionError);
+    }
+
     [Fact]
     public async Task PackageDependencies_UsesProductQueriesForManifestAndReferences()
     {
@@ -3969,7 +4211,8 @@ public sealed class BrowserEngineBoundaryTests
         string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
-            "net11.0");
+            "net11.0",
+            $"{PackageId}.dll");
 
         using JsonDocument surfaceDocument =
             JsonDocument.Parse(surfaceJson);
@@ -4051,6 +4294,101 @@ public sealed class BrowserEngineBoundaryTests
             $"{typeof(BrowserEngineBoundaryTests).FullName}+"
                 + nameof(PerformanceNestedProbe),
             nested.GetProperty("typeId").GetString());
+    }
+
+    [Fact]
+    public async Task PackagePerformance_ExcludesOtherLibraries()
+    {
+        const string PackageId = "Browser.Performance.Exact";
+        const string SelectedLibrary = "Selected.Empty";
+        byte[] otherLibrary = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageWorkspace.RegisterAcquiredPackage(
+            new BrowserPackage(
+                PackageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"lib/net11.0/{SelectedLibrary}.dll",
+                        BuildEmptySurfaceImage(
+                            new AssemblyName(SelectedLibrary))),
+                    ("lib/net11.0/InspectWeb.Engine.Tests.dll",
+                        otherLibrary)),
+                fromCache: false));
+
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await AnalysisExports.QueryPackagePerformance(
+                        PackageId,
+                        "1.0.0",
+                        "net11.0",
+                        "selected.empty.dll"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserPackagePerformance));
+
+        Assert.Equal(0, performance.TotalOpportunities);
+        Assert.Equal(0, performance.NonPublicOpportunities);
+        Assert.Empty(performance.Members);
+    }
+
+    [Fact]
+    public async Task PackagePerformance_UnrelatedFailureDoesNotLeakIntoSelectedLibrary()
+    {
+        await AssertPerformanceParticipantIsolation(
+            "Browser.Performance.FailedNeighbor",
+            [0x01, 0x02, 0x03]);
+    }
+
+    [Fact]
+    public async Task PackagePerformance_UnrelatedSurfaceCannotConsumeSelectedBudget()
+    {
+        await AssertPerformanceParticipantIsolation(
+            "Browser.Performance.BoundedNeighbor",
+            BuildTransportAmplificationImage(
+                "A.Other",
+                typeCount: 10_000,
+                namespaceLength: 1_000));
+    }
+
+    static async Task AssertPerformanceParticipantIsolation(
+        string packageId,
+        byte[] neighbor)
+    {
+        byte[] selected = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = Coordinate(
+            packageId,
+            PackageEntries(
+                ("lib/net11.0/A.Other.dll", neighbor),
+                ("lib/net11.0/Z.Selected.dll", selected)));
+        BrowserPackageCoordinate isolated = Coordinate(
+            $"{packageId}.Isolated",
+            Package(selected, "lib/net11.0/Z.Selected.dll"));
+        string selectedId = coordinate.Selection.Assets.Single(
+            asset => asset.AssemblyName == "Z.Selected.dll").Id;
+        string expected = await AnalysisExports.QueryPackagePerformance(
+            isolated.PackageId, "1.0.0", "net11.0", selectedId);
+        string actual = await AnalysisExports.QueryPackagePerformance(
+            packageId, "1.0.0", "net11.0", selectedId);
+        BrowserPackagePerformance performance = Assert.IsType<BrowserPackagePerformance>(
+            JsonSerializer.Deserialize(
+                actual, BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
+
+        Assert.Null(performance.InspectionError);
+        Assert.True(performance.TotalOpportunities > 0);
+        Assert.Contains(performance.Members, member =>
+            member.MemberName == nameof(PerformanceBoxingProbe));
+        Assert.Equal(expected, actual);
+
+        string neighborId = coordinate.Selection.Assets.Single(
+            asset => asset.AssemblyName == "A.Other.dll").Id;
+        BrowserPackagePerformance neighborPerformance = Assert.IsType<BrowserPackagePerformance>(
+            JsonSerializer.Deserialize(
+                await AnalysisExports.QueryPackagePerformance(
+                    packageId, "1.0.0", "net11.0", neighborId),
+                BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
+        Assert.NotNull(neighborPerformance.InspectionError);
+        Assert.Empty(neighborPerformance.Members);
     }
 
     [Fact]
@@ -4498,7 +4836,8 @@ public sealed class BrowserEngineBoundaryTests
         string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
-            "net11.0");
+            "net11.0",
+            "InspectWeb.Engine.Tests.dll");
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
@@ -4528,7 +4867,8 @@ public sealed class BrowserEngineBoundaryTests
         string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
-            "net11.0");
+            "net11.0",
+            $"{PackageId}.dll");
 
         using JsonDocument document = JsonDocument.Parse(json);
         Assert.Contains(

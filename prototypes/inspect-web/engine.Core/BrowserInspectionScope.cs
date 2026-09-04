@@ -230,6 +230,84 @@ internal sealed class BrowserInspectionScope : IDisposable
         PackageCompileAsset asset)
         => Implementation.FindParticipant(coordinate, asset);
 
+    /// <summary>
+    /// Resolves one exact package library through the implementation-preferred metadata role.
+    /// Exact surface asset IDs take precedence and use product-owned implementation
+    /// correspondence. Unique descriptor names or <c>.dll</c> file names are also accepted.
+    /// </summary>
+    public BrowserWorkspaceParticipant LibraryParticipant(
+        BrowserPackageCoordinate coordinate,
+        string assemblyName)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        if (!coordinate.Selection.IsSelected)
+        {
+            throw new InvalidOperationException(
+                $"{coordinate.PackageId} {coordinate.Version} has no selected "
+                + $"compile library ({coordinate.Selection.Status}).");
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+
+        BrowserWorkspaceParticipant[] surfaces =
+        [
+            .. SurfaceParticipants
+                .Where(participant =>
+                    ReferenceEquals(
+                        participant.Coordinate.Root.Identity,
+                        coordinate.Root.Identity)),
+        ];
+        BrowserWorkspaceParticipant[] implementations =
+        [
+            .. ImplementationParticipants.Where(participant =>
+                ReferenceEquals(
+                    participant.Coordinate.Root.Identity,
+                    coordinate.Root.Identity)),
+        ];
+        BrowserWorkspaceParticipant? exactSurface = surfaces.SingleOrDefault(
+            participant => participant.Asset.Id.Equals(
+                assemblyName,
+                StringComparison.Ordinal));
+        if (exactSurface is not null)
+            return MetadataParticipant(exactSurface);
+
+        BrowserWorkspaceParticipant? exactImplementation =
+            implementations.SingleOrDefault(participant =>
+                participant.Asset.Id.Equals(assemblyName, StringComparison.Ordinal));
+        if (exactImplementation is not null)
+            return exactImplementation;
+
+        BrowserWorkspaceParticipant[] matches =
+        [
+            .. surfaces
+                .Concat(implementations.Where(participant =>
+                    TryGetSurfaceParticipant(participant) is null))
+                .Where(participant =>
+                    AssemblyNameEquals(participant.Asset.AssemblyName, assemblyName)
+                    || AssemblyNameEquals(participant.Assembly.Identity.Name, assemblyName)),
+        ];
+        BrowserWorkspaceParticipant selected = matches.Length switch
+        {
+            1 => matches[0],
+            0 => throw new InvalidOperationException(
+                $"Assembly '{assemblyName}' is not part of the selected package workspace."),
+            _ => throw new InvalidOperationException(
+                $"Assembly '{assemblyName}' is ambiguous in the selected package workspace."),
+        };
+        return surfaces.Contains(selected)
+            ? MetadataParticipant(selected)
+            : selected;
+
+        BrowserWorkspaceParticipant MetadataParticipant(
+            BrowserWorkspaceParticipant surface)
+        {
+            PackageAssemblyRoleParticipant? implementation =
+                _realization.ImplementationParticipant(surface.Realized);
+            return implementation is null
+                ? surface
+                : Implementation.FindParticipant(implementation.Participant);
+        }
+    }
+
     public BrowserWorkspaceParticipant ImplementationParticipant(
         BrowserWorkspaceParticipant surfaceParticipant)
     {
@@ -273,6 +351,18 @@ internal sealed class BrowserInspectionScope : IDisposable
                     implementationParticipant.Asset.Path,
                     StringComparison.Ordinal)
                 is true);
+    }
+
+    static bool AssemblyNameEquals(string left, string right)
+    {
+        static string WithoutDll(string value) =>
+            value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? value[..^4]
+                : value;
+
+        return WithoutDll(left).Equals(
+            WithoutDll(right),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()

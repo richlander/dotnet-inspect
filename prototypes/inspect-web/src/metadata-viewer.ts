@@ -1,4 +1,4 @@
-// The Metadata lens (the image-level summary of each assembly — format stamp, heap sizes,
+// The Metadata lens (the image-level summary of one library — format stamp, heap sizes,
 // ECMA-335 table row counts, PE/CLI headers) and the Metadata Explorer (the spatial
 // "browse the metadata like a database" table/heap drill-down) as pure,
 // dependency-injected render functions. Both views describe the same subject — the shape of
@@ -387,9 +387,9 @@ export function coverageLabel(coverage: string): string {
 // -- Metadata lens ---------------------------------------------------------------------------
 
 export interface PackageMetadataOptions extends MetadataTextHelpers {
-  /** True for the runtime pack, where the lens scopes to one platform library. */
+  /** True for the runtime pack. */
   isPlatform: boolean;
-  /** The scoped platform library name, or "" when the platform lens has no selection yet. */
+  /** The selected library name, or "" when the platform lens has no selection yet. */
   scopedLibrary: string;
   packageId: string;
   packageVersion: string;
@@ -404,11 +404,9 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
 }
 
 /**
- * The Metadata lens: the image-level "container" view of each assembly — metadata format
+ * The Metadata lens: the image-level "container" view of one library — metadata format
  * version, heap sizes, ECMA-335 table row counts, and PE/CLI header facts. This is the shape
- * of the metadata itself, distinct from the API surface (the types within). For the platform
- * it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
- * NuGet package it describes every active-framework `lib/` assembly.
+ * of the metadata itself, distinct from the API surface (the types within).
  */
 export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const {
@@ -422,7 +420,7 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const renderSurface = (content: string, status: string) => `
     <section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
       <header class="metadata-surface-head package-metadata-surface-head">
-        <h1 id="package-metadata-surface-title">Metadata images</h1>
+        <h1 id="package-metadata-surface-title">Metadata image</h1>
         <p>${escapeHtml(status)}</p>
       </header>
       ${controlsHtml}
@@ -439,9 +437,8 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
       `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`,
       "library required");
   }
-  const scanScope = isPlatform
-    ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`
-    : escapeHtml(activeFramework);
+  const scanScope =
+    `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`;
   if (loading && fresh) {
     return renderSurface(
       `<section class="document-section package-metadata-state source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`,
@@ -463,12 +460,12 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
     return renderSurface(
       data.inspectionError
         ? `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
-        : `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`,
+        : `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">◇</span><h2>No metadata image</h2><p>${scanScope} does not carry ECMA-335 metadata (it may be native or resource-only).</p></section>`,
       data.inspectionError ? "read failed" : "no images");
   }
 
   const warning = data.inspectionError
-    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be read</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    ? `<section class="document-section metadata-warning"><strong>⚠ This library could not be read completely</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
     : "";
   const blocks = assemblies
     .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))

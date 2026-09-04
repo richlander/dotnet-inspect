@@ -25,6 +25,43 @@ export interface PackageViewBindingActions
   onPerformanceMemberSelect: (target: PackagePerformanceTarget) => void;
 }
 
+export interface PackageLibrarySummary {
+  id: string;
+  name: string;
+  types: number;
+  members: number;
+}
+
+export interface PackageNavOptions {
+  libraries: readonly PackageLibrarySummary[];
+  selectedLibrary: string;
+  escapeHtml: (value: unknown) => string;
+}
+
+export function renderPackageNav(options: PackageNavOptions): string {
+  const { libraries, selectedLibrary, escapeHtml } = options;
+  return `
+    <aside id="content-navigation-pane" class="type-browser package-library-nav" aria-label="Libraries">
+      <div class="browser-head">
+        <div>
+          <span class="pane-label">LIBRARIES</span>
+          <span class="result-count">${libraries.length}</span>
+        </div>
+      </div>
+      <div class="type-list library-subject-list" role="group" aria-label="Library navigation" tabindex="-1" data-nav-scope="libraries" data-nav-selection="${selectedLibrary ? `library:${escapeHtml(selectedLibrary)}` : ""}">
+        ${libraries.map(library => {
+          const selected = library.id === selectedLibrary;
+          return `<button class="type-row library-subject-row ${selected ? "selected" : ""}" data-lib-scope="${escapeHtml(library.id)}">
+            <span class="kind-icon">◫</span>
+            <span class="type-name">${escapeHtml(library.name)}</span>
+            <small>${library.types} type${library.types === 1 ? "" : "s"} · ${library.members.toLocaleString()} members</small>
+          </button>`;
+        }).join("") || '<div class="empty-list">No managed libraries were selected for this package coordinate.</div>'}
+      </div>
+      <footer class="pane-footer"><span>choose a library</span><span>↵ open</span></footer>
+    </aside>`;
+}
+
 export function bindPackageDependencyList(
   root: ParentNode,
   actions: PackageDependencyBindingActions,

@@ -14,7 +14,8 @@ public static partial class MetadataExports
     public static async Task<string> QueryPackageMetadata(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string assemblyFileName)
     {
         BrowserInspectionScope scope =
             await BrowserPackageWorkspace.OpenScopeAsync(
@@ -35,38 +36,36 @@ public static partial class MetadataExports
                 BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
         }
 
-        var assemblies = new List<BrowserAssemblyMetadata>();
-        var failures = new List<string>();
-        foreach (BrowserWorkspaceParticipant participant
-            in MetadataParticipants(scope, coordinate))
+        BrowserWorkspaceParticipant participant =
+            scope.LibraryParticipant(coordinate, assemblyFileName);
+        AssemblyContextEntry<MetadataImageOverview> result =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selected) =>
+                AssemblyContextMetadataImageQuery.ExecuteParticipant(
+                    group,
+                    selected));
+        BrowserPackageMetadata metadata;
+        if (result
+            is AssemblyContextEntry<MetadataImageOverview>.Available available)
         {
-            AssemblyContextEntry<MetadataImageOverview> result =
-                scope.UseMetadataParticipant(
-                    participant,
-                    (group, selected) =>
-                    AssemblyContextMetadataImageQuery.ExecuteParticipant(
-                        group,
-                        selected));
-            if (result
-                is AssemblyContextEntry<MetadataImageOverview>.Available
-                    available)
-            {
-                assemblies.Add(
-                    ProjectMetadataAssembly(
-                        participant.Asset.AssemblyName,
-                        available.Value));
-            }
-            else
-            {
-                failures.Add(MetadataFailure(result));
-            }
+            metadata = new BrowserPackageMetadata(
+                [ProjectMetadataAssembly(
+                    participant.Asset.AssemblyName,
+                    available.Value)],
+                null,
+                compileLibrary);
+        }
+        else
+        {
+            metadata = new BrowserPackageMetadata(
+                [],
+                MetadataFailure(result),
+                compileLibrary);
         }
 
         return JsonSerializer.Serialize(
-            new BrowserPackageMetadata(
-                [.. assemblies],
-                failures.Count == 0 ? null : string.Join("; ", failures),
-                compileLibrary),
+            metadata,
             BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
     }
 
@@ -448,45 +447,11 @@ public static partial class MetadataExports
             "An available assembly-context entry has no failure.",
             nameof(entry));
 
-    static BrowserWorkspaceParticipant[] MetadataParticipants(
-        BrowserInspectionScope scope,
-        BrowserPackageCoordinate coordinate) =>
-    [
-        .. scope.ImplementationParticipants
-            .Concat(scope.ReferenceOnlySurfaceParticipants)
-            .Where(participant => ReferenceEquals(
-                participant.Coordinate.Root.Identity,
-                coordinate.Root.Identity)),
-    ];
-
     static BrowserWorkspaceParticipant MetadataParticipant(
         BrowserInspectionScope scope,
         BrowserPackageCoordinate coordinate,
-        string assemblyFileName)
-    {
-        if (!coordinate.Selection.IsSelected)
-        {
-            throw new InvalidOperationException(
-                $"{coordinate.PackageId} {coordinate.Version} has no selected "
-                + $"compile library ({coordinate.Selection.Status}).");
-        }
-
-        BrowserWorkspaceParticipant[] matches =
-        [
-            .. MetadataParticipants(scope, coordinate).Where(participant =>
-                participant.Asset.AssemblyName.Equals(
-                    assemblyFileName,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-        return matches.Length switch
-        {
-            1 => matches[0],
-            0 => throw new InvalidOperationException(
-                $"Assembly '{assemblyFileName}' is not part of the selected metadata workspace."),
-            _ => throw new InvalidOperationException(
-                $"Assembly '{assemblyFileName}' is ambiguous in the selected metadata workspace."),
-        };
-    }
+        string assemblyFileName) =>
+        scope.LibraryParticipant(coordinate, assemblyFileName);
 
     static HeapKind ParseHeap(string heap) =>
         Enum.TryParse(heap, ignoreCase: true, out HeapKind parsed)

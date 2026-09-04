@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bindPackageDependencyList,
   bindPackageView,
+  renderPackageNav,
 } from "../src/package-view.ts";
 import type {
   PackagePerformanceTarget,
@@ -181,4 +182,21 @@ test("package view binding tolerates an inactive surface", () => {
   assert.doesNotThrow(() => bindPackageView(
     fakeDom.parentNode(new FakeRoot()),
     recordingActions([])));
+});
+
+test("package navigation exposes every admitted library", () => {
+  const html = renderPackageNav({
+    libraries: [
+      { id: "asset:core", name: "Example.Core", types: 12, members: 240 },
+      { id: "asset:empty", name: "Example.Empty", types: 0, members: 0 },
+    ],
+    selectedLibrary: "asset:core",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(html, /aria-label="Libraries"/);
+  assert.match(html, /data-lib-scope="asset:core"/);
+  assert.match(html, /data-lib-scope="asset:empty"/);
+  assert.match(html, /12 types · 240 members/);
+  assert.match(html, /0 types · 0 members/);
 });
