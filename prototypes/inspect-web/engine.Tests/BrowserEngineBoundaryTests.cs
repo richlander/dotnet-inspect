@@ -1968,13 +1968,23 @@ public sealed class BrowserEngineBoundaryTests
     public void WorkspaceOwnership_AccountsArchivesAndCarriesSelectedFailures()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        int largePackagePadding = 60 * MiB - image.Length;
+        int smallPackagePadding = 25 * MiB - image.Length;
+        Assert.True(smallPackagePadding > 0);
 
         BrowserPackageWorkspace.OpenScope(
-            [Coordinate("Large.A", Package(image, "lib/net11.0/Large.A.dll", 60 * MiB))]);
+            [Coordinate(
+                "Large.A",
+                Package(image, "lib/net11.0/Large.A.dll", largePackagePadding))]);
         foreach (string id in new[] { "Small.B", "Small.C", "Small.D" })
         {
             BrowserPackageWorkspace.OpenScope(
-                [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll", 25 * MiB))]);
+                [Coordinate(
+                    id,
+                    Package(
+                        image,
+                        $"lib/net11.0/{id}.dll",
+                        smallPackagePadding))]);
         }
 
         BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
