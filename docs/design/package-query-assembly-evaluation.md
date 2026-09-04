@@ -374,9 +374,10 @@ The two process-local identities contain no content or opening authority; they
 preserve current-run correspondence only. For compile-surface evaluation the
 unevaluated-sibling count is
 `Assets.Count - 1`; for implementation-body evaluation it is
-`ImplementationAssets.Count - 1`. It is scoped to the selected TFM and RID and
-does not count assets outside those selected role sequences. The receipt
-therefore cannot be read as an exhaustive package-wide verdict.
+`ImplementationAssets.Count - 1`. Each count is scoped to its selector-issued
+role sequence: compile assets to the selected TFM, and implementation assets to
+the selected TFM and RID. Neither count includes assets outside that sequence.
+The receipt therefore cannot be read as an exhaustive package-wide verdict.
 
 Those `Count - 1` formulas apply only after an asset from the corresponding
 sequence has been selected for evaluation. When the primary compile asset has
@@ -452,7 +453,7 @@ reopening content or inferring a failure from exception text:
 | --- | --- |
 | #5843 `Projected` plus an `Available` sparse realization | Enter the Metadata owner's artifact query validation with the exact `ArtifactAssemblyProjection`. `NotAssembly` or `Rejected` becomes `Failure(ImageAdmission)` with the exact owner-typed query reason. Only the `Validated` callback may reach the prefilter or semantic producer. |
 | #5843 `NotAssembly` or `Rejected` | Return `Failure(ImageAdmission)` with the exact Metadata admission reason and do not invoke query validation, the prefilter, or the semantic producer. If #5843's owner shape transfers a compatibility carrier, it remains cleanup authority only; otherwise the candidate workspace remains empty. |
-| Missing, contradictory, or unknown #5843 Metadata admission evidence | Return `Failure(ProjectionContractViolation)`. `IdentityDecoded` compatibility evidence never repairs or replaces the owner-issued admission variant. |
+| Missing, contradictory, or unknown #5843 Metadata admission evidence, including `Projected` without an actual `Available` transfer | Return `Failure(ProjectionContractViolation)`. `IdentityDecoded` compatibility evidence never repairs or replaces the owner-issued admission variant. |
 | `InvalidBinding` | Return `Failure(InvalidBinding)`. This remains a defensive parent outcome even if the first immutable binding implementation cannot currently produce it. |
 | `InvalidSelectedAsset` | Return `Failure(ProjectionContractViolation)`. The evaluator supplied a canonical object from the same binding, so this arm indicates a composition defect rather than package-authored content. |
 | `SelectedEntryUnavailable` | Return `Failure(SelectedEntryUnavailable)`. |
@@ -613,12 +614,15 @@ outcome, or typed failure remains provisional until required candidate cleanup
 finishes and its report is inspected. Immediately before returning that
 completed outcome, the evaluator observes the token once more. Cancellation at
 that point discards the provisional outcome and propagates to the enclosing
-stream or host operation; any cleanup evidence remains secondary to
-cancellation. No result is published after cancellation is observed.
+stream or host operation; any non-empty
+`PackageAssemblyEvaluationCleanupEvidence` is attached to the propagated
+cancellation as ancillary evidence. No result is published after cancellation
+is observed.
 
 An unexpected exception from a prefilter or semantic binding follows the same
 cleanup rule. Candidate cleanup runs in `finally`; a cleanup failure is
-attached as secondary evidence and cannot replace the original exception.
+attached through the same typed ancillary-evidence contract and cannot replace
+the original exception.
 
 `InspectionWorkspace.CloseAsync()` may complete normally while reporting
 direct-group release failure in `Groups` or artifact-session release failure in
@@ -649,29 +653,68 @@ terminal token observation:
   `Failure(CandidateCleanup)`;
 - after a typed evaluation failure, cleanup evidence is appended as secondary
   evidence without replacing the primary failure stage; and
-- during cancellation or unexpected exception propagation, cleanup exceptions
-  are attached as secondary evidence to the primary condition.
+- during cancellation or unexpected exception propagation, the resource-free
+  cleanup bundle is attached as secondary evidence to the primary condition.
 
 After report interpretation, terminal cancellation supersedes any provisional
 completed outcome, including a typed failure. An unexpected exception already
 being propagated remains primary; it is not converted into a cancellation
 outcome.
 
-Candidate-cleanup evidence is resource-free and product-authored. It contains a
-bounded sequence of distinct cleanup stages and counts:
+`PackageAssemblyEvaluationCleanupEvidence` is immutable, resource-free, and
+product-authored. The same type is used by typed outcomes and propagated
+exceptions. It contains the optional opaque #5842 `ProjectionCleanup` receipt
+and a bounded sequence of distinct candidate-cleanup stages and counts:
 
 - **GroupRelease** for an unsuccessful direct-group result;
-- **ArtifactSessionRelease** for reported artifact-session cleanup failures; and
+- **ArtifactSessionRelease** for reported artifact-session cleanup failures;
 - **CloseReportContract** for any group or artifact cleanup entry before
   `Available`, or a missing, additional, coordinated, or unknown group result
-  afterward.
+  afterward; and
+- **CloseOrchestration** when `CloseAsync()` faults after attempting the
+  workspace owner's terminal release protocol.
 
 It carries no exception instances, messages, paths, or stack traces.
 Report-valued direct-group failure is not described as a thrown exception.
 `CloseAsync()` faults only when group-close orchestration itself faults; after
 the workspace owner attempts all possible artifact-session releases, that
-close exception propagates as the primary condition or attaches secondarily to
-an already-propagating cancellation or exception.
+close exception propagates as the primary condition or contributes the
+`CloseOrchestration` stage to an already-propagating cancellation or exception.
+In either case the evaluator reads the terminal `CloseReport`, when present, so
+report-valued group and artifact-session evidence is not lost merely because
+the close task faulted.
+
+### Propagated exception cleanup evidence
+
+The evaluator exposes one typed host-neutral accessor:
+
+```text
+PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup(
+    Exception primary,
+    out PackageAssemblyEvaluationCleanupEvidence cleanup)
+```
+
+The evaluator attaches a non-empty cleanup bundle to the exact primary
+exception under one private product-owned `Exception.Data` key. Consumers use
+the accessor rather than parsing that key or casting an untyped value. This
+follows the repository's existing ancillary-cleanup attachment convention
+while replacing raw cleanup exceptions with this evaluator's inert typed
+evidence.
+
+An unexpected prefilter, producer, or close-orchestration exception preserves
+its exact instance, runtime type, stack, and existing data; the evaluator
+reattaches it through `ExceptionDispatchInfo` after cleanup. If another
+exception was already primary, a close-orchestration fault is represented only
+by the inert `CloseOrchestration` stage and does not replace or wrap that
+primary exception.
+
+Cancellation observed before cleanup preserves the caught
+`OperationCanceledException` and its token. Terminal cancellation first
+observed after cleanup throws an `OperationCanceledException` carrying the
+operation token. Either cancellation exception carries the same typed cleanup
+bundle when pre-transfer or candidate cleanup was incomplete. When no cleanup
+evidence exists, the accessor returns `false`; an empty attachment is never
+manufactured.
 
 The operation deadline is implemented by cancelling that same operation token.
 Deadline expiry is therefore cancellation, not a separate candidate failure.
@@ -735,6 +778,12 @@ A sparse projection failure may additionally carry the package owner's
 exact #5842 resource-free pre-transfer cleanup receipt as secondary
 `ProjectionCleanup` evidence. The evaluator preserves that opaque receipt
 without translating an exception or replacing the primary failure.
+
+The optional projection receipt and candidate-close stages compose into the
+same `PackageAssemblyEvaluationCleanupEvidence` used by failure outcomes and
+propagated exceptions. Terminal cancellation may discard a provisional failure
+outcome, but it does not discard that outcome's already-issued cleanup
+evidence.
 
 A bounded product-authored presentation diagnostic may accompany a failure,
 but it is derived from the typed payload and is never the only durable cause.
@@ -810,6 +859,11 @@ ECMA-335 structures. Image-admission failures and malformed structures
 encountered by the selected semantic path are visible typed outcomes or
 failures, never an empty match set.
 
+Incomplete projection or candidate cleanup is likewise visible either in the
+typed outcome's `PackageAssemblyEvaluationCleanupEvidence` or, when cancellation
+or an unexpected exception is primary, through
+`PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup`.
+
 Unsupported Windows Metadata visibility depends on the unimplemented
 Metadata artifact query-validation seam in #5143/#4857 and remains
 **unverified**. The evaluator must not ship a compatibility fallback that lets
@@ -854,9 +908,12 @@ The implementation must preserve focused fixtures for:
 13. semantic work reaching its exact limit and exceeding it;
 14. cancellation during sparse projection and semantic traversal;
 15. deadline expiry after a provisional producer result while candidate close
-    is pending; and
+    is pending;
 16. a successful or throwing prefilter or producer whose candidate close also
-    reports direct-group or artifact-session cleanup failure.
+    reports direct-group or artifact-session cleanup failure; and
+17. an early cancellation or producer exception whose candidate close faults
+    after storing its report, preserving the primary condition while exposing
+    only typed inert cleanup evidence.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
 must run in the ordinary Release suite. Performance and peak-memory corpus
@@ -877,19 +934,20 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_SelectedAssetEvidenceIsContained` | The complete public outcome closure rejects `PackageCompileAsset`; hostile package-authored assembly name, TFM, and path text become `InertString(TextPolicy.Field)` at result construction, while exact occurrence identity uses only the frozen asset-sequence kind, ordinal, and selection identity; evaluation role remains separate. |
 | `PackageAssemblyEvaluation_UsesSparsePackageArtifactProjection` | One evaluation calls the sparse selected-asset projection rather than the full package-role realization path. |
 | `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. The exact #5842 resource-free owner-issued pre-transfer cleanup receipt remains secondary to the projection reason. |
-| `PackageAssemblyEvaluation_SparseMetadataAdmissionControlsSemanticBinding` | #5843's `Projected` variant is the only sparse result that may enter query validation. `NotAssembly` and `Rejected` preserve their exact Metadata admission evidence; a missing or contradictory variant is a contract failure, and `IdentityDecoded` or a compatibility carrier cannot authorize either executable binding. This gate remains unverified until #5843 lands. |
-| `PackageAssemblyEvaluation_MetadataValidationPrecedesSemanticBinding` | A projected participant can still produce exact `NotAssembly` or `ArtifactAssemblyQueryFailure` evidence at query time. Both Windows Metadata kinds produce `Rejected(UnsupportedWindowsMetadata)` during #5843 admission before the prefilter or producer; no compatibility fallback can return semantic no-match. This gate remains unverified until #5143/#4857 and #5843 land. |
+| `PackageAssemblyEvaluation_SparseMetadataAdmissionControlsSemanticBinding` | #5843's `Projected` variant with an actual `Available` transfer is the only sparse result that may enter query validation. `Projected` without transfer, `NotAssembly`, `Rejected`, and missing or contradictory variants map exactly as declared; `IdentityDecoded` or a compatibility carrier cannot authorize either executable binding. This gate remains unverified until #5843 lands. |
+| `PackageAssemblyEvaluation_MetadataValidationPrecedesSemanticBinding` | A projected participant defensively maps exact query-time `NotAssembly` or `ArtifactAssemblyQueryFailure` evidence rather than assuming admission makes those owner-issued outcomes impossible. Both Windows Metadata kinds produce `Rejected(UnsupportedWindowsMetadata)` during #5843 admission before the prefilter or producer; no compatibility fallback can return semantic no-match. This gate remains unverified until #5143/#4857 and #5843 land. |
 | `PackageAssemblyEvaluation_SuppliesSparseProjectionBounds` | The evaluator passes the admitted entry and aggregate retained-image bounds unchanged and maps the package owner's typed limit outcome without restating its partition mechanics. |
 | Conditional producer prefilter gate | Each prefilter-bearing adoption derives fixtures from its complete declared representation set, obtains byte and semantic views inside one Metadata-validated callback over the same retained image, admits every semantic match, and requires semantic confirmation for false byte positives. A prefilter-free adoption needs no such gate. |
 | `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves #5837's owner-issued Root reacquisition request and both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
 | `PackageAssemblyEvaluation_PreservesExactRootReacquisitionRequest` | Framework-neutral acquisition with a non-null selection target and differing acquisition/selection frameworks both retain #5837's exact owner-issued request; later Workspace opening repeats that selection intent without parsing display text. This gate remains unverified until #5837 lands. |
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries the owner-issued Root reacquisition request and exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
-| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preselection outcomes create no candidate resources. Every workspace-bearing sparse failure, match, non-match, semantic failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`; a pre-`Available` path closes an empty workspace while a post-`Available` path attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
-| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | Before sparse ownership transfer, the fresh candidate close report must contain no group or artifact cleanup entry; after `Available`, it must contain exactly one successful direct-group result and no artifact-session cleanup failures. Fixtures independently cover the legitimate empty report, direct-group failure, artifact-session failure, and unexpected result shape. Existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
-| `PackageAssemblyEvaluation_TerminalCancellationCannotPublishOutcome` | A provisional producer match is held while direct-group release remains pending; deadline expiry cancels the operation, cleanup completes, and the terminal token observation propagates cancellation with no completed outcome. The same terminal check covers provisional non-match, non-applicable, and typed-failure outcomes. |
+| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preselection outcomes create no candidate resources. Every workspace-bearing sparse failure, match, non-match, semantic failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`; a pre-`Available` path closes an empty workspace while a post-`Available` path attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the exact primary exception when report-valued or faulted close also supplies typed ancillary cleanup evidence. |
+| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | Before sparse ownership transfer, the fresh candidate close report must contain no group or artifact cleanup entry; after `Available`, it must contain exactly one successful direct-group result and no artifact-session cleanup failures. Fixtures independently cover the legitimate empty report, direct-group failure, artifact-session failure, close-orchestration fault with a stored report, and unexpected result shape. Existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
+| `PackageAssemblyEvaluation_PropagatedCleanupEvidenceIsTypedAndVisible` | A producer exception remains the exact propagated exception and an early cancellation preserves its token while report-valued group failure, artifact-session failure, and close-orchestration fault are retrievable only through `PackageAssemblyEvaluationExceptionEvidence.TryGetCleanup`. The returned immutable bundle contains the expected #5842 receipt and candidate stages without raw exceptions or messages; no-cleanup paths have no attachment. |
+| `PackageAssemblyEvaluation_TerminalCancellationCannotPublishOutcome` | A provisional producer match is held while direct-group release remains pending; deadline expiry cancels the operation, cleanup completes, and the terminal token observation propagates cancellation with the operation token and no completed outcome. Failed release is retrievable through the typed ancillary-evidence accessor. The same terminal check covers provisional non-match, non-applicable, and typed-failure outcomes, including preservation of already-issued cleanup evidence. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
-| `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
+| `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request, outcome, cleanup bundle, and exception-accessor result and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome only after cleanup and the terminal token observation; cancellation or unexpected failure cannot also publish one. |
 | Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, and optional prefilter implication in the owning Metadata or Analysis Release suite. Its evidence-closure gate rejects artifact-authored raw `string` fields and identity types that publicly expose them, while admitting non-text occurrence coordinates and contained `InertString` presentation fields. |
 | CLI and Browser consumer canaries | Both hosts can plan and consume the same descriptors and outcomes without duplicating pattern semantics. |
