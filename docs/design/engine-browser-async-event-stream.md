@@ -7,14 +7,14 @@ by [#5565](https://github.com/richlander/dotnet-inspect/issues/5565).
 Package Query is the first named adopter through
 [#5549](https://github.com/richlander/dotnet-inspect/issues/5549).
 
-The contract is not yet implemented as a shared abstraction. Package Query
-already has an `IAsyncEnumerable<PackageQueryEvent>` and a Browser callback
-adapter with a feature-owned generation guard, but its event vocabulary and
-terminal handoff do not yet satisfy this document. That direct callback is the
-first adopter's transitional path, not an operation-authority integration.
-Operation-authority adoption in any placement depends on
-[#5570](https://github.com/richlander/dotnet-inspect/issues/5570). The gates
-named below remain required.
+The contract is not implemented as one shared abstraction. Package Query has
+an `IAsyncEnumerable<PackageQueryEvent>`, an aligned event vocabulary, and a
+Browser callback adapter, but its feature-owned generation guard remains a
+transitional path rather than an operation-authority integration. Its
+adopter-specific Release gates remain separate from the shared authority gate.
+[Issue #5570](https://github.com/richlander/dotnet-inspect/issues/5570) adds
+the operation authority's reusable typed durable-event handoff. Managed bridge,
+worker runtime, and adopter integration remain separately owned.
 
 ## Decision
 
@@ -92,8 +92,7 @@ It consumes:
   kinds, bounds, and cancellation checkpoints;
 - an adopter-owned current-request guard for the first direct callback path;
 - current-view identity and publication authority from
-  [inspect-web operation authority](inspect-web-operation-authority.md) once
-  its durable-event residual is implemented;
+  [inspect-web operation authority](inspect-web-operation-authority.md);
 - callback lifetime and managed terminal envelopes from
   [the managed operation bridge](inspect-web-managed-operation-bridge.md);
 - worker placement, message validation, ordering, and realm lifetime from
@@ -194,7 +193,7 @@ feature IAsyncEnumerable<TEvent>
         -> feature-owned current-request guard
            -> feature reducer and renderer
 
-authority-governed callback, after operation authority adds durable handoff:
+authority-governed callback:
 feature IAsyncEnumerable<TEvent>
   -> host adapter await foreach
      -> callback
@@ -249,20 +248,19 @@ cancellation or replacement.
 
 ### Residual operation-authority and worker integration
 
-The current owners do not yet provide either authority-governed path in the
-diagram. Operation authority exposes advisory progress and one terminal result,
-the managed bridge exposes a progress callback, and the worker runtime's closed
-worker-to-main inventory contains `Progress` and `Settled`. Durable `Item` and
-`ItemFailure` events must not be tunneled through those progress shapes or
-buffered into settlement.
+Operation authority now exposes typed durable nonterminal publication through
+`reportDurable`, preserving synchronous producer order and consuming stale
+reports without publication. This provides the authority-governed callback
+path in the diagram without defining feature event meaning or batching.
 
-Adopting operation authority for durable events in either callback or worker
-placement depends on the first residual. Moving the adopter behind the worker
-depends on all three separately owned residuals:
+The managed bridge still exposes only a progress callback, and the worker
+runtime's closed worker-to-main inventory contains `Progress` and `Settled`.
+Durable `Item` and `ItemFailure` events must not be tunneled through those
+progress shapes or buffered into settlement. Moving an adopter behind the
+worker depends on the two remaining separately owned residuals:
 
-- [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) extends
-  operation authority with typed durable nonterminal event or batch
-  publication while preserving stale-operation suppression.
+- [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) provides
+  the implemented operation-authority durable publication boundary.
 - [#5419](https://github.com/richlander/dotnet-inspect/issues/5419) extends the
   managed bridge with an authenticated nonterminal union or batch handoff and
   owns its callback lifetime and release.
@@ -363,8 +361,9 @@ adopter must prove:
    publication; the path cannot drop durable events or reorder completion, and
    a worker claim requires the residual owner work above;
 7. the first adopter's feature-owned current-request guard prevents stale
-   events from updating replacement state; an operation-authority claim
-   requires #5570, and a worker claim additionally requires #5419 and #5418;
+   events from updating replacement state; an operation-authority adopter uses
+   the #5570 durable-publication gate, and a worker claim additionally requires
+   #5419 and #5418;
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
 9. a neighboring operation with no useful partial outcome remains a simple
