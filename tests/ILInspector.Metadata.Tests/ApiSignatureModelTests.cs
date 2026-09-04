@@ -137,8 +137,9 @@ public sealed class ApiSignatureModelTests
     [Fact]
     public void PropertySignatureModel_ExposesExplicitInterfaceAccessorMethodName()
     {
+        ApiType type = GetType(nameof(ExplicitAccessorFixtures));
         ApiMember member = Assert.Single(
-            GetType(nameof(ExplicitAccessorFixtures)).Members,
+            type.Members,
             candidate => candidate.Kind == "property"
                 && candidate.Name.EndsWith(
                     $".{nameof(IExplicitAccessor.Value)}",
@@ -154,6 +155,19 @@ public sealed class ApiSignatureModelTests
             $".get_{nameof(IExplicitAccessor.Value)}",
             getter.Name,
             StringComparison.Ordinal);
+
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(member, type));
+        ApiMember physical = Assert.Single(
+            type.Members,
+            candidate => candidate.MetadataToken == accessor.MetadataToken);
+        Assert.Equal(getter.Name, accessor.Name);
+        Assert.Equal(
+            "explicit-interface-implementation",
+            accessor.Kind);
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberAnchor(type, physical),
+            ApiMemberIdentity.GetMemberAnchor(type, accessor));
     }
 
     [Fact]

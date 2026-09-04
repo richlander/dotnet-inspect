@@ -11006,9 +11006,23 @@ public partial class CommandExecutionTests
                     ? ApiCommand.BodylessMemberNote
                     : "Source diff unavailable",
                 bare.Output);
-            Assert.Equal(0, count.Exit);
-            Assert.Empty(count.Error);
-            Assert.Equal("0\n", count.Output);
+            if (section == SectionNames.PdbSource)
+            {
+                Assert.Equal(0, count.Exit);
+                Assert.Empty(count.Error);
+                Assert.Equal("0\n", count.Output);
+            }
+            else
+            {
+                Assert.Equal(1, count.Exit);
+                Assert.Empty(count.Output);
+                Assert.Contains(
+                    "Source diff unavailable",
+                    count.Error);
+                Assert.Contains(
+                    "cannot represent this code-section failure",
+                    count.Error);
+            }
         }
     }
 
@@ -11135,6 +11149,24 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("has no IL body", output);
     }
 
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_SourceDiff_BodylessMemberUnderExactOutputFailsVisibly(
+        string outputOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Source Diff", outputOption, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Source diff unavailable", error);
+        Assert.Contains(
+            "cannot represent this code-section failure",
+            error);
+    }
+
     [Fact]
     public async Task Member_SourceDiff_PropertyAccessor_ComparesAuthoredSourceToAccessorBody()
     {
@@ -11151,6 +11183,45 @@ public partial class CommandExecutionTests
         Assert.Contains("set_MaxDepth", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            "DotnetInspector.Fixtures.IBodyShapeValue.Value:1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+        Assert.DoesNotContain(
+            "get_DotnetInspector.Fixtures.IBodyShapeValue",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfaceEventUsesPhysicalAccessor()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            "DotnetInspector.Fixtures.IBodyShapeValue.Changed:1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("IBodyShapeValue.add_Changed", output);
+        Assert.Contains("GC.KeepAlive(new object());", output);
+        Assert.DoesNotContain(
+            "add_DotnetInspector.Fixtures.IBodyShapeValue",
+            output);
     }
 
     [Fact]

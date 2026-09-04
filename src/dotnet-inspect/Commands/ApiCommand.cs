@@ -2350,12 +2350,18 @@ public class ApiCommand
             options is MemberOptions exactSourceOptions
                 ? ExactSourceFailure(exactSourceOptions)
                 : null;
+        bool exactSourceDiffFailure =
+            options is MemberOptions sourceDiffOptions
+            && sourceDiffOptions.ExactIncludeSections?
+                .Contains(SectionNames.SourceDiff) == true
+            && exactSourceFailure is { Length: > 0 };
         if (options is MemberOptions memberOptions
-            && !memberOptions.MemberHasNoBody
-            && (memberOptions.MemberSourceTooComplex
-                || memberOptions.MemberSourceCoordinatesInvalid
-                || (!memberOptions.MemberHasNoPdbDeclaration
-                    && exactSourceFailure is { Length: > 0 }))
+            && (exactSourceDiffFailure
+                || (!memberOptions.MemberHasNoBody
+                    && (memberOptions.MemberSourceTooComplex
+                        || memberOptions.MemberSourceCoordinatesInvalid
+                        || (!memberOptions.MemberHasNoPdbDeclaration
+                            && exactSourceFailure is { Length: > 0 }))))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count

@@ -67,12 +67,18 @@ public static class ApiMemberAccessors
     static ApiMember Accessor(
         ApiMember owner,
         string declaringType,
-        string name,
+        string fallbackName,
         int token,
         string accessorKind,
         bool valueReturning)
     {
         ApiSignature? ownerModel = owner.SignatureModel;
+        ApiAccessor? accessorEntry =
+            ownerModel?.Accessors.FirstOrDefault(
+                accessor => accessor.Kind == accessorKind);
+        string name = string.IsNullOrEmpty(accessorEntry?.Name)
+            ? fallbackName
+            : accessorEntry.Name;
         string valueType =
             ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
         List<ApiParameter> parameters =
@@ -95,9 +101,6 @@ public static class ApiMemberAccessors
                 });
         }
 
-        ApiAccessor? accessorEntry =
-            ownerModel?.Accessors.FirstOrDefault(
-                accessor => accessor.Kind == accessorKind);
         string? accessibility =
             string.IsNullOrEmpty(accessorEntry?.Accessibility)
                 ? owner.Accessibility
@@ -110,7 +113,9 @@ public static class ApiMemberAccessors
         return new ApiMember
         {
             Name = name,
-            Kind = "method",
+            Kind = name.Contains('.', StringComparison.Ordinal)
+                ? "explicit-interface-implementation"
+                : "method",
             MetadataToken = token,
             DeclaringType = declaringType,
             ReturnType = returnType,

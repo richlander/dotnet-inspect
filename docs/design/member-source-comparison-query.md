@@ -61,6 +61,8 @@ one comparison.
 A property or event accessor request remains a request for its physical
 MethodDef. Metadata owns the deterministic projection from the API surface's
 property or event row to its getter, setter, adder, or remover method model.
+That projection uses the accessor entry's retained MethodDef name; it does not
+derive an explicit-interface accessor name by prefixing the owner display name.
 The query accepts that projected method only when both its physical token and
 member anchor match the request. PDB evidence may therefore contain the owning
 source property or event declaration while decompiled evidence contains the
