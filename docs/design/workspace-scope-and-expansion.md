@@ -885,8 +885,14 @@ evidence contract:
    extra Root, reordered Root, or replaced generation returns
    `Rejected(EvidenceMismatch)`. Recheck current projections and the same
    correspondence immediately before publication. A mismatch after preparation
-   returns `Failed(RealizationChanged)`, releases every provisional receipt,
-   and publishes neither membership nor closure.
+   releases every provisional receipt and publishes no candidate membership or
+   candidate-derived closure evidence. While the runtime remains accepting and
+   the logical revision remains current, complete the required physical-refresh
+   publication under the parent gate: retain membership, bind the current
+   physical-composition epoch and projections, and invalidate closure to
+   `NotEvaluated`. Then return `Failed(RealizationChanged)` carrying that
+   refreshed current snapshot. Runtime loss returns `Unavailable`; logical
+   state movement follows the ordinary stale-completion result.
 2. When no expansion scopes are registered, classify every dependency as
    intentionally outside the boundary. Publish a fresh `ClosedBoundary`
    closure observation under the unchanged logical revision when that evidence
@@ -903,7 +909,8 @@ evidence contract:
    attached as exact evidence.
 5. In producer order, select unique eligible candidates until the effective
    remaining Root capacity is exhausted. Classify every relationship attached
-   to a later candidate as `CapacityDeclined` without invoking adjacent owners.
+   to a later candidate as `CapacityDeclined`; no declined candidate enters
+   source payload preparation or Artifact preparation.
 6. Ask adjacent source and artifact owners to prepare every selected exact
    candidate under their current authorization and budgets.
 7. Atomically append every successfully prepared distinct candidate.
@@ -1029,9 +1036,14 @@ selectively open Workspace, the coordinator may ask the adapter only about
 dependency identities that match an exact-package or package-prefix scope. The
 adapter preserves producer order and returns exact candidate, failure, or
 incomplete evidence; Scope still performs exact-coordinate coalescing and Root
-capacity assignment before Artifact preparation. Restored-project evidence
-that already names an exact resolved coordinate passes through the same
-candidate-result contract without redundant range resolution.
+capacity assignment before Artifact preparation. This finite, candidate-bounded
+source-resolution work necessarily precedes exact-coordinate coalescing and may
+therefore run for a candidate later classified `CapacityDeclined`; that
+classification forbids later payload and Artifact preparation, not the
+resolution evidence required to identify and coalesce the candidate.
+Restored-project evidence that already names an exact resolved coordinate
+passes through the same candidate-result contract without redundant range
+resolution.
 
 Package sets are explicit Root-request producers, not dependency-expansion
 scopes. An ecosystem-pack package-set selection returns only `PackageSetId`;
@@ -1213,6 +1225,7 @@ The implementation must demonstrate:
 | Two dependency relationships name the same exact acquisition coordinate with one remaining Root slot | One candidate is prepared and admitted; both relationships settle against it and neither becomes `CapacityDeclined` |
 | Four eligible dependencies realize and one fails | One atomic revision appends the three successful Roots and records the failure plus those new Roots as an unevaluated frontier |
 | Eligible expansion candidates exceed remaining Root capacity | Producer order selects the candidates attempted; every later candidate is visible as `CapacityDeclined` |
+| A retained Root is physically re-realized while expansion candidates prepare | Candidate receipts release; no candidate membership publishes; the required physical-refresh publication invalidates closure before `Failed(RealizationChanged)` returns its current snapshot |
 | Open an unrelated package after a prefix scope was registered | One `ReplaceScope` atomically installs the new Root with an empty expansion-scope set and a closed initial observation; the old prefix cannot authorize acquisition |
 | Scope-only Open supplies Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the replacement revision |
 | Open one fully pinned exact Root already present | `ReplaceScope` retains its exact occurrence without source or artifact preparation |
@@ -1281,9 +1294,9 @@ or artifact evidence later claimed by those owners.
 | `Expansion_NonReadyRootsRemainUnevaluated` | Evaluating every Ready Root retains each current Pending/Failed occurrence as an unevaluated frontier and cannot publish complete closure. |
 | `Expansion_AllEligibleCandidatesSettled_IsCompleteForObservedEvidence` | With unchanged membership, no non-Ready frontier, and exact complete current Ready Root coverage, outside-boundary declines remain visible while closure is complete when every eligible candidate settled. |
 | `Expansion_RejectsIncompleteOrStaleRootCoverage` | Omitted, reordered, non-Ready, extra, or physically replaced realization coverage cannot erase a frontier or publish closure. |
-| `Expansion_RealizationChangeBeforePublicationReleasesPreparation` | A physical-binding change after admission fails the operation, releases provisional receipts, and publishes neither membership nor closure. |
+| `Expansion_RealizationChangeBeforePublicationRefreshesCurrentSnapshot` | A physical-binding change after admission releases candidate receipts and publishes no candidate membership or evidence; the required physical refresh invalidates closure before `Failed(RealizationChanged)` returns a current snapshot. |
 | `Expansion_CoalescesExactCandidatesBeforeCapacity` | Relationship rows naming one exact acquisition coordinate consume one Root slot and retain all relationship evidence. |
-| `ExpansionCapacity_UsesProducerOrderAndInvokesNoDeclinedCandidate` | Remaining Root slots are assigned in deterministic producer order and capacity-declined candidates cause no adjacent-owner work. |
+| `ExpansionCapacity_UsesProducerOrderAndPreparesNoDeclinedCandidate` | Remaining Root slots are assigned in deterministic producer order; finite pre-capacity candidate resolution may already have occurred, but capacity-declined candidates enter no source payload or Artifact preparation. |
 | `EffectiveOperationLimits_CannotExceedWorkspaceProfile` | Each effective dimension is the stricter finite Workspace-profile or operation-envelope value. |
 | `ExpansionStructuralLimits_RejectBeforePreparation` | Materialized relationships or declared depths outside effective limits are malformed and cannot invoke adjacent owners. |
 | `ExpansionProducerBounds_RemainTypedEvidence` | Valid candidate- and depth-bound markers remain durable `Incomplete` evidence in selectively open scope, remain typed `ClosedBoundary` evidence in closed scope, and never authorize work for omitted candidates. |
