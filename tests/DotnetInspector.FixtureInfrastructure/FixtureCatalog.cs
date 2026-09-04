@@ -905,6 +905,7 @@ public static class FixtureCatalog
             "DotnetInspector.HostileNameFixtures" => "src/DotnetInspector.HostileNameFixtures",
             "DotnetInspector.RestoredProjectFixtures" => "src/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "src/DotnetInspector.SourceLinkMalformedFixtures",
+            "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "src/DotnetInspector.SourceLinkNormalizedFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "src/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.CallerGraphCaller" => "src/ILInspector.Analysis.CallerGraphCaller",

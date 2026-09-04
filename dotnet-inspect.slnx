@@ -40,7 +40,7 @@
     <Project Path="src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <Project Path="src/DotnetInspector.Vocabulary/DotnetInspector.Vocabulary.csproj" />
     <Project Path="src/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />
-    <Project Path="src/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
+    <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
     <Project Path="src/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures/ILInspector.Analysis.AsyncSiblingFriendBaseFixtures.csproj" />
