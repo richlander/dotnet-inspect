@@ -1495,6 +1495,12 @@ let spotlightFocusGeneration = 0;
 let documentFocusGeneration = 0;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+interface ContentFrameReplacementAuthority {
+  owner: Exclude<ContentFrameFocusOwner, null>;
+  focusGeneration: number;
+}
+let contentFrameReplacementAuthority: ContentFrameReplacementAuthority | null =
+  null;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 document.documentElement.dataset.theme = state.theme;
 
@@ -1732,12 +1738,14 @@ function focusContentFrameTarget(target: ContentFrameFocusTarget) {
 
 function trackContentFrameFocus(event: FocusEvent) {
   documentFocusGeneration++;
+  contentFrameReplacementAuthority = null;
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
 }
 
 function trackContentFramePointer(event: PointerEvent) {
   documentFocusGeneration++;
+  contentFrameReplacementAuthority = null;
   const pointed = event.target instanceof Element ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
 }
@@ -1759,13 +1767,21 @@ function handleContentFrameResize(event: MediaQueryListEvent) {
   const focused = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  contentFrameFocusOwner = contentFrameResizeFocusOwner(
+  const replacementFocusOwner =
+    contentFrameReplacementAuthority?.owner ?? null;
+  const resizeFocusOwner = contentFrameResizeFocusOwner(
     focused,
-    contentFrameFocusOwner);
+    contentFrameFocusOwner,
+    replacementFocusOwner);
+  contentFrameReplacementAuthority = null;
+  contentFrameFocusOwner = replacementFocusOwner === "navigation"
+    || replacementFocusOwner === "detail"
+    ? contentFrameFocusOwnerFor(focused)
+    : resizeFocusOwner;
   const decision = decideContentFrameResize(
     contentFramePane,
     event.matches,
-    contentFrameFocusOwner);
+    resizeFocusOwner);
   contentFramePane = decision.pane;
   if (decision.render) {
     render({ synchronizeUrl: false });
@@ -2765,6 +2781,7 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
+  const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
       if (entry.group.overloads.length === 1) {
@@ -2781,10 +2798,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
     if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
     openOverload(entry.index);
   }
-  memberFocusRestorer.schedule(
-    document,
-    preservedFocus,
-    requestAnimationFrame);
+  scheduleMemberFocusAfterRender(preservedFocus, replacementAuthority);
   requestAnimationFrame(() => {
     if (focusList) document.querySelector<HTMLElement>("#type-list")?.focus();
     document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
@@ -2937,6 +2951,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? document.activeElement
     : null;
   contentFrameFocusOwner = null;
+  contentFrameReplacementAuthority = null;
   const scopeBarOwnsFocus = focusedElement
     ?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
@@ -7067,12 +7082,38 @@ function focusFilter(
 
 const memberFocusRestorer = createMemberFocusRestorer();
 
-function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
-  render();
+function captureContentFrameReplacementAuthority():
+ContentFrameReplacementAuthority | null {
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const owner = contentFrameFocusOwnerFor(focused);
+  return owner === null
+    ? null
+    : { owner, focusGeneration: documentFocusGeneration };
+}
+
+function scheduleMemberFocusAfterRender(
+  preserved: MemberFocusSnapshot,
+  replacementAuthority: ContentFrameReplacementAuthority | null,
+) {
+  if (replacementAuthority
+    && replacementAuthority.focusGeneration === documentFocusGeneration)
+    contentFrameReplacementAuthority = replacementAuthority;
   memberFocusRestorer.schedule(
     document,
     preserved,
     requestAnimationFrame);
+  if (replacementAuthority) requestAnimationFrame(() => {
+    if (contentFrameReplacementAuthority === replacementAuthority)
+      contentFrameReplacementAuthority = null;
+  });
+}
+
+function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
+  const replacementAuthority = captureContentFrameReplacementAuthority();
+  render();
+  scheduleMemberFocusAfterRender(preserved, replacementAuthority);
   return preserved;
 }
 

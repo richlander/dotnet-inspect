@@ -2561,7 +2561,7 @@ test("shared member views use portable product identity and omit UI-local filter
     /deep\.memberAnchor \|\| deep\.memberSignature[\s\S]*portableMatches\.length === 1[\s\S]*solePortableBodyTarget\(selection\.overload\)[\s\S]*state\.selectedBodyTarget = portableBodyTarget/);
   assert.match(
     appSource,
-    /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*memberFocusRestorer\.schedule\(\s*document,\s*preservedFocus/);
+    /function selectMemberNavEntry\(entry: MemberNavEntry, focusList: boolean\) \{\s*const preservedFocus = captureMemberFocus\(document\);[\s\S]*scheduleMemberFocusAfterRender\(preservedFocus, replacementAuthority\)/);
   assert.match(
     appSource,
     /window\.addEventListener\("popstate"[\s\S]*const deep = loc;[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot\)/);
@@ -2794,22 +2794,46 @@ test("render invalidates focus ownership before replacing content-frame DOM", ()
 
   assert.match(
     source,
-    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;[\s\S]*app\.innerHTML = `/);
+    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;\s*contentFrameReplacementAuthority = null;[\s\S]*app\.innerHTML = `/);
 });
 
 test("content-frame focus ownership clears after focus settles outside both panes", () => {
   assert.match(
     appSource,
-    /function trackContentFrameFocus\(event: FocusEvent\) \{\s*documentFocusGeneration\+\+;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(focused\)/);
+    /function trackContentFrameFocus\(event: FocusEvent\) \{\s*documentFocusGeneration\+\+;\s*contentFrameReplacementAuthority = null;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(focused\)/);
   assert.match(
     appSource,
-    /function trackContentFramePointer\(event: PointerEvent\) \{\s*documentFocusGeneration\+\+;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(pointed\)/);
+    /function trackContentFramePointer\(event: PointerEvent\) \{\s*documentFocusGeneration\+\+;\s*contentFrameReplacementAuthority = null;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(pointed\)/);
   assert.match(
     appSource,
     /function releaseContentFrameFocusOwner\(\) \{\s*requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameFocusOwnerFor\(focused\) === null[\s\S]*contentFrameFocusOwner = null/);
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\);\s*document\.addEventListener\("focusin", trackContentFrameFocus\);\s*document\.addEventListener\("focusout", releaseContentFrameFocusOwner\)/);
+});
+
+test("focus-preserving renders retain pane authority until restoration", () => {
+  const capture = functionDeclaration(
+    "captureContentFrameReplacementAuthority");
+  const captureSource = appSource.slice(capture.start, capture.end);
+  const schedule = functionDeclaration("scheduleMemberFocusAfterRender");
+  const scheduleSource = appSource.slice(schedule.start, schedule.end);
+
+  assert.match(
+    appSource,
+    /const resizeFocusOwner = contentFrameResizeFocusOwner\(\s*focused,\s*contentFrameFocusOwner,\s*replacementFocusOwner\);[\s\S]*contentFrameReplacementAuthority = null;[\s\S]*decideContentFrameResize\([\s\S]*resizeFocusOwner\)/);
+  assert.match(
+    captureSource,
+    /const owner = contentFrameFocusOwnerFor\(focused\);[\s\S]*owner, focusGeneration: documentFocusGeneration/);
+  assert.match(
+    scheduleSource,
+    /replacementAuthority\.focusGeneration === documentFocusGeneration[\s\S]*contentFrameReplacementAuthority = replacementAuthority/);
+  assert.match(
+    scheduleSource,
+    /memberFocusRestorer\.schedule\([\s\S]*requestAnimationFrame\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameReplacementAuthority === replacementAuthority[\s\S]*contentFrameReplacementAuthority = null/);
+  assert.match(
+    appSource,
+    /function selectMemberNavEntry\([\s\S]*captureContentFrameReplacementAuthority\(\)[\s\S]*scheduleMemberFocusAfterRender\(preservedFocus, replacementAuthority\)/);
 });
 
 test("package-root Open and selected-Type activation preserve local frame state", () => {

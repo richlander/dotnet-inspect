@@ -192,6 +192,81 @@ test("immediate narrowing ignores stale navigation focus ownership", async ({
   await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
+test("immediate narrowing follows navigation through replacement rendering", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await expect(page.locator("body")).toBeFocused();
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeHidden();
+  await expect(page.locator("#type-list")).toBeFocused();
+});
+
+test("pointer departure cancels replacement focus authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await page.locator(".docs-unavailable").click();
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator("body")).toBeFocused();
+});
+
+test("focus departure cancels replacement focus authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await page.locator(".docs-unavailable").evaluate(element => {
+    if (!(element instanceof HTMLElement))
+      throw new Error("The detail focus target is unavailable.");
+    element.tabIndex = -1;
+    element.focus();
+  });
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator(".docs-unavailable")).toBeFocused();
+});
+
+test("failed replacement restoration expires its pane authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => {
+    window.beginContentFrameReplacementProbe();
+    document.querySelector("#type-list")?.remove();
+    window.flushContentFrameReplacementProbe();
+  });
+  await page.setViewportSize({ width: 600, height: 700 });
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator("body")).toBeFocused();
+});
+
 test("immediate widening ignores a departed narrow toggle", async ({
   page,
 }) => {

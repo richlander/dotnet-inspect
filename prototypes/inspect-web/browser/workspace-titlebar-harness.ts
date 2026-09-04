@@ -59,6 +59,11 @@ import {
   type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "../src/content-frame.ts";
+import {
+  captureMemberFocus,
+  restoreMemberFocus,
+  type MemberFocusSnapshot,
+} from "../src/member-focus.ts";
 
 declare global {
   interface Window {
@@ -66,6 +71,8 @@ declare global {
     renderPackageScopeProbe: () => void;
     rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
+    beginContentFrameReplacementProbe: () => void;
+    flushContentFrameReplacementProbe: () => void;
   }
 }
 
@@ -205,6 +212,9 @@ let activeTypeLens: TypeLens = sourceMode
 let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
+let contentFrameReplacementFocus: MemberFocusSnapshot | null = null;
+let documentFocusGeneration = 0;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 const source = {
   provider: limitationMode ? "decompiled" : "pdb",
@@ -764,10 +774,14 @@ function focusContentFrameTarget(target: ContentFrameFocusTarget) {
     focusContentNavigationToggle(document);
 }
 document.addEventListener("pointerdown", event => {
+  documentFocusGeneration++;
+  contentFrameReplacementFocusOwner = null;
   const pointed = event.target instanceof Element ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
 });
 document.addEventListener("focusin", event => {
+  documentFocusGeneration++;
+  contentFrameReplacementFocusOwner = null;
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
 });
@@ -789,7 +803,8 @@ contentFrameMedia.addEventListener("change", event => {
     : null;
   contentFrameFocusOwner = contentFrameResizeFocusOwner(
     focused,
-    contentFrameFocusOwner);
+    contentFrameFocusOwner,
+    contentFrameReplacementFocusOwner);
   const decision = decideContentFrameResize(
     contentFramePane,
     event.matches,
@@ -831,3 +846,33 @@ window.rerenderApplicationMenuProbe = () => {
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
+window.beginContentFrameReplacementProbe = () => {
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const replacementFocusOwner = contentFrameFocusOwnerFor(focused);
+  const focusGeneration = documentFocusGeneration;
+  contentFrameReplacementFocus = captureMemberFocus(document);
+  contentFrameFocusOwner = null;
+  contentFrameReplacementFocusOwner = null;
+  const frame = document.querySelector<HTMLElement>(".content-frame");
+  if (!frame)
+    throw new Error("The content frame is unavailable.");
+  const markup = frame.outerHTML;
+  frame.outerHTML = markup;
+  if (replacementFocusOwner !== null
+    && focusGeneration === documentFocusGeneration) {
+    contentFrameReplacementFocusOwner = replacementFocusOwner;
+  }
+};
+window.flushContentFrameReplacementProbe = () => {
+  const preserved = contentFrameReplacementFocus;
+  contentFrameReplacementFocus = null;
+  if (preserved) {
+    restoreMemberFocus(document, preserved, callback => {
+      callback(performance.now());
+      return 0;
+    });
+  }
+  contentFrameReplacementFocusOwner = null;
+};

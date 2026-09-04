@@ -142,7 +142,7 @@ test("content frame focus ownership follows the active pane or local switch", ()
   assert.equal(contentFrameFocusOwnerFor(element("", () => null)), null);
 });
 
-test("resize focus ownership discards stale panes but keeps removed toggles", () => {
+test("resize focus ownership uses live, replacement, then removed-toggle authority", () => {
   const outside = fakeDom.element({
     id: "",
     closest: () => null,
@@ -165,6 +165,18 @@ test("resize focus ownership discards stale panes but keeps removed toggles", ()
   assert.equal(
     contentFrameResizeFocusOwner(outside, "detail-toggle"),
     "detail-toggle");
+  assert.equal(
+    contentFrameResizeFocusOwner(outside, null, "navigation"),
+    "navigation");
+  assert.equal(
+    contentFrameResizeFocusOwner(
+      outside,
+      "navigation-toggle",
+      "navigation"),
+    "navigation");
+  assert.equal(
+    contentFrameResizeFocusOwner(detail, "navigation", "navigation-toggle"),
+    "detail");
   assert.equal(
     contentFrameResizeFocusOwner(detail, "navigation"),
     "detail");
