@@ -1,7 +1,9 @@
 # Decompiler design
 
-This document describes the architecture of `ILInspector.Decompiler` — *how the
-pipeline decides* its output. Companion docs cover the rest:
+This document describes the pipeline design of `ILInspector.Decompiler` — *how
+the pipeline decides* its output.
+[Decompiler architecture](decompiler-architecture.md) maps the current code,
+host integration, and testing infrastructure. Companion docs cover the rest:
 [decompiler-ir.md](decompiler-ir.md) is the focused reference for the IR and
 importer contracts this doc builds on, [decompiler-taste.md](decompiler-taste.md)
 governs *what* the decompiler renders, [decompiler-quality.md](decompiler-quality.md)
@@ -20,7 +22,7 @@ That shape is the standard compiler pipeline, which Roslyn, RyuJIT, and ILSpy ar
 
 1. A **typed IR** with parent/child structure.
 2. An **ordered list of named passes**, each doing one job.
-3. **Invariant validation after every pass** (debug builds).
+3. **Invariant validation after every pass** (runtime-controlled, including Release).
 4. **All decisions made in the tree before output** — printing is a dumb final stage.
 
 Decompilation is this pipeline run in reverse. Where Roslyn *lowers* C# constructs to IL through named rewriters, we *raise* IL back through the inverse transforms. This duality defines our completeness model: Roslyn's `Lowering/` directory is our checklist, and each raising pass should be named and documented as the inverse of the Roslyn rewriter whose output it recognizes.
@@ -33,7 +35,7 @@ Decompilation is this pipeline run in reverse. Where Roslyn *lowers* C# construc
 | Pass list | `IrPasses.Default` | `LocalRewriter` + dedicated rewriters | phase table | `CSharpDecompiler.GetILTransforms()` (27 passes) |
 | Sugar handling | raising passes (inverse of lowering) | lowering rewriters (`Lowering/`) | — | `LockTransform`, `UsingTransform`, `SwitchOnStringTransform`, … |
 | State machines | raising passes; classic consumes Metadata relationships | `AsyncRewriter` / `IteratorRewriter` | — | `AsyncAwaitDecompiler` / `YieldReturnDecompiler` (passes 7–8) |
-| Per-pass validation | `IrFunction.CheckInvariant` (debug) | `Debug.Assert` culture | asserts between phases | `ILInstruction.CheckInvariant(ILPhase)` |
+| Per-pass validation | `IrFunction.CheckInvariant` (runtime-controlled) | `Debug.Assert` culture | asserts between phases | `ILInstruction.CheckInvariant(ILPhase)` |
 | Verification | `--fidelity-check` / `--validity-check` / `--annotation-check` / `--gaps` | — | jitutils `asmdiffs` / SuperPMI | — |
 | Pipeline visibility | `--dump` (per-pass IR projection) | — | `JitDump` | DebugSteps UI |
 | Output stage | `CSharpPrinter` (decides in the tree, prints last) | emit phase | codegen | `StatementBuilder` → `CSharpOutputVisitor` |
@@ -58,10 +60,15 @@ flowchart LR
 | --- | --- |
 | `MetadataSource` | PE + metadata + optional PDB lifetime; SRM-only ([decompiler-ir.md](decompiler-ir.md) defines the contract) |
 | `IrImporter.Import` | raw IL → typed IR tree, with symbolic type identity (`TypeRef`) |
-| `IrPasses.Default` | ordered raising passes — one named class, one job; `CheckInvariant` after each in debug builds |
+| `IrPasses.Default` | ordered raising passes — one named class, one job; runtime-controlled `CheckInvariant` after each |
 | `CSharpPrinter.PrintRaised` | runs the passes, then prints the raised tree; taste-doc spelling policy lives here |
 
 The IR and importer contracts are specified in [decompiler-ir.md](decompiler-ir.md); this doc treats them as given and describes how the stages compose. The product reaches the pipeline through `MemberCodeProvider` (member level) and `MemberBodyProducer` (whole-type). `IrImporter.Import` and `CSharpPrinter.PrintRaised` are both exception-safe by construction: a one-method bug surfaces as a diagnostic comment and a lowered fidelity level, never a crash or silently-wrong output (see [decompiler-quality.md](decompiler-quality.md) for what that floor guarantees).
+
+Invariant checks are enabled by default, including in Release; the shipped CLI
+opts out unless an explicit environment setting overrides it. The
+[correctness pipeline](decompiler-correctness-pipeline.md#ir-invariant-checks-hosts-levels-and-fixtures)
+owns the host and fixture contract.
 
 Key properties:
 

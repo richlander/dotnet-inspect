@@ -62,7 +62,8 @@
         "engine/facades/inspect-web-call-graph.ts",
         "engine/facades/inspect-web-catalog.ts",
         "multi-facade-canary/facades/alpha.ts",
-        "multi-facade-canary/facades/beta.ts"
+        "multi-facade-canary/facades/beta.ts",
+        "managed-operation-bridge-canary/facades/bridge.ts"
       ],
       "rules": {
         "typescript/no-redundant-type-constituents": "off",

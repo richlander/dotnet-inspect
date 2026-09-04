@@ -36,7 +36,7 @@ A mutable tree of typed instruction nodes, in the ILSpy `ILInstruction` traditio
 - **Typed by `TypeRef` and stack type.** Every expression node carries its result type, so there is no opcode-guessing (`IsNonBooleanNumeric`-style heuristics, a classic decompiler bug source) — the information is present.
 - **Explicit unrepresentable nodes.** IL with no C# spelling becomes an `UnsupportedNode` carrying the raw instruction and a diagnostic, rendered honestly and counted toward the result's fidelity level.
 - **Hand-written, small.** ILSpy generates a 60 KB node set from T4; our node count is far smaller and stays reviewable by hand. If it grows past that, generation is a later option, not a founding requirement.
-- **`CheckInvariant` from day one.** Parent/child consistency, slot integrity, type-fullness — validated after every pass in debug builds, the discipline all three neighbor codebases share.
+- **`CheckInvariant` from day one.** Parent/child consistency and declared-slot integrity are validated by runtime-controlled checks, including in Release. The [correctness pipeline](decompiler-correctness-pipeline.md#ir-invariant-checks-hosts-levels-and-fixtures) owns the host defaults and structural/semantic levels.
 
 ## Pass infrastructure
 
@@ -68,4 +68,4 @@ Per the stage-projection principle: every boundary prints. The importer output p
 | Node base | parent + slots + `ReplaceWith` | `BoundNode` (immutable) | `GenTree` | `ILInstruction` |
 | Unrepresentable | `UnsupportedNode` + diagnostic | — | `BADCODE` | error expressions |
 | Step recording | `PassContext.Step` + replay-to-limit | — | `JitDump` phases | `Stepper` + DebugSteps pane |
-| Validation | `CheckInvariant` per pass (debug) | assert culture | per-phase asserts | `CheckInvariant(ILPhase)` |
+| Validation | `CheckInvariant` per pass (runtime-controlled) | assert culture | per-phase asserts | `CheckInvariant(ILPhase)` |

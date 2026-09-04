@@ -5,8 +5,10 @@ staged correctness gauntlet. It is **not** just a catalog of today's harness
 flags. The current tools are the raw material; this document names the
 first-class correctness system we want agents and maintainers to use.
 
-[decompiler.md](decompiler.md) explains how the decompiler pipeline produces
-output. [decompiler-quality.md](decompiler-quality.md) explains the quality
+[Decompiler architecture](decompiler-architecture.md) maps the implementation,
+host consumers, and test infrastructure. [decompiler.md](decompiler.md) explains
+how the pipeline produces output.
+[decompiler-quality.md](decompiler-quality.md) explains the quality
 strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
