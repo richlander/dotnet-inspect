@@ -2350,7 +2350,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded \|\| !workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded\)\s*focusActiveSubjectHeading\(navigationGeneration, focusGeneration\);[\s\S]*else if \(!workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
@@ -2962,7 +2962,7 @@ test("loaded-package Spotlight selection resets type-specific member filters", (
     ?? "";
   assert.match(
     selection,
-    /applyLoadedWorkspacePackage\(target, workspaceDisposition\)/);
+    /applyLoadedWorkspacePackage\(target, workspaceDisposition\)[\s\S]*focusActiveSubjectHeading\(focusGeneration\)/);
   assert.match(
     application,
     /state\.selectedTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
@@ -3062,7 +3062,7 @@ test("Workspace package acquisition failure restores every Workspace projection 
     /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*workspaceSnapshot,\s*\(\) => loadPackageFromSpotlight\([\s\S]*workspaceDisposition\),\s*workspaceDisposition === "add"\s*\? \(\) => restoreWorkspaceFocus\(document, \{ kind: "add" \}\)\s*: focusWorkbenchSearchOrHeading,/);
   assert.match(
     spotlightPackageLoad,
-    /if \(loaded \|\| !workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /if \(loaded\)\s*focusActiveSubjectHeading\(navigationGeneration, focusGeneration\);\s*else if \(!workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
 
   const catalogFailure =
     appSource.match(/function failWorkspaceCatalogAction\([\s\S]*?\n}/)?.[0]
@@ -6285,7 +6285,22 @@ test("Workspace package editing distinguishes Open, Add, Remove, and Clear", () 
     /const retained = retainedPackageForSelection\(id, version, framework\);[\s\S]*if \(retained\) \{\s*pickSpotlightLoadedPackage\(retained, workspaceDisposition\);[\s\S]*workspaceDisposition === "add"[\s\S]*state\.packages\.length >= MAX_WORKSPACE_PACKAGES[\s\S]*spotlight\.reset\(\);[\s\S]*appendQueryNotice\(workspaceCapacityMessage\(\)\);[\s\S]*render\(\);[\s\S]*return;[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);[\s\S]*const loaded = await loadPackage/);
   assert.match(
     queryHandoff,
-    /const retained = retainedPackageForSelection\(packageId, version\);[\s\S]*!retained[\s\S]*packageQueryWorkspaceDisposition === "add"[\s\S]*state\.packages\.length >= MAX_WORKSPACE_PACKAGES[\s\S]*state\.packageQueryNavigationError = workspaceCapacityMessage\(\);[\s\S]*return;[\s\S]*if \(retained\) \{[\s\S]*applyLoadedWorkspacePackage\([\s\S]*return;[\s\S]*const loaded = await loadPackage/);
+    /const retained = retainedPackageForSelection\(packageId, version\);[\s\S]*!retained[\s\S]*packageQueryWorkspaceDisposition === "add"[\s\S]*state\.packages\.length >= MAX_WORKSPACE_PACKAGES[\s\S]*state\.packageQueryNavigationError = workspaceCapacityMessage\(\);[\s\S]*return;[\s\S]*if \(retained\) \{[\s\S]*applyLoadedWorkspacePackage\([\s\S]*focusInspectionResult\(navigationSeq\);[\s\S]*return;[\s\S]*const loaded = await loadPackage[\s\S]*focusInspectionResult\(navigationSeq\)/);
+  assert.match(
+    appSource,
+    /function invalidateBrowserPackageCaches\(\) \{\s*packageInspection\.invalidatePackageResults\(\);\s*spotlightCache = null;\s*spotlightMemberCache = null;\s*}/);
+  assert.match(
+    appSource,
+    /function clearWorkspacePackages\(\) \{[\s\S]*state\.packages = \[\];[\s\S]*invalidateBrowserPackageCaches\(\);/);
+  assert.match(
+    appSource,
+    /function replaceWorkspacePackagesWith\([\s\S]*replacement\.discarded\.length > 0\)\s*invalidateBrowserPackageCaches\(\)/);
+  assert.match(
+    removal,
+    /state\.packages = removed\.packages;[\s\S]*invalidateBrowserPackageCaches\(\);[\s\S]*releasePackageModelCaches\(removed\.closed\)/);
+  assert.match(
+    clear,
+    /clearWorkspaceOccurrenceView\(\);\s*clearWorkspacePackages\(\)/);
   assert.match(
     removal,
     /state\.packages\.find\(candidate =>\s*packageIdentityKey\(candidate\) === packageKey\)[\s\S]*removeWorkspacePackage\(\s*state\.packages,\s*state\.package,\s*packageKey\)[\s\S]*state\.packages = removed\.packages;[\s\S]*releasePackageModelCaches\(removed\.closed\);[\s\S]*resetWorkspaceSurfaceSelection\(\)/);

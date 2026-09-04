@@ -118,6 +118,7 @@ export interface PackageInspectionDependencies {
 }
 
 export interface PackageInspectionCoordinator {
+  invalidatePackageResults(): void;
   loadDependencies(
     packageModel: AppPackage,
     signature: string,
@@ -165,7 +166,31 @@ export function createPackageInspectionCoordinator(
   dependencies: PackageInspectionDependencies,
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
+  let packageResultGeneration = 0;
   let metadataRequestSequence = 0;
+
+  const clearPackageResults = () => {
+    state.packageDependencies = null;
+    state.packageDependenciesLoading = false;
+    state.packageDependenciesError = "";
+    state.packageDependenciesKey = "";
+    state.packageIntegrations = null;
+    state.packageIntegrationsLoading = false;
+    state.packageIntegrationsError = "";
+    state.packageIntegrationsKey = "";
+    state.packageOpportunities = null;
+    state.packageOpportunitiesLoading = false;
+    state.packageOpportunitiesError = "";
+    state.packageOpportunitiesKey = "";
+    state.packagePerformance = null;
+    state.packagePerformanceLoading = false;
+    state.packagePerformanceError = "";
+    state.packagePerformanceKey = "";
+    state.packageMetadata = null;
+    state.packageMetadataLoading = false;
+    state.packageMetadataError = "";
+    state.packageMetadataKey = "";
+  };
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -226,6 +251,12 @@ export function createPackageInspectionCoordinator(
   };
 
   return {
+    invalidatePackageResults() {
+      packageResultGeneration++;
+      metadataRequestSequence++;
+      clearPackageResults();
+    },
+
     async loadDependencies(packageModel, signature) {
       if (state.packageDependenciesKey === signature
         && (state.packageDependencies || state.packageDependenciesError)) {
@@ -237,6 +268,10 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesError = "";
       state.packageDependenciesLoading = true;
       dependencies.render();
+      const requestGeneration = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageDependenciesKey === signature
+        && packageResultGeneration === requestGeneration;
       const packageRequest = {
         id: packageModel.id,
         version: packageModel.version,
@@ -246,10 +281,11 @@ export function createPackageInspectionCoordinator(
       const workspaceKey = workspaceDependencyKey(packageRequest);
       try {
         const result = await dependencies.queryDependencies(packageRequest);
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependencies = result;
         }
         if (result?.dependencyGroups
+          && packageResultGeneration === requestGeneration
           && packageIsResident(state.packages, packageRequest)) {
           state.workspaceDependencies[workspaceKey] = {
             dependencyGroups: result.dependencyGroups,
@@ -263,11 +299,11 @@ export function createPackageInspectionCoordinator(
           }
         }
       } catch (error) {
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependenciesError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageDependenciesKey === signature) {
+        if (ownsRequest()) {
           state.packageDependenciesLoading = false;
         }
         dependencies.refreshPackageStats();
@@ -290,6 +326,10 @@ export function createPackageInspectionCoordinator(
       state.packageIntegrationsError = "";
       state.packageIntegrationsLoading = true;
       dependencies.render();
+      const requestGeneration = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageIntegrationsKey === signature
+        && packageResultGeneration === requestGeneration;
       try {
         const coordinates = packageModel.isRuntimePack
           ? platformCoordinates(packageModel, scopedLibrary ?? "")
@@ -301,15 +341,15 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageIntegrations(packageModel);
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrations = result;
         }
       } catch (error) {
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrationsError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageIntegrationsKey === signature) {
+        if (ownsRequest()) {
           state.packageIntegrationsLoading = false;
         }
         dependencies.render();
@@ -328,6 +368,10 @@ export function createPackageInspectionCoordinator(
       state.packageOpportunitiesError = "";
       state.packageOpportunitiesLoading = true;
       dependencies.render();
+      const requestGeneration = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageOpportunitiesKey === signature
+        && packageResultGeneration === requestGeneration;
       try {
         const coordinates = packageModel.isRuntimePack
           ? platformCoordinates(packageModel, scopedLibrary ?? "")
@@ -339,15 +383,15 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackageOpportunities(packageModel);
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunities = result;
         }
       } catch (error) {
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunitiesError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packageOpportunitiesKey === signature) {
+        if (ownsRequest()) {
           state.packageOpportunitiesLoading = false;
         }
         dependencies.render();
@@ -366,6 +410,10 @@ export function createPackageInspectionCoordinator(
       state.packagePerformanceError = "";
       state.packagePerformanceLoading = true;
       dependencies.render();
+      const requestGeneration = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packagePerformanceKey === signature
+        && packageResultGeneration === requestGeneration;
       try {
         const coordinates = packageModel.isRuntimePack
           ? platformCoordinates(packageModel, scopedLibrary ?? "")
@@ -377,15 +425,15 @@ export function createPackageInspectionCoordinator(
               coordinates.assemblyFileName,
               coordinates.pack)
           : await dependencies.queryPackagePerformance(packageModel);
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformance = result;
         }
       } catch (error) {
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformanceError = dependencies.describeError(error);
         }
       } finally {
-        if (state.packagePerformanceKey === signature) {
+        if (ownsRequest()) {
           state.packagePerformanceLoading = false;
         }
         dependencies.render();
@@ -400,9 +448,11 @@ export function createPackageInspectionCoordinator(
         return;
       }
       const requestSequence = ++metadataRequestSequence;
+      const requestGeneration = packageResultGeneration;
       const ownsRequest = () =>
         state.packageMetadataKey === signature
-        && metadataRequestSequence === requestSequence;
+        && metadataRequestSequence === requestSequence
+        && packageResultGeneration === requestGeneration;
       state.packageMetadataKey = signature;
       state.packageMetadata = null;
       state.packageMetadataError = "";

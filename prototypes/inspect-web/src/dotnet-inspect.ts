@@ -1049,7 +1049,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
-  spotlightCache = null;
+  invalidateBrowserPackageCaches();
   persistRecentPackages();
   persistPlatformRecent();
   refreshPackageStats();
@@ -1832,6 +1832,17 @@ function focusTypeList(
   });
 }
 
+function focusActiveSubjectHeading(
+  generation = spotlightFocusGeneration,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+  afterCurrentNavigationFrame(() => {
+    if (canRestoreWorkbenchFocus(generation, focusGeneration))
+      focusLevelOneHeading();
+  });
+}
+
 function restoreContentNavigationFocus(
   generation: number,
   focusGeneration = documentFocusGeneration,
@@ -2247,6 +2258,8 @@ function retainPackageModel(
   state.packages = retained.packages;
   if (activeWasReplaced)
     state.package = packageModel;
+  if (retained.evicted.length > 0)
+    invalidateBrowserPackageCaches();
 
   for (const evicted of retained.evicted)
     releasePackageModelCaches(evicted);
@@ -2265,11 +2278,18 @@ function releasePackageModelCaches(packageModel: AppPackage) {
   }
 }
 
+function invalidateBrowserPackageCaches() {
+  packageInspection.invalidatePackageResults();
+  spotlightCache = null;
+  spotlightMemberCache = null;
+}
+
 function clearWorkspacePackages() {
   const discarded = state.packages;
   state.packages = [];
   state.package = null;
   state.workspaceShareBasis = null;
+  invalidateBrowserPackageCaches();
   for (const packageModel of discarded)
     releasePackageModelCaches(packageModel);
 }
@@ -2282,6 +2302,8 @@ function replaceWorkspacePackagesWith(packageModel: AppPackage) {
   state.package = packageModel;
   state.workspaceShareBasis = null;
   clearWorkspaceOccurrenceView();
+  if (replacement.discarded.length > 0)
+    invalidateBrowserPackageCaches();
   for (const previous of replacement.discarded)
     releasePackageModelCaches(previous);
 }
@@ -2345,6 +2367,7 @@ function removeWorkspacePackageByKey(packageKey: string) {
   state.package = removed.active;
   state.workspaceShareBasis = null;
   clearWorkspaceOccurrenceView();
+  invalidateBrowserPackageCaches();
   releasePackageModelCaches(removed.closed);
   resetWorkspaceSurfaceSelection();
   state.home = false;
@@ -7304,7 +7327,9 @@ async function loadPackageFromSpotlight(
           workspaceDisposition,
         }
       : { workspaceDisposition });
-  if (loaded || !workspaceSnapshot)
+  if (loaded)
+    focusActiveSubjectHeading(navigationGeneration, focusGeneration);
+  else if (!workspaceSnapshot)
     focusTypeList(navigationGeneration, focusGeneration);
 }
 
@@ -7451,7 +7476,7 @@ function pickSpotlightLoadedPackage(pkg: {
   applyLoadedWorkspacePackage(target, workspaceDisposition);
   spotlight.reset();
   render();
-  focusTypeList(focusGeneration);
+  focusActiveSubjectHeading(focusGeneration);
 }
 
 async function pickSpotlightMember(
@@ -9040,7 +9065,7 @@ async function openPackageQueryRow(
     packageQueryWorkspaceDisposition = "replace";
     workspaceLocation.push(buildStateUrl().toString());
     render();
-    focusTypeList();
+    focusInspectionResult(navigationSeq);
     return;
   }
   const loaded = await loadPackage(
@@ -9081,7 +9106,7 @@ async function openPackageQueryRow(
   packageQueryWorkspaceDisposition = "replace";
   workspaceLocation.push(buildStateUrl().toString());
   render();
-  focusTypeList();
+  focusInspectionResult(navigationSeq);
 }
 
 const packageQueryActions: PackageQueryBindingActions = {

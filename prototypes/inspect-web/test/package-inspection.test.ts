@@ -789,6 +789,79 @@ test("stale package lens rejection cannot overwrite newer state", async () => {
   assert.equal(state.packagePerformanceLoading, true);
 });
 
+test("package-result invalidation clears caches and rejects pending publication", async () => {
+  const packageItem = packageModel();
+  const dependencies = deferred<BrowserPackageDependencies>();
+  const integrations = deferred<BrowserPackageIntegrations>();
+  const opportunities = deferred<BrowserPackageOpportunities>();
+  const performance = deferred<PackagePerformance>();
+  const metadata = deferred<PackageMetadata>();
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => dependencies.promise,
+      queryPackageIntegrations: async () => integrations.promise,
+      queryPackageOpportunities: async () => opportunities.promise,
+      queryPackagePerformance: async () => performance.promise,
+      queryPackageMetadata: async () => metadata.promise,
+    }));
+
+  const loads = [
+    coordinator.loadDependencies(packageItem, "dependencies"),
+    coordinator.loadIntegrations(packageItem, "integrations", null),
+    coordinator.loadOpportunities(packageItem, "opportunities", null),
+    coordinator.loadPerformance(packageItem, "performance", null),
+    coordinator.loadMetadata(packageItem, "metadata", null),
+  ];
+  state.packages = [];
+  coordinator.invalidatePackageResults();
+
+  assert.equal(state.packageDependenciesKey, "");
+  assert.equal(state.packageDependenciesLoading, false);
+  assert.equal(state.packageIntegrationsKey, "");
+  assert.equal(state.packageIntegrationsLoading, false);
+  assert.equal(state.packageOpportunitiesKey, "");
+  assert.equal(state.packageOpportunitiesLoading, false);
+  assert.equal(state.packagePerformanceKey, "");
+  assert.equal(state.packagePerformanceLoading, false);
+  assert.equal(state.packageMetadataKey, "");
+  assert.equal(state.packageMetadataLoading, false);
+
+  dependencies.resolve(dependencyResult());
+  integrations.resolve(integrationsResult());
+  opportunities.resolve(opportunitiesResult());
+  performance.resolve(performanceResult());
+  metadata.resolve(metadataResult());
+  await Promise.all(loads);
+
+  assert.equal(state.packageDependencies, null);
+  assert.equal(state.packageIntegrations, null);
+  assert.equal(state.packageOpportunities, null);
+  assert.equal(state.packagePerformance, null);
+  assert.equal(state.packageMetadata, null);
+});
+
+test("re-added packages do not reuse invalidated package results", async () => {
+  const packageItem = packageModel();
+  let queries = 0;
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => {
+        queries++;
+        return metadataResult();
+      },
+    }));
+
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+  state.packages = [];
+  coordinator.invalidatePackageResults();
+  state.packages = [packageItem];
+  await coordinator.loadMetadata(packageItem, "metadata", null);
+
+  assert.equal(queries, 2);
+});
+
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
   const partial = packageModel({ id: "Example.Partial" });
