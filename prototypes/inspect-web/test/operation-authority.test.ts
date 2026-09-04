@@ -27,10 +27,12 @@ import {
   type PreparedOperationProducer,
 } from "../src/operation-authority.ts";
 
-type TestEvent = OperationFeatureEvent<string, string, number>;
-type TestSink = OperationProducerSink<string, string, number>;
-type TestAdapter = OperationProducerAdapter<string, string, string, number, string>;
-type TestSession = OperationSession<string, string, string, number, string>;
+type TestEvent = OperationFeatureEvent<string, string, number, string>;
+type TestSink = OperationProducerSink<string, string, number, string>;
+type TestAdapter =
+  OperationProducerAdapter<string, string, string, number, string, string>;
+type TestSession =
+  OperationSession<string, string, string, number, string, string>;
 type TestStartResult = OperationStartResult<string, string, string>;
 type TestHandle = OperationHandle<string, string>;
 
@@ -139,7 +141,14 @@ function sessionHarness(
 ): SessionHarness {
   const events: TestEvent[] = [];
   const diagnostics: OperationDiagnostic[] = [];
-  const session = page.createSession<string, string, string, number, string>({
+  const session = page.createSession<
+    string,
+    string,
+    string,
+    number,
+    string,
+    string
+  >({
     feature: {
       publish: event => {
         events.push(event);
@@ -603,6 +612,7 @@ test("prior cancellation runs after replacement activation and stale reports are
     onCancellation: attempt => {
       order.push("prior-cancel");
       attempt.sink.reportProgress(99);
+      attempt.sink.reportDurable("stale");
       attempt.sink.reportTerminal({ kind: "failed", error: "late" });
       return undefined;
     },
@@ -987,6 +997,7 @@ test("exact feature events preserve transition ordering and variants", async () 
   const firstProducer = producer();
   const first = started(harness.session.start("first", firstProducer.adapter));
   firstProducer.attempts[0]?.sink.reportProgress(1);
+  firstProducer.attempts[0]?.sink.reportDurable("first-item");
   const secondProducer = producer();
   const second = started(harness.session.start("second", secondProducer.adapter));
   secondProducer.attempts[0]?.sink.reportProgress(2);
@@ -1004,6 +1015,10 @@ test("exact feature events preserve transition ordering and variants", async () 
     {
       kind: "progress",
       progress: { operationId: first.id, value: 1 },
+    },
+    {
+      kind: "durable",
+      durable: { operationId: first.id, value: "first-item" },
     },
     {
       kind: "replaced",
@@ -1031,10 +1046,85 @@ test("exact feature events preserve transition ordering and variants", async () 
   });
 });
 
+test("durable events preserve producer order and precede terminal publication", () => {
+  const harness = sessionHarness();
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("ordered", activeProducer.adapter),
+  );
+  const sink = activeProducer.attempts[0]?.sink;
+  assert.ok(sink);
+
+  sink.reportProgress(1);
+  sink.reportDurable("first");
+  sink.reportProgress(2);
+  sink.reportDurable("second");
+  sink.reportTerminal({ kind: "succeeded", value: "done" });
+
+  assert.deepEqual(harness.events, [
+    {
+      kind: "started",
+      operation: { id: handle.id, sequence: 1 },
+    },
+    {
+      kind: "progress",
+      progress: { operationId: handle.id, value: 1 },
+    },
+    {
+      kind: "durable",
+      durable: { operationId: handle.id, value: "first" },
+    },
+    {
+      kind: "progress",
+      progress: { operationId: handle.id, value: 2 },
+    },
+    {
+      kind: "durable",
+      durable: { operationId: handle.id, value: "second" },
+    },
+    {
+      kind: "terminal",
+      operationId: handle.id,
+      outcome: { kind: "succeeded", value: "done" },
+    },
+  ]);
+});
+
+test("durable events after terminal commit are contract failures", () => {
+  const harness = sessionHarness();
+  const activeProducer = producer();
+  const handle = started(harness.session.start("work", activeProducer.adapter));
+  const sink = activeProducer.attempts[0]?.sink;
+  assert.ok(sink);
+
+  const publication = sink.commitTerminal({
+    kind: "succeeded",
+    value: "done",
+  });
+  const eventCount = harness.events.length;
+  sink.reportDurable("late");
+
+  assert.equal(harness.events.length, eventCount);
+  assert.deepEqual(harness.diagnostics, [{
+    kind: "producer-contract",
+    operationId: handle.id,
+    error: new Error(
+      "Producer reported a durable event after committing its terminal outcome.",
+    ),
+  }]);
+
+  publication.publish();
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+});
+
 for (const eventKind of [
   "started",
   "replaced",
   "progress",
+  "durable",
   "terminal",
   "canceled",
   "disposed",
@@ -1076,6 +1166,8 @@ for (const eventKind of [
         started(target.session.start("second", producer().adapter));
       if (eventKind === "progress")
         targetProducer.attempts[0]?.sink.reportProgress(1);
+      if (eventKind === "durable")
+        targetProducer.attempts[0]?.sink.reportDurable("item");
       if (eventKind === "terminal")
         targetProducer.attempts[0]?.sink.reportTerminal({
           kind: "succeeded",
@@ -1221,6 +1313,8 @@ function throwDuringFeatureEvent(
     handle = priorHandle;
     if (eventKind === "progress")
       activeProducer.attempts[0]?.sink.reportProgress(1);
+    if (eventKind === "durable")
+      activeProducer.attempts[0]?.sink.reportDurable("item");
     if (eventKind === "terminal")
       activeProducer.attempts[0]?.sink.reportTerminal({
         kind: "succeeded",
@@ -1245,6 +1339,7 @@ for (const eventKind of [
   "started",
   "replaced",
   "progress",
+  "durable",
   "terminal",
   "canceled",
   "disposed",
@@ -1276,7 +1371,7 @@ for (const eventKind of [
         reason: "feature-observer-failed",
       });
     }
-    if (eventKind === "progress") {
+    if (eventKind === "progress" || eventKind === "durable") {
       assert.deepEqual(await handle.outcome, {
         kind: "canceled",
         reason: "feature-observer-failed",
@@ -1585,7 +1680,7 @@ test("unexpected terminal on a stale operation remains diagnostic only", async (
   }]);
 });
 
-test("stale progress, success, failure, and release cannot change the current view", async () => {
+test("stale durable, progress, terminal, and release reports are consumed", async () => {
   const harness = sessionHarness();
   const progressProducer = producer();
   const progressHandle = started(
@@ -1604,6 +1699,7 @@ test("stale progress, success, failure, and release cannot change the current vi
   const eventCount = harness.events.length;
 
   progressProducer.attempts[0]?.sink.reportProgress(1);
+  progressProducer.attempts[0]?.sink.reportDurable("stale-item");
   progressProducer.attempts[0]?.sink.reportTerminal({
     kind: "failed",
     error: "stale-progress-terminal",
@@ -1623,6 +1719,7 @@ test("stale progress, success, failure, and release cannot change the current vi
   assert.equal(harness.events.length, eventCount);
   assert.equal(await promiseSettled(current.outcome), false);
   assert.equal(currentProducer.attempts[0]?.cancellations.length, 0);
+  assert.deepEqual(harness.diagnostics, []);
   await progressHandle.quiesced;
   await successHandle.quiesced;
   await failureHandle.quiesced;
@@ -1730,10 +1827,11 @@ test("duplicate producer reports and callbacks after release are diagnostic", ()
   attempt.sink.reportQuiesced();
   attempt.sink.reportQuiesced();
   attempt.sink.reportProgress(1);
+  attempt.sink.reportDurable("after-release");
   attempt.sink.reportTerminal({ kind: "failed", error: "after-release" });
   attempt.sink.reportUnexpectedFailure(new Error("after-release"));
 
-  assert.equal(harness.diagnostics.length, 5);
+  assert.equal(harness.diagnostics.length, 6);
   assert.ok(harness.diagnostics.every(
     diagnostic => diagnostic.kind === "producer-contract",
   ));
@@ -1975,7 +2073,7 @@ test("a browser fetch adapter uses the same placement-independent authority", as
 function compileTimeCallbackContracts(): void {
   // @ts-expect-error Operation IDs can only be constructed by the page allocator.
   const forgedOperationId: OperationId = "forged";
-  const validFeature: OperationFeatureObserver<string, string, number> = {
+  const validFeature: OperationFeatureObserver<string, string, number, string> = {
     publish: _event => undefined,
   };
   const validDiagnostic: OperationDiagnosticObserver = {
@@ -1983,6 +2081,7 @@ function compileTimeCallbackContracts(): void {
   };
   const validSink: TestSink = {
     reportProgress: _value => undefined,
+    reportDurable: _value => undefined,
     commitTerminal: _outcome => ({ publish: () => undefined }),
     reportTerminal: _outcome => undefined,
     reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
@@ -1997,16 +2096,30 @@ function compileTimeCallbackContracts(): void {
   const validAdapter: TestAdapter = {
     prepare: () => ({ kind: "prepared", binding: validBinding }),
   };
+  const noDurableSink: OperationProducerSink<string, string, number> = {
+    reportProgress: _value => undefined,
+    reportDurable: _value => undefined,
+    commitTerminal: _outcome => ({ publish: () => undefined }),
+    reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: _error => undefined,
+  };
+  // @ts-expect-error The default sink has no durable payload to report.
+  noDurableSink.reportDurable("unexpected");
   void validFeature;
   void validDiagnostic;
   void validSink;
   void validAdapter;
+  void noDurableSink;
 
-  const promiseFeature: OperationFeatureObserver<string, string, number> = {
+  const promiseFeature:
+    OperationFeatureObserver<string, string, number, string> = {
     // @ts-expect-error Feature publication is synchronous and returns exactly undefined.
     publish: async _event => {},
   };
-  const narrowedFeature: OperationFeatureObserver<string, string, number> = {
+  const narrowedFeature:
+    OperationFeatureObserver<string, string, number, string> = {
     // @ts-expect-error The feature callback must accept every owner-issued event.
     publish: (_event: Extract<TestEvent, { readonly kind: "started" }>) => undefined,
   };
@@ -2023,6 +2136,7 @@ function compileTimeCallbackContracts(): void {
   const promiseSink: TestSink = {
     // @ts-expect-error Producer sink callbacks never return Promises.
     reportProgress: async _value => {},
+    reportDurable: _value => undefined,
     commitTerminal: _outcome => ({ publish: () => undefined }),
     reportTerminal: _outcome => undefined,
     reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
@@ -2031,6 +2145,7 @@ function compileTimeCallbackContracts(): void {
   };
   const narrowedSink: TestSink = {
     reportProgress: _value => undefined,
+    reportDurable: _value => undefined,
     commitTerminal: _outcome => ({ publish: () => undefined }),
     // @ts-expect-error A terminal callback cannot narrow the owner-issued outcome.
     reportTerminal: (
@@ -2040,8 +2155,19 @@ function compileTimeCallbackContracts(): void {
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
+  const promiseDurableSink: TestSink = {
+    reportProgress: _value => undefined,
+    // @ts-expect-error Durable publication is synchronous and returns exactly undefined.
+    reportDurable: async _value => {},
+    commitTerminal: _outcome => ({ publish: () => undefined }),
+    reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: _error => undefined,
+  };
   const promiseCommitSink: TestSink = {
     reportProgress: _value => undefined,
+    reportDurable: _value => undefined,
     // @ts-expect-error Terminal commit is synchronous and returns a capability.
     commitTerminal: async _outcome => ({ publish: () => undefined }),
     reportTerminal: _outcome => undefined,
@@ -2049,8 +2175,19 @@ function compileTimeCallbackContracts(): void {
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
+  const narrowedDurableSink: TestSink = {
+    reportProgress: _value => undefined,
+    // @ts-expect-error Durable publication cannot narrow the feature payload.
+    reportDurable: (_value: "only-this-event") => undefined,
+    commitTerminal: _outcome => ({ publish: () => undefined }),
+    reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: _error => undefined,
+  };
   const narrowedCommitSink: TestSink = {
     reportProgress: _value => undefined,
+    reportDurable: _value => undefined,
     // @ts-expect-error Terminal commit cannot narrow the owner-issued outcome.
     commitTerminal: (
       _outcome: { readonly kind: "succeeded"; readonly value: string },
@@ -2117,6 +2254,8 @@ function compileTimeCallbackContracts(): void {
   void promisePublication;
   void promiseSink;
   void narrowedSink;
+  void promiseDurableSink;
+  void narrowedDurableSink;
   void promiseCommitSink;
   void narrowedCommitSink;
   void promiseBinding;

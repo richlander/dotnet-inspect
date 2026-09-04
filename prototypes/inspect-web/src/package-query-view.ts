@@ -4,8 +4,15 @@ import type {
   QueryResultRow,
 } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
+import {
+  bindApplicationScopeBar,
+  focusRenderedElement,
+  renderApplicationScopeBar,
+  type ApplicationScope,
+} from "./scope-bar.ts";
 
 export interface PackageQueryBindingActions {
+  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
@@ -20,7 +27,8 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "workspace" }
+  | { kind: "application-scope"; value: ApplicationScope }
+  | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -28,18 +36,13 @@ export type PackageQueryFocusSnapshot =
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
-interface FocusableQueryElement extends Element {
-  readonly dataset: DOMStringMap;
-  focus(): void;
-}
-
-interface SelectableQueryElement extends FocusableQueryElement {
+interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
 }
 
 function isFocusableQueryElement(
   element: Element | null,
-): element is FocusableQueryElement {
+): element is HTMLElement {
   return element !== null
     && "dataset" in element
     && "focus" in element
@@ -47,7 +50,7 @@ function isFocusableQueryElement(
 }
 
 function supportsSelectionRange(
-  element: FocusableQueryElement,
+  element: HTMLElement,
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
@@ -72,7 +75,11 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-workspace") return { kind: "workspace" };
+  const applicationScope = active.dataset.applicationScope;
+  if (applicationScope === "query" || applicationScope === "workspace") {
+    return { kind: "application-scope", value: applicationScope };
+  }
+  if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -104,8 +111,14 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "workspace":
-      target = root.querySelector("#package-query-workspace");
+    case "application-scope":
+      target = [...root.querySelectorAll<HTMLElement>(
+        "[data-application-scope]")]
+        .find(element =>
+          element.dataset.applicationScope === snapshot.value) ?? null;
+      break;
+    case "product":
+      target = root.querySelector("#package-query-product");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -135,12 +148,12 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target)) {
+  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
     target = root.querySelector("#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  target.focus();
+  if (usedFallback && !focusRenderedElement(target)) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -169,6 +182,12 @@ export function bindPackageQueryView(
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
+  const applicationBinding = bindApplicationScopeBar(root, {
+    onApplicationScopeSelect: actions.onApplicationScopeSelect,
+    onFocusedControlUnavailable: () => {
+      focusRenderedElement(prefixInput(), { preventScroll: true });
+    },
+  });
 
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
@@ -191,6 +210,7 @@ export function bindPackageQueryView(
       prefixInput()?.value ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
     button.addEventListener("click", actions.onCancel));
+  return applicationBinding;
 }
 
 function renderRow(
@@ -380,7 +400,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
+  workspaceAvailable?: boolean;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -392,7 +412,7 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
+    workspaceAvailable = false,
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -418,12 +438,16 @@ export function renderPackageQueryView(
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        ${renderBrand({
-          id: "package-query-workspace",
-          href: workspaceHref,
-          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
-        })}
-        <button id="package-query-back" type="button">Back</button>
+        ${renderBrand({ id: "package-query-product" })}
+        <div class="query-page-navigation">
+          <div class="application-scope-region">
+            ${renderApplicationScopeBar(
+              "query",
+              workspaceAvailable,
+              escapeHtml)}
+          </div>
+          <button id="package-query-back" type="button">Back</button>
+        </div>
       </header>
       <main class="query-main">
         <div class="query-heading">

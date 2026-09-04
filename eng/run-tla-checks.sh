@@ -30,11 +30,11 @@ set -e -o pipefail
 # same-named one); eng/tla-module-overrides.txt overrides that for directories
 # where a .cfg must instead run against a model-checking harness module.
 #
-# CI passes --changed-files0 and a NUL-delimited base-to-head path stream so a
-# PR checks changed model directories plus direct and transitive consumers of
-# changed modules. SANY supplies the dependency closure; source text is not
-# approximated as a module parser. --all is deliberately explicit: a
-# repository-wide sweep belongs to a deliberate local investigation, not the
+# CI passes --changed-files0 and the planner's NUL-delimited scoped path
+# evidence so a PR checks changed model directories plus direct and transitive
+# consumers of changed modules. SANY supplies the dependency closure; source
+# text is not approximated as a module parser. --all is deliberately explicit:
+# a repository-wide sweep belongs to a deliberate local investigation, not the
 # per-PR gate.
 
 # Per-invocation wall-clock bound. Some committed models are large exhaustive

@@ -61,23 +61,16 @@ jobs:
   # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
     runs-on: ubuntu-24.04
-    # eng/ci-detect-changes.sh reads the pull request and its file list from
-    # the Pull requests API, which contents:read alone does not cover.
     permissions:
       contents: read
-      pull-requests: read
     timeout-minutes: 10
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # Full history. Change detection diffs against github.event.before,
-          # which is not always the immediate parent: a push advances main by
-          # more than one commit whenever two PRs merge back to back or a
-          # batch is pushed. fetch-depth: 2 left that commit outside the
-          # shallow clone and the diff died with "Invalid symmetric difference
-          # expression", taking the whole run with it.
+          # Full history. The planner must resolve both exact endpoint commits;
+          # a push's before commit is not always the immediate parent.
           fetch-depth: 0
 
       - uses: actions/setup-dotnet@v6
@@ -152,6 +145,15 @@ jobs:
           BASH_ENV: ""
           CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
 
+      - name: Upload TLA+ scope evidence
+        if: fromJSON(steps.plan.outputs.plan).validations.tla
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan/${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          if-no-files-found: error
+          retention-days: 1
+
   # Lint markdown files
   markdownlint:
     needs: changes
@@ -178,11 +180,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download TLA+ scope evidence
+        uses: actions/download-artifact@v8
         with:
-          # The gate diffs the effective candidate against its event-provided
-          # base so it can select only the model directories changed by the PR,
-          # push, or merge-group candidate.
-          fetch-depth: 0
+          name: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan
 
       - name: Self-test TLA+ runner scope
         shell: bash
@@ -229,13 +232,37 @@ jobs:
       - name: Run TLA+ checks
         shell: bash
         env:
-          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TLA_SCOPE_ARTIFACT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          TLA_SCOPE_FRAMING: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.framing }}
+          TLA_SCOPE_RECORD_COUNT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.recordCount }}
+          TLA_SCOPE_SHA256: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.sha256 }}
         run: |
           set -euo pipefail
-          if [ -z "$CI_BEFORE_SHA" ] \
-             || [ "$CI_BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "${CI_BEFORE_SHA}^{commit}"; then
-            echo "::error::Could not resolve the base commit for scoped TLA+ checks."
+          if [ "$TLA_SCOPE_ARTIFACT" != "ci-plan-tla-paths0" ]; then
+            echo "::error::The TLA+ scope artifact identity is unsupported."
+            exit 1
+          fi
+          if [ "$TLA_SCOPE_FRAMING" != "pathBytesNulTerminated" ]; then
+            echo "::error::The TLA+ scope framing is unsupported."
+            exit 1
+          fi
+          scope_file="${RUNNER_TEMP}/ci-plan/${TLA_SCOPE_ARTIFACT}"
+          if [ ! -f "$scope_file" ]; then
+            echo "::error::The planned TLA+ scope evidence is missing."
+            exit 1
+          fi
+          actual_sha256=$(sha256sum "$scope_file" | cut -d ' ' -f 1)
+          if [ "$actual_sha256" != "$TLA_SCOPE_SHA256" ]; then
+            echo "::error::The TLA+ scope evidence digest does not match the plan."
+            exit 1
+          fi
+          actual_record_count=$(
+            LC_ALL=C tr -cd '\000' < "$scope_file" |
+              wc -c |
+              tr -d '[:space:]'
+          )
+          if [ "$actual_record_count" != "$TLA_SCOPE_RECORD_COUNT" ]; then
+            echo "::error::The TLA+ scope evidence record count does not match the plan."
             exit 1
           fi
           export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
@@ -246,8 +273,7 @@ jobs:
           # hit it (a hit is a warning, not a failure -- see
           # eng/run-tla-checks.sh).
           export TLA_CHECK_TIMEOUT_SECONDS=120
-          git diff --no-renames --name-only -z "$CI_BEFORE_SHA" HEAD -- |
-            eng/run-tla-checks.sh --changed-files0
+          eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
   inspect-web:
     needs: changes
@@ -346,10 +372,29 @@ jobs:
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
-          test -f "$site/inspect-web-engine.js"
-          cmp \
-            prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js \
-            "$site/inspect-web-engine.js"
+          expected_modules=$(
+            printf '%s\n' \
+              inspect-web-host.js \
+              inspect-web-package.js \
+              inspect-web-metadata.js \
+              inspect-web-analysis.js \
+              inspect-web-source.js \
+              inspect-web-call-graph.js \
+              inspect-web-catalog.js |
+              sort
+          )
+          published_modules=$(
+            find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' \
+              -printf '%f\n' |
+              sort
+          )
+          test "$published_modules" = "$expected_modules"
+          while IFS= read -r module; do
+            cmp \
+              "prototypes/inspect-web/engine/wwwroot/$module" \
+              "$site/$module"
+          done <<< "$expected_modules"
+          test ! -f "$site/inspect-web-engine.js"
           test ! -f "$site/inspect-web-engine.ts"
           # The site is deployed from this artifact, so the headers have to be verified
           # where they ship. The toolchain test pins them in the source file; this checks
@@ -402,8 +447,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: >
           node
-          scripts/verify-published-engine-facade.ts
+          scripts/verify-published-engine-facades.ts
           ../../artifacts/inspect-web-publish/wwwroot
+          production
 
       - name: Test browser engine
         run: >
@@ -672,14 +718,18 @@ jobs:
       - name: Run JSExport runtime-async wire gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/jsexport-runtime-async-wire-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="jsexport-runtime-async-wire-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
-            -method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
-            -method '*RuntimeAsync*' \
-            -xml "$results"
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
+            --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
+            --filter-method '*RuntimeAsync*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
             echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
             exit 1
@@ -698,15 +748,19 @@ jobs:
       - name: Run ts-jsexport generator acceptance gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="ts-jsexport-generator-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
-            -class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
-            -xml "$results"
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
             ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
@@ -719,13 +773,16 @@ jobs:
               exit 1
             fi
           done
-          negative_results="$RUNNER_TEMP/ts-jsexport-negative-tests.xml"
+          negative_results_name="ts-jsexport-negative-tests.xml"
+          negative_results="$results_dir/$negative_results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
-            -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
-            -method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
-            -xml "$negative_results"
+            --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
+            --report-xunit \
+            --report-xunit-filename "$negative_results_name" \
+            --results-directory "$results_dir"
           for method in \
             Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
             Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
@@ -753,7 +810,7 @@ jobs:
 
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
       # acquisition fails, but the lane must not go green having silently

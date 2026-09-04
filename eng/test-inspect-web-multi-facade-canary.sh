@@ -105,34 +105,72 @@ cat > "$scratch/source/tsconfig.json" <<'JSON'
 JSON
 "$tsc" -p "$scratch/source/tsconfig.json"
 
-"$dotnet" publish \
-  "$host" \
-  -c Release \
-  --output "$scratch/publish" \
-  -p:CanaryModulesDir="$scratch/modules" \
-  --nologo
-site="$scratch/publish/wwwroot"
-dotnet_module=$(
-  find "$site/_framework" \
-    -maxdepth 1 \
-    -type f \
-    -name 'dotnet.*.js' \
-    ! -name 'dotnet.native.*' \
-    ! -name 'dotnet.runtime.*' \
-    -print -quit
-)
-if [[ -z "$dotnet_module" ]]; then
-  echo "Published Browser/Wasm runtime module was not found." >&2
-  exit 1
-fi
-ln -s "$(basename "$dotnet_module")" "$site/_framework/dotnet.js"
-test -f "$site/coordinator.js"
-test -f "$site/exercise.js"
-test -f "$site/facades/alpha.js"
-test -f "$site/facades/beta.js"
-printf '{ "type": "module" }\n' > "$site/package.json"
+clear_canary_build_outputs() {
+  rm -rf \
+    "$canary/Alpha/bin/Release/net11.0" \
+    "$canary/Alpha/obj/Release/net11.0" \
+    "$canary/Beta/bin/Release/net11.0" \
+    "$canary/Beta/obj/Release/net11.0" \
+    "$canary/Host/bin/Release/net11.0" \
+    "$canary/Host/obj/Release/net11.0"
+}
 
-"$node" "$verifier" "$site" baseline
+publish_canary() {
+  local runtime_name=$1
+  local use_mono_runtime=$2
+  local output="$scratch/publish-$runtime_name"
+  local dotnet_module
+  local runtime_properties=()
+
+  if [[ "$use_mono_runtime" == false ]]; then
+    runtime_properties=(
+      -p:WasmBuildNative=false
+      -p:WasmNestedPublishAppDependsOn=
+      -p:WasmEnableExceptionHandling=true
+    )
+  fi
+
+  clear_canary_build_outputs
+  "$dotnet" publish \
+    "$host" \
+    -c Release \
+    --output "$output" \
+    -p:CanaryModulesDir="$scratch/modules" \
+    -p:UseMonoRuntime="$use_mono_runtime" \
+    "${runtime_properties[@]}" \
+    --nologo
+  published_site="$output/wwwroot"
+  dotnet_module=$(
+    find "$published_site/_framework" \
+      -maxdepth 1 \
+      -type f \
+      -name 'dotnet.*.js' \
+      ! -name 'dotnet.native.*' \
+      ! -name 'dotnet.runtime.*' \
+      -print -quit
+  )
+  if [[ -z "$dotnet_module" ]]; then
+    echo "Published $runtime_name Browser/Wasm runtime module was not found." >&2
+    exit 1
+  fi
+  ln -s \
+    "$(basename "$dotnet_module")" \
+    "$published_site/_framework/dotnet.js"
+  test -f "$published_site/coordinator.js"
+  test -f "$published_site/exercise.js"
+  test -f "$published_site/facades/alpha.js"
+  test -f "$published_site/facades/beta.js"
+  printf '{ "type": "module" }\n' > "$published_site/package.json"
+
+  "$node" "$verifier" "$published_site" baseline
+  echo "ts-jsexport multi-facade $runtime_name Browser/Wasm startup passed."
+}
+
+published_site=
+publish_canary mono true
+mono_site=$published_site
+publish_canary coreclr false
+site=$mono_site
 
 cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
 sed -i \
@@ -148,11 +186,15 @@ cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
 sed -i \
   's#../_framework/dotnet\.js#../_framework/dotnet.js?duplicate-runtime#' \
   "$site/facades/beta.js"
+sed -i \
+  's/await initializeBeta(runtime);/await initializeBeta();/' \
+  "$site/coordinator.js"
 expect_failure \
   duplicate-runtime-module \
   "Expected exactly one live SDK runtime" \
   "$node" "$verifier" "$site" baseline
 
+cp "$scratch/modules/coordinator.js" "$site/coordinator.js"
 cp "$scratch/modules/facades/beta.js" "$site/facades/beta.js"
 sed -i \
   's#import \* as beta from "./facades/beta\.js"#import * as beta from "./facades/alpha.js"#' \

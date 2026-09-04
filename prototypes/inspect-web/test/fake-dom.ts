@@ -14,6 +14,11 @@ export const fakeDom = {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     return value as unknown as Document;
   },
+  element(value: object): Element {
+    // Test fakes implement exactly the DOM subset consumed by each helper.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    return value as unknown as Element;
+  },
   htmlElement(value: object): HTMLElement {
     // Test fakes implement exactly the DOM subset consumed by each binder.
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion

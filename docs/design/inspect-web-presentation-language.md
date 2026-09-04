@@ -205,14 +205,21 @@ competing with the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
-Metadata instead uses a quiet local `Metadata` heading while retaining its
-detailed type-level context in the primary projection and compact bottom
-context row.
+Type Metadata uses a quiet local `Metadata` heading while retaining its detailed
+type-level context in the primary projection and compact bottom context row.
+Package Metadata uses the parallel quiet `Metadata images` heading while its
+compact controls and bottom row retain the active package coordinate.
 
-At narrow widths, API header identity and status plus Metadata header status and
-context values may elide visually as complete strings. Responsive styling does
-not selectively remove the overload total or ordinal from the rendered or
-accessible status.
+At narrow widths, API header identity and status plus Type and Package Metadata
+header status and context values may elide visually as complete strings.
+Responsive styling does not selectively remove the overload total or ordinal
+from the rendered or accessible status.
+
+The narrow content-frame `Types` or `Members` control may occupy the leading
+space of these quiet headers. The local heading remains the accessible name
+even when it is visually elided. Member Overview begins its first content
+within the normal compact content inset; the scroller and first paragraph do
+not stack independent top margins into a blank introductory band.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -251,17 +258,23 @@ and increases the amount visible without scrolling.
 
 ### Metadata lens
 
-The Metadata lens uses a quiet `Metadata` heading with kind and accessibility
+Type Metadata uses a quiet `Metadata` heading with kind and accessibility
 status. Its full-area projection remains the type-level view for kind,
 namespace, declaration shape, target framework, library, package, and version
 context. Type shape rows begin at the top of the scroll region; the exact type
 identity and package coordinate remain in the compact bottom context row.
 
+Package Metadata uses a quiet `Metadata images` heading with assembly count or
+state. Version, Framework, and optional platform Library remain compact controls
+above the image facts. The exact package coordinate, framework, and optional
+library remain in the bottom context row.
+
 The exact-target identity remains the common orientation point between API,
-Metadata, and Source. API uses its local member heading, Metadata preserves the
-type identity in its context row, and Source relies on the persistent subject
-zone rather than duplicating it inside the full-area working surface. Switching
-lenses does not change the selected subject or its display identity.
+Metadata, and Source. API uses its local member heading, Type Metadata preserves
+the type identity in its context row, Package Metadata preserves its package
+coordinate, and Source relies on the persistent subject zone rather than
+duplicating it inside the full-area working surface. Switching lenses does not
+change the selected subject or its display identity.
 
 ## Source provenance
 

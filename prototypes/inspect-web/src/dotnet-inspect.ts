@@ -92,6 +92,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  parseWorkspaceLocation,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
@@ -123,6 +124,9 @@ import {
   type AppMemberSurface,
   type AppPackage,
   type AppTypeSurface,
+  type InspectedMemberSurface,
+  type InspectedPackageDocument,
+  type InspectedTypeSurface,
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
@@ -160,7 +164,9 @@ import {
   workbenchShellHtml,
 } from "./shell-controls.ts";
 import {
-  homeDemoRowHtml,
+  homeDemosEntryHtml,
+  isProductHomeDemosPath,
+  productHomeDemoCatalog,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
@@ -182,6 +188,8 @@ import {
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
+  type InspectedCallGraph,
+  type InspectedCallGraphTarget,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
@@ -236,16 +244,21 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  focusRenderedElement,
+  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
+  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  captureWorkspaceFocus,
   focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView as renderWorkspaceViewPure,
+  restoreWorkspaceFocus,
   workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
@@ -271,6 +284,20 @@ import {
   bindPackageOpportunities,
   renderPackageOpportunities as renderPackageOpportunitiesPure,
 } from "./package-opportunities.ts";
+import {
+  bindContentFrame,
+  bindContentFrameMedia,
+  CONTENT_FRAME_NARROW_QUERY,
+  contentFrameFocusOwnerFor,
+  contentFrameResizeFocusOwner,
+  decideContentFrameResize,
+  focusContentNavigation,
+  focusContentNavigationToggle,
+  renderContentNavigationBar,
+  type ContentFrameFocusOwner,
+  type ContentFrameFocusTarget,
+  type ContentFramePane,
+} from "./content-frame.ts";
 import {
   bindTypePanel,
   renderGraphMemberPending,
@@ -362,141 +389,182 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
 } from "./package-query-route.ts";
+import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserBuildIdentity,
-  BrowserCallGraph,
-  BrowserCallGraphTarget,
-  BrowserHomeDemoRunResult,
-  BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
-  BrowserPackageDocument,
-  BrowserPackageIntegrations,
-  BrowserPackageOpportunities,
   BrowserPackageSurface,
-  BrowserSource,
-  BrowserTypeMetadata,
-  BrowserTypeSurface,
-  BrowserWorkspaceShareState,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
+import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserPackageIntegrations,
+  BrowserPackageOpportunities,
+} from "./facades/inspect-web-analysis.d.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type {
+  BrowserHomeDemoResolveResult,
+  BrowserHomeDemoRunResult,
+  BrowserWorkspaceShareState,
+} from "./facades/inspect-web-catalog.d.ts";
 
-type EngineModule = typeof import("./inspect-web-engine.d.ts");
+// Each generated module publishes its own operations and its own wire declarations, so the
+// application binds every operation through the module that owns it. There is no aggregate
+// facade: a binding below names the facade it came from.
+type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
+type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
+type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
+type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
+type SourceFacade = typeof import("./facades/inspect-web-source.d.ts");
+type CallGraphFacade = typeof import("./facades/inspect-web-call-graph.d.ts");
+type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
+type EngineCoordinator = typeof import("./engine-facades.ts");
 
-let initializeRuntime: EngineModule["initializeRuntime"];
-let runEntryPoint: EngineModule["runEntryPoint"];
-let configureHost: EngineModule["configureHost"];
-let cancelPackageQuery: EngineModule["cancelPackageQuery"];
-let cancelSourceInspection: EngineModule["cancelSourceQuery"];
-let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
-let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
-let inspectVocabulary: EngineModule["listVocabulary"];
-let inspectListHomeDemos: EngineModule["listHomeDemos"];
-let inspectListPackageQueryFacets: EngineModule["listPackageQueryFacets"];
-let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
-let inspectRunPackageQuery: EngineModule["runPackageQuery"];
-let inspectRunHomeDemo: EngineModule["runHomeDemo"];
-let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
-let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
-let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
-let inspectMemberCallGraph: EngineModule["queryMemberCallGraph"];
-let inspectMemberDocumentation: EngineModule["queryMemberDocumentation"];
-let inspectMemberFacts: EngineModule["queryMemberFacts"];
-let inspectMemberSource: EngineModule["queryMemberSource"];
-let inspectPackage: EngineModule["queryPackage"];
-let inspectPackageDependencies: EngineModule["queryPackageDependencies"];
-let inspectPackageDocument: EngineModule["getPackageDocument"];
-let inspectPackageHeapEntries: EngineModule["queryPackageHeapEntries"];
-let inspectPackageIntegrations: EngineModule["queryPackageIntegrations"];
-let inspectPackageMetadata: EngineModule["queryPackageMetadata"];
-let inspectPackageMetadataTable: EngineModule["queryPackageMetadataTable"];
-let inspectPackageOpportunities: EngineModule["queryPackageOpportunities"];
-let inspectPackagePerformance: EngineModule["queryPackagePerformance"];
-let inspectPackageVersions: EngineModule["queryPackageVersions"];
+let startEngine: EngineCoordinator["startEngine"];
+let inspectBuildIdentity: HostFacade["buildIdentity"];
+let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
+let inspectPackageDocument: PackageFacade["getPackageDocument"];
+let inspectListPackageQueryFacets: PackageFacade["listPackageQueryFacets"];
+let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
+let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
+let matchPackageDependencyCoordinate:
+  PackageFacade["matchPackageDependencyCoordinate"];
+let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
+let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
+let inspectPackage: PackageFacade["queryPackage"];
+let inspectPackageDependencies: PackageFacade["queryPackageDependencies"];
+let inspectPackageVersions: PackageFacade["queryPackageVersions"];
+let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
+let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
+let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
-  EngineModule["queryWorkspacePackageOccurrences"];
+  PackageFacade["queryWorkspacePackageOccurrences"];
 let inspectActivateWorkspacePackageOccurrence:
-  EngineModule["activateWorkspacePackageOccurrence"];
+  PackageFacade["activateWorkspacePackageOccurrence"];
 let inspectClearWorkspacePackageOccurrences:
-  EngineModule["clearWorkspacePackageOccurrences"];
-let inspectPlatformHeapEntries: EngineModule["queryPlatformHeapEntries"];
-let inspectPlatformIntegrations: EngineModule["queryPlatformIntegrations"];
-let inspectPlatformMetadata: EngineModule["queryPlatformMetadata"];
-let inspectPlatformMetadataTable: EngineModule["queryPlatformMetadataTable"];
-let inspectPlatformOpportunities: EngineModule["queryPlatformOpportunities"];
-let inspectPlatformPerformance: EngineModule["queryPlatformPerformance"];
-let inspectSearchTypes: EngineModule["searchTypes"];
-let inspectTypeMemberSource: EngineModule["queryTypeMemberSource"];
-let inspectTypeProjection: EngineModule["queryTypeProjection"];
-let inspectTypeSource: EngineModule["queryTypeSource"];
-let inspectBuildIdentity: EngineModule["buildIdentity"];
-let inspectDecodeWorkspaceShareState: EngineModule["decodeWorkspaceShareState"];
-let inspectEncodeWorkspaceShareState: EngineModule["encodeWorkspaceShareState"];
-let inspectPackageCacheStats: EngineModule["packageCacheStats"];
-let matchPackageDependencyCoordinate: EngineModule["matchPackageDependencyCoordinate"];
-let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
+  PackageFacade["clearWorkspacePackageOccurrences"];
+let inspectGraphMemberSurface: MetadataFacade["queryGraphMemberSurface"];
+let inspectPackageHeapEntries: MetadataFacade["queryPackageHeapEntries"];
+let inspectPackageMetadata: MetadataFacade["queryPackageMetadata"];
+let inspectPackageMetadataTable: MetadataFacade["queryPackageMetadataTable"];
+let inspectPlatformHeapEntries: MetadataFacade["queryPlatformHeapEntries"];
+let inspectPlatformMetadata: MetadataFacade["queryPlatformMetadata"];
+let inspectPlatformMetadataTable: MetadataFacade["queryPlatformMetadataTable"];
+let inspectTypeProjection: MetadataFacade["queryTypeProjection"];
+let inspectMemberFacts: AnalysisFacade["queryMemberFacts"];
+let inspectPackageIntegrations: AnalysisFacade["queryPackageIntegrations"];
+let inspectPackageOpportunities: AnalysisFacade["queryPackageOpportunities"];
+let inspectPackagePerformance: AnalysisFacade["queryPackagePerformance"];
+let inspectPlatformIntegrations: AnalysisFacade["queryPlatformIntegrations"];
+let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
+let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
+let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
+let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
+let inspectMemberSource: SourceFacade["queryMemberSource"];
+let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
+let inspectTypeSource: SourceFacade["queryTypeSource"];
+let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
+let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
+let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
+let inspectListHomeDemos: CatalogFacade["listHomeDemos"];
+let inspectVocabulary: CatalogFacade["listVocabulary"];
+let inspectResolveHomeDemo: CatalogFacade["resolveHomeDemo"];
+let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
+let productHomeDemoCatalogError = "";
 
+// The generated modules stay off the first-paint path, so they are imported once the home
+// view has painted. `engine-facades.ts` owns composition of the whole set; this function
+// owns nothing but binding, and each operation is bound from the module that publishes it.
 async function loadEngineModule() {
+  const [
+    hostFacade,
+    packageFacade,
+    metadataFacade,
+    analysisFacade,
+    sourceFacade,
+    callGraphFacade,
+    catalogFacade,
+    coordinator,
+  ] = await Promise.all([
+    import("/inspect-web-host.js"),
+    import("/inspect-web-package.js"),
+    import("/inspect-web-metadata.js"),
+    import("/inspect-web-analysis.js"),
+    import("/inspect-web-source.js"),
+    import("/inspect-web-call-graph.js"),
+    import("/inspect-web-catalog.js"),
+    import("./engine-facades.ts"),
+  ]);
+  ({ startEngine } = coordinator);
+  ({ buildIdentity: inspectBuildIdentity } = hostFacade);
   ({
-    buildIdentity: inspectBuildIdentity,
     cancelPackageQuery,
-    cancelSourceQuery: cancelSourceInspection,
-    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
-    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
-    initializeRuntime,
-    runEntryPoint,
-    configureHost,
-    listHomeDemos: inspectListHomeDemos,
     listPackageQueryFacets: inspectListPackageQueryFacets,
-    listVocabulary: inspectVocabulary,
-    resolveHomeDemo: inspectResolveHomeDemo,
-    runHomeDemo: inspectRunHomeDemo,
-    runPackageQuery: inspectRunPackageQuery,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
     packageCacheStats: inspectPackageCacheStats,
-    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
-    queryMemberCallGraph: inspectMemberCallGraph,
-    queryGraphMemberSurface: inspectGraphMemberSurface,
     queryMemberDocumentation: inspectMemberDocumentation,
-    queryMemberFacts: inspectMemberFacts,
-    queryMemberSource: inspectMemberSource,
     queryPackage: inspectPackage,
     queryPackageDependencies: inspectPackageDependencies,
-    queryPackageHeapEntries: inspectPackageHeapEntries,
-    queryPackageIntegrations: inspectPackageIntegrations,
-    queryPackageMetadata: inspectPackageMetadata,
-    queryPackageMetadataTable: inspectPackageMetadataTable,
-    queryPackageOpportunities: inspectPackageOpportunities,
-    queryPackagePerformance: inspectPackagePerformance,
     queryPackageVersions: inspectPackageVersions,
+    resolvePackageDependencyVersion: resolveDependencyVersion,
+    runPackageQuery: inspectRunPackageQuery,
+    searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
     activateWorkspacePackageOccurrence:
       inspectActivateWorkspacePackageOccurrence,
     clearWorkspacePackageOccurrences:
       inspectClearWorkspacePackageOccurrences,
+  } = packageFacade);
+  ({
+    queryGraphMemberSurface: inspectGraphMemberSurface,
+    queryPackageHeapEntries: inspectPackageHeapEntries,
+    queryPackageMetadata: inspectPackageMetadata,
+    queryPackageMetadataTable: inspectPackageMetadataTable,
     queryPlatformHeapEntries: inspectPlatformHeapEntries,
-    queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformMetadata: inspectPlatformMetadata,
     queryPlatformMetadataTable: inspectPlatformMetadataTable,
+    queryTypeProjection: inspectTypeProjection,
+  } = metadataFacade);
+  ({
+    queryMemberFacts: inspectMemberFacts,
+    queryPackageIntegrations: inspectPackageIntegrations,
+    queryPackageOpportunities: inspectPackageOpportunities,
+    queryPackagePerformance: inspectPackagePerformance,
+    queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformOpportunities: inspectPlatformOpportunities,
     queryPlatformPerformance: inspectPlatformPerformance,
+  } = analysisFacade);
+  ({
+    cancelSourceQuery: cancelSourceInspection,
+    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
+    queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
-    queryTypeProjection: inspectTypeProjection,
     queryTypeSource: inspectTypeSource,
-    resolvePackageDependencyVersion: resolveDependencyVersion,
-    searchTypes: inspectSearchTypes,
-  } = await import("/inspect-web-engine.js"));
+  } = sourceFacade);
+  ({
+    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+    queryMemberCallGraph: inspectMemberCallGraph,
+  } = callGraphFacade);
+  ({
+    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
+    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
+    listHomeDemos: inspectListHomeDemos,
+    listVocabulary: inspectVocabulary,
+    resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
+  } = catalogFacade);
 }
 
 declare global {
@@ -596,6 +664,9 @@ function loadPlatformRecent() {
 
 const retryUnavailable = "unavailable" as const;
 type RetryAction = (() => void | Promise<unknown>) | null;
+type WorkspaceRestoreFailureHandler = (
+  message: string,
+) => void;
 type ErrorRetryAction = RetryAction | typeof retryUnavailable;
 
 interface SpotlightCache {
@@ -850,7 +921,7 @@ interface StateOverrides {
   packagePerformance: PackagePerformance | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
-  memberCallGraph: BrowserCallGraph | null;
+  memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   dotnetReleases: DotnetRelease[] | null;
@@ -869,7 +940,7 @@ interface StateOverrides {
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
   graphSource: BrowserSource | null;
-  docViewer: BrowserPackageDocument | null;
+  docViewer: InspectedPackageDocument | null;
   docViewerMeta: DocViewerMeta | null;
   graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
@@ -882,7 +953,7 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryPredecessorEntryId: string | null;
-  packageQueryReturnFocus: "home-search" | "package-search" | null;
+  packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
@@ -890,6 +961,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -902,7 +974,6 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
-let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 
@@ -910,6 +981,7 @@ interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
   hasWorkspace: boolean;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
+  failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
 }
 
 function captureCanonicalWorkspaceRestoreSnapshot():
@@ -952,15 +1024,26 @@ CanonicalWorkspaceRestoreSnapshot {
     },
     hasWorkspace: state.package !== null,
     navigation: navigationHistory.snapshot(),
+    failedWorkspaceUrlState: failedWorkspaceUrlState
+      ? structuredClone(failedWorkspaceUrlState)
+      : null,
   };
 }
 
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
+  clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
+  state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrenceLoading = false;
+  state.workspaceOccurrences = null;
+  state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
+  failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
+    ? structuredClone(snapshot.failedWorkspaceUrlState)
+    : null;
   spotlightCache = null;
   persistRecentPackages();
   persistPlatformRecent();
@@ -1154,7 +1237,9 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
-  renderCallGraph: renderMermaidCallGraph,
+  renderCallGraph: async () => {
+    await renderMermaidCallGraph();
+  },
   nextPaint,
   refreshPackageStats,
   patchCallGraphSection,
@@ -1411,9 +1496,51 @@ const workspaceLocation = createWorkspaceLocationPersistence({
   decode: value => inspectDecodeWorkspaceShareState(value),
   encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
+let pendingDemoNavigation: {
+  navigationSeq: number;
+  destination: string;
+} | null = null;
 
 function parseLocation() {
   return workspaceLocation.parseCurrent();
+}
+
+function parseWorkspaceHref(href: string): ParsedLocation {
+  const url = new URL(href, location.href);
+  return parseWorkspaceLocation({
+    href: url.href,
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
+  }, value => inspectDecodeWorkspaceShareState(value));
+}
+
+function beginDemoNavigation(destination: string): number {
+  const navigationSeq = navigationSequence.begin();
+  stageDemoNavigation(navigationSeq, destination);
+  return navigationSeq;
+}
+
+function stageDemoNavigation(
+  navigationSeq: number,
+  destination: string,
+): void {
+  pendingDemoNavigation = { navigationSeq, destination };
+}
+
+function commitDemoNavigation(navigationSeq: number): boolean {
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || pendingDemoNavigation?.navigationSeq !== navigationSeq) return false;
+  workspaceLocation.push(pendingDemoNavigation.destination);
+  pendingDemoNavigation = null;
+  return true;
+}
+
+function cancelDemoNavigation(navigationSeq?: number): void {
+  if (navigationSeq === undefined
+    || pendingDemoNavigation?.navigationSeq === navigationSeq) {
+    pendingDemoNavigation = null;
+  }
 }
 
 type ParsedLocation = ParsedWorkspaceLocation;
@@ -1425,14 +1552,20 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
+const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
 if (state.packageQueryOpen) {
   applyPackageQueryHistory(history.state);
 }
 state.home = state.credits
   || (!state.packageQueryOpen
+    && !productHomeDemosOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
     && !initialLocation.routeFailure);
+if (productHomeDemosOpen) {
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+}
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -1477,7 +1610,26 @@ let mermaidModule: Promise<MermaidModule> | undefined;
 let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
+type CallGraphRenderResult =
+  | { status: "rendered" }
+  | { status: "superseded" }
+  | { status: "failed"; message: string };
+let callGraphRenderOperation: {
+  definition: string;
+  theme: "light" | "dark";
+  promise: Promise<CallGraphRenderResult>;
+} | null = null;
 let spotlightFocusGeneration = 0;
+let documentFocusGeneration = 0;
+let contentFramePane: ContentFramePane = "detail";
+let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+interface ContentFrameReplacementAuthority {
+  owner: ContentFrameFocusOwner;
+  focusGeneration: number;
+}
+let contentFrameReplacementAuthority: ContentFrameReplacementAuthority | null =
+  null;
+const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value: unknown) {
@@ -1591,7 +1743,17 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
-  focusAfterDismiss: () => focusTypeList(spotlightFocusGeneration),
+  focusAfterDismiss: () =>
+    restoreContentFrameFocusAfterDismiss(
+      spotlightFocusGeneration,
+      documentFocusGeneration),
+  captureFocusAfterDismiss: () => {
+    const navigationGeneration = spotlightFocusGeneration;
+    const focusGeneration = documentFocusGeneration;
+    return () => restoreContentFrameFocusAfterDismiss(
+      navigationGeneration,
+      focusGeneration);
+  },
 });
 
 function beginSpotlightNavigation() {
@@ -1609,18 +1771,154 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function focusTypeList(generation = spotlightFocusGeneration) {
-  if (generation !== spotlightFocusGeneration
-      || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-      || state.settings || state.keyboardHelp
-      || applicationMenuOwnsFocus(document) || isTextEntry()) return;
+function canRestoreWorkbenchFocus(
+  generation: number,
+  focusGeneration = documentFocusGeneration,
+) {
+  return generation === spotlightFocusGeneration
+    && focusGeneration === documentFocusGeneration
+    && !state.spotlightOpen && !state.graphSourceOpen && !state.docViewerOpen
+    && !state.settings && !state.keyboardHelp
+    && !applicationMenuOwnsFocus(document) && !isTextEntry();
+}
+
+function focusTypeList(
+  generation = spotlightFocusGeneration,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
-    if (generation !== spotlightFocusGeneration
-        || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-        || state.settings || state.keyboardHelp
-        || applicationMenuOwnsFocus(document) || isTextEntry()) return;
-    document.querySelector<HTMLElement>("#type-list")?.focus();
+    if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+    if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      contentFramePane = "detail";
+      render({ synchronizeUrl: false });
+      afterCurrentNavigationFrame(() => {
+        if (canRestoreWorkbenchFocus(generation, focusGeneration))
+          focusContentNavigationToggle(document);
+      });
+      return;
+    }
+    focusContentNavigation(document);
   });
+}
+
+function restoreContentNavigationFocus(
+  generation: number,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+  afterCurrentNavigationFrame(() => {
+    if (canRestoreWorkbenchFocus(generation, focusGeneration))
+      focusContentNavigation(document);
+  });
+}
+
+function restoreContentFrameFocusAfterDismiss(
+  generation = spotlightFocusGeneration,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+  afterCurrentNavigationFrame(() => {
+    if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
+    if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      if (contentFramePane === "navigation")
+        focusContentNavigation(document);
+      else
+        focusContentNavigationToggle(document);
+      return;
+    }
+    focusContentNavigation(document);
+  });
+}
+
+function contentFrameUsesPush() {
+  return scope() !== "workspace";
+}
+
+function showContentNavigation() {
+  if (!contentFrameUsesPush()) return;
+  contentFramePane = "navigation";
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(() => focusContentNavigation(document));
+}
+
+function showContentDetail() {
+  if (!contentFrameUsesPush()) return;
+  contentFramePane = "detail";
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(() =>
+    focusContentNavigationToggle(document));
+}
+
+function showContentDetailAfterRender() {
+  contentFramePane = "detail";
+  if (!contentFrameMedia.matches) return;
+  afterCurrentNavigationFrame(() =>
+    focusContentNavigationToggle(document));
+}
+
+function focusContentFrameTarget(target: ContentFrameFocusTarget) {
+  if (target === "navigation")
+    focusContentNavigation(document);
+  else if (target === "navigation-toggle")
+    focusContentNavigationToggle(document);
+}
+
+function trackContentFrameFocus(event: FocusEvent) {
+  documentFocusGeneration++;
+  contentFrameReplacementAuthority = null;
+  const focused = event.target instanceof HTMLElement ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
+}
+
+function trackContentFramePointer(event: PointerEvent) {
+  documentFocusGeneration++;
+  contentFrameReplacementAuthority = null;
+  const pointed = event.target instanceof Element ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
+}
+
+function releaseContentFrameFocusOwner() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const focused = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      if (contentFrameFocusOwnerFor(focused) === null)
+        contentFrameFocusOwner = null;
+    });
+  });
+}
+
+function handleContentFrameResize(event: MediaQueryListEvent) {
+  if (!contentFrameUsesPush()) return;
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const replacementFocusOwner =
+    contentFrameReplacementAuthority?.owner ?? null;
+  const resizeFocusOwner = contentFrameResizeFocusOwner(
+    focused,
+    contentFrameFocusOwner,
+    replacementFocusOwner);
+  contentFrameReplacementAuthority = null;
+  contentFrameFocusOwner = replacementFocusOwner === "navigation"
+    || replacementFocusOwner === "detail"
+    ? contentFrameFocusOwnerFor(focused)
+    : resizeFocusOwner;
+  const decision = decideContentFrameResize(
+    contentFramePane,
+    event.matches,
+    resizeFocusOwner);
+  contentFramePane = decision.pane;
+  if (decision.render) {
+    render({ synchronizeUrl: false });
+    afterCurrentNavigationFrame(() =>
+      focusContentFrameTarget(decision.focus));
+    return;
+  }
+  if (decision.focus)
+    requestAnimationFrame(() => focusContentFrameTarget(decision.focus));
 }
 
 function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
@@ -1704,7 +2002,7 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
 // filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
 // renders a type filteredTypes() would hide.
 function reconcileAccessibilityFilter(
-  type: BrowserTypeSurface | null | undefined,
+  type: InspectedTypeSurface | null | undefined,
 ) {
   if (!type) return;
   if (!state.accessibilityFilter.has(type.accessibilityId)) {
@@ -1734,7 +2032,7 @@ function typeMatchesFilterText(item: AppTypeSurface, needle: string) {
 // Owning-library key for a type: the assembly file name without a .dll suffix,
 // falling back to the package's primary assembly. Used to scope the type list to
 // one or more libraries within a multi-assembly package.
-function libraryKey(item: BrowserTypeSurface | null | undefined) {
+function libraryKey(item: InspectedTypeSurface | null | undefined) {
   const asm = (item && item.assembly) || (state.package && state.package.assembly) || "";
   return asm.replace(/\.dll$/i, "");
 }
@@ -1797,7 +2095,7 @@ function normalizeLibrarySelection() {
 
 function afterLibraryScopeChange() {
   normalizeLibrarySelection();
-  render();
+  renderPreservingMemberFocus();
 }
 
 // The Library selector for the type nav pane. Mirrors the framework controls:
@@ -1961,10 +2259,10 @@ function workspaceOccurrenceRequest() {
 function ensureWorkspaceOccurrenceView() {
   if (!state.engineReady) return;
   const signature = JSON.stringify(workspaceOccurrenceRequest());
+  if (state.workspaceOccurrenceLoading) return;
   if (signature === state.workspaceOccurrenceSignature) return;
 
   state.workspaceOccurrenceSignature = signature;
-  if (state.workspaceOccurrenceLoading) return;
   void queryWorkspaceOccurrenceView();
 }
 
@@ -1981,25 +2279,30 @@ async function queryWorkspaceOccurrenceView() {
     superseded = view.superseded;
     if (!superseded
       && revision === workspaceOccurrenceRevision
-      && signature === state.workspaceOccurrenceSignature) {
+      && signature === state.workspaceOccurrenceSignature
+      && signature === JSON.stringify(workspaceOccurrenceRequest())) {
       state.workspaceOccurrences = view;
     }
   } catch (error: unknown) {
     if (revision === workspaceOccurrenceRevision
-      && signature === state.workspaceOccurrenceSignature) {
+      && signature === state.workspaceOccurrenceSignature
+      && signature === JSON.stringify(workspaceOccurrenceRequest())) {
       state.workspaceOccurrences = null;
       state.workspaceOccurrenceError =
         error instanceof Error ? error.message : String(error);
     }
   } finally {
-    state.workspaceOccurrenceLoading = false;
+    const ownsCurrentRequest =
+      revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature;
+    if (ownsCurrentRequest) state.workspaceOccurrenceLoading = false;
+    const desiredSignature = JSON.stringify(workspaceOccurrenceRequest());
     if (workspaceOccurrenceViewIsVisible()
+      && !state.workspaceOccurrenceLoading
       && (superseded
-        || revision !== workspaceOccurrenceRevision
-        || signature !== state.workspaceOccurrenceSignature)) {
-      state.workspaceOccurrenceSignature =
-        JSON.stringify(workspaceOccurrenceRequest());
-      void queryWorkspaceOccurrenceView();
+        || state.workspaceOccurrenceSignature !== desiredSignature)) {
+      state.workspaceOccurrenceSignature = "";
+      ensureWorkspaceOccurrenceView();
     }
     render();
   }
@@ -2015,6 +2318,7 @@ function clearWorkspaceOccurrenceView() {
   inspectClearWorkspacePackageOccurrences();
   workspaceOccurrenceRevision++;
   state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrenceLoading = false;
   state.workspaceOccurrences = null;
   state.workspaceOccurrenceError = "";
 }
@@ -2070,7 +2374,7 @@ function activatePackage(
   return changed;
 }
 
-function isDefaultAccessibility(type: BrowserTypeSurface) {
+function isDefaultAccessibility(type: InspectedTypeSurface) {
   return Boolean(state.package?.accessibility?.some(
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
@@ -2173,7 +2477,7 @@ function typeKinds() {
 
 
 function typeGroups() {
-  const groups = new Map<string, BrowserTypeSurface[]>();
+  const groups = new Map<string, InspectedTypeSurface[]>();
   for (const item of filteredTypes()) {
     let group = groups.get(item.namespace);
     if (!group) {
@@ -2281,7 +2585,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   ].filter(Boolean).join(" · ") || "All members";
   return `
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
-      <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
         <span aria-hidden="true">/</span>
         <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
@@ -2611,6 +2915,7 @@ function memberNavCursor(entries: readonly MemberNavEntry[]) {
 
 function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
   const preservedFocus = captureMemberFocus(document);
+  const replacementAuthority = captureContentFrameReplacementAuthority();
   if (entry.kind === "member") {
     if (entry.group.key === state.selectedMemberKey) {
       if (entry.group.overloads.length === 1) {
@@ -2627,10 +2932,7 @@ function selectMemberNavEntry(entry: MemberNavEntry, focusList: boolean) {
     if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
     openOverload(entry.index);
   }
-  memberFocusRestorer.schedule(
-    document,
-    preservedFocus,
-    requestAnimationFrame);
+  scheduleMemberFocusAfterRender(preservedFocus, replacementAuthority);
   requestAnimationFrame(() => {
     if (focusList) document.querySelector<HTMLElement>("#type-list")?.focus();
     document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
@@ -2691,6 +2993,7 @@ function stepHorizontal(delta: number) {
 // Enter drills one level deeper; Escape/Backspace pops back out.
 function drillIn() {
   if (scope() === "workspace") {
+    if (!state.package) return;
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     render();
@@ -2698,17 +3001,26 @@ function drillIn() {
   }
   if (state.atPackageRoot) {
     state.atPackageRoot = false;
+    showContentDetailAfterRender();
     render();
     return;
   }
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
-    if (enterMemberScope()) render();
+    const focusGeneration = beginSpotlightNavigation();
+    if (enterMemberScope()) {
+      contentFramePane = "navigation";
+      render();
+      restoreContentNavigationFocus(focusGeneration);
+    }
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+      showContentDetailAfterRender();
       openOverload(0);
+    } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      showContentDetail();
     } else {
       document.querySelector<HTMLElement>(".detail-scroll")?.focus();
     }
@@ -2741,11 +3053,14 @@ function drillOut() {
 }
 
 function exitMemberScope() {
+  const focusGeneration = beginSpotlightNavigation();
+  contentFramePane = "navigation";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   render();
+  restoreContentNavigationFocus(focusGeneration);
   return true;
 }
 
@@ -2770,12 +3085,20 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  contentFrameFocusOwner = null;
+  contentFrameReplacementAuthority = null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") != null;
+    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
+  const workspaceFocus = captureWorkspaceFocus(focusedElement);
+  const workbenchSearchHadFocus = focusedElement?.id === "open-search";
+  const levelOneHeadingHadFocus =
+    focusedElement?.matches("main h1") === true;
   scopeBarBinding?.disconnect();
+  packageQueryScopeBinding?.disconnect();
+  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -2804,7 +3127,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
-  const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
+  const workspaceCatalogVisible =
+    state.workspaceSubjectOpen
+    && isProductHomeDemosPath(location.pathname)
+    && state.engineReady;
+  const showingInterstitial =
+    state.loading
+    || state.error
+    || (!state.home && !state.package && !workspaceCatalogVisible);
   if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
@@ -2816,6 +3146,40 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     return;
   }
   if (!state.package) {
+    if (workspaceCatalogVisible) {
+      renderWorkspaceCatalogView();
+      if (state.settings) {
+        document.querySelector<HTMLElement>("#settings-title")
+          ?.focus({ preventScroll: true });
+      } else if (state.keyboardHelp) {
+        document.querySelector<HTMLElement>("#keyboard-help-title")
+          ?.focus({ preventScroll: true });
+      } else if (applicationMenuHadFocus) {
+        focusApplicationMenuButton(document);
+      } else if (workspaceFocus) {
+        restoreWorkspaceFocus(document, workspaceFocus);
+      } else if (workbenchSearchHadFocus) {
+        focusWorkbenchSearch(document);
+      } else if (levelOneHeadingHadFocus) {
+        focusLevelOneHeading();
+      }
+      if (scopeBarOwnsFocus) {
+        let restored = false;
+        if (scopeBarFocus) {
+          scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+          restored = restoreScopeBarFocus(document, scopeBarFocus);
+        }
+        if (!restored) {
+          document.querySelector<HTMLElement>(".brand")
+            ?.focus({ preventScroll: true });
+        }
+        app.removeAttribute("tabindex");
+      }
+      restorePackageQueryReturnFocus();
+      restorePackageQueryWorkspaceFocus();
+      recordNav();
+      return;
+    }
     renderLoading();
     return;
   }
@@ -2876,6 +3240,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageMetadataWorkingSurface =
+    activeScope === "package" && state.packageLens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2900,6 +3266,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const inspectorPanelSemantics = hasEffectiveInspector()
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
+  const contentFrameEnabled = activeScope !== "workspace";
+  const contentNavigationLabel =
+    navMode() === "member" && current ? "Members" : "Types";
+  const contentNavigationIntegrated =
+    apiWorkingSurface
+    || metadataWorkingSurface
+    || packageMetadataWorkingSurface
+    || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -2909,6 +3283,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          activeScope === "workspace" ? "workspace" : null,
+          true,
+          escapeHtml),
         contextualActionsHtml: annotatedPageContext || sourcePageKind
           ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
               ${annotatedPageContext
@@ -2939,16 +3317,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <div class="notice-stack">
-        ${visibleQueryNotice()
-          ? `<div class="query-notice" role="alert">
-              <span class="query-notice-glyph">⚠</span>
-              <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-              ${state.queryNotice && state.queryNoticeRetryAction
-                ? '<button id="retry-notice" type="button">retry</button>'
-                : ""}
-              <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-            </div>`
-          : ""}
+        ${renderQueryNotice()}
         ${pkg.inspectionError
           ? `<div class="query-notice" role="alert">
               <span class="query-notice-glyph">⚠</span>
@@ -2958,11 +3327,20 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
+        ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
+        role="tabpanel" aria-labelledby="${activeScope === "workspace" ? "application-scope-workspace" : "active-subject-tab"}">
         ${renderNavPane(current, visible)}
 
-        <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+        <section class="detail-pane${contentFrameEnabled
+          ? contentNavigationIntegrated
+            ? " content-navigation-integrated"
+            : " content-navigation-separated"
+          : ""}">
+          ${contentFrameEnabled
+            ? renderContentNavigationBar(contentNavigationLabel)
+            : ""}
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3005,6 +3383,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ?.focus({ preventScroll: true });
   } else if (applicationMenuHadFocus) {
     focusApplicationMenuButton(document);
+  } else if (workspaceFocus) {
+    restoreWorkspaceFocus(document, workspaceFocus);
+  } else if (workbenchSearchHadFocus) {
+    focusWorkbenchSearch(document);
+  } else if (levelOneHeadingHadFocus) {
+    focusLevelOneHeading();
   }
   if (scopeBarOwnsFocus) {
     let restored = false;
@@ -3021,7 +3405,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
-  if (options.synchronizeUrl !== false) syncUrl();
+  const productDemosRouteVisible =
+    scope() === "workspace"
+    && isProductHomeDemosPath(location.pathname);
+  if (productDemosRouteVisible) {
+    document.title = "Demos — dotnet-inspect";
+  } else if (options.synchronizeUrl !== false) {
+    syncUrl();
+  }
   maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
@@ -3034,6 +3425,65 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && currentCallGraph()?.mermaid) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
+}
+
+function renderWorkspaceCatalogView() {
+  document.title = "Demos — dotnet-inspect";
+  const subjectPath: readonly SubjectPathSegment[] = [{
+    kind: "workspace",
+    label: "Workspace",
+    copyable: false,
+  }];
+  app.innerHTML = `
+    <div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
+      ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          "workspace",
+          true,
+          escapeHtml),
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            <span class="subject-icon" aria-hidden="true">W</span>
+            <div class="subject-path" aria-label="Workspace" title="Workspace">
+              ${renderInspectedSubjectPath(subjectPath)}
+            </div>
+          </div>`,
+        subjectInspectorHtml: renderScopeBar(["workspace"]),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
+      })}
+      <div class="notice-stack">
+        ${renderQueryNotice()}
+      </div>
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">
+        ${renderWorkspaceNavPane()}
+        <section class="detail-pane">
+          <article id="inspector-panel" class="detail-scroll">
+            ${renderWorkspaceView()}
+          </article>
+        </section>
+      </main>
+      ${statusBarHtml({
+        buildIdentity: state.buildIdentity,
+        diagnostics: state.diag,
+        packageCache: state.packageCacheStats,
+        expanded: state.statusBarExpanded,
+      }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${renderApplicationMenu(false)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}`;
+  bindStatusBarEvents();
+  bindScopeBarEvents();
+  bindWorkspaceSubjectEvents();
+  bindSettingsPanelEvents();
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
 function maybeAutoLoadVisibleSource() {
@@ -3122,7 +3572,7 @@ function inspectedSubjectPath(
   if (scope() === "workspace") {
     return [{
       kind: "workspace",
-      label: "Default Workspace",
+      label: "Workspace",
       copyable: false,
     }];
   }
@@ -3151,6 +3601,13 @@ function inspectedSubjectPath(
 }
 
 function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
+  if (scope() === "workspace") {
+    return [{
+      kind: "workspace",
+      label: "Workspace",
+      copyable: false,
+    }];
+  }
   return state.package
     ? inspectedSubjectPath(state.package, selectedType())
     : [];
@@ -3293,7 +3750,9 @@ function scopeBarInspectorDefinitions<TId extends string>(
   });
 }
 
-function renderScopeBar() {
+function renderScopeBar(
+  availableScopes?: readonly WorkspaceScope[],
+) {
   const sc = scope();
   const selected = selectedType();
   const showMemberScope =
@@ -3305,6 +3764,7 @@ function renderScopeBar() {
       activeStripId: null,
       stripAttribute: "data-workspace-lens",
       panelId: "inspector-panel",
+      ...(availableScopes ? { availableScopes } : {}),
       showMemberScope,
       escapeHtml,
     });
@@ -3369,6 +3829,22 @@ function packageHeading() {
   </header>`;
 }
 
+function packageCoordinateFields() {
+  const pkg = currentPackage();
+  return `<label class="version-select">
+    <span>Version</span>
+    <select id="package-version">
+      ${versionOptionsHtml(pkg)}
+    </select>
+  </label>
+  <label class="framework-select">
+    <span>Framework</span>
+    <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+      ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
 function packageCoordinateControls() {
   const pkg = currentPackage();
   return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
@@ -3376,33 +3852,23 @@ function packageCoordinateControls() {
       <h2 id="package-coordinate-heading">Package coordinate</h2>
       <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
     </div>
-    <div class="package-coordinate-fields">
-      <label class="version-select">
-        <span>Version</span>
-        <select id="package-version">
-          ${versionOptionsHtml(pkg)}
-        </select>
-      </label>
-      <label class="framework-select">
-        <span>Framework</span>
-        <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-          ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-        </select>
-      </label>
-    </div>
+    <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
   </section>`;
 }
 
 function renderPackageView() {
   const body = packageLensBody();
+  if (state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
 function renderWorkspaceView() {
-  ensureWorkspaceOccurrenceView();
+  if (state.packages.length > 0) ensureWorkspaceOccurrenceView();
   return renderWorkspaceViewPure({
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
+    demos: productHomeDemoCatalog(),
+    demoError: productHomeDemoCatalogError,
     loading: state.workspaceOccurrenceLoading,
     error: state.workspaceOccurrenceError,
     escapeHtml,
@@ -3639,7 +4105,7 @@ const packageInspection = createPackageInspectionCoordinator({
     platformPackForAssembly(assemblyName) ?? "",
   describeError: errorMessage,
   refreshPackageStats,
-  render,
+  render: renderPreservingMemberFocus,
   renderDependencyGraph,
 });
 
@@ -3902,13 +4368,35 @@ function maybeAutoLoadPackagePerformance() {
 // it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
-  const isPlatform = state.package?.isRuntimePack === true;
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const fresh = state.packageMetadataKey === packageScopeSignature();
+  const scopedLibrary = scopedPlatformLibrary() || "";
+  const platformMetadataSelect = isPlatform
+    ? platformLibrarySelectHtml({
+        dataAttr: "data-platform-metadata-library",
+        selected: scopedLibrary,
+        requireSelection: true,
+      })
+    : "";
+  const metadataLibraryControl = platformMetadataSelect
+    ? `<label class="metadata-library-select">
+        <span>Library</span>
+        ${platformMetadataSelect}
+      </label>`
+    : "";
   return renderPackageMetadataHtml({
     isPlatform,
-    scopedLibrary: scopedPlatformLibrary() || "",
-    activeFramework: state.package?.activeFramework || "",
-    pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
+    scopedLibrary,
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    controlsHtml: `<section class="package-metadata-controls" aria-label="Metadata coordinate">
+      <div class="package-coordinate-fields">
+        ${packageCoordinateFields()}
+        ${metadataLibraryControl}
+      </div>
+    </section>`,
     fresh,
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
@@ -4604,26 +5092,35 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   let content;
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
+    const documentationSummary = documentationLoading
+      ? '<p class="docs-loading">Loading package documentation…</p>'
+      : documentationError
+        ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
+        : overload.summary
+          ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
+          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
-          ${documentationLoading
-            ? '<p class="docs-loading">Loading package documentation…</p>'
-            : documentationError
-              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
-            : overload.summary
-              ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-              : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>'}
-          <div class="signature-panel">
-            <div class="signature-language"><span>C#</span><small>declaration</small><button id="copy-signature" type="button">copy</button></div>
+          <section class="signature-panel" aria-labelledby="member-declaration-title">
+            <div class="signature-language">
+              <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
+              <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+            </div>
             <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
-          </div>
+          </section>
+          <section class="member-documentation" aria-labelledby="member-documentation-title">
+            <div class="member-documentation-heading">
+              <h2 id="member-documentation-title">Summary</h2>
+            </div>
+            ${documentationSummary}
+          </section>
           <section class="member-identity" aria-labelledby="member-identity-title">
             <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
             <dl>
-              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector">copy</button></dd></div>
-              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest">copy</button></dd></div>
-              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical">copy</button></dd></div>
+              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector" aria-label="Copy stable selector">copy</button></dd></div>
+              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest" aria-label="Copy digest">copy</button></dd></div>
+              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical" aria-label="Copy canonical signature">copy</button></dd></div>
             </dl>
             <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
           </section>
@@ -4816,7 +5313,7 @@ function renderAnnotatedSourceRejection(error: TypeError) {
 function renderMemberFacts(
   type: AppTypeSurface,
   member: AppMemberGroup,
-  overload: BrowserMemberSurface,
+  overload: InspectedMemberSurface,
   overloadIndex: number,
 ) {
   if (state.memberFactsLoading) {
@@ -5205,8 +5702,9 @@ function bindTypePanelEvents() {
   };
   const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
+    contentFramePane = "navigation";
     action();
-    focusTypeList(focusGeneration);
+    restoreContentNavigationFocus(focusGeneration);
   };
   bindTypePanel(document, {
     onClearFilters: () => {
@@ -5214,7 +5712,7 @@ function bindTypePanelEvents() {
       state.namespaceFilter = "";
       state.kindFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-      render();
+      renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -5251,7 +5749,7 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      render();
+      renderPreservingMemberFocus();
     },
     onListKeyDown: handleTypeKeys,
     onMemberAccessibilityFilterSelect: value => {
@@ -5314,7 +5812,11 @@ function bindTypePanelEvents() {
       return true;
     },
     onMemberGroupOpen: memberKey => {
-      enterMemberNavigation(() => openMemberGroup(memberKey));
+      const focusGeneration = beginSpotlightNavigation();
+      showContentDetailAfterRender();
+      openMemberGroup(memberKey);
+      if (!contentFrameMedia.matches)
+        restoreContentNavigationFocus(focusGeneration);
     },
     onMemberKindFilterSelect: value => {
       state.memberKindFilter = value ?? "all";
@@ -5325,7 +5827,10 @@ function bindTypePanelEvents() {
     onMemberSelect: memberKey => {
       const group = memberGroups(selectedType())
         .find(item => item.key === memberKey);
-      if (group) selectMemberNavEntry({ kind: "member", group }, false);
+      if (group) {
+        showContentDetailAfterRender();
+        selectMemberNavEntry({ kind: "member", group }, false);
+      }
     },
     onMemberTraitFilterSelect: value => {
       state.memberTraitFilter = value ?? "";
@@ -5340,11 +5845,14 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      render();
+      renderPreservingMemberFocus();
     },
     onOverloadSelect: index => {
       const group = selectedMember(selectedType());
-      if (group) selectMemberNavEntry({ kind: "overload", group, index }, false);
+      if (group) {
+        showContentDetailAfterRender();
+        selectMemberNavEntry({ kind: "overload", group, index }, false);
+      }
     },
     onShowTypes: exitMemberScope,
     onTypeFilterChange: value => {
@@ -5367,6 +5875,11 @@ function bindTypePanelEvents() {
       focusFilter({ immediate: true });
     },
     onTypeSelect: typeId => {
+      if (scope() === "type" && typeId === state.selectedTypeId) {
+        if (contentFrameMedia.matches) showContentDetail();
+        return;
+      }
+      showContentDetailAfterRender();
       state.atPackageRoot = false;
       state.selectedTypeId = typeId;
       state.selectedMemberKey = "";
@@ -5381,14 +5894,27 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      if (applicationScope === "query") {
+        openPackageQueryRoute("", {
+          preserveState: true,
+          returnFocus: "application-query",
+        });
+      } else if (scope() !== "workspace") {
+        selectWorkspaceApplicationScope();
+      }
+    },
     onMemberSectionSelect: section => {
+      contentFramePane = "detail";
       applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
+      contentFramePane = "detail";
       state.packageLens = lens;
       render();
     },
     onScopeSelect: target => {
+      contentFramePane = "detail";
       if (target === "workspace") {
         state.workspaceSubjectOpen = true;
         state.atPackageRoot = true;
@@ -5420,6 +5946,7 @@ function bindScopeBarEvents() {
       render();
     },
     onTypeLensSelect: lens => {
+      contentFramePane = "detail";
       state.lens = lens;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -5476,6 +6003,13 @@ function bindPackageOpportunitiesEvents() {
       state.atPackageRoot = false;
       navigateToType(candidate.type);
     },
+  });
+}
+
+function bindContentFrameEvents() {
+  bindContentFrame(document, {
+    onShowDetail: showContentDetail,
+    onShowNavigation: showContentNavigation,
   });
 }
 
@@ -5694,6 +6228,7 @@ function bindWorkspaceSubjectEvents() {
       observeAction(
         () => activateWorkspacePackageOccurrence(action),
         "Opening the Workspace package"),
+    onDemo: runHomeDemo,
     onRetry: retryWorkspaceOccurrenceView,
   });
 }
@@ -5715,6 +6250,7 @@ function bindEvents() {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
+  bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
     observeAsync(ensureDotnetReleases(), "Loading .NET release information");
@@ -5789,7 +6325,7 @@ function handleTypeKeys(event: KeyboardEvent): boolean {
 
 function selectTypeByCursor(
   cursor: number,
-  items: readonly BrowserTypeSurface[],
+  items: readonly InspectedTypeSurface[],
   focusList: boolean,
 ) {
   const selected = items[cursor];
@@ -6538,10 +7074,31 @@ async function loadPackageFromSpotlight(
   version = "latest",
   framework = "",
 ) {
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
+  const openedFromProductDemos =
+    isProductHomeDemosPath(location.pathname);
   spotlight.reset();
-  await loadPackage(id, version, framework);
-  focusTypeList(focusGeneration);
+  const catalogSnapshot = openedFromProductDemos
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  const loaded = await loadPackage(
+    id,
+    version,
+    framework,
+    catalogSnapshot
+      ? {
+          failureHandler: message =>
+            failWorkspaceCatalogAction(
+              message,
+              catalogSnapshot,
+              () => loadPackageFromSpotlight(id, version, framework),
+              focusWorkbenchSearchOrHeading,
+            ),
+        }
+      : {});
+  if (loaded || !catalogSnapshot)
+    focusTypeList(navigationGeneration, focusGeneration);
 }
 
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
@@ -6584,10 +7141,16 @@ async function openPlatformLibrary(
   options: OpenPlatformLibraryOptions = {},
 ) {
   const scopeOnly = options.scopeOnly === true;
-  const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
+  const navigationGeneration = scopeOnly ? null : beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+  const openedFromProductDemos =
+    !scopeOnly && isProductHomeDemosPath(location.pathname);
   spotlight.reset();
+  const catalogSnapshot = openedFromProductDemos
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
@@ -6615,9 +7178,19 @@ async function openPlatformLibrary(
       state.loading = false;
       const failureMessage =
         runtimeResult.failureMessage || state.runtimePackError;
-      state.error = failureMessage
+      const message = failureMessage
         ? `Couldn’t load ${key}: ${failureMessage}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
+      if (catalogSnapshot) {
+        failWorkspaceCatalogAction(
+          message,
+          catalogSnapshot,
+          () => openPlatformLibrary(assembly, pack),
+          focusWorkbenchSearchOrHeading,
+        );
+        return undefined;
+      }
+      state.error = message;
       state.errorTitle = "Platform library failed";
       state.retryAction = options.retryAction
         ?? (() => openPlatformLibrary(assembly, pack));
@@ -6651,7 +7224,8 @@ async function openPlatformLibrary(
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  if (focusGeneration != null) focusTypeList(focusGeneration);
+  if (navigationGeneration != null)
+    focusTypeList(navigationGeneration, focusGeneration);
   return undefined;
 }
 
@@ -6691,7 +7265,8 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -6709,7 +7284,7 @@ async function pickSpotlightMember(
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   render();
   await loadSelectedMemberDocumentation();
-  focusTypeList(focusGeneration);
+  focusTypeList(navigationGeneration, focusGeneration);
 }
 
 async function pickSpotlight(
@@ -6726,7 +7301,8 @@ async function pickSpotlight(
     closeSpotlight();
     return;
   }
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -6756,12 +7332,12 @@ async function pickSpotlight(
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  if (focusGeneration !== spotlightFocusGeneration) return;
+  if (navigationGeneration !== spotlightFocusGeneration) return;
   requestAnimationFrame(() => {
-    if (focusGeneration !== spotlightFocusGeneration) return;
+    if (navigationGeneration !== spotlightFocusGeneration) return;
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
-  focusTypeList(focusGeneration);
+  focusTypeList(navigationGeneration, focusGeneration);
 }
 
 function executeCommand(
@@ -6819,6 +7395,12 @@ function executeCommand(
 function focusFilter(
   { immediate = false }: { immediate?: boolean } = {},
 ) {
+  if (contentFrameUsesPush()
+    && contentFrameMedia.matches
+    && contentFramePane !== "navigation") {
+    contentFramePane = "navigation";
+    render({ synchronizeUrl: false });
+  }
   const focus = () => {
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
@@ -6847,12 +7429,39 @@ function focusFilter(
 
 const memberFocusRestorer = createMemberFocusRestorer();
 
-function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
-  render();
+function captureContentFrameReplacementAuthority():
+ContentFrameReplacementAuthority {
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  return {
+    owner: contentFrameFocusOwnerFor(focused),
+    focusGeneration: documentFocusGeneration,
+  };
+}
+
+function scheduleMemberFocusAfterRender(
+  preserved: MemberFocusSnapshot,
+  replacementAuthority: ContentFrameReplacementAuthority,
+) {
+  if (replacementAuthority.owner !== null
+    && replacementAuthority.focusGeneration === documentFocusGeneration)
+    contentFrameReplacementAuthority = replacementAuthority;
   memberFocusRestorer.schedule(
     document,
     preserved,
-    requestAnimationFrame);
+    requestAnimationFrame,
+    () => replacementAuthority.focusGeneration === documentFocusGeneration);
+  requestAnimationFrame(() => {
+    if (contentFrameReplacementAuthority === replacementAuthority)
+      contentFrameReplacementAuthority = null;
+  });
+}
+
+function renderWithMemberFocus(preserved: MemberFocusSnapshot) {
+  const replacementAuthority = captureContentFrameReplacementAuthority();
+  render();
+  scheduleMemberFocusAfterRender(preserved, replacementAuthority);
   return preserved;
 }
 
@@ -7070,23 +7679,33 @@ function workspaceUrlProjection() {
 
 function syncUrl() {
   if (currentPackageQueryHandoff()) return;
+  if (pendingDemoNavigation
+    && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
+    const pushFromProductDemos =
+      isProductHomeDemosPath(location.pathname);
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      workspaceLocation.replace(
-        buildStateUrl().toString(),
-        history.state);
-      lastCanonicalWorkspaceHref = location.href;
+      const destination = buildStateUrl().toString();
+      if (pushFromProductDemos) {
+        workspaceLocation.push(destination);
+      } else {
+        workspaceLocation.replace(destination, history.state);
+      }
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    workspaceLocation.sync(snapshot, history.state);
-    lastCanonicalWorkspaceHref = location.href;
+    if (pushFromProductDemos) {
+      workspaceLocation.push(
+        workspaceLocation.build(snapshot).toString());
+    } else {
+      workspaceLocation.sync(snapshot, history.state);
+    }
   } catch {
-    // Keep the last canonical URL while the active Browser state is not projectable.
+    // Keep the current URL while the active Browser state is not projectable.
   }
 }
 
@@ -7504,6 +8123,20 @@ function visibleQueryNotice() {
     .join(" ");
 }
 
+function renderQueryNotice() {
+  const notice = visibleQueryNotice();
+  return notice
+    ? `<div class="query-notice" role="alert">
+        <span class="query-notice-glyph">⚠</span>
+        <span class="query-notice-text">${escapeHtml(notice)}</span>
+        ${state.queryNotice && state.queryNoticeRetryAction
+          ? '<button id="retry-notice" type="button">retry</button>'
+          : ""}
+        <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+      </div>`
+    : "";
+}
+
 function retainFailedWorkspaceUrl() {
   const failedState = failedWorkspaceUrlState;
   const retainedState = retainWorkspaceUrlPreservation(
@@ -7607,9 +8240,12 @@ function renderHomeView() {
           <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
-            <span class="home-demos-label">Or jump straight into a demo</span>
+            <span class="home-demos-label">Explore product demos</span>
             <div class="home-demo-row" aria-busy="${enginePending}">
-              ${homeDemoRowHtml(enginePending, escapeHtml)}
+              ${homeDemosEntryHtml(
+                enginePending,
+                productHomeDemoCatalogError,
+                escapeHtml)}
             </div>
           </div>
         </div>
@@ -7640,8 +8276,8 @@ function homeArtSvg() {
 }
 
 const homeShellActions: HomeShellBindingActions = {
-  onDemo: runHomeDemo,
   onDismissNotice: dismissQueryNotice,
+  onOpenDemos: openProductDemos,
   onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
@@ -7671,11 +8307,32 @@ function bindHomeEvents() {
   });
 }
 
-// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
-// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
-// deep links built from the resolved projection; member-bound Call Graph demos
-// execute through one generated engine operation over the product-resolved
-// workspace and view.
+function openProductDemos(): void {
+  navigationSequence.begin();
+  state.loading = false;
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  state.home = false;
+  state.credits = false;
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  spotlight.reset();
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  workspaceLocation.push("/demos");
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspace(document));
+}
+
+// Workspace demo actions use product ids from engine `listHomeDemos` /
+// `resolveHomeDemo` (`ProductInspectionDemos` / CLI `demo <id>`). Type views
+// restore via share deep links built from the resolved projection;
+// member-bound Call Graph demos execute through one generated engine operation
+// over the product-resolved workspace and view.
 function openDefaultWorkspace(): void {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -7685,26 +8342,142 @@ function openDefaultWorkspace(): void {
 }
 
 function runHomeDemo(kind: ProductHomeDemoId) {
-  const resolveResult = inspectResolveHomeDemo(kind);
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  let resolveResult: BrowserHomeDemoResolveResult;
+  try {
+    resolveResult = inspectResolveHomeDemo(kind);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      true);
+    return;
+  }
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
-    state.error = `Unknown product home demo '${kind}'.`;
-    state.errorTitle = "Demo failed";
-    state.home = true;
-    render();
+    failDemoWorkspaceOpen(
+      kind,
+      `Unknown product home demo '${kind}'.`,
+      snapshot,
+      false);
     return;
   }
   state.home = false;
-  const link = productHomeDemoLocationHref(
-    resolved,
-    inspectEncodeWorkspaceShareState);
-  if (!link) {
-    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
+  let link: string | null;
+  try {
+    link = productHomeDemoLocationHref(
+      resolved,
+      inspectEncodeWorkspaceShareState);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      false);
     return;
   }
-  workspaceLocation.push(link);
-  const loc = parseLocation();
-  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
+  if (!link) {
+    observeAsync(
+      runCallGraphDemo(kind, snapshot),
+      "Loading the call graph demo");
+    return;
+  }
+  let destination: string;
+  let loc: ParsedLocation;
+  try {
+    destination = new URL(link, location.href).toString();
+    loc = parseWorkspaceHref(destination);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      false);
+    return;
+  }
+  const navigationSeq = beginDemoNavigation(destination);
+  observeAsync(
+    restoreHomeDemoWorkspace(
+      kind,
+      loc,
+      navigationSeq,
+      snapshot),
+    "Loading the demo workspace");
+}
+
+async function restoreHomeDemoWorkspace(
+  demoId: ProductHomeDemoId,
+  loc: ParsedLocation,
+  navigationSeq: number,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+): Promise<void> {
+  try {
+    await restoreWorkspaceFromLocation(
+      loc,
+      loc,
+      navigationSeq,
+      snapshot,
+      true,
+      message => failDemoWorkspaceOpen(
+        demoId,
+        message,
+        snapshot,
+        true));
+  } catch (error) {
+    if (navigationSequence.isCurrent(navigationSeq)) {
+      failDemoWorkspaceOpen(
+        demoId,
+        errorMessage(error),
+        snapshot,
+        true);
+    }
+  } finally {
+    cancelDemoNavigation(navigationSeq);
+  }
+}
+
+function failDemoWorkspaceOpen(
+  demoId: ProductHomeDemoId,
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  retryable: boolean,
+): void {
+  failWorkspaceCatalogAction(
+    `Demo failed: ${message}`,
+    snapshot,
+    retryable ? () => runHomeDemo(demoId) : null,
+    () => restoreWorkspaceFocus(document, { kind: "demo", id: demoId }),
+  );
+}
+
+function failWorkspaceCatalogAction(
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  retry: RetryAction,
+  restoreFocus: () => boolean,
+): void {
+  restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  appendQueryNotice(message, retry);
+  render();
+  afterCurrentNavigationFrame(() => {
+    if (!restoreFocus()) {
+      focusWorkspace(document);
+    }
+  });
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -7775,9 +8548,35 @@ function focusLevelOneHeading(): boolean {
   return true;
 }
 
+function focusWorkbenchSearchOrHeading(): boolean {
+  return focusWorkbenchSearch(document) || focusLevelOneHeading();
+}
+
+function focusInspectionResult(navigationSeq: number): void {
+  afterCurrentNavigationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) {
+      focusLevelOneHeading();
+    }
+  });
+}
+
 function restorePackageQueryReturnFocus() {
-  if (!state.packageQueryReturnFocusPending
-    || state.packageQueryReturnFocus !== "package-search") return;
+  if (!state.packageQueryReturnFocusPending) return;
+  if (state.packageQueryReturnFocus === "application-query") {
+    afterCurrentNavigationFrame(() => {
+      const queryScope = document.querySelector<HTMLElement>(
+        '[data-application-scope="query"]');
+      if (focusRenderedElement(queryScope)) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      } else if (focusLevelOneHeading()) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      }
+    });
+    return;
+  }
+  if (state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
     if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
@@ -7844,19 +8643,28 @@ function applyPackageQueryHistory(historyState: unknown) {
   state.packageQueryReturnFocusPending = false;
 }
 
-function openPackageQueryRoute(seed = "") {
+function openPackageQueryRoute(
+  seed = "",
+  options: {
+    preserveState?: boolean;
+    returnFocus?: PackageQueryReturnFocus;
+  } = {},
+) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageQueryHandoffNavigationSeq = null;
-  resetPackageQueryState();
+  if (!options.preserveState) {
+    resetPackageQueryState();
+  }
   resetPackageQueryAnnouncements();
-  state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  if (!options.preserveState || seed) {
+    state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = state.home
-    ? "home-search"
-    : "package-search";
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
   const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
@@ -7879,6 +8687,46 @@ function openPackageQueryRoute(seed = "") {
       : null);
   render();
   focusPackageQueryInput();
+}
+
+function selectWorkspaceApplicationScope(fromPackageQuery = false) {
+  const pkg = state.package;
+  if (!pkg) return;
+  const navigationSeq = navigationSequence.begin();
+  if (fromPackageQuery) {
+    packageQueryController.cancel();
+    packageQueryHandoffNavigationSeq = null;
+    state.packageQueryOpen = false;
+    state.credits = false;
+    state.home = false;
+  }
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  const successor = resolvePackageQueryWorkspaceSuccessor(
+    () => buildStateUrl(),
+    () => {
+      const fallback = buildPackageRootStateUrl(location.href, {
+        package: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        lens: state.packageLens,
+      });
+      fallback.hash = "workspace";
+      return fallback;
+    });
+  if (!successor.projected) {
+    appendQueryNotice(
+      `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+        || "workspace URL encoding failed."}`);
+  }
+  if (fromPackageQuery) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  workspaceLocation.push(successor.url.toString());
+  render();
 }
 
 function closePackageQueryRoute() {
@@ -7993,6 +8841,11 @@ async function openPackageQueryRow(
 }
 
 const packageQueryActions: PackageQueryBindingActions = {
+  onApplicationScopeSelect: applicationScope => {
+    if (applicationScope === "workspace") {
+      selectWorkspaceApplicationScope(true);
+    }
+  },
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
@@ -8012,18 +8865,6 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
-function packageQueryWorkspaceHref(): string {
-  const residentPackage = state.package;
-  if (!residentPackage) return "/";
-  return lastCanonicalWorkspaceHref
-    ?? buildPackageRootStateUrl(location.href, {
-      package: residentPackage.id,
-      version: residentPackage.version,
-      framework: residentPackage.activeFramework,
-      lens: state.packageLens,
-    }).toString();
-}
-
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
@@ -8037,10 +8878,11 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceHref: packageQueryWorkspaceHref(),
+    workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryScopeBinding =
+    bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
@@ -8704,39 +9546,83 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
 
-async function renderMermaidCallGraph() {
+function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
   const container =
     document.querySelector<HTMLElement>("#call-graph-diagram");
   const active = currentCallGraph();
-  if (!container || !active?.mermaid) return;
-  if (container.dataset.graphDef === active.mermaid
-    && container.querySelector(".graph-viewport")) return;
-  if (container.dataset.graphPending === active.mermaid) return;
-  container.dataset.graphPending = active.mermaid;
-  const seq = ++callGraphRenderSeq;
-  try {
-    mermaidModule ??= import("mermaid");
-    const { default: mermaid } = await mermaidModule;
-    if (seq !== callGraphRenderSeq) return;
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: state.theme === "light" ? "default" : "dark",
-      themeVariables: { fontSize: "17px" },
-      flowchart: { htmlLabels: false, curve: "basis" }
+  if (!active) {
+    return Promise.resolve({
+      status: "failed",
+      message: "The call graph was not available.",
     });
-    const id = `call-graph-${Date.now().toString(36)}-${seq}`;
-    const rootStyle = getComputedStyle(document.documentElement);
-    const definition = active.mermaid.replace(
-      /var\((--[\w-]+)\)/g,
-      (whole: string, name: string) =>
-        rootStyle.getPropertyValue(name).trim() || whole
-    );
-    const { svg } = await mermaid.render(id, definition);
-    if (seq === callGraphRenderSeq
-      && document.querySelector("#call-graph-diagram") === container
-      && currentCallGraph()?.mermaid === active.mermaid) {
-      container.innerHTML =
+  }
+  if (active.noBody) return Promise.resolve({ status: "rendered" });
+  if (!active.mermaid) {
+    return Promise.resolve({
+      status: "failed",
+      message: "The call graph did not include a diagram.",
+    });
+  }
+  if (state.memberCallGraphLoading) {
+    return Promise.resolve({ status: "superseded" });
+  }
+  if (!container) {
+    return Promise.resolve(
+      scope() === "member" && state.memberSection === "call-graph"
+        ? {
+            status: "failed",
+            message: "The call graph diagram could not be mounted.",
+          }
+        : { status: "superseded" });
+  }
+  if (container.dataset.graphDef === active.mermaid
+    && container.querySelector(".graph-viewport")) {
+    return Promise.resolve({ status: "rendered" });
+  }
+  const theme: "light" | "dark" =
+    state.theme === "light" ? "light" : "dark";
+  const pending = callGraphRenderOperation;
+  if (pending
+    && pending.definition === active.mermaid
+    && pending.theme === theme) {
+    return pending.promise;
+  }
+
+  const seq = ++callGraphRenderSeq;
+  const definition = active.mermaid;
+  const promise = (async (): Promise<CallGraphRenderResult> => {
+    try {
+      mermaidModule ??= import("mermaid");
+      const { default: mermaid } = await mermaidModule;
+      if (seq !== callGraphRenderSeq) {
+        return { status: "superseded" };
+      }
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: theme === "light" ? "default" : "dark",
+        themeVariables: { fontSize: "17px" },
+        flowchart: { htmlLabels: false, curve: "basis" }
+      });
+      const id = `call-graph-${Date.now().toString(36)}-${seq}`;
+      const rootStyle = getComputedStyle(document.documentElement);
+      const renderDefinition = definition.replace(
+        /var\((--[\w-]+)\)/g,
+        (whole: string, name: string) =>
+          rootStyle.getPropertyValue(name).trim() || whole
+      );
+      const { svg } = await mermaid.render(id, renderDefinition);
+      if (seq !== callGraphRenderSeq) {
+        return { status: "superseded" };
+      }
+      const targetContainer =
+        document.querySelector<HTMLElement>("#call-graph-diagram");
+      const mounted = currentCallGraph();
+      if (!targetContainer
+        || mounted?.mermaid !== definition) {
+        return { status: "superseded" };
+      }
+      targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
         + '<div class="graph-controls">'
         + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
@@ -8744,32 +9630,47 @@ async function renderMermaidCallGraph() {
         + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
         + '</div>';
       const viewport =
-        container.querySelector<HTMLElement>(".graph-viewport");
-      if (!viewport) return;
+        targetContainer.querySelector<HTMLElement>(".graph-viewport");
+      if (!viewport) {
+        return {
+          status: "failed",
+          message: "The call graph diagram could not be mounted.",
+        };
+      }
       viewport.innerHTML = svg;
-      container.dataset.graphDef = active.mermaid;
-      bindGraphPanZoom(container, viewport, {
+      targetContainer.dataset.graphDef = definition;
+      bindGraphPanZoom(targetContainer, viewport, {
         keybindings,
         resolveCallGraphNode: nodeId =>
-          callGraphNodeBinding(active, nodeId),
+          callGraphNodeBinding(mounted, nodeId),
       });
+      return { status: "rendered" };
+    } catch (error) {
+      const message = errorMessage(error);
+      const targetContainer =
+        document.querySelector<HTMLElement>("#call-graph-diagram");
+      if (seq === callGraphRenderSeq
+        && targetContainer
+        && currentCallGraph()?.mermaid === definition
+        && !targetContainer.querySelector(".graph-viewport")) {
+        targetContainer.dataset.graphDef = "";
+        targetContainer.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(message)}</p></div>`;
+      }
+      return { status: "failed", message };
     }
-  } catch (error) {
-    if (seq === callGraphRenderSeq
-      && document.querySelector("#call-graph-diagram") === container
-      && !container.querySelector(".graph-viewport")) {
-      container.dataset.graphDef = "";
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+  })();
+  callGraphRenderOperation = { definition, theme, promise };
+  void promise.then(() => {
+    if (callGraphRenderOperation?.promise === promise) {
+      callGraphRenderOperation = null;
     }
-  } finally {
-    if (container.dataset.graphPending === active.mermaid) {
-      delete container.dataset.graphPending;
-    }
-  }
+    return null;
+  });
+  return promise;
 }
 
 function callGraphNodeBinding(
-  callGraph: BrowserCallGraph,
+  callGraph: InspectedCallGraph,
   nodeId: string,
 ): CallGraphNodeBinding | null {
   const target =
@@ -8782,7 +9683,7 @@ type CallGraphTargetDestination = "default" | "member" | "source";
 type GraphNavigationFailureSurface = "call-graph" | "annotated";
 
 function callGraphTargetBinding(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   destination: CallGraphTargetDestination = "default",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding | null {
@@ -8989,7 +9890,7 @@ function callGraphTargetBinding(
 }
 
 function blockedCallGraphNodeBinding(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding {
@@ -9017,7 +9918,7 @@ function blockedCallGraphNodeBinding(
 
 function loadedGraphTargetPackage(
   packages: readonly AppPackage[],
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
 ): AppPackage | null {
   const matches = packages.filter(pkg =>
     pkg.assemblies.some(assembly =>
@@ -9043,7 +9944,7 @@ function platformCrumbTrail() {
 }
 
 function resolveLoadedGraphTarget(
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   candidate: {
     status: "unique";
     pkg: AppPackage;
@@ -9085,7 +9986,7 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   type: AppTypeSurface | null = null,
 ) {
   return inspectGraphMemberSurface(
@@ -9100,8 +10001,8 @@ async function loadGraphMemberSurface(
 }
 
 function singleProjectedGraphMember(
-  type: BrowserTypeSurface,
-): BrowserMemberSurface {
+  type: InspectedTypeSurface,
+): InspectedMemberSurface {
   const member = type.api[0];
   if (!member || type.api.length !== 1) {
     throw new Error(
@@ -9113,8 +10014,8 @@ function singleProjectedGraphMember(
 function stageGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
-  surface: BrowserMemberSurface,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
+  surface: InspectedMemberSurface,
 ) {
   let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
     candidate.stableSelector === surface.stableSelector
@@ -9147,7 +10048,7 @@ function stageGraphMemberSelection(
 function commitGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
   retainGraphMemberProjection(pkg.types, staged.member);
@@ -9174,7 +10075,7 @@ function commitGraphMemberSelection(
 
 async function navigateToGraphMember(
   loaded: ReturnType<typeof resolveLoadedGraphTarget>,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source" = "overview",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9207,7 +10108,7 @@ async function navigateToGraphMember(
 
 async function navigateToUnprojectedGraphMember(
   pkg: AppPackage,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9226,7 +10127,7 @@ async function navigateToUnprojectedGraphMember(
 async function navigateToGraphMemberProjection(
   pkg: AppPackage,
   existingType: AppTypeSurface | null,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9313,7 +10214,7 @@ async function navigateToGraphMemberProjection(
 }
 
 function showGraphMemberNavigationError(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface,
 ) {
@@ -9417,7 +10318,7 @@ async function restorePendingGraphMember() {
 }
 
 async function drillPlatformNode(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   navigationIsCurrent: () => boolean = () => true,
 ) {
   if (!node.assembly || !node.memberName || !node.selectorKey) {
@@ -9463,7 +10364,7 @@ async function drillPlatformNode(
   });
 }
 
-async function startPlatformDrill(node: BrowserCallGraphTarget) {
+async function startPlatformDrill(node: InspectedCallGraphTarget) {
   invalidateGraphMemberNavigation();
   const owner = captureViewOperation(++state.memberCallGraphSeq);
   const navigationIsCurrent = () =>
@@ -9488,7 +10389,7 @@ function popPlatformDrill() {
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   section: "overview" | "call-graph" = "call-graph",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9679,7 +10580,7 @@ async function navigateOrDrillPlatform(
 }
 
 async function showPlatformTargetError(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9753,7 +10654,7 @@ function navigateToRuntimeMember(
 // group, and overload in the resident runtime pack.
 function findRuntimeMemberSelection(
   pack: AppPackage,
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   candidate: ReturnType<
     typeof resolveRuntimeGraphTargetCandidate<AppTypeSurface>
   > = resolveRuntimeGraphTargetCandidate(pack, node),
@@ -10103,6 +11004,7 @@ interface LoadPackageOptions {
   deepLink?: DeepLink | null;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
+  failureHandler?: (message: string) => void;
 }
 
 async function loadPackage(
@@ -10196,6 +11098,10 @@ async function loadPackage(
     state.loading = false;
     const retryOptions: LoadPackageOptions = { ...options };
     delete retryOptions.navigationSeq;
+    if (options.failureHandler) {
+      options.failureHandler(friendly.message);
+      return null;
+    }
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested
@@ -10265,6 +11171,7 @@ type PlatformLibrary = ReturnType<typeof platformLibraryRoster>[number];
 interface PlatformLibrarySelectOptions {
   dataAttr?: string;
   selected?: string | null;
+  requireSelection?: boolean;
 }
 
 function platformLibrarySelectHtml(
@@ -10292,9 +11199,10 @@ function platformLibrarySelectHtml(
   };
   for (const entry of state.platformRecent || []) pushRecent(byAssembly.get(entry.assembly));
   for (const lib of roster) if (lib.loaded) pushRecent(lib);
-  // The selector always shows a single "current" library: whatever is scoped,
-  // else the most-recent, else the largest library — never a useless reset row.
-  const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
+  const requiresSelection = options.requireSelection === true && !scoped;
+  const current = requiresSelection
+    ? ""
+    : scoped || recent[0]?.assembly || roster[0]?.assembly || "";
   let selectedMarked = false;
   const option = (lib: PlatformLibrary) => {
     const isSel = !selectedMarked && lib.assembly === current;
@@ -10309,6 +11217,7 @@ function platformLibrarySelectHtml(
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
   return `<select class="scope-select platform-library-select" ${dataAttr} aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
+      ${requiresSelection ? '<option value="" selected disabled>Choose a library</option>' : ""}
       ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
@@ -10394,9 +11303,10 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demoId: ProductHomeDemoId) {
-  const retry = () =>
-    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+async function runCallGraphDemo(
+  demoId: ProductHomeDemoId,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+) {
   const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
@@ -10408,14 +11318,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   render();
 
   const fail = (error: unknown) => {
-    state.loading = false;
-    state.error = errorMessage(error);
-    state.errorTitle = "Call graph demo failed";
-    state.errorDetail = error instanceof Error
-      ? error.stack || error.message
-      : String(error);
-    state.retryAction = retry;
-    render();
+    failDemoWorkspaceOpen(
+      demoId,
+      errorMessage(error),
+      snapshot,
+      true);
   };
   let result: BrowserHomeDemoRunResult;
   try {
@@ -10427,11 +11334,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!result.found) {
-    state.loading = false;
-    state.error = `Unknown product home demo '${demoId}'.`;
-    state.errorTitle = "Call graph demo failed";
-    state.retryAction = null;
-    render();
+    failDemoWorkspaceOpen(
+      demoId,
+      `Unknown product home demo '${demoId}'.`,
+      snapshot,
+      false);
     return;
   }
   if (!result.activation || !result.callGraph) {
@@ -10465,6 +11372,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
         "The engine-run demo selection was not present in its returned package surfaces.");
     }
 
+    clearWorkspacePackages();
     for (const packageModel of packages) {
       retainPackageModel(packageModel);
       recordRecentPackage(
@@ -10532,9 +11440,35 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
       overload,
       true);
     state.loading = false;
+    stageDemoNavigation(navigationSeq, buildStateUrl().toString());
     render();
-    await renderMermaidCallGraph();
+    let renderResult = await renderMermaidCallGraph();
+    while (renderResult.status === "superseded"
+      && navigationSequence.isCurrent(navigationSeq)
+      && currentCallGraph()?.mermaid === result.callGraph.mermaid
+      && document.querySelector("#call-graph-diagram")) {
+      renderResult = await renderMermaidCallGraph();
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
+    if (renderResult.status === "superseded") {
+      cancelDemoNavigation(navigationSeq);
+      syncUrl();
+      return;
+    }
+    if (renderResult.status === "failed") {
+      throw new Error(renderResult.message);
+    }
+    if (!commitDemoNavigation(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
+    syncUrl();
+    focusInspectionResult(navigationSeq);
   } catch (error) {
+    cancelDemoNavigation(navigationSeq);
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     fail(error);
   }
@@ -10550,27 +11484,65 @@ async function restoreWorkspaceFromLocation(
   canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
+  focusResult = false,
+  failureHandler: WorkspaceRestoreFailureHandler | null = null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
-    failWorkspaceRoute(loc.routeFailure.message);
+    if (failureHandler) {
+      failureHandler(loc.routeFailure.message);
+    } else {
+      failWorkspaceRoute(loc.routeFailure.message);
+    }
     return;
   }
   if (!clearWorkspaceRouteFailure()) {
+    if (failureHandler) {
+      failureHandler("The existing package route could not be cleared.");
+      return;
+    }
     render();
     return;
   }
   if (loc.hasWorkspaceState && !loc.shareState) {
-    failCanonicalWorkspaceRestore(
-      loc,
-      deep,
-      loc.workspaceNotice
-        || "The shared workspace packet could not be restored.",
-      canonicalSnapshot,
-      null);
+    const message = loc.workspaceNotice
+      || "The shared workspace packet could not be restored.";
+    if (failureHandler) {
+      failureHandler(message);
+    } else {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        message,
+        canonicalSnapshot,
+        null);
+    }
     return;
   }
-  if (!loc.package) return;
+  if (!loc.package) {
+    failureHandler?.(
+      "The resolved product demo did not identify a package.");
+    return;
+  }
+  const retryRestore = () => restoreWorkspaceFromLocation(
+    loc,
+    deep,
+    undefined,
+    undefined,
+    focusResult,
+    failureHandler);
+  const failRestore = (message: string) => {
+    if (failureHandler) {
+      failureHandler(message);
+    } else {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        message,
+        canonicalSnapshot,
+        retryRestore);
+    }
+  };
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
@@ -10661,16 +11633,13 @@ async function restoreWorkspaceFromLocation(
   const canonicalTabsPreserved = !loc.shareState
     || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs);
   if (loc.shareState && (failedTabCount > 0 || !canonicalTabsPreserved)) {
-    failCanonicalWorkspaceRestore(
-      loc,
-      deep,
+    failRestore(
       state.queryNotice
-        || (failedTabCount > 0
-          ? "The shared workspace could not be restored completely."
-          : canonicalTabCountPreserved
-            ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
-            : "The shared workspace coordinates did not remain distinct after resolution."),
-      canonicalSnapshot);
+      || (failedTabCount > 0
+        ? "The shared workspace could not be restored completely."
+        : canonicalTabCountPreserved
+          ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
+          : "The shared workspace coordinates did not remain distinct after resolution."));
     return;
   }
 
@@ -10687,15 +11656,18 @@ async function restoreWorkspaceFromLocation(
         loc.library,
         loc.libraryPack,
         navigationSeq,
-        () => restoreWorkspaceFromLocation(loc, deep));
+        () => restoreWorkspaceFromLocation(
+          loc,
+          deep,
+          undefined,
+          canonicalSnapshot,
+          focusResult,
+          failureHandler));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
       if (!scoped) {
         if (loc.shareState) {
-          failCanonicalWorkspaceRestore(
-            loc,
-            deep,
-            `The shared Platform library '${loc.library}' could not be restored.`,
-            canonicalSnapshot);
+          failRestore(
+            `The shared Platform library '${loc.library}' could not be restored.`);
         }
         return;
       }
@@ -10704,11 +11676,7 @@ async function restoreWorkspaceFromLocation(
         targetModel,
         loc.library);
       if (loc.shareState && libraryFailure) {
-        failCanonicalWorkspaceRestore(
-          loc,
-          deep,
-          libraryFailure,
-          canonicalSnapshot);
+        failRestore(libraryFailure);
         return;
       }
     }
@@ -10717,11 +11685,7 @@ async function restoreWorkspaceFromLocation(
       ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
-      failCanonicalWorkspaceRestore(
-        loc,
-        deep,
-        viewFailure,
-        canonicalSnapshot);
+      failRestore(viewFailure);
       return;
     }
     applyDeepLink(deep);
@@ -10729,25 +11693,55 @@ async function restoreWorkspaceFromLocation(
     state.loading = false;
     render();
     await loadSelectionData();
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (failureHandler) {
+      if (!commitDemoNavigation(navigationSeq)) return;
+      syncUrl();
+    }
+    if (focusResult) {
+      focusInspectionResult(navigationSeq);
+    }
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
-    await loadPackage(target.id, target.version, target.framework, {
-      deepLink: deep,
-      navigationSeq,
-      queryNotice: state.queryNotice
-    });
+    const loaded = await loadPackage(
+      target.id,
+      target.version,
+      target.framework,
+      {
+        deepLink: deep,
+        navigationSeq,
+        queryNotice: state.queryNotice
+      });
+    if (loaded && focusResult && navigationSequence.isCurrent(navigationSeq)) {
+        if (failureHandler) {
+          if (!commitDemoNavigation(navigationSeq)) return;
+          syncUrl();
+        }
+        render();
+      focusInspectionResult(navigationSeq);
+    } else if (!loaded && failureHandler
+      && navigationSequence.isCurrent(navigationSeq)) {
+      failRestore(
+        state.error || state.queryNotice
+        || `Couldn’t load ${target.id}@${target.version}.`);
+    }
   } else {
     state.loading = false;
-    const failure =
+    const runtimeFailure =
       runtimeFailureMessage
       || state.runtimePackError
       || "Couldn’t load the requested .NET Platform.";
-    state.error = state.queryNotice
-      ? `${state.queryNotice} ${failure}`
-      : failure;
+    const failure = state.queryNotice
+      ? `${state.queryNotice} ${runtimeFailure}`
+      : runtimeFailure;
+    if (failureHandler) {
+      failRestore(failure);
+      return;
+    }
+    state.error = failure;
     state.errorTitle = "Platform failed";
-    state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
+    state.retryAction = retryRestore;
     render();
   }
 }
@@ -10917,9 +11911,7 @@ async function bootstrap() {
       if (!state.credits) render();
     };
     reportEngineStatus("Loading .NET WebAssembly…");
-    await initializeRuntime();
-    configureHost(window.location.origin);
-    await runEntryPoint();
+    await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
@@ -10939,8 +11931,11 @@ async function bootstrap() {
     }
     try {
       setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
-    } catch {
+      productHomeDemoCatalogError = "";
+    } catch (error) {
       setProductHomeDemoCatalog([]);
+      productHomeDemoCatalogError =
+        `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       state.packageQueryFacets =
@@ -10964,6 +11959,18 @@ async function bootstrap() {
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
       focusPackageQueryInput();
+      return;
+    }
+    if (isProductHomeDemosPath(location.pathname)) {
+      state.loading = false;
+      state.workspaceSubjectOpen = true;
+      state.atPackageRoot = true;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      if (!state.packageQueryReturnFocusPending) {
+        afterCurrentNavigationFrame(() =>
+          focusWorkspace(document));
+      }
       return;
     }
     await restoreInitialWorkspace();
@@ -11033,6 +12040,10 @@ function refreshPackageStats() {
 function navigateInAppUrl(url: URL) {
   if (isCreditsPath(url.pathname)) {
     openCredits();
+    return;
+  }
+  if (isProductHomeDemosPath(url.pathname)) {
+    openProductDemos();
     return;
   }
   if (isPackageQueryPath(url.pathname)) {
@@ -11122,6 +12133,8 @@ const workspaceDrillOutIsAvailable = () =>
   && (navMode() === "member" || !state.atPackageRoot);
 const inspectionNavigationIsAvailable = () =>
   workspaceKeyboardContextIsActive() && scope() !== "workspace";
+const workspaceDrillInIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && state.package !== null;
 const workspaceHistoryBackIsAvailable = () =>
   workspaceKeyboardContextIsActive() && navigationHistory.canBack();
 const workspaceHistoryForwardIsAvailable = () =>
@@ -11443,7 +12456,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
-  available: workspaceKeyboardContextIsActive,
+  available: workspaceDrillInIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()
@@ -11501,6 +12514,10 @@ keybindings.register({
 });
 
 keybindings.attach(document);
+document.addEventListener("pointerdown", trackContentFramePointer);
+document.addEventListener("focusin", trackContentFrameFocus);
+document.addEventListener("focusout", releaseContentFrameFocusOwner);
+bindContentFrameMedia(contentFrameMedia, handleContentFrameResize);
 
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
@@ -11570,6 +12587,28 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  if (isProductHomeDemosPath(location.pathname)) {
+    clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.credits = false;
+    state.home = false;
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.loading = !state.engineReady;
+    const focusWorkspaceOnEntry =
+      !state.packageQueryReturnFocusPending;
+    render();
+    if (state.engineReady && focusWorkspaceOnEntry) {
+      afterCurrentNavigationFrame(() =>
+        focusWorkspace(document));
+    }
+    return;
+  }
   if (leftPackageQueryForWorkspaceSuccessor) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
@@ -11583,6 +12622,8 @@ window.addEventListener("popstate", () => {
       !pendingLocation.package
       && !pendingWorkspace.hasWorkspaceState
       && !pendingLocation.routeFailure;
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = false;
     state.loading = !state.home;
     if (state.home) clearNavigationError();
     render();

@@ -98,13 +98,56 @@ public sealed class PluginProtocolTests : IDisposable
 
         JsonElement payload = plugin.ReceivedRequests().Single(r => r.Method == "GetAuthenticationCredentials").Payload;
 
-        Assert.Equal(uri.ToString(), payload.GetProperty("Uri").GetString());
+        Assert.Equal(
+            uri.OriginalString,
+            payload.GetProperty("Uri").GetString());
         Assert.False(payload.GetProperty("IsRetry").GetBoolean());
 
         // Unattended by default, matching "dotnet restore" without --interactive: a tool that
         // may run in CI must not block on a sign-in prompt.
         Assert.True(payload.GetProperty("IsNonInteractive").GetBoolean());
         Assert.False(payload.GetProperty("CanShowDialog").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(
+        "https://feed.example/%7E/private/index.json?tenant=%61",
+        "https://feed.example/~/private/index.json?tenant=a")]
+    [InlineData(
+        "https://feed.example/other/../v3/index.json",
+        "https://feed.example/v3/index.json")]
+    public async Task CredentialRequestPreservesOriginalSourceSpelling(
+        string first,
+        string second)
+    {
+        FakePlugin plugin = CreatePlugin(
+            "raw-provider-query",
+            username: "u",
+            password: "p");
+
+        await using var provider = new PluginCredentialProvider(
+            null,
+            [plugin.Executable]);
+        await provider.GetCredentialsAsync(
+            new Uri(first),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+        await provider.GetCredentialsAsync(
+            new Uri(second),
+            isRetry: false,
+            TestContext.Current.CancellationToken);
+
+        string[] queries =
+        [
+            .. plugin.ReceivedRequests()
+                .Where(request =>
+                    request.Method == "GetAuthenticationCredentials")
+                .Select(request =>
+                    request.Payload.GetProperty("Uri").GetString()
+                        ?? throw new InvalidOperationException(
+                            "The plugin credential request omitted its URI.")),
+        ];
+        Assert.Equal([first, second], queries);
     }
 
     [Fact]
