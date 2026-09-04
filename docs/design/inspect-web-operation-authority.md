@@ -523,15 +523,22 @@ The first authorized logical-completion transition atomically resolves
 These variants do not stack: replacement does not additionally publish
 `canceled` plus `started`, and disposal does not additionally publish
 `canceled`. A producer-reported canceled outcome uses `canceled` with its typed
-reason. Each reserved event remains authorized after the outcome or current
-operation changes, publishes after the authority commit, and permits no later
-authority write from that transition. Disposal's atomic feature-publication
-transition is the exception: it suppresses an unexpected-terminal reservation
-that is waiting behind diagnostic delivery and publishes only `disposed`,
-without changing the already-committed failed outcome. Physical producer
-completion after logical cancellation does not replace the canceled outcome.
-Duplicate terminal reports are producer-contract failures reported
-diagnostically; they do not
+reason. Except for the two publication-suppression rules below, each reserved
+event remains authorized after the outcome or current operation changes,
+publishes after the authority commit, and permits no later authority write from
+that transition:
+
+- replacement or disposal suppresses an ordinary terminal reservation returned
+  by `commitTerminal` if its capability has not yet published, without changing
+  the already-committed outcome; and
+- disposal's atomic feature-publication transition suppresses an
+  unexpected-terminal reservation waiting behind diagnostic delivery and
+  publishes only `disposed`, without changing the already-committed failed
+  outcome.
+
+Physical producer completion after logical cancellation does not replace the
+canceled outcome. Duplicate terminal reports are producer-contract failures
+reported diagnostically; they do not
 resolve the handle again or regain publication authority.
 
 ### Cancellation and supersession
@@ -577,6 +584,10 @@ producer adapter reports that physical work settled and all operation-scoped
 callbacks, subscriptions, registrations, and payload references are released,
 or when successful synchronous `abandon()` acknowledges that a never-activated
 installed binding released every prepared resource.
+For an activated producer, the authority accepts that report only after a
+terminal outcome is committed and every returned terminal publication
+capability is exercised. An earlier report is a producer-contract failure and
+does not resolve `quiesced`.
 The authority component does not infer quiescence from logical cancellation, a
 terminal outcome, elapsed time, or feature cleanup.
 
