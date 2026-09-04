@@ -31,9 +31,11 @@ Package-content evaluation is product-gated to at most 20 candidates.
 `PackageQueryPlanner_IsReachableFromBrowserConsumer` is the Browser consumer
 canary.
 
-Still proposal-only: CLI `--where` wiring, CLI capability spelling for
-package-content facets, and the promoted IL tier. Despite the Sections
-migration landing,
+Still proposal-only: CLI `--where` wiring and CLI capability spelling for
+package-content facets. The promoted assembly tier now has a separate focused
+owner in
+[Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
+Despite the Sections migration landing,
 `find --package-prefix`'s corpus limit is also still spelled `-t`, not the
 historical #4677 `-n` target. [Item and line
 limits](item-and-line-limits.md) records that CLI syntax ownership remains
@@ -61,8 +63,12 @@ Related docs:
   clients and manifest acquisition `find --package-prefix` streams from
   (merged in #4551).
 - [Progressive disclosure](progressive-disclosure.md) — owns the
-  capability-gated, explicit-cost pattern the promoted tier's IL evaluation
+  capability-gated, explicit-cost pattern that promoted assembly evaluation
   must follow.
+- [Package Query assembly-pattern
+  evaluation](package-query-assembly-evaluation.md) — owns one-candidate
+  primary-asset selection, semantic confirmation, evidence, and resource
+  release.
 - [Inspection graph document](inspection-graph-document.md) — owns the
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
@@ -78,7 +84,8 @@ just as `library`/`member`/`package` are. Its corpus-limit spelling is still
 The L1 facet engine now provides a host-neutral way to ask "and does each
 package satisfy *this*" over facts available from the source, exact manifest,
 or an explicitly supplied package archive. The CLI does not expose it yet, and
-the promoted tier for facts that require opening IL remains unimplemented.
+the promoted tier for facts that require opening an assembly remains
+unimplemented.
 This document defines where those pieces belong across the existing L1/L2/L3
 split, rather than treating the CLI project as a place to accumulate new
 bespoke logic the way it did before that split existed.
@@ -93,10 +100,11 @@ Core. Concretely:
   query that evaluates nuspec-tier facets over a streamed manifest and
   package-content facets through an explicit host capability returns typed
   results and chooses no renderer — the existing L1 contract. A future query
-  that evaluates promoted IL facets over an explicitly bounded
-  package/version set follows the same ownership. This is what makes the facet
-  engine reachable from a second consumer (the browser/Wasm engine) without
-  re-deriving it, the exact failure mode
+  that evaluates promoted assembly patterns over an explicitly bounded
+  package/version set composes the separate package-aware evaluator rather
+  than adding assembly selection or reader lifetime to this CLI contract.
+  This is what makes the facet engine reachable from a second consumer (the
+  browser/Wasm engine) without re-deriving it, the exact failure mode
   [inspection-layers.md](inspection-layers.md) exists to prevent.
 - **L2 — `Sections` (currently `src/dotnet-inspect/Sections`).** Row
   declaration, `--where` predicate evaluation, and the shape-ladder
@@ -293,10 +301,11 @@ now declared sections, yet the corpus limit is still `-t`, not `-n`. See
 [Sections migration: already landed, ahead of this document's sequencing](#sections-migration-already-landed-ahead-of-this-documents-sequencing)
 for the resulting follow-up.
 
-## Current tiers and future IL promotion
+## Current tiers and promoted assembly evaluation
 
-L1 owns the vocabulary and predicate semantics; front ends submit
-product-issued opaque facet IDs and do not reconstruct those predicates:
+For existing facets, L1 owns the vocabulary and predicate semantics; front
+ends submit product-issued opaque facet IDs and do not reconstruct those
+predicates:
 
 - **`nuspec` tier.** Available over the bounded package profile produced from
   source metadata and exact manifests. `PackageQuery.Facets` is the finite,
@@ -315,13 +324,13 @@ product-issued opaque facet IDs and do not reconstruct those predicates:
   `skills/SKILL.md` or `skills/**/SKILL.md`. Tool v1 and v2 are combining
   members, so selecting both returns either format with evidence identifying
   the matched version; the manifest-only any-tool facet remains exclusive.
-- **Future promoted IL tier.** Requires opening IL for a bounded set of
-  candidates — never for the whole corpus. It must be capability-gated the
-  same way the repository already gates other exhaustive/expensive work
-  (`--all`, README.md:474, 535). The exact CLI spelling remains for its
-  implementation slice, but the adapter must resolve that spelling through
-  product-owned descriptors or bindings and submit opaque IDs. It must not
-  hard-code a second predicate vocabulary in L2 or L3.
+- **Promoted assembly tier.** The one-candidate asset, pattern, semantic
+  confirmation, evidence, and resource-lifetime contract is owned by
+  [Package Query assembly-pattern
+  evaluation](package-query-assembly-evaluation.md). This CLI document retains
+  only gesture lowering, capability admission, candidate-bound disclosure, and
+  row shaping. L2 and L3 submit product-owned opaque pattern identities and do
+  not recreate the pattern vocabulary.
 
 The future CLI may reuse `RowPredicateSyntaxParser` and repeated `--where`
 syntax as an input grammar, but this document no longer defines package facets
@@ -337,9 +346,10 @@ explicit content-provider capability. Selecting a package-content facet is the
 Browser's explicit cost gesture; the Browser request state lowers its
 candidate bound from 200 to 20 before dispatch.
 
-For the future CLI and promoted IL tier, the gate is enforced at L2 before L1
-is asked to evaluate anything: a `--where` clause naming a capability-bearing
-field is rejected up front unless the capability flag is present, exactly
+For the future CLI and promoted assembly tier, the gate is enforced at L2
+before L1 is asked to evaluate anything: a `--where` clause naming a
+capability-bearing field is rejected up front unless the capability flag is
+present, exactly
 mirroring how a coordinate-scoped section is discoverable only when its
 carrier flag is present
 ([output-shapes.md](output-shapes.md), "Coordinate carriers sit before the
@@ -351,8 +361,8 @@ both), mirroring the browser experience's Deepen action, which is
 thousand-row funnel doesn't silently trigger a thousand package downloads."
 
 This document does not fix the CLI gesture for package-content facets or
-`--deepen`'s exact spelling and bound shape for promoted IL. Those remain open
-questions for their CLI implementation slices (see
+`--deepen`'s exact spelling and bound shape for promoted assembly evaluation.
+Those remain open questions for their CLI implementation slices (see
 [Landing sequence](#landing-sequence)).
 
 ## Row declaration: coercing a wide per-package fact set into a Table
@@ -413,18 +423,20 @@ because a predicate can shrink what the bound counts:
   packages, then whichever of those happen to match." The former is the
   honest reading of "first N matches" and the one #4654's browser review
   process would flag the latter for overclaiming.
-- **Promoted-tier `--deepen`** bounds the *candidate set fed into IL
+- **Promoted-tier `--deepen`** bounds the *candidate set fed into assembly
   evaluation*, not the final matched-row count — mirroring the browser
-  Deepen action, which bounds cost (how many packages get their IL opened),
-  not the answer's completeness claim. A `--deepen`-scoped query that finds
-  fewer matches than its candidate bound is a true, bounded-complete result
-  over that candidate set, not a truncated one.
+  Deepen action, which bounds cost (how many selected package assemblies get
+  opened), not the answer's semantic-completeness claim. Completion accounts
+  for every admitted candidate, but it reports matches, semantic non-matches,
+  non-applicable candidates, and failures separately. Fewer matches than the
+  candidate bound therefore does not by itself imply either truncation or
+  successful semantic evaluation of every candidate.
 
 The implementation must preserve the orderings: nuspec predicates run before
 the semantic `-n` result limit; the package-content candidate cap applies
 before archive evaluation, with manifest prefilters running before acquisition;
-and `--deepen` bounds candidates before future promoted IL evaluation. Help
-text and rendered completion state must name the candidate bound, and the
+and `--deepen` bounds candidates before future promoted assembly evaluation.
+Help text and rendered completion state must name the candidate bound, and the
 asserted ordering must name its enforcing gate.
 
 `PackageQuery.ExecuteAsync` now implements the nuspec half with separate
@@ -438,7 +450,8 @@ conservative: execution stops without acquiring another manifest, so
 also happened to exhaust the source. This behavior is gated by
 `ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative`. Package-content
 candidate limits and manifest prefiltering are gated by `PackageQueryTests`;
-promoted IL ordering remains proposal-only.
+promoted assembly ordering remains proposal-only and composes
+[the focused evaluator](package-query-assembly-evaluation.md).
 
 ## Shared request/outcome shape with the browser
 
@@ -467,9 +480,9 @@ the CLI's named facets as canonical for the browser's facet rail.
   package-to-integration questions route through the existing inspection
   graph, not through a new edge concept invented for this document.
 - No unbounded package-content or promoted-tier evaluation. Package-content
-  facets retain their product-owned 20-candidate maximum. Every future IL-tier
-  facet requires an explicit, bounded `--deepen` (or equivalent) — never a
-  corpus-wide default.
+  facets retain their product-owned 20-candidate maximum. Every future
+  assembly-pattern facet requires an explicit, bounded `--deepen` (or
+  equivalent) — never a corpus-wide default.
 - No decision here on `--deepen`'s exact spelling, bound shape, or the saved
   query/result file's exact fields — those are implementation-slice
   decisions, not settled by this document.
@@ -505,9 +518,10 @@ the CLI's named facets as canonical for the browser's facet rail.
    predicates. Neither sub-goal has landed yet.
 5. **Define and wire the CLI capability gesture for package-content
    facets**, preserving the product-owned candidate cap and visible failures.
-6. **Add the promoted-tier capability gate and `--deepen`-bounded IL
-   evaluation**, including the L2 tier-gating error for an ungated
-   promoted-tier field.
+6. **Compose the focused
+   [assembly-pattern evaluator](package-query-assembly-evaluation.md) through
+   a promoted-tier capability gate and `--deepen` candidate bound**, including
+   the L2 tier-gating error for an ungated promoted-tier field.
 7. **Define the shared save/resume file shape**, coordinated with whatever
    the browser experience's local-storage record settles on when it is
    implemented.
