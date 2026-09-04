@@ -785,14 +785,80 @@ unavailable while #4931 is absent. On closure root or iteration budget exits,
 while the decompiled body did not; it may still point at a harness closure
 budget limit rather than a semantic product-body bug.
 
-The same sidecar lane also produces a source-correspondence census for
-fixture-source coverage. The census projects source-probe rows into
-Finding-style evidence keyed by member stable selector when available, but it
-does not change the RTS status. Descriptor IDs remain the structural source
-reason (`source.correspondence.<reason>`), while a coarse category separates
-ignorable taste/options, not-yet-raised source sugar, structuring residue,
-semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
-uses source file names, not absolute local paths, in the finding projection.
+The same sidecar lane also produces a source-correspondence census. The fixture
+probe indexes checked-in source, while the live census uses each MethodDef's
+portable-PDB mapping to acquire the complete authored file from its recorded
+local path, caller-supplied Git clones, or SourceLink. PDB checksums authenticate
+the bytes, and the body slicer declines unsafe or ambiguous declaration
+boundaries. Acquisition remains typed as complete, absent, or failed beside the
+correspondence and RTS outcomes; a failed acquisition fails the census rather
+than becoming a success-shaped missing row.
+
+The PDB-acquired member enters a comparison-only source index. It does not enter
+the metadata-token map that authorizes authored-body controls for fault
+attribution, because a PDB mapping does not prove complete-source identity. The
+Release gates
+`Harness_SourceCorrespondenceCensusPopulatesPdbSource` and
+`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` respectively prove live
+population and that this index cannot refine an RTS verdict.
+`SourceCorrespondenceAcquisition_PreservesAbsentAndFailedOutcomes` preserves
+the typed member-source states,
+`SourceCorrespondencePdbAcquisition_DistinguishesAbsenceFromFailure` proves
+that a definitive PDB miss remains absent while an operational source failure
+fails acquisition, and
+`SourceAcquisitionFailure_FailsOnlyTheLiveCensusLane` proves that acquisition
+failure and RTS-invalid correspondence remain independent exit decisions.
+`SourceCorrespondencePdbAcquisition_OversizedResponseIsFailure` and
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` cover the
+download-limit and cache-permission boundaries, while
+`AcquirePdbAsync_InvalidSymbolPackageCandidateRecordsFailure` and
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` distinguish
+a rejected same-name PDB from a symbol package that genuinely contains no
+candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
+the existing authored-rebuild command on the same typed failure contract, while
+`AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult` keeps a
+failure-free PDB miss non-failing.
+`SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
+identity-less adjacent PDB from entering this lane, while
+`AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating` keeps
+the same failure inside the corpus-harvest boundary, and
+`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a
+typed result when embedded-PDB opening fails, and
+`SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` preserves
+failure when a present SourceLink map cannot be decoded into usable mappings.
+`SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure` preserves
+the same failure when the requested document's conformant key is rejected in a
+partially usable map, while
+`SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` keeps a resolved
+SourceLink URL's HTTP 404 as definitive document absence.
+`MetadataSourceFindingsTests.SourceDocumentComparison_ReportsResolutionStatusChanges`
+keeps a document's SourceLink resolution state in comparison evidence, while
+`AuthoredRebuildFidelityTests.SourceCorrespondenceAcquisition_UsesCanonicalDocumentPath`
+projects the canonical PDB document path rather than a provider URL whose query
+may contain provider-specific routing data.
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` separates
+valid sibling Portable PDB identities from malformed symbol-package candidates,
+and `AcquirePdbAsync_RejectedDownloadIsNotPublished` plus
+`AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
+`AcquirePdbAsync_InvalidCachedPdbRecordsFailure`, and
+`AcquirePdbAsync_UnretainedDownloadRecordsFailure` prevent cache state from
+erasing an integrity failure or blaming a successful remote provider for a
+local store failure.
+The compiler-backed
+`SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment`
+guards C# assignment-operator correlation against hand-written metadata-name
+drift.
+
+The census projects source-probe rows into Finding-style evidence keyed by
+member stable selector when available, but it does not change the RTS status.
+Descriptor IDs remain the structural source reason
+(`source.correspondence.<reason>`), while a coarse category separates ignorable
+taste/options, not-yet-raised source sugar, structuring residue, semantic opcode
+deltas, invalid rows, and unclassified frontiers. Shared JSON uses source file
+names, not absolute local paths, in the finding projection. Stored
+higher-is-better correspondence metrics count only rows with an authored body;
+bodyless declarations remain a separate context metric. The Release gate
+`SourceCorrespondenceReport_TracksBodylessRowsAsContext` enforces that split.
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
 `NotFull`, `FidelityUnavailable`, `RecompileFail`, and `ContextFail`.

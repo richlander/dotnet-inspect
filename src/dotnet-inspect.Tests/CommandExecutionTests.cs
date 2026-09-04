@@ -1659,7 +1659,9 @@ public partial class CommandExecutionTests
             IReadOnlyDictionary<string, string?>? environment,
             params string[] args)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+                ?? "dotnet")
         {
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
@@ -23163,6 +23165,79 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Source audit", output);
         Assert.DoesNotContain("| Signals | Scope |", output);
         Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_InvalidCachedPdbPreservesLibraryInspection()
+    {
+        string tempDirectory =
+            Path.Combine(
+                Path.GetTempPath(),
+                $"dotnet-inspect-pdb-store-{Guid.NewGuid():N}");
+        string cacheDirectory = Path.Combine(tempDirectory, "cache");
+        try
+        {
+            Directory.CreateDirectory(tempDirectory);
+            string fixturePath =
+                FixtureCatalog.SourceLinkPartiallyMalformed.AssemblyPath();
+            string assemblyPath =
+                Path.Combine(
+                    tempDirectory,
+                    Path.GetFileName(fixturePath));
+            File.Copy(fixturePath, assemblyPath);
+
+            using var source =
+                ILInspector.SourceLink.SourceLinkService.Open(fixturePath);
+            CodeViewInfo pdb = Assert.IsType<CodeViewInfo>(source.Context.PdbId);
+            string pdbFileName = Path.GetFileName(pdb.PdbFileName);
+            string guid = pdb.Guid.ToString("N").ToUpperInvariant();
+            string storeIdentity = pdb.Stamp is { } stamp
+                ? $"{guid}{stamp:X8}"
+                : $"{guid}FFFFFFFF";
+            string cachedPdbPath =
+                Path.Combine(
+                    cacheDirectory,
+                    "packages",
+                    "symbols",
+                    "servers",
+                    "symbols.nuget.org",
+                    pdbFileName,
+                    storeIdentity,
+                    pdbFileName);
+            Directory.CreateDirectory(
+                Path.GetDirectoryName(cachedPdbPath)!);
+            File.WriteAllBytes(
+                cachedPdbPath,
+                [(byte)'B', (byte)'S', (byte)'J', (byte)'B']);
+
+            var (exit, output, error) =
+                await RunAppInDirectoryWithEnvironmentAsync(
+                    tempDirectory,
+                    new Dictionary<string, string?>
+                    {
+                        ["DOTNET_INSPECT_CACHE_DIR"] = cacheDirectory,
+                    },
+                    "library",
+                    assemblyPath,
+                    "-S",
+                    "Signals",
+                    "--offline");
+
+            Assert.True(
+                exit == 0,
+                $"Expected exit 0, received {exit}.{Environment.NewLine}Output:{Environment.NewLine}{output}{Environment.NewLine}Error:{Environment.NewLine}{error}");
+            Assert.Contains("## Signals", output);
+            Assert.Contains(
+                "PDB store returned malformed or mismatched cached content",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("Could not read library", error);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+                Directory.Delete(tempDirectory, recursive: true);
+        }
     }
 
     [Fact]
