@@ -9,8 +9,8 @@ import type {
 } from "./annotated-source-session.ts";
 import type {
   BrowserMemberDocumentation,
-  BrowserMemberFacts,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
+import type { BrowserMemberFacts } from "./facades/inspect-web-analysis.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type { AppMemberSurface } from "./package-acquisition.ts";
 

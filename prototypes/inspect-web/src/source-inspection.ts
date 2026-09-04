@@ -6,7 +6,7 @@ import {
   type SourceRequestState,
   type SourceWorkbenchState,
 } from "./data.ts";
-import type { BrowserSource } from "./inspect-web-engine.d.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type {
   OperationAuthorityPage,

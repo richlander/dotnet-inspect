@@ -3,7 +3,7 @@ import test from "node:test";
 import type {
   BrowserHomeDemoResolved,
   BrowserWorkspaceShareState,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-catalog.d.ts";
 import {
   PLATFORM_RUNTIME_PACK,
   homeDemosEntryHtml,

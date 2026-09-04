@@ -567,9 +567,33 @@ const applicationSources =
   `${appSource}\n${graphSource}\n${packageControlsSource}\n${workspaceSubjectSource}\n${metadataViewerSource}`;
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const indexSource = readFileSync(new URL("../index.html", import.meta.url), "utf8");
-const generatedEngineModuleUrl =
-  new URL("../engine/wwwroot/inspect-web-engine.js", import.meta.url);
-const generatedEngineSource = readFileSync(generatedEngineModuleUrl, "utf8");
+// The production facade set: seven independently generated modules over one runtime. Each
+// assertion below reads the module that owns the operation it is about, so an operation that
+// moves to another facade fails here instead of matching a neighbouring module's text.
+const generatedFacadeModules = [
+  "inspect-web-host",
+  "inspect-web-package",
+  "inspect-web-metadata",
+  "inspect-web-analysis",
+  "inspect-web-source",
+  "inspect-web-call-graph",
+  "inspect-web-catalog",
+] as const;
+type GeneratedFacadeModule = typeof generatedFacadeModules[number];
+const generatedFacadeModuleUrls = new Map<GeneratedFacadeModule, URL>(
+  generatedFacadeModules.map(module =>
+    [module, new URL(`../engine/wwwroot/${module}.js`, import.meta.url)]));
+const generatedFacadeSources = new Map<GeneratedFacadeModule, string>(
+  generatedFacadeModules.map(module =>
+    [module, readFileSync(generatedFacadeModuleUrls.get(module)!, "utf8")]));
+const generatedFacadeSource = (module: GeneratedFacadeModule): string =>
+  generatedFacadeSources.get(module)!;
+const generatedFacadeSourceText = generatedFacadeModules
+  .map(module => generatedFacadeSource(module))
+  .join("\n");
+const engineCoordinatorSource = readFileSync(
+  new URL("../src/engine-facades.ts", import.meta.url),
+  "utf8");
 const deploySource = readFileSync(
   new URL("../../../.github/workflows/deploy-inspect-web.yml", import.meta.url),
   "utf8");
@@ -2313,8 +2337,8 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
 });
-const browserEngineSource = readFileSync(
-  new URL("../engine/InspectionEngine.cs", import.meta.url),
+const browserGraphMemberSource = readFileSync(
+  new URL("../engine.MetadataExports/TypeAndGraphMemberExports.cs", import.meta.url),
   "utf8");
 
 test("dependency graph render identity includes truncation and navigation", () => {
@@ -2386,10 +2410,17 @@ test("bare home paints before wasm engine download", () => {
   const loadingView =
     appSource.match(/function renderLoading\(\)[\s\S]*?\n}\n\nasync function loadSelectedMemberDocumentation/)?.[0] ?? "";
   assert.doesNotMatch(appSource, /from "\/engine\.js"/);
-  assert.doesNotMatch(appSource, /from "\/inspect-web-engine\.js"/);
+  assert.doesNotMatch(appSource, /inspect-web-engine/);
   assert.match(
     appSource,
-    /async function loadEngineModule\(\)[\s\S]*await import\("\/inspect-web-engine\.js"\)/);
+    /async function loadEngineModule\(\)[\s\S]*await Promise\.all\(\[/);
+  for (const module of generatedFacadeModules) {
+    assert.match(
+      appSource,
+      new RegExp(
+        `async function loadEngineModule\\(\\)[\\s\\S]*import\\("/${module}\\.js"\\)`),
+      `the application does not bind operations through /${module}.js`);
+  }
   assert.match(
     homePaintWait,
     /first-contentful-paint[\s\S]*observer\.observe\(\{ type: "paint", buffered: true \}\)/);
@@ -2398,7 +2429,7 @@ test("bare home paints before wasm engine download", () => {
     /requestAnimationFrame\(\(\) => setTimeout\(resolve, 0\)\)/);
   assert.match(
     appSource,
-    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET WebAssembly…"\);[\s\S]*await initializeRuntime\(\);[\s\S]*configureHost\(window\.location\.origin\);[\s\S]*await runEntryPoint\(\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
+    /state\.loading = !state\.home;[\s\S]*render\(\);[\s\S]*if \(state\.home\) await waitForHomePaint\(\);[\s\S]*await loadEngineModule\(\);[\s\S]*reportEngineStatus\("Loading \.NET WebAssembly…"\);[\s\S]*await startEngine\(window\.location\.origin\);[\s\S]*reportEngineStatus\("Reading package assemblies…"\)/);
   assert.match(
     renderDispatch,
     /if \(state\.credits\) \{[\s\S]*renderCreditsView\(\);[\s\S]*if \(state\.loading \|\| state\.error\)/);
@@ -2706,7 +2737,8 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   const bootstrap = appSource.match(
     /async function bootstrap\(\)[\s\S]*?\n}\n\nobserveAsync\(bootstrap\(\)/)?.[0]
     ?? "";
-  const initializeAt = bootstrap.indexOf("await initializeRuntime();");
+  const initializeAt =
+    bootstrap.indexOf("await startEngine(window.location.origin);");
   const restoreAt = bootstrap.indexOf("await restoreInitialWorkspace();");
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
@@ -3442,12 +3474,14 @@ test("all dependency navigation paths use one product-owned coordinate matcher",
     [...applicationSources.matchAll(/uniqueCompatiblePackage\(/g)].length,
     6);
   assert.match(
-    generatedEngineSource,
-    /\$requireManagedExports\(\)\["InspectionEngine"\]\["MatchPackageDependencyCoordinate\.-?\d+"\]/);
+    generatedFacadeSource("inspect-web-package"),
+    /\$requireManagedExports\(\)\["PackageExports"\]\["MatchPackageDependencyCoordinate\.-?\d+"\]/);
   assert.match(
     appSource,
     /matchPackageDependencyCoordinate\([\s\S]*?JSON\.stringify\(dependencyCoordinateCandidates\(packages\)\)/);
-  assert.doesNotMatch(generatedEngineSource, /PackageVersionSatisfiesDependencyRange/);
+  assert.doesNotMatch(
+    generatedFacadeSourceText,
+    /PackageVersionSatisfiesDependencyRange/);
   assert.doesNotMatch(appSource, /dependencyVersionSatisfies/);
 });
 
@@ -3675,7 +3709,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const implementationBody = graphOnlyImplementationBody\(overload\);\s*const implementationMetadataToken = implementationBody\?\.token \?\? 0;\s*const implementationBodySelected = implementationMetadataToken !== 0;\s*return memberDetailInspection\.loadFacts\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*type: type\.queryId \?\? type\.id,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*member: implementationBody\?\.memberName\s*\?\? state\.selectedBodyTarget\?\.memberName\s*\?\? overload\.name,\s*memberSignature: overload\.signature,\s*selectorKey: implementationBody\?\.selectorKey\s*\?\? state\.selectedBodyTarget\?\.selectorKey\s*\?\? overload\.graphSelectorKey,\s*metadataToken: implementationMetadataToken,\s*implementationBodySelected,\s*isCurrent: \(\) => memberRequestIsCurrent\(signature, true\)/);
   assert.match(
     packageAcquisitionSource,
-    /implementationBody\?: BrowserMemberBodySelector/);
+    /implementationBody\?: InspectedMemberBodySelector/);
   assert.match(
     packageAcquisitionSource,
     /function retainGraphOnlyImplementationBody[\s\S]*overload\.bodySelectors\.find\([\s\S]*overload\.implementationBody = selectedBody;[\s\S]*graphMemberTargetWithSelectedBody\(target, selectedBody\)/);
@@ -3706,10 +3740,10 @@ test("type source identity includes decompiler taste", () => {
 
 test("source operations cancel when superseded or hidden", () => {
   assert.match(
-    generatedEngineSource,
-    /\$requireManagedExports\(\)\["InspectionEngine"\]\["CancelSourceQuery\.-?\d+"\]/);
+    generatedFacadeSource("inspect-web-source"),
+    /\$requireManagedExports\(\)\["SourceExports"\]\["CancelSourceQuery\.-?\d+"\]/);
   assert.match(
-    generatedEngineSource,
+    generatedFacadeSource("inspect-web-source"),
     /export function cancelSourceQuery\(\)[\s\S]*?return \$requireManagedExports\(\)/);
   assert.match(
     appSource,
@@ -3883,30 +3917,78 @@ test("source operations cancel when superseded or hidden", () => {
 });
 
 test("browser consumer explicitly sequences same-origin host configuration", () => {
+  // The coordinator owns composition: every facade initializes, in order, before host policy
+  // is configured and the one entry point runs.
+  for (const module of generatedFacadeModules) {
+    assert.match(
+      engineCoordinatorSource,
+      new RegExp(`import\\("/${module}\\.js"\\)`),
+      `the coordinator does not compose /${module}.js`);
+  }
+  assert.match(
+    engineCoordinatorSource,
+    /const runtime = host\.createRuntime\(\);/,
+    "the coordinator must create the shared runtime through the host facade");
+  // Every facade receives the same runtime promise, one after another, before readiness
+  // resolves.
+  assert.deepEqual(
+    [...engineCoordinatorSource.matchAll(
+      /await (\w+)\.initializeRuntime\(runtime\);/g)]
+      .map(match => match[1]),
+    [
+      "host",
+      "packageFacade",
+      "metadataFacade",
+      "analysisFacade",
+      "sourceFacade",
+      "callGraphFacade",
+      "catalogFacade",
+    ]);
+  assert.match(
+    engineCoordinatorSource,
+    /readiness \?\?= initializeFacadeSet\(\);/);
+  assert.match(
+    engineCoordinatorSource,
+    /await initializeFacades\(\);[\s\S]*host\.configureHost\(origin\);[\s\S]*await host\.runEntryPoint\(\);/);
+  assert.match(
+    engineCoordinatorSource,
+    /startup \?\?= startEngineCore\(origin\);/);
+  // Only the host facade's entry point runs, and no other module's does.
+  assert.deepEqual(
+    [...engineCoordinatorSource.matchAll(/(\w+)\.runEntryPoint\(\)/g)]
+      .map(match => match[1]),
+    ["host"]);
   assert.match(
     appSource,
-    /await initializeRuntime\(\);[\s\S]*configureHost\(window\.location\.origin\);[\s\S]*await runEntryPoint\(\)/);
-  assert.doesNotMatch(generatedEngineSource, /\bwindow\b/);
+    /await startEngine\(window\.location\.origin\);/);
+  assert.doesNotMatch(generatedFacadeSourceText, /\bwindow\b/);
 });
 
-test("generated browser engine module is syntactically valid", () => {
-  const result = spawnSync(
-    process.execPath,
-    ["--check", fileURLToPath(generatedEngineModuleUrl)],
-    { encoding: "utf8" });
-  assert.equal(
-    result.status,
-    0,
-    `${fileURLToPath(generatedEngineModuleUrl)} failed syntax validation:\n${result.stderr}`);
+test("every generated browser engine module is syntactically valid", () => {
+  for (const module of generatedFacadeModules) {
+    const modulePath = fileURLToPath(generatedFacadeModuleUrls.get(module)!);
+    const result = spawnSync(
+      process.execPath,
+      ["--check", modulePath],
+      { encoding: "utf8" });
+    assert.equal(
+      result.status,
+      0,
+      `${modulePath} failed syntax validation:\n${result.stderr}`);
+  }
 });
 
 test("generated source wrappers parse their JSON envelopes", () => {
   const wrapper = (name: string) => {
-    const start = generatedEngineSource.search(
-      new RegExp(`\\nexport (?:async )?function ${name}\\(`));
-    assert.notEqual(start, -1, `missing generated wrapper ${name}`);
-    const end = generatedEngineSource.indexOf("\nexport ", start + 1);
-    return generatedEngineSource.slice(start, end < 0 ? undefined : end);
+    const pattern = new RegExp(`\\nexport (?:async )?function ${name}\\(`);
+    const owners = generatedFacadeModules
+      .filter(module => pattern.test(generatedFacadeSource(module)));
+    assert.equal(owners.length, 1,
+      `${name} must be published by exactly one facade; found ${owners.join(", ")}`);
+    const source = generatedFacadeSource(owners[0]!);
+    const start = source.search(pattern);
+    const end = source.indexOf("\nexport ", start + 1);
+    return source.slice(start, end < 0 ? undefined : end);
   };
 
   for (const name of [
@@ -4013,7 +4095,8 @@ test("the full member-section roster is derived from the catalog, not restated",
 
 test("source requests carry exact type and member identities", () => {
   const memberBridge =
-    generatedEngineSource.match(/export async function queryMemberSource\([\s\S]*?\n}/)?.[0]
+    generatedFacadeSource("inspect-web-source")
+      .match(/export async function queryMemberSource\([\s\S]*?\n}/)?.[0]
     ?? "";
   const memberLoader =
     appSource.match(/async function loadSelectedMemberSource\(\)[\s\S]*?\n}/)?.[0]
@@ -4118,8 +4201,9 @@ test("history restores the complete saved workspace coordinate set", () => {
 });
 
 // A real call-graph node carries more than the identity view in `data.ts` declares:
-// `typeFullName` is part of the engine's own DTO in `inspect-web-engine.d.ts`. Passing the
-// wider payload is exactly what the product does, so the fixtures below keep the field --
+// `typeFullName` is part of the call-graph facade's own DTO in
+// `facades/inspect-web-call-graph.d.ts`. Passing the wider payload is exactly what the
+// product does, so the fixtures below keep the field --
 // it is what makes "prefers metadata identity over the display name" a real claim -- and
 // this widening keeps the excess property check, which only fires on fresh object
 // literals, from rejecting it.
@@ -4338,10 +4422,10 @@ test("graph-only members open through the typed member surface", () => {
     openMember,
     /const graphOnlyTarget =[\s\S]*clearMemberContentCache\(\);[\s\S]*state\.selectedBodyTarget = graphOnlyTarget;[\s\S]*retainMemberSectionIfSupported\(group\)/);
   assert.match(
-    generatedEngineSource,
-    /\$requireManagedExports\(\)\["InspectionEngine"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
+    generatedFacadeSource("inspect-web-metadata"),
+    /\$requireManagedExports\(\)\["MetadataExports"\]\["QueryGraphMemberSurface\.-?\d+"\]/);
   assert.match(
-    generatedEngineSource,
+    generatedFacadeSource("inspect-web-metadata"),
     /export async function queryGraphMemberSurface\(packageId, version, targetFramework/);
   assert.match(appSource, /solid border: no platform lookup/);
   assert.match(
@@ -4570,9 +4654,18 @@ test("selector-only accessors use body-aware implementation queries", () => {
     appSource.match(
       /async function loadSelectedMemberAnnotatedSource\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
-  assert.doesNotMatch(
-    browserEngineSource,
-    /A call graph needs the selected overload's method-body token/);
+  // The absent rejection is claimed across the managed export assemblies that could carry
+  // it, not just the host, now that call-graph and source operations have their own owners.
+  for (const managedSource of [
+    "../engine/InspectionEngine.cs",
+    "../engine.CallGraphExports/CallGraphExports.cs",
+    "../engine.SourceExports/SourceExports.cs",
+    "../engine.SourceExports/AnnotatedSourceExports.cs",
+  ]) {
+    assert.doesNotMatch(
+      readFileSync(new URL(managedSource, import.meta.url), "utf8"),
+      /A call graph needs the selected overload's method-body token/);
+  }
   assert.match(
     annotatedLoader,
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
@@ -4836,7 +4929,7 @@ test("runtime lookup refuses ambiguous or unresolved exact targets", () => {
     /const discardIfStale = \(\s*preservedFocus: MemberFocusSnapshot \| null = null,\s*\) => \{[\s\S]*?seq === state\.memberCallGraphSeq[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?if \(preservedFocus\) renderPreservingMemberFocus\(preservedFocus\);\s*else render\(\)/);
   assert.match(
     appSource,
-    /async function drillPlatformNode\(\s*node: BrowserCallGraphTarget,\s*navigationIsCurrent: \(\) => boolean = \(\) => true,\s*\)[\s\S]*?isCurrent: navigationIsCurrent/);
+    /async function drillPlatformNode\(\s*node: InspectedCallGraphTarget,\s*navigationIsCurrent: \(\) => boolean = \(\) => true,\s*\)[\s\S]*?isCurrent: navigationIsCurrent/);
   assert.match(
     callGraphInspectionSource,
     /async drill\(request\)[\s\S]*?const ownsRequest = \(\) =>\s*sequence === state\.memberCallGraphSeq && request\.isCurrent\(\)[\s\S]*?const abandonStaleRequest = \(\) => \{[\s\S]*?if \(sequence !== state\.memberCallGraphSeq\) return;[\s\S]*?state\.platformDrillLoading = false;[\s\S]*?dependencies\.renderPreservingMemberFocus\(\);[\s\S]*?if \(!ownsRequest\(\)\) \{\s*abandonStaleRequest\(\);\s*return;/);
@@ -5001,7 +5094,7 @@ test("type metadata uses a full-area working surface without the inset type head
 
 test("graph member projections stay transport- and package-bounded", () => {
   assert.match(
-    browserEngineSource,
+    browserGraphMemberSource,
     /QueryGraphMemberSurface[\s\S]*?BrowserSurfaceTextBudget\([\s\S]*?MaxRetainedTextCharacters[\s\S]*?BrowserSurfaceProjection\.Type\([\s\S]*?textBudget,[\s\S]*?selectedMembers: \[resolution\.Member\]\)[\s\S]*?textBudget\.CommitParticipant\(\)/);
 
   const publicMember = { name: "Public" };
@@ -5358,9 +5451,7 @@ test("graph-member projection carries exact surface currency and a collision-saf
     /inspectGraphMemberSurface\([\s\S]*graphMemberSurfaceAssembly\(target, type\)/,
   );
   assert.match(
-    readFileSync(
-      new URL("../engine/InspectionEngine.cs", import.meta.url),
-      "utf8"),
+    browserGraphMemberSource,
     /BrowserSurfaceProjection\.Type\([\s\S]*qualifyId: true,[\s\S]*selectedMembers:/,
   );
 
