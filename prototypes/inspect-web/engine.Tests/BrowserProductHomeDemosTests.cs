@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries.Definitions;
 
 using InspectWeb.Engine.CatalogFacade;
@@ -14,12 +15,14 @@ public sealed class BrowserProductHomeDemosTests
     {
         using var document = JsonDocument.Parse(CatalogExports.ListHomeDemos());
         var demos = document.RootElement.GetProperty("demos");
-        Assert.Equal(ProductInspectionDemos.Entries.Count, demos.GetArrayLength());
+        IReadOnlyList<EcosystemDemoDescriptor> expectedDemos =
+            EcosystemPackCatalog.DiscoverDemos();
+        Assert.Equal(expectedDemos.Count, demos.GetArrayLength());
         for (var i = 0; i < demos.GetArrayLength(); i++)
         {
-            var expected = ProductInspectionDemos.Entries[i];
+            var expected = expectedDemos[i];
             var actual = demos[i];
-            Assert.Equal(expected.Id, actual.GetProperty("id").GetString());
+            Assert.Equal(expected.ScenarioId, actual.GetProperty("id").GetString());
             Assert.Equal(expected.Title, actual.GetProperty("title").GetString());
             Assert.Equal(expected.Summary, actual.GetProperty("summary").GetString());
         }
@@ -34,16 +37,46 @@ public sealed class BrowserProductHomeDemosTests
 
         using var legacy = JsonDocument.Parse(CatalogExports.ResolveHomeDemo("stj"));
         Assert.False(legacy.RootElement.GetProperty("found").GetBoolean());
+
+        using var missingNull = JsonDocument.Parse(CatalogExports.ResolveHomeDemo(null!));
+        Assert.False(missingNull.RootElement.GetProperty("found").GetBoolean());
+
+        using var missingBlank = JsonDocument.Parse(CatalogExports.ResolveHomeDemo(" "));
+        Assert.False(missingBlank.RootElement.GetProperty("found").GetBoolean());
+    }
+
+    [Fact]
+    public void CatalogProjectionUsesEcosystemDescriptorMetadata()
+    {
+        EcosystemDemoSelection selection =
+            Select(ProductDemoIds.AspirePostgresCallGraph);
+        Assert.NotEqual(
+            selection.Descriptor.Title,
+            selection.Scenario.Title);
+        Assert.NotEqual(
+            selection.Descriptor.Summary,
+            selection.Scenario.Description);
+
+        using var document = JsonDocument.Parse(
+            CatalogExports.ResolveHomeDemo(
+                ProductDemoIds.AspirePostgresCallGraph));
+        JsonElement demo = document.RootElement.GetProperty("demo");
+        Assert.Equal(
+            selection.Descriptor.Title,
+            demo.GetProperty("title").GetString());
+        Assert.Equal(
+            selection.Descriptor.Summary,
+            demo.GetProperty("summary").GetString());
     }
 
     [Fact]
     public void ResolveHomeDemo_StjSerializer_ProjectsPackageAndTypeView()
     {
         using var document = JsonDocument.Parse(
-            CatalogExports.ResolveHomeDemo(ProductInspectionDemos.StjSerializerScenarioId));
+            CatalogExports.ResolveHomeDemo(ProductDemoIds.StjSerializer));
         var root = document.RootElement.GetProperty("demo");
         Assert.True(document.RootElement.GetProperty("found").GetBoolean());
-        Assert.Equal(ProductInspectionDemos.StjSerializerScenarioId, root.GetProperty("id").GetString());
+        Assert.Equal(ProductDemoIds.StjSerializer, root.GetProperty("id").GetString());
         Assert.Equal("System.Text.Json", root.GetProperty("title").GetString());
 
         var members = root.GetProperty("workspaceMembers");
@@ -64,7 +97,7 @@ public sealed class BrowserProductHomeDemosTests
     public void ResolveHomeDemo_ExtensionsCallGraph_ProjectsPackagesAndMemberAnchor()
     {
         using var document = JsonDocument.Parse(
-            CatalogExports.ResolveHomeDemo(ProductInspectionDemos.ExtensionsCallGraphScenarioId));
+            CatalogExports.ResolveHomeDemo(ProductDemoIds.ExtensionsCallGraph));
         var root = document.RootElement.GetProperty("demo");
         var members = root.GetProperty("workspaceMembers");
         Assert.Equal(3, members.GetArrayLength());
@@ -89,10 +122,10 @@ public sealed class BrowserProductHomeDemosTests
     [Fact]
     public void ToRunPlan_AllProductHomeDemosHaveSupportedBrowserShape()
     {
-        foreach (var entry in ProductInspectionDemos.Entries)
+        foreach (var entry in EcosystemPackCatalog.DiscoverDemos())
         {
             BrowserHomeDemoRunPlan plan = BrowserProductHomeDemos.ToRunPlan(
-                ProductInspectionDemos.ResolveHomeScenario(entry.Id));
+                Select(entry.ScenarioId).Scenario);
 
             Assert.InRange(plan.FocusRequestIndex, 0, plan.Requests.Length - 1);
             if (plan.Section == ProductDemoSections.Methods)
@@ -112,8 +145,7 @@ public sealed class BrowserProductHomeDemosTests
     {
         BrowserHomeDemoRunPlan plan =
             BrowserProductHomeDemos.ToRunPlan(
-                ProductInspectionDemos.ResolveHomeScenario(
-                    ProductInspectionDemos.StjSerializerScenarioId));
+                Select(ProductDemoIds.StjSerializer).Scenario);
 
         Assert.Single(plan.Requests);
         Assert.Equal("System.Text.Json", plan.Requests[0].PackageId);
@@ -130,8 +162,7 @@ public sealed class BrowserProductHomeDemosTests
     {
         BrowserHomeDemoRunPlan plan =
             BrowserProductHomeDemos.ToRunPlan(
-                ProductInspectionDemos.ResolveHomeScenario(
-                    ProductInspectionDemos.ExtensionsCallGraphScenarioId));
+                Select(ProductDemoIds.ExtensionsCallGraph).Scenario);
 
         Assert.Equal(3, plan.Requests.Length);
         Assert.Equal(
@@ -241,6 +272,10 @@ public sealed class BrowserProductHomeDemosTests
         Assert.Equal(
             JsonValueKind.Null,
             document.RootElement.GetProperty("callGraph").ValueKind);
+
+        using var missingNull = JsonDocument.Parse(
+            await CatalogExports.RunHomeDemo(null!));
+        Assert.False(missingNull.RootElement.GetProperty("found").GetBoolean());
     }
 
     private static ResolvedScenario ResolveSyntheticScenario(
@@ -300,4 +335,8 @@ public sealed class BrowserProductHomeDemosTests
             navigation: "navigation"));
         return registry.ResolveScenario("scenario");
     }
+
+    private static EcosystemDemoSelection Select(string scenarioId) =>
+        Assert.IsType<EcosystemDemoSelectionResult.Known>(
+            EcosystemPackCatalog.SelectDemo(scenarioId)).Selection;
 }
