@@ -87,8 +87,7 @@ public static class ResearchProducerSession
                     firstFailure ??= failed.Diagnostic;
                 }
 
-                if (index + 1 < workItems.Length
-                    && cancellationToken.IsCancellationRequested)
+                if (cancellationToken.IsCancellationRequested)
                 {
                     cancelled = true;
                     break;

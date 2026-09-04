@@ -321,6 +321,26 @@ public class ResearchProducerSessionTests
         Assert.Equal(FindingInspectionState.Complete, ilTransition.New);
         Assert.Null(csharp.Result.BodyDiff);
         Assert.Null(il.Result.MemberDiff);
+
+        SessionFixture apiOnlyFixture = SessionFixture.Create(
+            Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()),
+            Occurrence(FixtureCatalog.ResearchTargetSample.AssemblyPath()));
+        ResearchTargetResolution apiOnly = apiOnlyFixture.Resolve(
+            SampleType,
+            "Field");
+        var invoker = new TrackingInvoker();
+        ResearchProducerCompletion apiOnlyCompletion = Complete(
+            Request(apiOnlyFixture, apiOnly),
+            invoker);
+        Assert.All(
+            apiOnlyCompletion.Results,
+            result => Assert.Equal(
+                ResearchProducerUnavailableKind.EndpointAddressUnavailable,
+                Assert.IsType<
+                    ResearchProducerWorkOutcome.Unavailable>(result.Outcome)
+                    .Reason.Kind));
+        Assert.Equal(0, invoker.InvocationCount);
+        Assert.Empty(apiOnlyCompletion.Cleanup);
     }
 
     [Fact]
@@ -587,6 +607,25 @@ public class ResearchProducerSessionTests
                     alreadyCancelled.Token));
         Assert.Equal(0, notInvoked.InvocationCount);
         Assert.Empty(beforeAcquisition.Cleanup);
+
+        using var finalCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        var finalInvoker = new TrackingInvoker
+        {
+            AfterCSharp = finalCancellation.Cancel,
+        };
+        var finalItem =
+            Assert.IsType<ResearchProducerSessionOutcome.Cancelled>(
+                ResearchProducerSession.Run(
+                    new ResearchProducerSessionRequest(
+                        fixture.Population,
+                        resolution,
+                        [ResearchProducerKind.CSharp]),
+                    finalInvoker,
+                    finalCancellation.Token));
+        Assert.Equal(1, finalInvoker.InvocationCount);
+        Assert.Equal(2, finalItem.Cleanup.Length);
     }
 
     [Fact]
