@@ -122,7 +122,8 @@ Version resolution is source-scoped. Use `Foo --version` for the best-known
 listed version: it reuses each source's matching latest entry and queries
 sources without one. Use `Foo --latest-version` to bypass those caches and
 refresh the newest version across all eligible configured sources, and
-`Foo --versions [N]` (add `--preview`) to list published versions. Unlisted
+`Foo --versions` (add `-n N` for N rows or `--preview` for prerelease) to list
+published versions. Unlisted
 versions are hidden unless
 `--include-unlisted` is explicit. `--versions-with-feed` retains each
 version/feed pair when source identity matters. Source declaration order is not

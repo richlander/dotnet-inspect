@@ -255,7 +255,7 @@ dotnet-inspect project ./src/dotnet-inspect -S Skills --jsonl -T q
 
 ```bash
 dotnet-inspect package System.Text.Json
-dotnet-inspect package System.Text.Json --versions
+dotnet-inspect package System.Text.Json --versions -n 6
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json -S "Signals,Audit: Artifact Text"

@@ -34,10 +34,23 @@ public static class CommandLineBuilder
     public static bool UsesTypedItemLimit(
         System.CommandLine.ParseResult result)
     {
-        return result.CommandResult.Command.Name == PackageSearchCommand.Name
-            && result.CommandResult.Parent is
-                System.CommandLine.Parsing.CommandResult parentCommand
-            && parentCommand.Command.Name == PackageCommand.Name;
+        if (HasParsedOption(result, "--lines")
+            || HasParsedOption(result, "--tail-lines"))
+        {
+            return false;
+        }
+
+        return (result.CommandResult.Command.Name
+                    == PackageSearchCommand.Name
+                && result.CommandResult.Parent is
+                    System.CommandLine.Parsing.CommandResult parentCommand
+                && parentCommand.Command.Name == PackageCommand.Name)
+            || (result.CommandResult.Command.Name
+                    == PackageCommand.Name
+                && (HasParsedOption(result, "--versions")
+                    || HasParsedOption(
+                        result,
+                        "--versions-with-feed")));
     }
 
     /// <summary>
@@ -75,11 +88,17 @@ public static class CommandLineBuilder
         RootCommand rootCommand)
     {
         string[] processed = ArgumentPreprocessor.PreprocessArgs(args);
-        if (processed.FirstOrDefault() == "router")
+        ParseResult parseResult = rootCommand.Parse(processed);
+        if (processed.FirstOrDefault() == "router"
+            || CliRowSelectionCommandRegistry.OwnsShortLimit(
+                parseResult,
+                processed))
+        {
             return processed;
+        }
 
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
-            rootCommand.Parse(processed),
+            parseResult,
             processed);
     }
 
@@ -137,33 +156,73 @@ public static class CommandLineBuilder
         string[]? rawArgs,
         bool installLineWindow)
     {
-        ApplyParsedLineWindow(parseResult, rawArgs);
+        ArgumentPreprocessor.SetLineWindow(
+            headLines: null,
+            tailLines: null);
+        CliRowSelectionPreparation rowSelection =
+            CliRowSelectionCommandRegistry.Prepare(
+                parseResult,
+                rawArgs);
+        parseResult = rowSelection.ParseResult;
 
         if (WriteParseErrors(parseResult))
             return 1;
 
-        if (!installLineWindow)
+        if (rowSelection.Error is not null)
+        {
+            CommandError.Write(rowSelection.Error);
+            return 1;
+        }
+
+        int? headLines = null;
+        int? tailLines = null;
+        if (rowSelection.Lowering?.LineIntent is { } lineIntent)
+        {
+            if (lineIntent.Direction
+                == CliLineSelectionDirection.Tail)
+            {
+                tailLines = lineIntent.Count;
+            }
+            else
+            {
+                headLines = lineIntent.Count;
+            }
+
+            ArgumentPreprocessor.SetLineWindow(
+                headLines,
+                tailLines);
+        }
+        else if (!rowSelection.IsActive)
+        {
+            ApplyParsedLineWindow(parseResult, rawArgs);
+            headLines = HeadLines;
+            tailLines = TailLines;
+        }
+
+        if (!installLineWindow
+            && rowSelection.Lowering?.LineIntent is null)
             return await InvokeCoreAsync(parseResult);
 
         TextWriter originalWriter = Console.Out;
         TailLineLimitingTextWriter? tailWriter = null;
         bool replaceWriter = false;
-        if (!HasParsedOption(parseResult, "--rows")
-            && !UsesTypedItemLimit(parseResult))
+        if (rowSelection.IsActive
+            || !HasParsedOption(parseResult, "--rows")
+                && !UsesTypedItemLimit(parseResult))
         {
-            if (HeadLines is int headLines)
+            if (headLines is int selectedHeadLines)
             {
                 Console.SetOut(
                     new LineLimitingTextWriter(
                         originalWriter,
-                        headLines));
+                        selectedHeadLines));
                 replaceWriter = true;
             }
-            else if (TailLines is int tailLines)
+            else if (tailLines is int selectedTailLines)
             {
                 tailWriter = new TailLineLimitingTextWriter(
                     originalWriter,
-                    tailLines);
+                    selectedTailLines);
                 Console.SetOut(tailWriter);
                 replaceWriter = true;
             }

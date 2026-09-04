@@ -1,6 +1,8 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 
+using DotnetInspector.Sections;
+
 namespace DotnetInspector.Options;
 
 /// <summary>
@@ -152,6 +154,11 @@ public record InspectionOptions : IProjectionOptions
     /// Limit the number of results (for --versions).
     /// </summary>
     public int? Limit { get; init; }
+
+    /// <summary>
+    /// Semantic row selection for plural package-version listings.
+    /// </summary>
+    public RowSelectionIntent<string>? VersionRowSelection { get; init; }
 
     /// <summary>
     /// Output as JSON instead of MDF.

@@ -1,6 +1,7 @@
 using DotnetInspector.Core;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using System.Globalization;
 
 namespace DotnetInspector.CommandLine;
 
@@ -55,7 +56,7 @@ public static class ArgumentPreprocessor
             var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
             var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
             error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
-                + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
+                + $"the count comes from -n (the active command's unit) or --rows (data rows). Use '{replacement}'.";
             return true;
         }
 
@@ -68,7 +69,62 @@ public static class ArgumentPreprocessor
     /// is true but leaves the caller to find the replacement themselves.
     /// </summary>
     public static bool TryGetStaleArgumentError(string[] args, out string? error)
-        => TryGetStaleDirectionFlagError(args, out error);
+    {
+        if (TryGetStaleDirectionFlagError(args, out error))
+            return true;
+
+        return TryGetValuedVersionSelectorError(args, out error);
+    }
+
+    private static bool TryGetValuedVersionSelectorError(
+        string[] args,
+        out string? error)
+    {
+        error = null;
+        var end = Array.IndexOf(args, "--");
+        if (end < 0)
+            end = args.Length;
+
+        for (var index = 0; index < end; index++)
+        {
+            string token = args[index];
+            string? option = token switch
+            {
+                "--versions" or "--versions-with-feed" => token,
+                _ when token.StartsWith("--versions=", StringComparison.Ordinal)
+                    || token.StartsWith("--versions:", StringComparison.Ordinal) =>
+                    "--versions",
+                _ when token.StartsWith("--versions-with-feed=", StringComparison.Ordinal)
+                    || token.StartsWith("--versions-with-feed:", StringComparison.Ordinal) =>
+                    "--versions-with-feed",
+                _ => null
+            };
+            if (option is null)
+                continue;
+
+            bool hasInlineValue = token.Length > option.Length;
+            bool hasSeparatedNumericValue =
+                !hasInlineValue
+                && index + 1 < end
+                && !args[index + 1].StartsWith(
+                    "-",
+                    StringComparison.Ordinal)
+                && int.TryParse(
+                    args[index + 1],
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out _);
+            if (!hasInlineValue && !hasSeparatedNumericValue)
+                continue;
+
+            error =
+                $"'{option}' no longer accepts a count. "
+                + $"Use '{option} -n N'.";
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// The replacement guidance for a package option this product removed, or <c>null</c> when the
@@ -116,6 +172,14 @@ public static class ArgumentPreprocessor
     {
         HeadLines = null;
         TailLines = null;
+    }
+
+    internal static void SetLineWindow(
+        int? headLines,
+        int? tailLines)
+    {
+        HeadLines = headLines;
+        TailLines = tailLines;
     }
 
     /// <summary>
@@ -437,7 +501,7 @@ public static class ArgumentPreprocessor
             StringComparer.Ordinal);
     private static readonly HashSet<string> PackageOptionsWithOptionalFollowingValue =
         new(
-            ["--path", "--library", "--version", "--versions", "--versions-with-feed"],
+            ["--path", "--library", "--version"],
             StringComparer.Ordinal);
     private static readonly string[] AtCategoryOptionAliases = [.. SelectAliases, "-D", "--discover"];
     private static readonly HashSet<string> SearchScopeCommands = new(StringComparer.OrdinalIgnoreCase)
@@ -450,7 +514,7 @@ public static class ArgumentPreprocessor
         "--platform", CommandLineHelpers.PlatformLibraryOptionName, "--framework", "--tfm",
         "-t", "--type", "-m", "--member", "-k", "--kind", "--index",
         "--caller-package", "--caller-project", "--match", "--path",
-        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version", "--versions", "--versions-with-feed",
+        "--il-offset", "--il-offsets", "--heap", "--extract-resources", "--version",
         "--out", "--output", "-o", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
         "--package-prefix", "--depth", "-n", "--rows", "--source",

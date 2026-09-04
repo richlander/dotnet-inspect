@@ -178,10 +178,12 @@ select one concrete kind when a specific field controls the order.
 
 Prefer built-in limits to shell pipes:
 
-- `-n N` and numeric shorthand like `-6` cap output lines, like `head`.
+- `-n N` and numeric shorthand like `-6` cap output lines on commands that
+  have not adopted semantic rows, like `head`.
 - `--tail` takes the same count from the end, like `tail`.
-- `--rows N` takes the first N data rows per table, preserving headings and
-  headers; add `--tail` for the last N.
+- `--rows N` takes the first N data rows per table on commands that retain the
+  legacy row window, preserving headings and headers; add `--tail` for the last
+  N. On package version lenses, use `-n N` instead.
 - `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
   means ten rows starting at row 2, and `10..` runs from row 10 to the end.
   Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
@@ -191,5 +193,7 @@ Prefer built-in limits to shell pipes:
   sliding. `-n N` may still limit the result.
 - `--count` counts rows in one selected table.
 
-Command-specific caps: `-t N` for type/find rows, `-m N` for members, and
-`--versions N` for package versions.
+Command-specific caps: `-t N` for type/find rows and `-m N` for members.
+Package `--versions` and `--versions-with-feed` are zero-arity selectors;
+`-n N` selects complete version rows, while `-n N --lines` clips their rendered
+lines. `--rows` on those lenses accepts only `A..B`, `A..`, and `..B`.

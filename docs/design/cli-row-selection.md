@@ -7,8 +7,9 @@ Focused L3 design proposal for
 [#4677](https://github.com/richlander/dotnet-inspect/issues/4677).
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
-boundary for semantic row selection and rendered-line selection. The current
-product has not adopted this contract.
+boundary for semantic row selection and rendered-line selection. The package
+`--versions` and `--versions-with-feed` lenses adopt the Head/Tail, Window, and
+Lines subset; other command surfaces retain their existing contracts.
 
 Implementation is partial. #5644 implements value parsing, ordered lowering,
 modifier composition, Top-order attachment, typed capability rejection, and
@@ -16,12 +17,15 @@ structured failure selection over already-owned explicit-command option
 occurrences. #5678 implements the explicit-command adapter that establishes
 required-value ownership from System.CommandLine, normalizes eligible bare
 shorthand, preserves raw positions, extracts those occurrences, and invokes
-the lowerer. Implicit routing, diagnostic selection and rendering, command
-adoption, and guidance remain unimplemented.
+the lowerer. #5786 installs that adapter for plural package-version listings,
+renders its L3 failures before package acquisition, and carries typed intent
+through L2 row-cohort selection after source aggregation. The general implicit
+route envelope, remaining command adoptions, and shared universal guidance
+remain unimplemented.
 
-Only those two explicit-command subsets are verified by their named Release
-gates in [Required gates](#required-gates). Every other asserted behavior
-remains unverified until its named gate lands.
+Only the implemented subsets are verified by their named Release gates in
+[Required gates](#required-gates). Every other asserted behavior remains
+unverified until its named gate lands.
 
 Related owners:
 
@@ -478,9 +482,11 @@ failure and hide that failure.
 
 ## Command-by-command adoption
 
-Adoption is explicit on the active leaf command. A command does not become
-adopted because it happens to use a shared option object, renders a table, or
-shares an execution helper with an adopted command.
+Adoption is explicit on the active leaf command or on an explicit zero-arity
+lens selector whose row set is determined at L3. A command or lens does not
+become adopted because it happens to use a shared option object, renders a
+table, or shares an execution helper with an adopted surface. Unselected modes
+of a lens-adopting command retain their existing contract.
 
 One adoption PR defines:
 
@@ -497,9 +503,9 @@ grammar. Shared/root guidance must not call `-n` universal until all commands
 named by #4677 have adopted it. An adopted command uses `-n` only for semantic
 rows; its rendered-line operation is available only through `--lines`.
 
-One invocation is governed entirely by the active command's declaration and
-never changes meaning based on whether a later subsystem happens to handle the
-result.
+One invocation is governed entirely by the active command or selected lens
+declaration and never changes meaning based on whether a later subsystem
+happens to handle the result.
 
 ## Supported spellings and guidance
 
@@ -570,6 +576,18 @@ The implemented explicit-command argv adapter is enforced by:
 | `CliRowSelectionExplicitOccurrencePositionTests` | Separated, `=`/`:` attached, and compact values extract typed occurrences at their raw option positions, including one opaque order operand, then preserve semantic order through lowering. |
 | `CliRowSelectionExplicitParseFailureTests` | Authoritative System.CommandLine failures, including unsupported POSIX bundles, suppress lowering; missing row values and attached modifier values produce structured row-arity failures; following separate tokens remain independently parsed; repeatable one-value-per-token option identities preserve complete repeats for the lowerer's repeated-gesture failure. |
 | `CliRowSelectionExplicitAdapterCompositionTests` | Raw Window plus bare count and line-unit input composes through the adapter into surviving semantic Window and rendered-line intent with exactly the lowered capabilities. |
+| `CliRowSelectionExplicitScalarOptionBindingsLower` | An adopting command can bind existing scalar System.CommandLine options while preserving compact-limit normalization and ordered Window/Head intent. |
+
+The plural package-version adoption is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `Versions_WithLimit_RespectsLimit` and `Versions_BareShorthandAndTailSelectRows` | Explicit `-n`, implicit-route `-N`, and Tail select complete version rows. |
+| `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
+| `VersionsWithFeed_LinesMakesRenderedClippingExplicit` and `Versions_LinesRejectsDocumentJsonBeforeAcquisition` | `--lines` opts into rendered-line selection where the format remains valid and rejects document JSON before acquisition. |
+| `Versions_ValuedSelectorReportsReplacement` | Both zero-arity selectors reject their former valued spelling before routing can reinterpret the number as a package target. |
+| `PackageVersionListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress authenticated multi-source completion evidence. |
+| `SourceClassification_PlainDirectoryNeverConstructsHttpTransport` | A local-directory source remains outside HTTP/plugin authentication under semantic Head(1). |
 
 The remaining implementation must satisfy:
 

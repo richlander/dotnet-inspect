@@ -48,10 +48,22 @@ public static class PackageCommandDefinitions
         {
             Description = "Inspect all compatible libraries from this package"
         };
-        var versionsOption = new Option<int?>("--versions") { Description = "List available versions (optionally limit count)", Arity = ArgumentArity.ZeroOrOne };
-        versionsOption.DefaultValueFactory = _ => null;
-        var versionsWithFeedOption = new Option<int?>("--versions-with-feed") { Description = "List available versions with the feed each came from (optionally limit version count)", Arity = ArgumentArity.ZeroOrOne };
-        versionsWithFeedOption.DefaultValueFactory = _ => null;
+        var versionsOption = new Option<bool>("--versions")
+        {
+            Description = "List available versions; use -n N to select N version rows"
+        };
+        var versionsWithFeedOption = new Option<bool>("--versions-with-feed")
+        {
+            Description = "List available versions with source feeds; use -n N to select N version/feed rows"
+        };
+        var linesOption = new Option<bool>("--lines")
+        {
+            Description = "Apply -n to rendered lines instead of version rows"
+        };
+        var tailLinesOption = new Option<bool>("--tail-lines")
+        {
+            Description = "Apply -n to rendered lines from the end"
+        };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");
         var includeUnlistedOption = new Option<bool>("--include-unlisted") { Description = "Include unlisted versions in --versions output, marked as unlisted" };
@@ -80,6 +92,8 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
+        packageCommand.Options.Add(linesOption);
+        packageCommand.Options.Add(tailLinesOption);
         packageCommand.Options.Add(prereleaseOption);
         packageCommand.Options.Add(includeUnlistedOption);
         packageCommand.Options.Add(contentOption);
@@ -97,12 +111,59 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.Json);
         packageCommand.Options.Add(opts.Markdown);
         packageCommand.Options.Add(opts.PlainText);
-        opts.AddOutputOptionsTo(packageCommand);
+        opts.AddOutputOptionsTo(
+            packageCommand,
+            validateLegacyRowWindow: result =>
+                !result.GetValue(versionsOption)
+                && !result.GetValue(versionsWithFeedOption));
         opts.AddSectionOptionsTo(packageCommand);
         opts.AddCountOptionTo(packageCommand);
         opts.AddPrintOptionTo(packageCommand);
         opts.AddShapeProjectionOptionsTo(packageCommand);
         opts.AddNuGetOptionsTo(packageCommand);
+        packageCommand.Validators.Add(result =>
+        {
+            bool hasPluralVersionSelector =
+                result.GetValue(versionsOption)
+                || result.GetValue(versionsWithFeedOption);
+            bool hasLineSelection =
+                result.GetValue(linesOption)
+                || result.GetValue(tailLinesOption);
+            if (!hasPluralVersionSelector
+                && hasLineSelection)
+            {
+                result.AddError(
+                    "--lines and --tail-lines are available with "
+                    + "--versions or --versions-with-feed.");
+            }
+
+            if (hasPluralVersionSelector
+                && hasLineSelection
+                && result.GetValue(opts.Json))
+            {
+                result.AddError(
+                    "--lines and --tail-lines cannot be combined with --json; "
+                    + "use semantic -n to select complete JSON rows.");
+            }
+        });
+
+        CliRowSelectionCommandRegistry.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                opts.Rows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                linesOption,
+                tailLinesOption),
+            CliRowSelectionCapabilities.HeadTail
+                | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            result =>
+                result.GetValue(versionsOption)
+                || result.GetValue(versionsWithFeedOption));
 
         // Search subcommand
         var searchCommand = CreatePackageSearchCommand(
@@ -117,7 +178,9 @@ public static class PackageCommandDefinitions
             packageNameArg, dependenciesOption, layoutOption, pathOption, tfmsOption,
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
-            tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
+            tfmOption, typeFilterOption, versionOption, latestVersionOption,
+            linesOption, tailLinesOption, outOption, pathMatchOption,
+            skipEmptyOption, opts.NoHeaders);
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {
@@ -133,6 +196,10 @@ public static class PackageCommandDefinitions
                         ArgumentPreprocessor.GetRemovedPackageOptionError(error.Option) is { } removed
                             ? removed
                             : $"Unrecognized option '{error.Option}'.");
+                    return 1;
+
+                case PackageOptionsParser.InvalidArguments error:
+                    CommandError.Write(error.Message);
                     return 1;
 
                 case PackageOptionsParser.Success success:

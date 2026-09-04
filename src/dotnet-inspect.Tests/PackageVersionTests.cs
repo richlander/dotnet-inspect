@@ -1,5 +1,7 @@
 using DotnetInspector.Core;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using System.Text.Json;
 
 namespace DotnetInspector.Tests;
 
@@ -36,6 +38,21 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task Version_Bare_PreservesSingularJsonBehavior()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--version",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Matches(@"^\d+\.\d+\.\d+", output.Trim());
+        Assert.DoesNotContain("{", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LatestVersion_AlwaysQueriesNuGet()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -66,15 +83,226 @@ public class PackageVersionTests
     [Fact]
     public async Task Versions_WithLimit_RespectsLimit()
     {
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.CommandLine", "--versions", "2" };
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--versions",
+            "-n",
+            "2");
 
         Assert.Equal(0, exit);
+        Assert.Empty(error);
         var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
+    }
+
+    [Fact]
+    public async Task Versions_WithLimit_ProducesCompleteJsonRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--versions",
+            "-n",
+            "2",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row => Assert.True(
+                row.TryGetProperty("version", out _)));
+    }
+
+    [Fact]
+    public async Task Versions_BareShorthandAndTailSelectRows()
+    {
+        var (headExit, headOutput, headError) = await RunAppAsync(
+            "System.CommandLine",
+            "--versions",
+            "-2");
+        var (tailExit, tailOutput, tailError) = await RunAppAsync(
+            "System.CommandLine",
+            "--versions",
+            "-2",
+            "--tail");
+
+        Assert.Equal(0, headExit);
+        Assert.Equal(0, tailExit);
+        Assert.Empty(headError);
+        Assert.Empty(tailError);
+        string[] headRows =
+            headOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+        string[] tailRows =
+            tailOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(2, headRows.Length);
+        Assert.Equal(2, tailRows.Length);
+        Assert.False(headRows.SequenceEqual(tailRows));
+    }
+
+    [Fact]
+    public async Task VersionsWithFeed_WithLimit_ProducesCompleteJsonRows()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--versions-with-feed",
+            "-n",
+            "2",
+            "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetArrayLength());
+        Assert.All(
+            document.RootElement.EnumerateArray(),
+            row =>
+            {
+                Assert.True(row.TryGetProperty("version", out _));
+                Assert.True(row.TryGetProperty("feed", out _));
+                Assert.Equal(
+                    JsonValueKind.String,
+                    row.GetProperty("listing").ValueKind);
+            });
+    }
+
+    [Fact]
+    public async Task VersionsWithFeed_LinesMakesRenderedClippingExplicit()
+    {
+        var (semanticExit, semanticOutput, semanticError) =
+            await RunAppAsync(
+                "package",
+                "System.CommandLine",
+                "--versions-with-feed",
+                "-n",
+                "1",
+                "--tsv");
+        var (linesExit, linesOutput, linesError) =
+            await RunAppAsync(
+                "package",
+                "System.CommandLine",
+                "--versions-with-feed",
+                "-n",
+                "1",
+                "--lines",
+                "--tsv");
+
+        Assert.Equal(0, semanticExit);
+        Assert.Equal(0, linesExit);
+        Assert.Empty(semanticError);
+        Assert.Empty(linesError);
+        Assert.Equal(
+            2,
+            semanticOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Single(
+            linesOutput.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    [Fact]
+    public async Task Versions_LinesRejectsDocumentJsonBeforeAcquisition()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            "--versions",
+            "-n",
+            "2",
+            "--lines",
+            "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined with --json",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Versions_ValuedSelectorReportsReplacement()
+    {
+        string[][] cases =
+        [
+            [
+                "package",
+                "System.CommandLine",
+                "--versions",
+                "2"
+            ],
+            [
+                "package",
+                "--versions",
+                "2",
+                "System.CommandLine"
+            ],
+            [
+                "System.CommandLine",
+                "--versions",
+                "2"
+            ],
+            [
+                "package",
+                "System.CommandLine",
+                "--versions=2"
+            ],
+            [
+                "package",
+                "System.CommandLine",
+                "--versions-with-feed",
+                "2"
+            ]
+        ];
+
+        foreach (string[] arguments in cases)
+        {
+            var (exit, output, error) =
+                await RunAppAsync(arguments);
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(" -n N'.", error, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Versions_RowSelectionCannotBypassInvocationLowering()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+        [
+            "package",
+            "System.CommandLine",
+            "--versions",
+            "-n",
+            "2"
+        ];
+
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(
+                () => root.Parse(args).InvokeAsync());
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "was not lowered before execution",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -199,6 +427,27 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Contains("Error: 'badversion' is not a valid package version.", error);
         Assert.Contains("Use id@version for per-package version pins.", error);
+    }
+
+    private static Task<(int Exit, string Output, string Error)> RunAppAsync(
+        params string[] args)
+    {
+        return ConsoleCapture.RunAsync(async () =>
+        {
+            var root = CommandLineBuilder.CreateRootCommand();
+            if (CommandLineBuilder.TryGetStaleArgumentError(
+                    args,
+                    out string? error))
+            {
+                CommandError.Write(error!);
+                return 1;
+            }
+
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                root.Parse(args),
+                args);
+        });
     }
 
     /// <summary>

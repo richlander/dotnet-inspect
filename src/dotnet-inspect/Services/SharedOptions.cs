@@ -39,7 +39,7 @@ public class SharedOptions
     public Option<int?> Limit { get; }
     public Option<string?> Rows { get; } = new("--rows")
     {
-        Description = "Select data rows per rendered table: a count (6), an inclusive range (2..10), a start plus count (2+10), or an open range (10..)",
+        Description = "Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); package version lenses accept only range forms and use -n for counts",
         Arity = ArgumentArity.ExactlyOne
     };
     public Option<bool> Head { get; } = new("--head") { Description = "Take the count from the start (the default direction)" };
@@ -108,7 +108,10 @@ public class SharedOptions
         Verbosity.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, OptionParsers.ValidVerbosityValues);
         PerformanceTriageMinConfidence.AcceptOnlyFromAmong(StringComparer.OrdinalIgnoreCase, "low", "medium", "high");
 
-        Limit = new Option<int?>("-n") { Description = "Count of output lines to keep (like head -n); pair with --tail to take them from the end" };
+        Limit = new Option<int?>("-n")
+        {
+            Description = "Count selected by the active command: semantic rows where adopted, otherwise rendered lines; pair with --tail to take from the end"
+        };
 
         Tips = new Option<string?>("--tips")
         {
@@ -236,7 +239,10 @@ public class SharedOptions
     /// <summary>
     /// Adds core output options to a command (verbose, verbosity, tips, limit).
     /// </summary>
-    public void AddOutputOptionsTo(Command command, bool supportsRowWindows = true)
+    public void AddOutputOptionsTo(
+        Command command,
+        bool supportsRowWindows = true,
+        Func<CommandResult, bool>? validateLegacyRowWindow = null)
     {
         command.Options.Add(Verbose);
         command.Options.Add(Verbosity);
@@ -247,7 +253,10 @@ public class SharedOptions
         command.Options.Add(Head);
         command.Options.Add(Tail);
 
-        AddRowWindowValidators(command, supportsRowWindows);
+        AddRowWindowValidators(
+            command,
+            supportsRowWindows,
+            validateLegacyRowWindow);
     }
 
     /// <summary>
@@ -256,12 +265,19 @@ public class SharedOptions
     /// </summary>
     public void AddRowWindowValidators(
         Command command,
-        bool supportsRowWindows = true)
+        bool supportsRowWindows = true,
+        Func<CommandResult, bool>? validateLegacyRowWindow = null)
     {
         // --head and --tail name a direction, so asking for both is not a narrower
         // window but a contradiction. This applies with or without --rows.
         command.Validators.Add(result =>
         {
+            if (validateLegacyRowWindow is not null
+                && !validateLegacyRowWindow(result))
+            {
+                return;
+            }
+
             if (result.GetValue(Head) && result.GetValue(Tail))
                 result.AddError("--head and --tail select opposite ends; choose one.");
         });
@@ -270,6 +286,12 @@ public class SharedOptions
         {
             command.Validators.Add(result =>
             {
+                if (validateLegacyRowWindow is not null
+                    && !validateLegacyRowWindow(result))
+                {
+                    return;
+                }
+
                 if (result.GetResult(Rows) is not null)
                     result.AddError($"--rows is not supported by the '{command.Name}' command.");
             });
@@ -290,6 +312,12 @@ public class SharedOptions
         // System.CommandLine report the missing argument the way it reports every other.
         command.Validators.Add(result =>
         {
+            if (validateLegacyRowWindow is not null
+                && !validateLegacyRowWindow(result))
+            {
+                return;
+            }
+
             if (result.GetResult(Rows) is not { } rowsResult || rowsResult.Tokens.Count == 0)
                 return;
 

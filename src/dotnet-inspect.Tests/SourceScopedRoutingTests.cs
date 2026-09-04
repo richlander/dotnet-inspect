@@ -502,6 +502,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
                     "1",
                     "--count",
                     "--source",
@@ -667,6 +668,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
                     "1",
                     "--source",
                     RefusedSource,
@@ -1031,7 +1033,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
     [Theory]
     [InlineData("Newtonsoft.Json.", null, "package ID")]
-    [InlineData("Newtonsoft.Json", "0", "version limit")]
+    [InlineData("Newtonsoft.Json", "0", "positive whole number")]
     public async Task PackageVersionListing_InvalidInputReportsTypedFailure(
         string packageName,
         string? limit,
@@ -1056,7 +1058,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 "--versions",
             };
             if (limit is not null)
-                arguments.Add(limit);
+                arguments.AddRange(["-n", limit]);
             arguments.AddRange(["--source", SecondSource]);
 
             var (exit, output, error) =
@@ -1070,10 +1072,13 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 " at DotnetInspector.",
                 error,
                 StringComparison.Ordinal);
-            Assert.Contains(
-                "Correct the package command input",
-                error,
-                StringComparison.Ordinal);
+            if (limit is null)
+            {
+                Assert.Contains(
+                    "Correct the package command input",
+                    error,
+                    StringComparison.Ordinal);
+            }
             Assert.DoesNotContain(
                 "Correct the package source configuration",
                 error,
@@ -1332,6 +1337,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "package",
                     packageName,
                     "--versions",
+                    "-n",
+                    "1",
                     "--source",
                     localSource,
                 ]);

@@ -7,10 +7,10 @@ namespace DotnetInspector.CommandLine;
 internal sealed class CliRowSelectionOptionBindings
 {
     public CliRowSelectionOptionBindings(
-        Option<string[]> limit,
-        Option<string[]> rows,
-        Option<string[]> top,
-        Option<string[]> orderBy,
+        Option limit,
+        Option rows,
+        Option? top,
+        Option? orderBy,
         Option<bool> head,
         Option<bool> tail,
         Option<bool> lines,
@@ -18,8 +18,6 @@ internal sealed class CliRowSelectionOptionBindings
     {
         ArgumentNullException.ThrowIfNull(limit);
         ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(top);
-        ArgumentNullException.ThrowIfNull(orderBy);
         ArgumentNullException.ThrowIfNull(head);
         ArgumentNullException.ThrowIfNull(tail);
         ArgumentNullException.ThrowIfNull(lines);
@@ -35,13 +33,13 @@ internal sealed class CliRowSelectionOptionBindings
         TailLines = tailLines;
     }
 
-    public Option<string[]> Limit { get; }
+    public Option Limit { get; }
 
-    public Option<string[]> Rows { get; }
+    public Option Rows { get; }
 
-    public Option<string[]> Top { get; }
+    public Option? Top { get; }
 
-    public Option<string[]> OrderBy { get; }
+    public Option? OrderBy { get; }
 
     public Option<bool> Head { get; }
 
@@ -211,8 +209,10 @@ internal static class CliRowSelectionArgumentAdapter
     }
 
     private static BoundOption[] BoundOptions(
-        CliRowSelectionOptionBindings bindings) =>
-        [
+        CliRowSelectionOptionBindings bindings)
+    {
+        var options = new List<BoundOption>
+        {
             new(
                 bindings.Limit,
                 CliRowSelectionOccurrenceKind.Limit,
@@ -220,14 +220,6 @@ internal static class CliRowSelectionArgumentAdapter
             new(
                 bindings.Rows,
                 CliRowSelectionOccurrenceKind.Rows,
-                true),
-            new(
-                bindings.Top,
-                CliRowSelectionOccurrenceKind.Top,
-                true),
-            new(
-                bindings.OrderBy,
-                CliRowSelectionOccurrenceKind.OrderBy,
                 true),
             new(
                 bindings.Head,
@@ -245,7 +237,27 @@ internal static class CliRowSelectionArgumentAdapter
                 bindings.TailLines,
                 CliRowSelectionOccurrenceKind.TailLines,
                 false)
-        ];
+        };
+        if (bindings.Top is not null)
+        {
+            options.Add(
+                new(
+                    bindings.Top,
+                    CliRowSelectionOccurrenceKind.Top,
+                    true));
+        }
+
+        if (bindings.OrderBy is not null)
+        {
+            options.Add(
+                new(
+                    bindings.OrderBy,
+                    CliRowSelectionOccurrenceKind.OrderBy,
+                    true));
+        }
+
+        return [.. options];
+    }
 
     private static NormalizedArguments NormalizeShortLimitForms(
         ParseResult ownershipParse,

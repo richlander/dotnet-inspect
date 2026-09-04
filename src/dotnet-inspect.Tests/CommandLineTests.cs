@@ -713,10 +713,6 @@ public class CommandLineTests
     [InlineData("--library", "-1")]
     [InlineData("--version", "-n1")]
     [InlineData("--version", "-1")]
-    [InlineData("--versions", "-n1")]
-    [InlineData("--versions", "-1")]
-    [InlineData("--versions-with-feed", "-n1")]
-    [InlineData("--versions-with-feed", "-1")]
     public void PreprocessArgs_OptionalPackageValueDoesNotHideLineLimit(
         string option,
         string lineLimit)
@@ -724,6 +720,26 @@ public class CommandLineTests
         PreprocessAndApplyLineWindow(["package", "Foo", option, lineLimit]);
 
         Assert.Equal(1, CommandLineBuilder.HeadLines);
+        Assert.Null(CommandLineBuilder.TailLines);
+    }
+
+    [Theory]
+    [InlineData("--versions", "-n1")]
+    [InlineData("--versions", "-1")]
+    [InlineData("--versions-with-feed", "-n1")]
+    [InlineData("--versions-with-feed", "-1")]
+    public void PreprocessArgs_VersionLensPreservesSemanticLimit(
+        string option,
+        string rowLimit)
+    {
+        string[] args = ["package", "Foo", option, rowLimit];
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        string[] result =
+            CommandLineBuilder.PreprocessArgs(args, root);
+
+        Assert.Equal(args, result);
+        Assert.Null(CommandLineBuilder.HeadLines);
         Assert.Null(CommandLineBuilder.TailLines);
     }
 

@@ -536,6 +536,33 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void VersionListings_JsonUsesTheJsonlRowShape()
+    {
+        PackageVersionInfo[] versions =
+        [
+            new("2.0.0", Listed: true),
+            new("1.0.0-preview.1", Listed: false),
+        ];
+        var output = new StringWriter { NewLine = "\n" };
+
+        OutputFormatter.WriteVersionListings(
+            versions,
+            new InspectionOptions { JsonOutput = true },
+            output);
+
+        using JsonDocument document =
+            JsonDocument.Parse(output.ToString());
+        JsonElement[] rows =
+            [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(2, rows.Length);
+        Assert.Equal("2.0.0", rows[0].GetProperty("version").GetString());
+        Assert.Equal("listed", rows[0].GetProperty("listing").GetString());
+        Assert.Equal(
+            "unlisted",
+            rows[1].GetProperty("listing").GetString());
+    }
+
+    [Fact]
     public void WriteTable_ToLineLimitingWriter_PreservesBufferedSemantics()
     {
         // The line-limiting writer counts newlines per write call, so WriteTable must keep the

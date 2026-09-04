@@ -391,7 +391,13 @@ public class PackageCommand
                         // Materialized once: counting a lazy sequence and then re-enumerating it
                         // for the render is how a count starts to disagree with its payload.
                         var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue).ToList();
-                        var visibleRangeRows = RowWindow.Apply(options.Rows, rangeRows);
+                        if (!TrySelectVersionRows(
+                                rangeRows,
+                                options,
+                                out IReadOnlyList<PackageVersionInfo> visibleRangeRows))
+                        {
+                            return 1;
+                        }
                         if (LensProjection.TryProject(
                                 options,
                                 "--versions",
@@ -416,7 +422,13 @@ public class PackageCommand
                         .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
                         .ToList();
-                    var visibleRangeVersions = RowWindow.Apply(options.Rows, rangeVersions);
+                    if (!TrySelectVersionRows(
+                            rangeVersions,
+                            options,
+                            out IReadOnlyList<string> visibleRangeVersions))
+                    {
+                        return 1;
+                    }
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
@@ -424,7 +436,7 @@ public class PackageCommand
                             out var rangeProjectionExit,
                             ["Version"]))
                         return rangeProjectionExit;
-                    OutputFormatter.WriteStringList(visibleRangeVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+                    WriteVersions(visibleRangeVersions, options);
                     return 0;
                 }
                 catch (Exception ex) when (ex is HttpRequestException
@@ -463,7 +475,13 @@ public class PackageCommand
                             options.SourceOptions,
                             normalizedName)) != null)
                 {
-                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { versionQueryPinned });
+                    if (!TrySelectVersionRows(
+                            new[] { versionQueryPinned },
+                            options,
+                            out IReadOnlyList<string> visiblePinned))
+                    {
+                        return 1;
+                    }
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
@@ -494,7 +512,13 @@ public class PackageCommand
                 {
                     // Either spelling renders a single version row, so the projection answers 1
                     // and returns before the render path chooses between them.
-                    var visiblePinned = RowWindow.Apply(options.Rows, new[] { pinnedMatch });
+                    if (!TrySelectVersionRows(
+                            new[] { pinnedMatch },
+                            options,
+                            out IReadOnlyList<PackageVersionInfo> visiblePinned))
+                    {
+                        return 1;
+                    }
                     if (LensProjection.TryProject(
                             options,
                             "--versions",
@@ -551,7 +575,13 @@ public class PackageCommand
                 }
 
                 // A single resolved version is a one-row payload, so --count reports 1.
-                var visibleLatest = RowWindow.Apply(options.Rows, new[] { latest });
+                if (!TrySelectVersionRows(
+                        new[] { latest },
+                        options,
+                        out IReadOnlyList<string> visibleLatest))
+                {
+                    return 1;
+                }
                 if (LensProjection.TryProject(
                         options,
                         "--latest-version",
@@ -598,7 +628,13 @@ public class PackageCommand
                     return 1;
                 }
 
-                var visibleSingleVersions = RowWindow.Apply(options.Rows, singleVersions);
+                if (!TrySelectVersionRows(
+                        singleVersions,
+                        options,
+                        out IReadOnlyList<string> visibleSingleVersions))
+                {
+                    return 1;
+                }
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
@@ -609,13 +645,7 @@ public class PackageCommand
                     return cachedLatestExit;
                 }
 
-                OutputFormatter.WriteStringList(
-                    visibleSingleVersions,
-                    "Version",
-                    "Version",
-                    options.Tsv,
-                    options.Jsonl,
-                    Console.Out);
+                WriteVersions(visibleSingleVersions, options);
                 return 0;
             }
 
@@ -632,7 +662,13 @@ public class PackageCommand
                     return 1;
                 }
 
-                var visibleVersionFeeds = RowWindow.Apply(options.Rows, versionFeeds);
+                if (!TrySelectVersionRows(
+                        versionFeeds,
+                        options,
+                        out IReadOnlyList<PackageVersionSourceInfo> visibleVersionFeeds))
+                {
+                    return 1;
+                }
                 if (LensProjection.TryProject(
                         options,
                         "--versions-with-feed",
@@ -657,7 +693,13 @@ public class PackageCommand
                     return 1;
                 }
 
-                var visibleListings = RowWindow.Apply(options.Rows, listings);
+                if (!TrySelectVersionRows(
+                        listings,
+                        options,
+                        out IReadOnlyList<PackageVersionInfo> visibleListings))
+                {
+                    return 1;
+                }
                 if (LensProjection.TryProject(
                         options,
                         "--versions",
@@ -730,7 +772,13 @@ public class PackageCommand
                 return 1;
             }
 
-            var visibleVersions = RowWindow.Apply(options.Rows, versions);
+            if (!TrySelectVersionRows(
+                    versions,
+                    options,
+                    out IReadOnlyList<string> visibleVersions))
+            {
+                return 1;
+            }
             if (LensProjection.TryProject(
                     options,
                     "--versions",
@@ -739,7 +787,7 @@ public class PackageCommand
                     ["Version"]))
                 return versionsProjectionExit;
 
-            OutputFormatter.WriteStringList(visibleVersions, "Version", "Version", options.Tsv, options.Jsonl, Console.Out);
+            WriteVersions(visibleVersions, options);
 
             return 0;
         }
@@ -1223,13 +1271,61 @@ public class PackageCommand
     private static void WriteVersions(
         IEnumerable<string> versions,
         InspectionOptions options)
-        => OutputFormatter.WriteStringList(
+    {
+        if (options.JsonOutput
+            && options.Limit is null)
+        {
+            Console.Out.WriteLine(
+                JsonSerializer.Serialize(
+                    versions
+                        .Select(version => new VersionJson(version))
+                        .ToList(),
+                    JsonContext.Default.ListVersionJson));
+            return;
+        }
+
+        OutputFormatter.WriteStringList(
             versions,
             "Version",
             "Version",
             options.Tsv,
             options.Jsonl,
             Console.Out);
+    }
+
+    private static bool TrySelectVersionRows<T>(
+        IReadOnlyList<T> rows,
+        InspectionOptions options,
+        out IReadOnlyList<T> selected)
+    {
+        if (options.VersionRowSelection is null)
+        {
+            selected = RowWindow.Apply(options.Rows, rows);
+            return true;
+        }
+
+        RowsCohortResult<string, T> result =
+            RowsCohortExecutor.ApplyUnordered(
+                [
+                    RowsCohortSequence<string, T>.Create(
+                        "Package versions",
+                        rows)
+                ],
+                options.VersionRowSelection);
+        if (result.IsSuccess)
+        {
+            selected = result.RowSets[0].Values;
+            return true;
+        }
+
+        RowsCohortSemanticFailure<string> failure = result.Failure!;
+        CommandError.Write(
+            $"Version row selection stage {failure.Failure.StageNumber} "
+            + $"requires row {failure.Failure.RequiredPosition}, but "
+            + $"{failure.Failure.AvailableCount} version rows are available.");
+        selected = Array.Empty<T>();
+        return false;
+    }
 
     private static void WriteVersionLookupFailure(
         string packageName,
