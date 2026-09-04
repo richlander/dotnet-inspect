@@ -20,7 +20,8 @@ internal static class ClassicInverseRealizationRules
     /// only normalization is exact and positive: the compiler's
     /// <c>awaiter.GetResult()</c> call is the input spelling of an
     /// <c>await</c>. A user method that happens to be named <c>GetResult</c>
-    /// does not normalize, because its argument is not a proven awaiter slot.
+    /// does not normalize, because it is not the exact typed member of the
+    /// proven awaiter slot.
     /// </summary>
     internal static string NormalizeEffect(
         IrNode node,
@@ -29,11 +30,24 @@ internal static class ClassicInverseRealizationRules
         ClassicInverseRealizationRule rule)
         => IsAwaiterGetResult(node, shell) ? "await" : signature;
 
+    /// <summary>
+    /// Whether <paramref name="node"/> is the exact <c>GetResult</c> member of a
+    /// proven awaiter slot: an instance method with no declared parameters,
+    /// declared on the same type the slot's local, its <c>GetAwaiter</c> bind,
+    /// and its <c>&lt;&gt;u__N</c> cache all carry, invoked on the address of
+    /// that very slot. The awaiter family is not enumerated, so a
+    /// compiler-produced custom awaiter still normalizes; a same-named helper
+    /// taking the awaiter by reference does not, because it is neither an
+    /// instance member of the awaiter type nor parameterless.
+    /// </summary>
     internal static bool IsAwaiterGetResult(IrNode node, ClassicInverseShellFacts shell)
-        => node is Call { Callee.Name: "GetResult" } call
-            && call.Arguments.Count == 1
-            && call.Arguments[0] is LoadLocalAddress awaiter
-            && shell.AwaiterLocals.Contains(awaiter.Index);
+        => node is Call { Callee: { Name: "GetResult", HasThis: true } callee } call
+            && callee.ParameterTypes.IsDefaultOrEmpty
+            && call.Arguments is [LoadLocalAddress awaiter]
+            && shell.AwaiterLocals.Contains(awaiter.Index)
+            && shell.AwaiterTypes.TryGetValue(awaiter.Index, out TypeRef? awaiterType)
+            && awaiterType.Equals(callee.DeclaringType)
+            && (awaiter.Type is null || awaiterType.Equals(awaiter.Type));
 
     internal static bool Verify(
         ClassicInverseClaim claim,
@@ -142,7 +156,7 @@ internal static class ClassicInverseRealizationRules
             failure = "the await operand carries no realization of its own";
             return false;
         }
-        if (!MatchesAwaiterBind(getResult, operandClaim.Source))
+        if (!MatchesAwaiterBind(getResult, operandClaim.Source, context.Shell))
         {
             failure = "the await operand does not belong to this GetResult awaiter slot";
             return false;
@@ -184,24 +198,9 @@ internal static class ClassicInverseRealizationRules
     {
         switch (claim.Source)
         {
-            case StoreStackSlot
-            {
-                Value: LoadElement
-                {
-                    Array: LoadField array,
-                    Index: LoadField index,
-                },
-            }
-                when array.Instance is LoadArgument { Index: 0 }
-                    && index.Instance is LoadArgument { Index: 0 }
-                    && ClassicInverseNodeFacts.IsMachineField(
-                        array.Field,
-                        context.Shell.Machine)
-                    && ClassicInverseNodeFacts.IsMachineField(
-                        index.Field,
-                        context.Shell.Machine)
-                    && array.Field.Name.StartsWith("<>7__wrap", StringComparison.Ordinal)
-                    && index.Field.Name.StartsWith("<>7__wrap", StringComparison.Ordinal):
+            case StoreStackSlot spill
+                when context.Candidate.LoopStorage is { } storage
+                    && storage.IsElementLoad(spill.Value, context.Shell.Machine):
                 if (claim.Output is not Block body
                     || body.Parent is not ForeachStatement loop
                     || !ReferenceEquals(loop.Body, body))
@@ -499,7 +498,10 @@ internal static class ClassicInverseRealizationRules
         return false;
     }
 
-    static bool MatchesAwaiterBind(Call getResult, IrNode operand)
+    static bool MatchesAwaiterBind(
+        Call getResult,
+        IrNode operand,
+        ClassicInverseShellFacts shell)
     {
         if (getResult.Arguments is not [LoadLocalAddress awaiter]
             || operand.Parent is not Call
@@ -510,6 +512,16 @@ internal static class ClassicInverseRealizationRules
             || getAwaiter.Arguments.Count != 1
             || !ReferenceEquals(getAwaiter.Arguments[0], operand)
             || bind.Index != awaiter.Index)
+        {
+            return false;
+        }
+
+        // The suspension's awaiter type is one fact, carried by the bind that
+        // produced it and by the member the result is read through.
+        if (!shell.AwaiterTypes.TryGetValue(awaiter.Index, out TypeRef? awaiterType)
+            || !awaiterType.Equals(getAwaiter.Callee.ReturnType)
+            || !awaiterType.Equals(bind.Type)
+            || !awaiterType.Equals(getResult.Callee.DeclaringType))
         {
             return false;
         }
@@ -587,13 +599,17 @@ internal static class ClassicInverseRealizationRules
                 && left.ConsumedMethods.SequenceEqual(
                     right.ConsumedMethods)
                 && left.ConsumedFields.SequenceEqual(
-                    right.ConsumedFields),
+                    right.ConsumedFields)
+                && left.ConsumedMethodsAreVirtual.SequenceEqual(
+                    right.ConsumedMethodsAreVirtual),
             (WithExpression left, WithExpression right) =>
                 left.Members.SequenceEqual(right.Members)
                 && left.ConsumedMethods.SequenceEqual(
                     right.ConsumedMethods)
                 && left.ConsumedFields.SequenceEqual(
-                    right.ConsumedFields),
+                    right.ConsumedFields)
+                && left.ConsumedMethodsAreVirtual.SequenceEqual(
+                    right.ConsumedMethodsAreVirtual),
             _ => false,
         };
 }

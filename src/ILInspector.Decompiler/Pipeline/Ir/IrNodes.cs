@@ -2918,12 +2918,14 @@ public sealed class ObjectInitializerExpression : IrExpression
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
@@ -2931,6 +2933,7 @@ public sealed class ObjectInitializerExpression : IrExpression
         ArgumentCounts = argumentCounts.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
     }
 
     /// <summary>Collection-initializer (<c>{ e0, e1 }</c> / <c>{ {k, v} }</c> via <c>Add</c>) vs object-initializer (<c>{ X = a }</c> / <c>{ [k] = v }</c> via member or indexer stores).</summary>
@@ -2951,8 +2954,16 @@ public sealed class ObjectInitializerExpression : IrExpression
     /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
 
+    /// <summary>
+    /// Whether each entry's consumed setter/<c>Add</c> call dispatched
+    /// virtually, parallel to <see cref="ConsumedMethods"/>. The fact is
+    /// retained rather than re-derived from the member reference, which does
+    /// not carry call-site dispatch.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 1, Members, ArgumentCounts, ConsumedMethods, ConsumedFields, ConsumedMethodsAreVirtual);
 
     public override TypeRef? ResultType => Creation.ResultType;
 
@@ -2980,6 +2991,7 @@ public sealed class WithExpression : IrExpression
         var members = ImmutableArray.CreateBuilder<string>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             if (entry.Member is null)
@@ -2990,17 +3002,27 @@ public sealed class WithExpression : IrExpression
             members.Add(entry.Member);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             AddChild(entry.Arguments[0]);
         }
         Members = members.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
     public ImmutableArray<string> Members { get; }
     public ImmutableArray<MethodRef?> ConsumedMethods { get; }
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
+
+    /// <summary>
+    /// Whether each entry's consumed setter dispatched virtually, parallel to
+    /// <see cref="ConsumedMethods"/>. <c>receiver with { X = v }</c> spells a
+    /// virtual setter call, so a raise is faithful only when the consumed call
+    /// was virtual.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
     public IReadOnlyList<InitializerEntry> Entries
         => InitializerEntry.Slice(
             Children,
@@ -3008,7 +3030,8 @@ public sealed class WithExpression : IrExpression
             [.. Members.Select(m => (string?)m)],
             [.. Members.Select(_ => 1)],
             ConsumedMethods,
-            ConsumedFields);
+            ConsumedFields,
+            ConsumedMethodsAreVirtual);
     public override TypeRef? ResultType => Receiver.ResultType;
     public override string Describe()
         => $"WithExpression ({Members.Length} members)";
@@ -3039,12 +3062,14 @@ public sealed class InitializerBlock : IrExpression
         var argumentCounts = ImmutableArray.CreateBuilder<int>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
         var consumedFields = ImmutableArray.CreateBuilder<FieldRef?>();
+        var consumedMethodsAreVirtual = ImmutableArray.CreateBuilder<bool>();
         foreach (var entry in entries)
         {
             members.Add(entry.Member);
             argumentCounts.Add(entry.Arguments.Count);
             consumedMethods.Add(entry.ConsumedMethod);
             consumedFields.Add(entry.ConsumedField);
+            consumedMethodsAreVirtual.Add(entry.ConsumedMethodIsVirtual);
             foreach (var argument in entry.Arguments)
                 AddChild(argument);
         }
@@ -3052,6 +3077,7 @@ public sealed class InitializerBlock : IrExpression
         ArgumentCounts = argumentCounts.ToImmutable();
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
+        ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
     }
 
     /// <summary>Collection body (<c>{ e0, e1 }</c> via <c>Add</c>) vs object body (<c>{ X = a }</c> via member stores).</summary>
@@ -3069,8 +3095,16 @@ public sealed class InitializerBlock : IrExpression
     /// <summary>Consumed field evidence per entry, when a raised initializer entry came from a field store.</summary>
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
 
+    /// <summary>
+    /// Whether each entry's consumed setter/<c>Add</c> call dispatched
+    /// virtually, parallel to <see cref="ConsumedMethods"/>. The fact is
+    /// retained rather than re-derived from the member reference, which does
+    /// not carry call-site dispatch.
+    /// </summary>
+    public ImmutableArray<bool> ConsumedMethodsAreVirtual { get; }
+
     /// <summary>The entries, in source order, each carrying its own argument expressions.</summary>
-    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts, ConsumedMethods, ConsumedFields);
+    public IReadOnlyList<InitializerEntry> Entries => InitializerEntry.Slice(Children, 0, Members, ArgumentCounts, ConsumedMethods, ConsumedFields, ConsumedMethodsAreVirtual);
 
     /// <summary>A nested body initializes an existing member in place; it has no standalone result type.</summary>
     public override TypeRef? ResultType => null;
@@ -3095,7 +3129,8 @@ public sealed record InitializerEntry(
     string? Member,
     IReadOnlyList<IrExpression> Arguments,
     MethodRef? ConsumedMethod = null,
-    FieldRef? ConsumedField = null)
+    FieldRef? ConsumedField = null,
+    bool ConsumedMethodIsVirtual = false)
 {
     /// <summary>
     /// Reconstructs the entries from a node's flat children: the run starting at
@@ -3110,7 +3145,8 @@ public sealed record InitializerEntry(
         ImmutableArray<string?> members,
         ImmutableArray<int> argumentCounts,
         ImmutableArray<MethodRef?> consumedMethods,
-        ImmutableArray<FieldRef?> consumedFields)
+        ImmutableArray<FieldRef?> consumedFields,
+        ImmutableArray<bool> consumedMethodsAreVirtual)
     {
         var entries = new List<InitializerEntry>(members.Length);
         int index = start;
@@ -3121,7 +3157,12 @@ public sealed record InitializerEntry(
             for (int j = 0; j < count; j++)
                 arguments[j] = (IrExpression)children[index + j];
             index += count;
-            entries.Add(new InitializerEntry(members[e], arguments, consumedMethods[e], consumedFields[e]));
+            entries.Add(new InitializerEntry(
+                members[e],
+                arguments,
+                consumedMethods[e],
+                consumedFields[e],
+                consumedMethodsAreVirtual[e]));
         }
         return entries;
     }

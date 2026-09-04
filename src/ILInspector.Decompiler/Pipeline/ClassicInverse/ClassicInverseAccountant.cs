@@ -51,6 +51,8 @@ internal sealed class ClassicInverseAccountant
     readonly HashSet<IrNode> _rawSemanticReceiptNodes =
         new(ReferenceEqualityComparer.Instance);
     ImmutableArray<string> _planningEffectOrder = [];
+    ClassicInverseConsumedMembers? _consumedMembers;
+    bool _consumedMembersIndexed;
 
     BlockContainer _output = null!;
     ClassicInverseDecision? _terminal;
@@ -791,11 +793,22 @@ internal sealed class ClassicInverseAccountant
     }
 
     bool IsRawLoopElementArtifact(IrNode node)
-        => node is LoadElement
+        => IsProvenLoopElementLoad(node)
             && node.SourceOffset >= 0
             && _candidate.Claims.Any(claim =>
                 claim.Rule == ClassicInverseRealizationRule.LoopElement
                 && ImportOffsets(claim.Source).Contains(node.SourceOffset));
+
+    /// <summary>
+    /// Whether <paramref name="node"/> is exactly the element read the matched
+    /// foreach recipe bound — <c>this.&lt;collection&gt;[this.&lt;index&gt;]</c>
+    /// for the proven storage identities. The array-access effect a recipe
+    /// realizes as a <c>foreach</c> binding is suppressed only for this node
+    /// form; any other element read keeps its own semantic effect.
+    /// </summary>
+    bool IsProvenLoopElementLoad(IrNode node)
+        => _candidate.LoopStorage is { } storage
+            && storage.IsElementLoad(node, _shell.Machine);
 
     bool IsRawExecutionProtocolEffect(IrNode node)
         => node switch
@@ -816,8 +829,24 @@ internal sealed class ClassicInverseAccountant
 
     string NormalizeRawEffect(IrNode node, string signature)
     {
-        if (node is Call call && IsConsumedInitializerMethod(call.Callee))
-            return $"call:{ClassicInverseTypedIdentity.Method(call.Callee)}";
+        if (node is Call { ConstrainedTo: null } call)
+        {
+            string effect = ClassicInverseConsumedMembers.Effect(
+                call.Callee,
+                call.IsVirtual);
+            if (ConsumedMembers() is { } consumed
+                && consumed.Contains(effect, _budget))
+            {
+                return effect;
+            }
+            if (_budget.Exhausted)
+            {
+                _terminal ??= ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    "consumed-member accounting exhausted the planning budget");
+                return effect;
+            }
+        }
         return ClassicInverseRealizationRules.NormalizeEffect(
             node,
             signature,
@@ -825,19 +854,29 @@ internal sealed class ClassicInverseAccountant
             ClassicInverseRealizationRule.Statement);
     }
 
-    bool IsConsumedInitializerMethod(MethodRef method)
-        => _planning.ExecutionBody.Body.Descendants.Any(node =>
-            node switch
-            {
-                ObjectInitializerExpression initializer =>
-                    initializer.ConsumedMethods.Any(
-                        consumed => consumed == method),
-                WithExpression with =>
-                    with.ConsumedMethods.Any(consumed => consumed == method),
-                InitializerBlock block =>
-                    block.ConsumedMethods.Any(consumed => consumed == method),
-                _ => false,
-            });
+    /// <summary>
+    /// The planning view's consumed initializer members, indexed once under the
+    /// same per-element charge every other proof phase pays. Raw-effect
+    /// accounting then resolves each call in constant time instead of buying a
+    /// planning-tree rescan per call.
+    /// </summary>
+    ClassicInverseConsumedMembers? ConsumedMembers()
+    {
+        if (_consumedMembersIndexed)
+            return _consumedMembers;
+
+        _consumedMembersIndexed = true;
+        _consumedMembers = ClassicInverseConsumedMembers.Build(
+            _planning.ExecutionBody.Body,
+            _budget);
+        if (_consumedMembers is null)
+        {
+            _terminal ??= ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.BudgetExhausted,
+                "consumed-member indexing exhausted the planning budget");
+        }
+        return _consumedMembers;
+    }
 
     bool IsRawKickoffProtocolEffect(
         IrNode node,
@@ -1698,7 +1737,7 @@ internal sealed class ClassicInverseAccountant
                 && !(rule == ClassicInverseRealizationRule.LoopElement
                     && !isOutput
                     && root is StoreStackSlot
-                    && node is LoadElement))
+                    && IsProvenLoopElementLoad(node)))
             {
                 _terminal = Decline(
                     isOutput
@@ -1734,7 +1773,7 @@ internal sealed class ClassicInverseAccountant
                 && !(rule == ClassicInverseRealizationRule.LoopElement
                     && !isOutput
                     && root is StoreStackSlot
-                    && node is LoadElement))
+                    && IsProvenLoopElementLoad(node)))
             {
                 effects.Add(ClassicInverseRealizationRules.NormalizeEffect(
                     node,
@@ -1793,7 +1832,7 @@ internal sealed class ClassicInverseAccountant
                 && !(claim.Rule == ClassicInverseRealizationRule.LoopElement
                     && !isOutput
                     && claim.Source is StoreStackSlot
-                    && node is LoadElement))
+                    && IsProvenLoopElementLoad(node)))
             {
                 effects.Add(ClassicInverseRealizationRules.NormalizeEffect(
                     node,
@@ -1841,8 +1880,9 @@ internal sealed class ClassicInverseAccountant
                 continue;
             if (entry.ConsumedMethod is { } method)
             {
-                string effect =
-                    $"call:{ClassicInverseTypedIdentity.Method(method)}";
+                string effect = ClassicInverseConsumedMembers.Effect(
+                    method,
+                    entry.ConsumedMethodIsVirtual);
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
             if (entry.ConsumedField is { } field)

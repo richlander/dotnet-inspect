@@ -1364,6 +1364,342 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseLoopElementBindsItsExactStorage()
+    {
+        using RequestScope accepted = OpenRequest("AwaitInLoop");
+        ClassicInversePlan plan = Reconstruct(accepted.Request);
+        Assert.Contains(
+            plan.SemanticRealizations,
+            receipt => receipt.Rule
+                == ClassicInverseRealizationRule.LoopElement);
+
+        // The compiler's hoisted collection, loop index, and accumulator are
+        // three distinct machine fields that share one generated name family.
+        // Reading the array at the accumulator instead of the loop index is a
+        // valid, well-typed body that iterates something else entirely.
+        using RequestScope retargetedIndex = OpenMutatedRequest(
+            "AwaitInLoop",
+            execution => RetargetLoopElement(
+                execution,
+                retargetIndex: true));
+        var indexDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(retargetedIndex.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            indexDecline.Reason);
+
+        // Reading the un-hoisted source field instead of the proven hoist is
+        // likewise a different storage identity, not a spelling difference.
+        using RequestScope retargetedArray = OpenMutatedRequest(
+            "AwaitInLoop",
+            execution => RetargetLoopElement(
+                execution,
+                retargetIndex: false));
+        var arrayDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(retargetedArray.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            arrayDecline.Reason);
+
+        // The array-access effect is suppressed only for the element read the
+        // recipe bound, so a retargeted read is not silently protocol either.
+        (ClassicInversePlanningView planning,
+            ClassicInverseCandidate candidate,
+            ClassicInverseShellFacts shell) = Candidate(accepted.Request);
+        LoadElement element = Assert.Single(
+            planning.ExecutionBody.Body.Descendants.OfType<LoadElement>());
+        var boundIndex = Assert.IsType<LoadField>(element.Index);
+        FieldRef accumulator = AccumulatorField(planning.ExecutionBody);
+        Assert.NotEqual(boundIndex.Field, accumulator);
+        var replacement = new LoadField(
+            accumulator,
+            (IrExpression?)boundIndex.Instance?.Clone());
+        replacement.SetSourceOffset(boundIndex.SourceOffset);
+        boundIndex.ReplaceWith(replacement);
+
+        var suppressionDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseAccountant.Account(
+                accepted.Request,
+                planning,
+                candidate,
+                shell,
+                new ClassicInverseBudget()));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+            suppressionDecline.Reason);
+    }
+
+    /// <summary>
+    /// Points the compiler's loop element read at another valid state-machine
+    /// field of the right type: the accumulator instead of the loop index, or
+    /// the un-hoisted source array instead of the proven hoist. Every other
+    /// shape — the hoist, the bound test, the index advance, the await, and the
+    /// accumulate — is left exactly as the compiler emitted it.
+    /// </summary>
+    static void RetargetLoopElement(IrFunction execution, bool retargetIndex)
+    {
+        LoadElement element = Assert.Single(
+            execution.Body.Descendants.OfType<LoadElement>());
+        if (retargetIndex)
+        {
+            var index = Assert.IsType<LoadField>(element.Index);
+            var replacement = new LoadField(
+                AccumulatorField(execution),
+                (IrExpression?)index.Instance?.Clone());
+            replacement.SetSourceOffset(index.SourceOffset);
+            index.ReplaceWith(replacement);
+            return;
+        }
+
+        var array = Assert.IsType<LoadField>(element.Array);
+        StoreField hoist = Assert.Single(
+            execution.Body.Descendants.OfType<StoreField>(),
+            store => store.Field == array.Field
+                && store.Value is LoadField);
+        var source = Assert.IsType<LoadField>(hoist.Value);
+        var replacementArray = new LoadField(
+            source.Field,
+            (IrExpression?)array.Instance?.Clone());
+        replacementArray.SetSourceOffset(array.SourceOffset);
+        array.ReplaceWith(replacementArray);
+    }
+
+    /// <summary>
+    /// The machine field the loop folds into — located by the compiler's own
+    /// accumulate shape, which the product may not use as an authorization.
+    /// </summary>
+    static FieldRef AccumulatorField(IrFunction execution)
+    {
+        Binary accumulate = Assert.Single(
+            execution.Body.Descendants.OfType<Binary>(),
+            binary => binary.Kind == BinaryKind.Add
+                && binary.Left is LoadField
+                && binary.Right is LoadLocal);
+        return Assert.IsType<LoadField>(accumulate.Left).Field;
+    }
+
+    [Fact]
+    public void ClassicInverseAwaitResultBindsItsExactAwaiterMember()
+    {
+        using RequestScope accepted = OpenRequest("AwaitValue");
+        ClassicInversePlan plan = Reconstruct(accepted.Request);
+        Assert.Contains(
+            plan.SemanticRealizations.SelectMany(
+                receipt => receipt.SourceEffects),
+            effect => effect == "await");
+
+        Call getResult = Assert.Single(
+            accepted.Request.ExecutionBody.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetResult");
+        TypeRef awaiter = getResult.Callee.DeclaringType;
+
+        // A valid static helper taking the very same awaiter by reference: the
+        // callee name, the argument count, and the awaiter slot are unchanged,
+        // so only exact member identity separates it from the compiler's own
+        // instance TaskAwaiter<int>.GetResult().
+        using RequestScope helper = OpenMutatedRequest(
+            "AwaitValue",
+            execution => RebindAwaiterGetResult(
+                execution,
+                callee => callee with
+                {
+                    DeclaringType = TypeRef.Definition(
+                        "Planted",
+                        "ILInspector.Probes",
+                        "Probe"),
+                    ParameterTypes = [TypeRef.ByRef(awaiter)],
+                    HasThis = false,
+                }));
+        var helperDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(helper.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            helperDecline.Reason);
+
+        // Still instance and still parameterless, but declared on a lookalike
+        // awaiter the suspension never bound.
+        using RequestScope lookalike = OpenMutatedRequest(
+            "AwaitValue",
+            execution => RebindAwaiterGetResult(
+                execution,
+                callee => callee with
+                {
+                    DeclaringType = TypeRef.Definition(
+                        "Planted",
+                        "System.Runtime.CompilerServices",
+                        "TaskAwaiter`1"),
+                }));
+        var lookalikeDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(lookalike.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            lookalikeDecline.Reason);
+    }
+
+    static void RebindAwaiterGetResult(
+        IrFunction execution,
+        Func<MethodRef, MethodRef> rebind)
+    {
+        Call getResult = Assert.Single(
+            execution.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "GetResult");
+        var replacement = new Call(
+            rebind(getResult.Callee),
+            getResult.IsVirtual,
+            getResult.Arguments.Select(
+                argument => (IrExpression)argument.Clone()));
+        replacement.SetSourceOffset(getResult.SourceOffset);
+        getResult.ReplaceWith(replacement);
+    }
+
+    [Fact]
+    public void ClassicInverseWithSetterBindsItsExactDispatch()
+    {
+        using RequestScope accepted =
+            OpenRequest("SequentialWithRealizedWithExpression");
+        MethodRef setter = Assert.Single(
+            accepted.Request.ExecutionBody.Body.Descendants.OfType<Call>()
+                .Where(call => call.Callee.Name.StartsWith(
+                    "set_",
+                    StringComparison.Ordinal))
+                .Select(call => call.Callee));
+        Assert.Contains(
+            Reconstruct(accepted.Request).SemanticRealizations.SelectMany(
+                receipt => receipt.SourceEffects),
+            effect => effect
+                == $"call:{ClassicInverseTypedIdentity.Method(setter)}:virt");
+
+        // 'receiver with { P = v }' re-emits a virtual setter call, so a direct
+        // setter store has no with-expression spelling: raising it would restore
+        // dispatch the input did not have.
+        using RequestScope direct = OpenMutatedRequest(
+            "SequentialWithRealizedWithExpression",
+            MakeWithSetterDirect);
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(direct.Request));
+
+        ClassicInversePlanningView planning =
+            ClassicInversePlanningView.Derive(direct.Request);
+        Assert.DoesNotContain(
+            planning.ExecutionBody.Body.Descendants,
+            node => node is WithExpression);
+        Assert.Contains(
+            planning.ExecutionBody.Body.Descendants,
+            node => node is StoreProperty { IsVirtual: false });
+    }
+
+    /// <summary>
+    /// Turns the compiler's <c>callvirt</c> record-setter store into a valid
+    /// direct call, leaving the callee, the receiver, the clone, and the value
+    /// exactly as they were.
+    /// </summary>
+    static void MakeWithSetterDirect(IrFunction execution)
+    {
+        Call setter = Assert.Single(
+            execution.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name.StartsWith("set_", StringComparison.Ordinal));
+        Assert.True(setter.IsVirtual);
+        var replacement = new Call(
+            setter.Callee,
+            isVirtual: false,
+            setter.Arguments.Select(
+                argument => (IrExpression)argument.Clone()))
+        {
+            ConstrainedTo = setter.ConstrainedTo,
+            ExtensionSyntaxConflict = setter.ExtensionSyntaxConflict,
+        };
+        replacement.SetSourceOffset(setter.SourceOffset);
+        setter.ReplaceWith(replacement);
+    }
+
+    [Fact]
+    public void ClassicInverseConsumedMemberAccountingChargesEveryLookup()
+    {
+        // Raw-effect accounting must decide, per call in the unmodified import,
+        // whether the planning view still carries it as a consumed initializer
+        // member. Answering by rescanning the planning tree per call buys
+        // quadratic work at a linear charge, so the answer comes from one index
+        // that charges for every element it touches.
+        foreach (string methodName in new[]
+        {
+            "SequentialWithRealizedInitializer",
+            "SequentialWithRealizedWithExpression",
+        })
+        {
+            using RequestScope scope = OpenRequest(methodName);
+            ClassicInversePlanningView planning =
+                ClassicInversePlanningView.Derive(scope.Request);
+            IrNode planningRoot = planning.ExecutionBody.Body;
+            int planningNodes = planningRoot.Descendants.Count() + 1;
+            int entries = planningRoot.Descendants.Prepend(planningRoot)
+                .Sum(node => node switch
+                {
+                    ObjectInitializerExpression initializer =>
+                        initializer.Entries.Count,
+                    WithExpression with => with.Entries.Count,
+                    InitializerBlock block => block.Entries.Count,
+                    _ => 0,
+                });
+            Assert.True(entries > 0);
+
+            // Construction charges exactly once per node and once per entry.
+            var indexBudget = new ClassicInverseBudget();
+            ClassicInverseConsumedMembers index = Assert.IsType<
+                ClassicInverseConsumedMembers>(
+                    ClassicInverseConsumedMembers.Build(
+                        planningRoot,
+                        indexBudget));
+            Assert.Equal(planningNodes + entries, indexBudget.Consumed);
+
+            // Every question charges one unit, whether or not it is a hit.
+            var lookupBudget = new ClassicInverseBudget();
+            string absent = ClassicInverseConsumedMembers.Effect(
+                new MethodRef(
+                    TypeRef.Definition("Planted", "N", "Absent"),
+                    "set_Missing",
+                    TypeRef.CoreLib("System", "Void"),
+                    [TypeRef.CoreLib("System", "Int32")],
+                    HasThis: true),
+                isVirtual: true);
+            Assert.False(index.Contains(absent, lookupBudget));
+            Assert.Equal(1, lookupBudget.Consumed);
+
+            // Those charges are load-bearing: one unit short, the index refuses
+            // to answer at all rather than answering from a partial scan.
+            Assert.Null(ClassicInverseConsumedMembers.Build(
+                planningRoot,
+                new ClassicInverseBudget(planningNodes + entries - 1)));
+
+            // Through the product path the same shortfall stays a visible
+            // failure, never a decline or a partial proof, and total planning
+            // work stays proportional to the two bodies.
+            var budget = new ClassicInverseBudget();
+            Assert.IsType<ClassicInverseDecision.Reconstruct>(
+                ClassicInverseCore.Decide(scope.Request, budget));
+            int rawNodes =
+                scope.Request.ExecutionBody.Body.Descendants.Count() + 1
+                + scope.Request.KickoffBody.Body.Descendants.Count() + 1;
+            Assert.InRange(
+                budget.Consumed,
+                rawNodes + planningNodes + entries,
+                8 * (rawNodes + planningNodes));
+
+            var failure = Assert.IsType<ClassicInverseDecision.Failed>(
+                ClassicInverseCore.Decide(
+                    scope.Request,
+                    new ClassicInverseBudget(budget.Consumed - 1)));
+            Assert.Equal(
+                ClassicInverseFailureKind.BudgetExhausted,
+                failure.Failure.Kind);
+
+            Assert.IsType<ClassicInverseDecision.Reconstruct>(
+                ClassicInverseCore.Decide(
+                    scope.Request,
+                    new ClassicInverseBudget(budget.Consumed)));
+        }
+    }
+
+    [Fact]
     public void ClassicInverseAcceptedPopulationIsMeasured()
     {
         using MetadataSource source = OpenClassicFixture();

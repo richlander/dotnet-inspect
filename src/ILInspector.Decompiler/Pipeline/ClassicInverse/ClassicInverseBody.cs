@@ -363,6 +363,7 @@ internal sealed record ClassicInverseTupleNode(
 internal sealed record ClassicInverseInitializerEntry(
     string? Member,
     MethodRef? ConsumedMethod,
+    bool ConsumedMethodIsVirtual,
     FieldRef? ConsumedField,
     ImmutableArray<ClassicInverseBodyNode> Arguments)
 {
@@ -371,6 +372,7 @@ internal sealed record ClassicInverseInitializerEntry(
         + $"{(ConsumedMethod is null
             ? ""
             : ClassicInverseBodyNode.MethodText(ConsumedMethod))}:"
+        + $"{(ConsumedMethodIsVirtual ? "virt" : "direct")}:"
         + $"{(ConsumedField is null
             ? ""
             : ClassicInverseBodyNode.FieldText(ConsumedField))}]"
@@ -673,7 +675,8 @@ internal static class ClassicInverseBodyCapture
             [.. entry.Arguments.Select(static a =>
                 (IrExpression)a.Materialize())],
             entry.ConsumedMethod,
-            entry.ConsumedField);
+            entry.ConsumedField,
+            entry.ConsumedMethodIsVirtual);
 
     static ImmutableArray<ClassicInverseBodyNode>? TryCaptureAll(
         IReadOnlyList<IrNode> nodes,
@@ -715,6 +718,7 @@ internal static class ClassicInverseBodyCapture
                 entry.ConsumedMethod is { } method
                     ? Detach(method)
                     : null,
+                entry.ConsumedMethodIsVirtual,
                 entry.ConsumedField,
                 arguments.ToImmutable()));
         }

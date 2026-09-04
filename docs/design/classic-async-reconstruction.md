@@ -454,6 +454,29 @@ begins, for example. Every variable text component is length-prefixed and every
 variable-length sequence count-prefixed, and every dimension `TypeRef` equality
 compares is written, so equal identity text implies equal compared facts.
 
+The same exactness governs the three places a recipe may retire or rewrite an
+effect rather than realize it one-to-one:
+
+- **an awaited result.** `awaiter.GetResult()` is the input spelling of
+  `await` only when it is the exact instance, parameterless member of the type
+  that suspension's local, its `GetAwaiter` return, and its `<>u__N` cache field
+  all agree on. The awaiter family is not enumerated, so a compiler-produced
+  custom awaiter normalizes on the same terms; a same-named helper taking the
+  awaiter by reference is an ordinary user call and stays in the ledger.
+- **a loop element.** A recipe that realizes an array read as a `foreach`
+  binding must first bind the hoisted collection, the loop index its own bound
+  test compares, and the accumulator it folds into, each by exact `FieldRef`
+  identity. The compiler's `<>7__wrap` names label three different storage
+  locations and authorize nothing beyond selecting a candidate hoist, so the
+  element-access effect is retired only for a read of that exact array at that
+  exact index.
+- **a consumed initializer member.** A setter, `Add`, or getter a prerequisite
+  pass folded into an initializer, `with`, or nested-initializer entry keeps its
+  call-site dispatch alongside its typed identity. `with` syntax specifically
+  re-emits a virtual setter call, so a direct store has no faithful `with` raise
+  and is left lowered. Initializers retain the compiler's actual dispatch fact;
+  this slice does not redefine their separate raising contract.
+
 The realization relation preserves:
 
 - evaluation order and multiplicity;
@@ -578,6 +601,10 @@ Release gates:
 | `ClassicInverseBuilderCallbacksAreProvenByExactTypedSignature` | A non-core-library lookalike builder, a callback declared off the machine's own `<>t__builder` type, a mutated callback signature, or a raw/planning callback-identity mismatch is erased as protocol. |
 | `ClassicInverseProofWorkStaysProportionalToItsChargedBudget` | Proof work stops being linear in the body, charges stop being load-bearing, or exhaustion stops being `Failed(BudgetExhausted)`. |
 | `ClassicInverseTypedIdentityIsCompleteAndPrefixFree` | The typed identity encoding drops a dimension `TypeRef` equality compares, or two distinct members collide through separator-joined attacker-controlled text. |
+| `ClassicInverseLoopElementBindsItsExactStorage` | A loop recipe reads its element from a machine field other than the hoisted collection it proved, or at an index other than the loop index its own bound test proved, or the element-access effect is suppressed for any other array read. |
+| `ClassicInverseAwaitResultBindsItsExactAwaiterMember` | A call normalizes to `await` without being the exact instance, parameterless `GetResult` member of the type its suspension's local, `GetAwaiter` bind, and cache field all carry. |
+| `ClassicInverseWithSetterBindsItsExactDispatch` | A direct setter store raises into a `with` expression that re-emits virtual dispatch, or a consumed initializer member's effect drops its call-site dispatch. |
+| `ClassicInverseConsumedMemberAccountingChargesEveryLookup` | Consumed-member resolution stops charging for the elements it indexes or the questions it answers, or raw-effect accounting buys a planning-tree rescan per call. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close
@@ -586,6 +613,11 @@ negatives. Two later gates are deliberately narrower.
 invariant directly — identity-text equality matches `TypeRef` equality over
 constructed close pairs — because product construction cannot naturally form a
 pair that differs only in where a separator falls.
+`ClassicInverseConsumedMemberAccountingChargesEveryLookup` likewise asserts the
+consumed-member index's charge contract directly — exactly one unit per indexed
+planning node, one per indexed entry, and one per question — because only the
+charges themselves distinguish a constant-time lookup from a rescan that a
+budget can otherwise not observe.
 `ClassicInverseProofWorkStaysProportionalToItsChargedBudget` bounds the units
 the proof *charges*, which measures its work only under the proof's own rule
 that every node touch charges; that rule is a contract of the proof, not

@@ -67,6 +67,13 @@ internal sealed class ClassicInverseCandidate
     /// <summary>The execution-body local the shell's completion call reads, or -1.</summary>
     internal int ResultLocal { get; set; } = -1;
 
+    /// <summary>
+    /// The exact state-machine storage a foreach recipe proved, or <c>null</c>
+    /// when the recipe models no loop. Nothing about a loop element is
+    /// authorized without it.
+    /// </summary>
+    internal ClassicInverseLoopStorage? LoopStorage { get; set; }
+
     /// <summary>False once a recipe hits a state its own rules do not allow.</summary>
     internal bool Sound { get; private set; } = true;
 
@@ -166,3 +173,37 @@ internal sealed record ClassicInverseControlRegion(
     string Rule,
     ImmutableArray<IrNode> SourceRoots,
     IrNode OutputContext);
+
+/// <summary>
+/// The exact state-machine fields one foreach recipe proved: the hoisted
+/// collection it iterates, the loop index it advances, and the accumulator it
+/// folds into. Every element read the recipe claims must load exactly this
+/// array at exactly this index.
+/// <para>
+/// Identity is the <see cref="FieldRef"/> itself, never the compiler's
+/// <c>&lt;&gt;7__wrap</c> name family: those names are ordinary metadata
+/// strings, and two of them belong to two different storage locations. A body
+/// that reads some other machine field — even a valid one of the right type —
+/// is a different loop and carries no proof here.
+/// </para>
+/// </summary>
+internal sealed record ClassicInverseLoopStorage(
+    FieldRef Collection,
+    FieldRef Index,
+    FieldRef Accumulator)
+{
+    /// <summary>
+    /// Whether <paramref name="node"/> is exactly this loop's element read:
+    /// <c>this.Collection[this.Index]</c>.
+    /// </summary>
+    internal bool IsElementLoad(IrNode node, TypeRef machine)
+        => node is LoadElement
+        {
+            Array: LoadField { Instance: LoadArgument { Index: 0 } } array,
+            Index: LoadField { Instance: LoadArgument { Index: 0 } } index,
+        }
+            && ClassicInverseNodeFacts.IsMachineField(array.Field, machine)
+            && ClassicInverseNodeFacts.IsMachineField(index.Field, machine)
+            && array.Field == Collection
+            && index.Field == Index;
+}

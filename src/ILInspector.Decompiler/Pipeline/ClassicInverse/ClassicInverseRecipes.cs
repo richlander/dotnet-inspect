@@ -471,8 +471,37 @@ internal static class ClassicInverseRecipes
         {
             return null;
         }
-        if (!HasField(execution, "<>7__wrap2") || !HasField(execution, "<>7__wrap3"))
+        FieldRef hoistedCollection = collectionHoist.Field;
+
+        // The loop index is whatever machine field the bound test compares
+        // against this exact hoisted array's length — never a field recognized
+        // by the compiler's '<>7__wrap' name family.
+        List<ConditionalBranch> boundTests = [.. execution.Body.Descendants
+            .OfType<ConditionalBranch>()
+            .Where(branch => branch.Condition is Comparison
+            {
+                Kind: ComparisonKind.LessThan,
+                Left: LoadField { Instance: LoadArgument { Index: 0 } } index,
+                Right: ArrayLength
+                {
+                    Array: LoadField { Instance: LoadArgument { Index: 0 } } array,
+                },
+            }
+                && array.Field == hoistedCollection
+                && index.Field != hoistedCollection
+                && ClassicInverseNodeFacts.IsMachineField(
+                    index.Field,
+                    shell.Machine))];
+        if (boundTests is not
+            [ConditionalBranch
+            {
+                Parent: Block boundTestBlock,
+                Condition: Comparison { Left: LoadField boundIndex },
+            } boundTest])
+        {
             return null;
+        }
+        FieldRef loopIndex = boundIndex.Field;
 
         if (execution.Body.Descendants.OfType<StoreLocal>()
                 .Where(store => Contains(store.Value, getResult)).ToList()
@@ -480,15 +509,25 @@ internal static class ClassicInverseRecipes
         {
             return null;
         }
-        if (execution.Body.Descendants.OfType<StoreLocal>()
-                .Where(store => store.Value is Binary { Kind: BinaryKind.Add } add
-                    && IsAccumulatorRead(add.Left, shell)
-                    && add.Right is LoadLocal read
-                    && read.Index == resultStore.Index).ToList()
-            is not [StoreLocal accumulatorStore])
+        List<StoreLocal> accumulatorStores = [.. execution.Body.Descendants
+            .OfType<StoreLocal>()
+            .Where(store => store.Value is Binary { Kind: BinaryKind.Add } add
+                && IsAccumulatorRead(add.Left, shell, hoistedCollection, loopIndex)
+                && add.Right is LoadLocal read
+                && read.Index == resultStore.Index)];
+        if (accumulatorStores is not
+            [StoreLocal
+            {
+                Value: Binary { Left: LoadField accumulatorRead },
+            } accumulatorStore])
         {
             return null;
         }
+        FieldRef loopAccumulator = accumulatorRead.Field;
+        var storage = new ClassicInverseLoopStorage(
+            hoistedCollection,
+            loopIndex,
+            loopAccumulator);
 
         IrExpression? operand = AwaitedOperand(execution, getResult);
         List<LoadStackSlot> spilledElements = operand is null
@@ -502,6 +541,8 @@ internal static class ClassicInverseRecipes
         {
             return null;
         }
+        if (!storage.IsElementLoad(elementSpill.Value, shell.Machine))
+            return null;
 
         StoreLocal? seed = execution.Body.Descendants.OfType<StoreLocal>()
             .FirstOrDefault(store =>
@@ -515,29 +556,6 @@ internal static class ClassicInverseRecipes
         if (seed is null || finalStore is null)
             return null;
 
-        List<ConditionalBranch> boundTests = [.. execution.Body.Descendants
-            .OfType<ConditionalBranch>()
-            .Where(branch => branch.Condition is Comparison
-            {
-                Kind: ComparisonKind.LessThan,
-                Left: LoadField index,
-                Right: ArrayLength { Array: LoadField array },
-            }
-                && index.Field.Name == "<>7__wrap2"
-                && array.Field.Name == "<>7__wrap1"
-                && index.Instance is LoadArgument { Index: 0 }
-                && array.Instance is LoadArgument { Index: 0 }
-                && ClassicInverseNodeFacts.IsMachineField(
-                    index.Field,
-                    shell.Machine)
-                && ClassicInverseNodeFacts.IsMachineField(
-                    array.Field,
-                    shell.Machine))];
-        if (boundTests is not
-            [ConditionalBranch { Parent: Block boundTestBlock } boundTest])
-        {
-            return null;
-        }
         List<Branch> entries = [.. execution.Body.Descendants
             .OfType<Branch>()
             .Where(branch =>
@@ -548,6 +566,7 @@ internal static class ClassicInverseRecipes
         var candidate = new ClassicInverseCandidate("classic-await-foreach-array")
         {
             ResultLocal = finalResult.Index,
+            LoopStorage = storage,
         };
         var locals = new ClassicInverseLocalTable();
         TypeRef sumType = accumulatorStore.Type;
@@ -556,7 +575,7 @@ internal static class ClassicInverseRecipes
 
         candidate.Locals = locals.Types;
         candidate.LocalNames = locals.Names;
-        candidate.MapHoistedLocal("<>7__wrap3", sumIndex, sumType);
+        candidate.MapHoistedLocal(loopAccumulator.Name, sumIndex, sumType);
         candidate.MapLocal(accumulatorStore.Index, sumIndex);
         candidate.MapLocal(finalResult.Index, sumIndex);
 
@@ -623,45 +642,38 @@ internal static class ClassicInverseRecipes
         {
             switch (node)
             {
-                case StoreField { Field.Name: "<>7__wrap2", Value: Constant { Value: 0 } } index
-                    when index.Instance is LoadArgument { Index: 0 }
-                        && ClassicInverseNodeFacts.IsMachineField(
-                            index.Field,
-                            shell.Machine):
+                case StoreField { Value: Constant { Value: 0 } } index
+                    when index.Field == loopIndex
+                        && index.Instance is LoadArgument { Index: 0 }:
                     candidate.DeclareProtocol(index, "foreach-index-init");
                     break;
 
                 case StoreField
                 {
-                    Field.Name: "<>7__wrap2",
                     Value: Binary
                     {
                         Kind: BinaryKind.Add,
-                        Left: LoadField { Field.Name: "<>7__wrap2" },
+                        Left: LoadField advanceRead,
                         Right: Constant { Value: 1 },
                     },
                 } advance
-                    when advance.Instance is LoadArgument { Index: 0 }
-                        && ClassicInverseNodeFacts.IsMachineField(
-                            advance.Field,
-                            shell.Machine):
+                    when advance.Field == loopIndex
+                        && advanceRead.Field == loopIndex
+                        && advance.Instance is LoadArgument { Index: 0 }
+                        && advanceRead.Instance is LoadArgument { Index: 0 }:
                     candidate.DeclareProtocol(advance, "foreach-index-advance");
                     break;
 
-                case StoreField { Field.Name: "<>7__wrap1", Value: Constant { Value: null } } release
-                    when release.Instance is LoadArgument { Index: 0 }
-                        && ClassicInverseNodeFacts.IsMachineField(
-                            release.Field,
-                            shell.Machine):
+                case StoreField { Value: Constant { Value: null } } release
+                    when release.Field == hoistedCollection
+                        && release.Instance is LoadArgument { Index: 0 }:
                     candidate.DeclareProtocol(release, "foreach-collection-release");
                     break;
 
-                case StoreField { Field.Name: "<>7__wrap3", Value: LoadLocal spill } hoistSum
-                    when spill.Index == accumulatorStore.Index
-                        && hoistSum.Instance is LoadArgument { Index: 0 }
-                        && ClassicInverseNodeFacts.IsMachineField(
-                            hoistSum.Field,
-                            shell.Machine):
+                case StoreField { Value: LoadLocal spill } hoistSum
+                    when hoistSum.Field == loopAccumulator
+                        && spill.Index == accumulatorStore.Index
+                        && hoistSum.Instance is LoadArgument { Index: 0 }:
                     candidate.DeclareProtocol(hoistSum, "hoisted-local-transfer");
                     break;
 
@@ -682,19 +694,19 @@ internal static class ClassicInverseRecipes
         return candidate;
     }
 
-    static bool IsAccumulatorRead(IrExpression expression, ClassicInverseShellFacts shell)
-        => expression is LoadField { Field.Name: "<>7__wrap3" } load
-            && load.Instance is LoadArgument { Index: 0 }
-            && ClassicInverseNodeFacts.IsMachineField(load.Field, shell.Machine);
-
-    static bool HasField(IrFunction execution, string name)
-        => execution.Body.Descendants.Any(node => node switch
-        {
-            LoadField { Field.Name: var field } => field == name,
-            StoreField { Field.Name: var field } => field == name,
-            LoadFieldAddress { Field.Name: var field } => field == name,
-            _ => false,
-        });
+    /// <summary>
+    /// A read of the loop accumulator: a machine field that is neither the
+    /// hoisted collection nor the loop index the same recipe already bound.
+    /// </summary>
+    static bool IsAccumulatorRead(
+        IrExpression expression,
+        ClassicInverseShellFacts shell,
+        FieldRef collection,
+        FieldRef index)
+        => expression is LoadField { Instance: LoadArgument { Index: 0 } } load
+            && ClassicInverseNodeFacts.IsMachineField(load.Field, shell.Machine)
+            && load.Field != collection
+            && load.Field != index;
 
     // ---- Recipe: await inside try/finally --------------------------------
 

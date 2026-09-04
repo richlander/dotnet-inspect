@@ -12,11 +12,13 @@ internal sealed class ClassicInverseShellFacts
         TypeRef machine,
         int stateLocal,
         ImmutableHashSet<int> awaiterLocals,
+        ImmutableDictionary<int, TypeRef> awaiterTypes,
         ClassicInverseLoweringProof protocol)
     {
         Machine = machine;
         StateLocal = stateLocal;
         AwaiterLocals = awaiterLocals;
+        AwaiterTypes = awaiterTypes;
         Protocol = protocol;
     }
 
@@ -28,6 +30,17 @@ internal sealed class ClassicInverseShellFacts
 
     /// <summary>Local slots proven to hold a compiler awaiter.</summary>
     internal ImmutableHashSet<int> AwaiterLocals { get; }
+
+    /// <summary>
+    /// The exact awaiter type each proven awaiter slot carries. A slot appears
+    /// only when every binding the body contains — the local's own declared
+    /// type, the <c>GetAwaiter</c> return type that produced it, and the
+    /// <c>&lt;&gt;u__N</c> cache field it is restored from — names one and the
+    /// same type. The awaiter family is not enumerated: a compiler-produced
+    /// custom awaiter is admitted on the same terms as a core-library one, and
+    /// a slot whose bindings disagree carries no awaiter type at all.
+    /// </summary>
+    internal ImmutableDictionary<int, TypeRef> AwaiterTypes { get; }
 
     /// <summary>
     /// The completion-callback, completion-catch, and resume-state protocol
@@ -51,6 +64,30 @@ internal sealed class ClassicInverseShellFacts
         TypeRef machine = ClassicInverseNodeFacts.Definition(execution.DeclaringType);
         int stateLocal = -1;
         var awaiters = ImmutableHashSet.CreateBuilder<int>();
+        var awaiterTypes = new Dictionary<int, TypeRef>();
+        var conflicted = new HashSet<int>();
+
+        void ObserveAwaiterType(int slot, TypeRef? type)
+        {
+            if (type is null)
+            {
+                conflicted.Add(slot);
+                awaiterTypes.Remove(slot);
+                return;
+            }
+            if (conflicted.Contains(slot))
+                return;
+            if (!awaiterTypes.TryGetValue(slot, out TypeRef? existing))
+            {
+                awaiterTypes[slot] = type;
+                return;
+            }
+            if (!existing.Equals(type))
+            {
+                conflicted.Add(slot);
+                awaiterTypes.Remove(slot);
+            }
+        }
 
         foreach (IrNode node in execution.Body.Descendants)
         {
@@ -71,6 +108,8 @@ internal sealed class ClassicInverseShellFacts
                 && getAwaiter.Arguments.Count == 1)
             {
                 awaiters.Add(store.Index);
+                ObserveAwaiterType(store.Index, store.Type);
+                ObserveAwaiterType(store.Index, getAwaiter.Callee.ReturnType);
                 continue;
             }
 
@@ -80,6 +119,8 @@ internal sealed class ClassicInverseShellFacts
                 && ClassicInverseNodeFacts.IsMachineField(cached.Field, machine))
             {
                 awaiters.Add(store.Index);
+                ObserveAwaiterType(store.Index, store.Type);
+                ObserveAwaiterType(store.Index, cached.Field.Type);
             }
         }
 
@@ -87,6 +128,7 @@ internal sealed class ClassicInverseShellFacts
             machine,
             stateLocal,
             awaiters.ToImmutable(),
+            awaiterTypes.ToImmutableDictionary(),
             ClassicInverseLoweringProof.Derive(
                 execution,
                 rawExecution,

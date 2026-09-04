@@ -107,13 +107,28 @@ public sealed class WithExpressionPass : IIrPass
             && receiverType.Equals(clone.Callee.ReturnType);
     }
 
+    /// <summary>
+    /// One member store on the threaded clone, or <c>null</c> when it cannot be
+    /// spelled inside <c>with { ... }</c>.
+    /// <para>
+    /// A property entry is admitted only when its setter call dispatched
+    /// virtually. <c>receiver with { P = v }</c> re-emits a virtual setter call
+    /// on the clone, so raising a direct (non-virtual) setter store — the
+    /// spelling of <c>base.P = v</c>, which a with-expression cannot encode —
+    /// would restore virtual dispatch the input did not have.
+    /// </para>
+    /// </summary>
     static InitializerEntry? TryMemberStore(IrNode statement, HashSet<int> aliasSlots) => statement switch
     {
-        StoreProperty { HasInstance: true, Instance: LoadStackSlot receiver } property
+        StoreProperty { HasInstance: true, IsVirtual: true, Instance: LoadStackSlot receiver } property
             when aliasSlots.Contains(receiver.Slot)
                 && property.IndexArguments.Count == 0
                 && ObjectInitializerPass.IsInitializerSpellable(property)
-            => new InitializerEntry(property.PropertyName, [property.Value], ConsumedMethod: property.Accessor),
+            => new InitializerEntry(
+                property.PropertyName,
+                [property.Value],
+                ConsumedMethod: property.Accessor,
+                ConsumedMethodIsVirtual: true),
 
         StoreField { Instance: LoadStackSlot receiver } field
             when aliasSlots.Contains(receiver.Slot) && CSharpNaming.IsEscapableIdentifier(field.Field.Name)
