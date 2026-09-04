@@ -2474,18 +2474,20 @@ assigned identity with the exact published Root projections.
 The `ArtifactRootScopePublicationParticipant` is a sealed host-neutral contract
 implemented only by Workspace Scope and Expansion. It is not a plugin or a
 general transaction participant. It carries the exact Workspace, expected
-logical base revision, operation and candidate identities, and a complete
-resource-free candidate publication. Artifact Acquisition treats that
-candidate as opaque and cannot inspect membership, order, expansion policy,
-closure, operation results, or Navigation intent.
+opaque Scope-owned publication-base value, operation and candidate identities,
+and a complete resource-free candidate publication. The publication base must
+be replaced by every successful Scope current-pointer swap, including
+membership, policy, closure-only, and physical-refresh publication. Artifact
+Acquisition treats those values as opaque and cannot inspect membership, order,
+expansion policy, closure, operation results, or Navigation intent.
 
 The participant is process-local and single-use. A plan rejected before
 `PrepareCommit` leaves the participant available. Invoking `PrepareCommit`
 consumes it: a refusal or discarded token is terminal, and an invoked token is
 terminally committed. Reusing the same participant returns a typed
 `ParticipantAlreadyConsumed` result. A separately constructed equivalent
-participant still carries the same expected logical base revision and is
-refused after the first publication advances that revision.
+participant still carries the same expected Scope publication base and is
+refused after the first publication replaces that base.
 
 The participant exposes two owner-defined steps:
 
@@ -2573,7 +2575,7 @@ returns a typed `PreparationAlreadyPublished` or `PreparationReleased` outcome
 and releases every other still-`Prepared` listed receipt. A preparation-free
 retry with the same participant returns
 `ParticipantAlreadyConsumed`; an equivalent new participant is refused by its
-stale logical base revision. None can repeat scope publication.
+stale Scope publication base. None can repeat scope publication.
 
 The named consumer is Workspace Scope and Expansion in #5701. Add, Replace,
 Remove, Clear, expansion-policy edits, and dependency expansion remain that
@@ -2593,7 +2595,7 @@ The required pathological cases are:
 | Removed Root has an admitted query lease | No new query enters after publication; the existing lease drains normally |
 | Participant refuses after physical staging | Staging releases before gate exit; both old current states remain observable |
 | Any receipt is submitted twice after publication | Typed `PreparationAlreadyPublished`; every other still-Prepared listed receipt releases and no second adoption or scope publication occurs |
-| Clear without preparation receipts | Plan deadline and cancellation govern the operation; the single-use participant and logical base revision prevent replay |
+| Clear without preparation receipts | Plan deadline and cancellation govern the operation; the single-use participant and Scope publication base prevent replay |
 | Explicit release races a publishing receipt | Typed `PreparationPublishing`; publication alone publishes or releases the staged batch |
 | Unrelated Root replacement settles while a plan waits | Physical-composition identity advances; the stale plan releases, the caller reads the new identity, and no replacement is retired or overwritten |
 | Receipt deadline expires while waiting for the gate | Receipt releases; no prepared resource remains retained |
@@ -2614,7 +2616,7 @@ The target Release gates are:
 | `ArtifactRootPublication_CompositionIdentityIsOwnerIssued` | An empty or populated open Workspace exposes its current resource-free composition identity through a gate-observing owner read, and successful publication returns the fresh replacement identity. |
 | `ArtifactRootPublication_CandidateIdentityPrecedesParticipantCommit` | Scope receives the exact unpublished candidate composition identity before constructing its no-fail commit token; commit publishes that identity, while refusal discards it permanently. |
 | `ArtifactRootPublication_PreparationSetPublishesAtomically` | One plan adopts every entry from one or more independently prepared successful batches, publishes all listed receipts together, or releases every listed prepared batch. |
-| `ArtifactRootPublication_ReceiptFreePlanCommitsOrRefusesOnce` | Empty and retain-only plans use plan deadline/cancellation plus a single-use participant and cannot repeat logical publication. |
+| `ArtifactRootPublication_ReceiptFreePlanCommitsOrRefusesOnce` | Empty and retain-only plans use plan deadline/cancellation plus a single-use participant and a Scope base replaced by every logical pointer swap, so they cannot repeat logical publication. |
 | `ArtifactRootPublication_OldOrNewCompositionIsObserved` | Scope reads and query entries observe either the complete old logical/physical pair or the complete new pair, never a half-state. |
 | `ArtifactRootPublication_ParticipantRefusalReleasesStaging` | A typed participant refusal after staging publishes nothing and releases every provisional resource. |
 | `ArtifactRootPublication_ReceiptPublishesAtMostOnce` | Each listed receipt has one terminal Published or Released outcome and cannot duplicate adoption or logical publication. |
