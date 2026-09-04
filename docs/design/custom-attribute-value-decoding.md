@@ -64,8 +64,13 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   The converse — that we produce a value wherever SRM does — is a D3 claim, and
   only over certified-range output. On illegal input the obligation is D1 and
   D2 only.
-- Not a change to any caller's API or output shape. The decoder produces the
-  same `CustomAttributeValue<string>` it produces today.
+- Not a change to the decoder's **output shape**. It produces the same
+  `CustomAttributeValue<string>` it produces today, and every existing overload
+  keeps its present signature and behavior. This is not a claim that the API is
+  frozen: the defaulted-width signal D2 requires is additive surface — a new
+  overload or a richer observer — because the current observer is `Action<int>`
+  and cannot carry it. Existing callers are unaffected; a caller that wants the
+  signal must opt in.
 
 ## The trust boundary
 
@@ -116,8 +121,8 @@ fix, not a behavior to document.
 > **D1 — Bounded.** Total work is near-linear in the size of the metadata the
 > decoder is given, across every attacker-controlled cardinality *jointly*.
 > The number of materialized slots is bounded by the value blob's length;
-> retained memory is bounded by a constant multiple of the bytes actually
-> supplied — the value blob *plus* the metadata its values reference.
+> retained memory is bounded by slot count times the longest rendered name —
+> polynomial in the bytes supplied, not a constant multiple of them.
 > **No allocation is ever sized from a declared count that exceeds the
 > remaining bytes.**
 >
@@ -184,21 +189,12 @@ prevents that. "No attacker-declared quantity can produce an
 attacker-declared and does size the result; what makes it safe is that the
 attacker must supply `N` bytes to declare it.
 
-The enforceable claim is therefore a **bounded amplification factor**: retained
-memory is at most a constant multiple of the bytes actually supplied, and that
-constant is a property of the output representation rather than of anything the
-blob declares. `count > RemainingBytes → null` is what establishes it, and it
-holds independently of whether the parse is correct.
-
-Sizing that constant honestly matters, because it is easy to undercount. A legal
-`SZARRAY<bool>` of `N` elements occupies about `N` bytes of blob and materializes
-`N` `CustomAttributeTypedArgument<string>` slots. Each slot is two references
-(16 bytes on a 64-bit host) — but `CustomAttributeTypedArgument<T>.Value` is
-typed `object`, so every primitive element is **boxed**, adding a separate
-heap object per element. For the densest case the true figure is tens of bytes
-retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
-the bound rather than a specific multiple, and if slice 2 wants a smaller
-constant it must introduce and gate value caching explicitly.
+The enforceable claim is therefore about **which cardinality can be declared
+without being paid for**: no allocation is sized from a count the blob has not
+backed with bytes. `count > RemainingBytes → null` is what establishes it, and
+it holds independently of whether the parse is correct. It is *not* a claim that
+retained memory is a constant multiple of anything — see the two denominators
+below.
 
 **The two bounds have different denominators, and conflating them states a
 falsehood.** Slot *count* is bounded by the value blob's length, which is the
@@ -215,11 +211,50 @@ the enum's name:
 | 1,000 | 8 bytes | 1,003 |
 | 10,000 | 8 bytes | 10,003 |
 
-The ratio to blob length grows without bound, so a blob-relative bound is
-simply false; the ratio to *supplied* bytes stays constant, because the
-attacker had to supply the name to reference it. State the bound against
-supplied bytes and keep the blob-relative claim for slot count, where it is
-both true and the one that matters.
+So a blob-relative bound on retained bytes is simply false. **A
+supplied-bytes-relative bound is also false**, and it is worth being precise
+about why, because the failure is not obvious. Metadata *shares* structure that
+the output *unshares*: a namespace string is stored once in the string heap and
+referenced by many `TypeRef` rows, but every decoded argument retains its own
+fully-qualified name containing a copy of it. An attribute taking `P` arguments
+typed as `P` distinct enums sharing one `L`-character namespace supplies
+`Θ(P + L)` bytes and retains `Θ(P × L)` characters:
+
+| Distinct enums `P` | Namespace length `L` | Image bytes | Value blob | Retained chars |
+| --- | --- | --- | --- | --- |
+| 1 | 10 | 2,048 | 8 | 13 |
+| 50 | 2,000 | 4,608 | 204 | 100,190 |
+| 100 | 4,000 | 7,680 | 404 | 400,390 |
+| 200 | 8,000 | 13,312 | 804 | 1,600,890 |
+
+Doubling both dimensions doubles the input and quadruples what is retained. The
+per-handle name memo does not help, because these are `P` *distinct* handles.
+
+The bounds D1 can honestly assert are therefore:
+
+- **slot count** ≤ the value blob's length — linear, and the property that
+  defeats #57531; and
+- **retained bytes** ≤ slot count × longest rendered name — polynomial in
+  supplied bytes, not a constant multiple of it.
+
+The super-linear term is a property of the output representation, which renders
+a name per argument rather than preserving the namespace/name split. Since
+issue #5288 holds the `CustomAttributeValue<string>` output shape, slice 2
+cannot remove it; it is tracked as a known gap
+([#5755](https://github.com/richlander/dotnet-inspect/issues/5755)). What the
+contract still forbids is the #57531 shape — a tiny blob *declaring* a huge
+cost — and that remains exactly the `count > RemainingBytes` rule.
+
+Sizing the linear constant honestly also matters, because it is easy to
+undercount. A legal
+`SZARRAY<bool>` of `N` elements occupies about `N` bytes of blob and materializes
+`N` `CustomAttributeTypedArgument<string>` slots. Each slot is two references
+(16 bytes on a 64-bit host) — but `CustomAttributeTypedArgument<T>.Value` is
+typed `object`, so every primitive element is **boxed**, adding a separate
+heap object per element. For the densest case the true figure is tens of bytes
+retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
+the bound rather than a specific multiple, and if slice 2 wants a smaller
+constant it must introduce and gate value caching explicitly.
 
 What this removes is the amplification — the twelve-byte blob that asks for tens
 of gigabytes. A host-level memory limit is the host's concern, not this
@@ -814,7 +849,7 @@ encoding.
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
+| **D1** | A generative gate varying the attacker-controlled dimensions jointly, including the shared-prefix cross-product. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; five open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
 | **Defaulted-width signal** (D2's "visibly" clause) | A slice-2 test asserting the per-argument signal is **set** for a defaulted width and **clear** for a resolved one, on the same decode path. Needed because the D2 differential is blind to the default and D3 carves the unresolvable case out, so no other gate can fail if the signal is never implemented. Tracked as #5742. | Does not exist. Lands with slice 2. |
@@ -841,9 +876,12 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
 - the number of *distinct* handles and names referenced;
 - the number of rows in the tables a failed resolution scans;
 - **the length of the metadata strings the values reference**, held against a
-  fixed blob length. This is the dimension that separates D1's two bounds: it
-  leaves slot count untouched while scaling retained bytes, so a gate that
-  varies only blob-side cardinalities cannot observe it;
+  fixed blob length, **and the shared-prefix cross-product** — `P` distinct
+  types sharing one `L`-character namespace. These are the dimensions that
+  separate D1's two bounds: they leave slot count untouched while scaling
+  retained bytes, and the cross-product is super-linear even though varying `P`
+  or `L` alone looks linear. A gate varying only blob-side cardinalities is
+  blind to both;
 - the number of attributes decoded from one image; and
 - the size of a blob shared across many attribute rows. `A` attribute rows may
   name one `B`-byte value blob, which the blob heap stores once; each row is
@@ -960,6 +998,7 @@ component.
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also rebuilds the type-definition index, adding `Θ(A × T)`. | D1 | #5132 |
 | 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
 | 6 | `TryDecode` swallows `OutOfMemoryException` through a bare catch, which is exactly the laundered exception D2 forbids. | D2 | #5397 |
+| 7 | `P` distinct types sharing one `L`-character namespace supply `Θ(P + L)` bytes but retain `Θ(P × L)` characters, because metadata shares the namespace string while the output renders a copy of it into every argument's name. Measured at 120 retained chars per image byte and rising. Not fixable while the `CustomAttributeValue<string>` output shape is held. | D1 | #5755 |
 
 Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
 the wrong cost model.** Under the paired-walker design, work the guard cached and
