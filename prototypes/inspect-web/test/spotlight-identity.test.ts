@@ -1407,7 +1407,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("focusin", trackContentFrameFocus\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 3);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 4);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -2287,7 +2287,10 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
   assert.match(
     appSource,
-    /let spotlightFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\(generation: number\)[\s\S]*generation === spotlightFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*canRestoreWorkbenchFocus\(generation\)/);
+    /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*canRestoreWorkbenchFocus\(generation\)/);
+  assert.match(
+    appSource,
+    /captureFocusAfterDismiss: \(\) => \{\s*const navigationGeneration = spotlightFocusGeneration;\s*const focusGeneration = documentFocusGeneration;\s*return \(\) => restoreContentFrameFocusAfterDismiss\(\s*navigationGeneration,\s*focusGeneration\)/);
   assert.match(
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
@@ -2758,6 +2761,33 @@ test("render invalidates focus ownership before replacing content-frame DOM", ()
   assert.match(
     source,
     /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;[\s\S]*app\.innerHTML = `/);
+});
+
+test("content-frame focus ownership clears after focus settles outside both panes", () => {
+  assert.match(
+    appSource,
+    /function trackContentFrameFocus\(event: FocusEvent\) \{\s*documentFocusGeneration\+\+;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(focused\)/);
+  assert.match(
+    appSource,
+    /function releaseContentFrameFocusOwner\(\) \{\s*requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameFocusOwnerFor\(focused\) === null[\s\S]*contentFrameFocusOwner = null/);
+  assert.match(
+    appSource,
+    /document\.addEventListener\("focusin", trackContentFrameFocus\);\s*document\.addEventListener\("focusout", releaseContentFrameFocusOwner\)/);
+});
+
+test("package-root Open and selected-Type activation preserve local frame state", () => {
+  const drillIn = functionDeclaration("drillIn");
+  const drillInSource = appSource.slice(drillIn.start, drillIn.end);
+  const bindings =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+
+  assert.match(
+    drillInSource,
+    /if \(state\.atPackageRoot\) \{\s*state\.atPackageRoot = false;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+  assert.match(
+    bindings,
+    /onTypeSelect: typeId => \{\s*if \(scope\(\) === "type" && typeId === state\.selectedTypeId\) \{\s*if \(contentFrameMedia\.matches\) showContentDetail\(\);\s*return;\s*}\s*showContentDetailAfterRender\(\);[\s\S]*resetMemberFilters\(\)/);
 });
 
 test("workspace package selection resets type-specific member filters", () => {

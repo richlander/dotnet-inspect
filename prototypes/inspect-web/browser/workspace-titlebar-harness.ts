@@ -48,6 +48,7 @@ import {
 import {
   bindContentFrame,
   CONTENT_FRAME_NARROW_QUERY,
+  contentFrameFocusOwnerFor,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -735,17 +736,18 @@ function focusContentFrameTarget(target: ContentFrameFocusTarget) {
 }
 document.addEventListener("focusin", event => {
   const focused = event.target instanceof HTMLElement ? event.target : null;
-  if (!focused || focused === document.body) return;
-  if (focused.id === "content-navigation-toggle")
-    contentFrameFocusOwner = "navigation-toggle";
-  else if (focused.id === "content-navigation-close")
-    contentFrameFocusOwner = "detail-toggle";
-  else if (focused.closest("#content-navigation-pane"))
-    contentFrameFocusOwner = "navigation";
-  else if (focused.closest(".detail-pane"))
-    contentFrameFocusOwner = "detail";
-  else
-    contentFrameFocusOwner = null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
+});
+document.addEventListener("focusout", () => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const focused = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      if (contentFrameFocusOwnerFor(focused) === null)
+        contentFrameFocusOwner = null;
+    });
+  });
 });
 contentFrameMedia.addEventListener("change", event => {
   if (workspaceMode) return;

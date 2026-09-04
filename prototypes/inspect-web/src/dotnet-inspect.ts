@@ -275,6 +275,7 @@ import {
   bindContentFrame,
   bindContentFrameMedia,
   CONTENT_FRAME_NARROW_QUERY,
+  contentFrameFocusOwnerFor,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -1490,6 +1491,7 @@ let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
 let spotlightFocusGeneration = 0;
+let documentFocusGeneration = 0;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
@@ -1607,10 +1609,15 @@ const spotlight = createSpotlight({
   activeFramework: () => state.package?.activeFramework || "",
   render,
   focusAfterDismiss: () =>
-    restoreContentFrameFocusAfterDismiss(spotlightFocusGeneration),
+    restoreContentFrameFocusAfterDismiss(
+      spotlightFocusGeneration,
+      documentFocusGeneration),
   captureFocusAfterDismiss: () => {
-    const generation = spotlightFocusGeneration;
-    return () => restoreContentFrameFocusAfterDismiss(generation);
+    const navigationGeneration = spotlightFocusGeneration;
+    const focusGeneration = documentFocusGeneration;
+    return () => restoreContentFrameFocusAfterDismiss(
+      navigationGeneration,
+      focusGeneration);
   },
 });
 
@@ -1629,8 +1636,12 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
-function canRestoreWorkbenchFocus(generation: number) {
+function canRestoreWorkbenchFocus(
+  generation: number,
+  focusGeneration = documentFocusGeneration,
+) {
   return generation === spotlightFocusGeneration
+    && focusGeneration === documentFocusGeneration
     && !state.spotlightOpen && !state.graphSourceOpen && !state.docViewerOpen
     && !state.settings && !state.keyboardHelp
     && !applicationMenuOwnsFocus(document) && !isTextEntry();
@@ -1661,10 +1672,11 @@ function restoreContentNavigationFocus(generation: number) {
 
 function restoreContentFrameFocusAfterDismiss(
   generation = spotlightFocusGeneration,
+  focusGeneration = documentFocusGeneration,
 ) {
-  if (!canRestoreWorkbenchFocus(generation)) return;
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
-    if (!canRestoreWorkbenchFocus(generation)) return;
+    if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
     if (contentFrameUsesPush() && contentFrameMedia.matches) {
       if (contentFramePane === "navigation")
         focusContentNavigation(document);
@@ -1710,18 +1722,21 @@ function focusContentFrameTarget(target: ContentFrameFocusTarget) {
 }
 
 function trackContentFrameFocus(event: FocusEvent) {
+  documentFocusGeneration++;
   const focused = event.target instanceof HTMLElement ? event.target : null;
-  if (!focused || focused === document.body) return;
-  if (focused.id === "content-navigation-toggle")
-    contentFrameFocusOwner = "navigation-toggle";
-  else if (focused.id === "content-navigation-close")
-    contentFrameFocusOwner = "detail-toggle";
-  else if (focused.closest("#content-navigation-pane"))
-    contentFrameFocusOwner = "navigation";
-  else if (focused.closest(".detail-pane"))
-    contentFrameFocusOwner = "detail";
-  else
-    contentFrameFocusOwner = null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
+}
+
+function releaseContentFrameFocusOwner() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const focused = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      if (contentFrameFocusOwnerFor(focused) === null)
+        contentFrameFocusOwner = null;
+    });
+  });
 }
 
 function handleContentFrameResize(event: MediaQueryListEvent) {
@@ -2816,6 +2831,7 @@ function drillIn() {
   }
   if (state.atPackageRoot) {
     state.atPackageRoot = false;
+    showContentDetailAfterRender();
     render();
     return;
   }
@@ -5517,6 +5533,10 @@ function bindTypePanelEvents() {
       focusFilter({ immediate: true });
     },
     onTypeSelect: typeId => {
+      if (scope() === "type" && typeId === state.selectedTypeId) {
+        if (contentFrameMedia.matches) showContentDetail();
+        return;
+      }
       showContentDetailAfterRender();
       state.atPackageRoot = false;
       state.selectedTypeId = typeId;
@@ -11671,6 +11691,7 @@ keybindings.register({
 
 keybindings.attach(document);
 document.addEventListener("focusin", trackContentFrameFocus);
+document.addEventListener("focusout", releaseContentFrameFocusOwner);
 bindContentFrameMedia(contentFrameMedia, handleContentFrameResize);
 
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a

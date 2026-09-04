@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindContentFrame,
+  contentFrameFocusOwnerFor,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -98,4 +99,30 @@ test("content frame resize follows focus and replaces a removed toggle", () => {
   assert.deepEqual(
     decideContentFrameResize("navigation", false, "detail-toggle"),
     { pane: "navigation", render: false, focus: "navigation" });
+});
+
+test("content frame focus ownership follows the active pane or local switch", () => {
+  const element = (
+    id: string,
+    closest: (selector: string) => Element | null,
+  ) => fakeDom.element({ id, closest });
+
+  assert.equal(
+    contentFrameFocusOwnerFor(element(
+      "content-navigation-toggle",
+      () => null)),
+    "navigation-toggle");
+  assert.equal(
+    contentFrameFocusOwnerFor(element(
+      "",
+      selector => selector === "#content-navigation-pane"
+        ? fakeDom.element({})
+        : null)),
+    "navigation");
+  assert.equal(
+    contentFrameFocusOwnerFor(element(
+      "",
+      selector => selector === ".detail-pane" ? fakeDom.element({}) : null)),
+    "detail");
+  assert.equal(contentFrameFocusOwnerFor(element("", () => null)), null);
 });

@@ -161,6 +161,23 @@ test("the content frame clamps wide inventory and pushes at constrained widths",
   await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
+test("narrowing retains detail after focus leaves the content frame", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.locator(".docs-unavailable").click();
+  await expect(page.locator("body")).toBeFocused();
+  await page.evaluate(() => new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+  await page.setViewportSize({ width: 600, height: 700 });
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
 test("the narrow return control integrates with Metadata and Source frames", async ({
   page,
 }) => {

@@ -333,12 +333,12 @@ test("closing Spotlight restores focus through the application boundary", () => 
   assert.equal(state.spotlightQuery, "");
 });
 
-test("delayed command focus uses the captured application generation", async () => {
+test("newer document focus blocks delayed command focus restoration", async () => {
   let resolveCommand: (() => void) | undefined;
   const command = new Promise<void>(resolve => {
     resolveCommand = resolve;
   });
-  let applicationGeneration = 0;
+  let documentFocusGeneration = 0;
   let restored = 0;
   let click: (() => void) | undefined;
   const { spotlight, state } = createHarness({
@@ -349,13 +349,12 @@ test("delayed command focus uses the captured application generation", async () 
       package: packageContext,
     },
     executeCommand: () => {
-      applicationGeneration++;
       return command;
     },
     captureFocusAfterDismiss: () => {
-      const generation = applicationGeneration;
+      const generation = documentFocusGeneration;
       return () => {
-        if (generation === applicationGeneration) restored++;
+        if (generation === documentFocusGeneration) restored++;
       };
     },
   });
@@ -392,7 +391,7 @@ test("delayed command focus uses the captured application generation", async () 
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     spotlight.bind(root as unknown as ParentNode, "modal"));
   click?.();
-  applicationGeneration++;
+  documentFocusGeneration++;
   resolveCommand?.();
   await command;
   await Promise.resolve();

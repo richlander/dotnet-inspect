@@ -17,6 +17,21 @@ export interface ContentFrameResizeDecision {
   focus: ContentFrameFocusTarget;
 }
 
+export function contentFrameFocusOwnerFor(
+  focused: Element | null,
+): ContentFrameFocusOwner {
+  if (!focused) return null;
+  if (focused.id === "content-navigation-toggle")
+    return "navigation-toggle";
+  if (focused.id === "content-navigation-close")
+    return "detail-toggle";
+  if (focused.closest("#content-navigation-pane"))
+    return "navigation";
+  if (focused.closest(".detail-pane"))
+    return "detail";
+  return null;
+}
+
 export function decideContentFrameResize(
   pane: ContentFramePane,
   narrow: boolean,
