@@ -894,7 +894,7 @@ public static class FixtureCatalog
             "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
             "DotnetInspector.HostileNameFixtures" => "fixtures/cli/DotnetInspector.HostileNameFixtures",
-            "DotnetInspector.RestoredProjectFixtures" => "src/DotnetInspector.RestoredProjectFixtures",
+            "DotnetInspector.RestoredProjectFixtures" => "fixtures/queries/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "src/ILInspector.Analysis.AsyncSiblingFriendFixtures",
