@@ -48,6 +48,33 @@ internal static class ApiServices
         }
     }
 
+    internal static LoadedApiSurface? LoadTypeApi(
+        ApiSourceResult source,
+        ApiOptions options,
+        bool summaryOnly = false) =>
+        summaryOnly
+            ? LoadPlatformApiSummary(
+                source.SearchPath,
+                source.RuntimeAssemblyPath!,
+                source.ApiSource,
+                source.ApiVersion,
+                source.SelectedTfm,
+                source.Context.Logger,
+                source.PlatformFramework)
+            : LoadFullApi(
+                source.SearchPath,
+                source.RuntimeAssemblyPath,
+                source.ResolvedPackagePath,
+                source.PackageName,
+                source.ApiSource,
+                source.ApiVersion,
+                source.SelectedTfm,
+                source.Context.Logger,
+                options,
+                source.PackageExtractPath,
+                useTypedSelection: true,
+                platformFramework: source.PlatformFramework);
+
     internal static LoadedApiSurface? LoadFullApi(
         string searchPath,
         string? runtimeAssemblyPath,
@@ -59,24 +86,41 @@ internal static class ApiServices
         VerboseLogger logger,
         ApiOptions options,
         string? packageExtractPath = null,
-        bool usePackageSourcePolicy = false)
+        bool usePackageSourcePolicy = false,
+        bool useTypedSelection = false,
+        string? platformFramework = null)
     {
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
             return null;
 
+        var provenance = CreateRootProvenance(
+            apiSource,
+            apiVersion,
+            packageName,
+            selectedTfm,
+            options,
+            platformFramework);
+        bool isPlatformAssembly = runtimeAssemblyPath is not null
+            || useTypedSelection && apiSource == SourceKind.Platform;
         ResolvedAssemblyReference? rootAssembly =
-            TryCreateRootAssembly(
-                apiDllPath,
-                CreateRootProvenance(
-                    apiSource,
-                    apiVersion,
-                    packageName,
-                    selectedTfm,
-                    options));
+            useTypedSelection
+                ? SelectRootAssembly(apiDllPath, provenance)
+                : TryCreateRootAssembly(apiDllPath, provenance);
         using TypeDefinitionResolutionSession? resolution =
             rootAssembly is null
                 ? null
+                : useTypedSelection
+                ? new TypeDefinitionResolutionSession(
+                    rootAssembly,
+                    isPlatformAssembly,
+                    options.ProjectAssetsPath,
+                    options.Tfm ?? selectedTfm,
+                    platformFramework ?? options.PlatformFramework,
+                    packageExtractPath,
+                    options.SourceOptions,
+                    usePackageSourcePolicy:
+                        usePackageSourcePolicy || packageExtractPath is not null)
                 : TryCreateResolutionSession(
                     rootAssembly,
                     isPlatformAssembly:
@@ -114,8 +158,7 @@ internal static class ApiServices
                 apiDllPath,
                 logger,
                 options.IncludeAll,
-                isPlatformAssembly:
-                    runtimeAssemblyPath is not null,
+                isPlatformAssembly,
                 resolution: resolution,
                 sourceAssemblies);
         }
@@ -141,6 +184,22 @@ internal static class ApiServices
             runtimeAssemblyPath ?? apiDllPath,
             sourceAssemblies);
     }
+
+    static ResolvedAssemblyReference? SelectRootAssembly(
+        string assemblyPath,
+        AssemblyResolutionProvenance provenance) =>
+        ResolvedAssemblyReference.SelectFromPath(assemblyPath, provenance)
+            switch
+            {
+                AssemblyDescriptorSelectionResult.Ready ready =>
+                    ready.Reference,
+                AssemblyDescriptorSelectionResult.Descriptorless => null,
+                AssemblyDescriptorSelectionResult.Rejected rejected =>
+                    throw new BadImageFormatException(
+                        $"Could not select API assembly '{assemblyPath}': "
+                        + $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
+                _ => throw new System.Diagnostics.UnreachableException(),
+            };
 
     static TypeDefinitionResolutionSession? TryCreateResolutionSession(
         ResolvedAssemblyReference rootAssembly,
@@ -199,7 +258,8 @@ internal static class ApiServices
         string? apiVersion,
         string? packageName,
         string? selectedTfm,
-        ApiOptions options)
+        ApiOptions options,
+        string? platformFramework = null)
     {
         if (string.Equals(
                 apiSource,
@@ -207,7 +267,7 @@ internal static class ApiServices
                 StringComparison.Ordinal))
         {
             return AssemblyResolutionProvenance.Platform(
-                options.PlatformFramework ?? "InstalledPlatform",
+                platformFramework ?? options.PlatformFramework ?? "InstalledPlatform",
                 apiVersion,
                 "ApiServices");
         }
@@ -248,36 +308,47 @@ internal static class ApiServices
         string? apiSource,
         string? apiVersion,
         string? selectedTfm,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        string? platformFramework = null)
     {
         logger.Log($"Extracting compact API summary from: {Path.GetFileName(searchPath)}");
-        var api = AssemblyReader.ExtractApiSummarySurface(searchPath);
+        ResolvedAssemblyReference? rootAssembly =
+            SelectRootAssembly(
+                searchPath,
+                AssemblyResolutionProvenance.Platform(
+                    platformFramework ?? "InstalledPlatform",
+                    apiVersion,
+                    "ApiServices"));
+        using Stream stream = rootAssembly is null
+            ? File.OpenRead(searchPath)
+            : rootAssembly.OpenRead();
+        var api = AssemblyReader.ExtractApiSummarySurface(stream);
         if (api == null)
             return null;
 
-        ResolvedAssemblyReference rootAssembly =
-            ResolvedAssemblyReference.CreateFromPath(
-                searchPath,
-                AssemblyResolutionProvenance.Platform(
-                    "InstalledPlatform",
-                    apiVersion,
-                    "ApiServices"));
+        api.SetInspectionSourceAssemblyPath(searchPath);
         var sourceAssemblies =
             new Dictionary<ApiType, ResolvedAssemblyReference>(
                 ReferenceEqualityComparer.Instance);
-        foreach (ApiType type in api.Types)
-            sourceAssemblies.Add(type, rootAssembly);
+        if (rootAssembly is not null)
+        {
+            foreach (ApiType type in api.Types)
+                sourceAssemblies.Add(type, rootAssembly);
+        }
 
-        ResolveForwardedTypes(
-            api,
-            searchPath,
-            logger,
-            includeAll: false,
-            isPlatformAssembly: true,
-            targetFramework: selectedTfm,
-            summaryOnly: true,
-            summaryRootAssembly: rootAssembly,
-            sourceAssemblies: sourceAssemblies);
+        if (rootAssembly is not null)
+        {
+            ResolveForwardedTypes(
+                api,
+                searchPath,
+                logger,
+                includeAll: false,
+                isPlatformAssembly: true,
+                targetFramework: selectedTfm,
+                summaryOnly: true,
+                summaryRootAssembly: rootAssembly,
+                sourceAssemblies: sourceAssemblies);
+        }
 
         api.Name = Path.GetFileNameWithoutExtension(searchPath);
         api.Tfm = selectedTfm;
