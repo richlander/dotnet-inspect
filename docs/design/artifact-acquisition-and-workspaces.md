@@ -2931,10 +2931,14 @@ The target Release gates are:
 Every target is **unverified** until its named Release gate exists. Before
 implementation, a focused model under
 `docs/design/models/artifact-root-publication/` must check receipt states,
-validation and cancellation precedence, participant refusal, old-or-new
-visibility, retirement, lease drainage, and eventual settlement under a finite
-deadline. #5701's scope-revision model should instantiate this owner-issued
-publication transition rather than copying it.
+plan/receipt authority association, validation and cancellation precedence,
+participant refusal, old-or-new visibility, and eventual settlement under a
+finite deadline. Retirement query-entry rejection and old-generation lease
+drainage remain owned by the existing generation-access contract and the
+`ArtifactRootPublication_RetirementStopsNewEntryAndDrainsLeases` implementation
+gate; they do not enter this focused publication model. #5701's scope-revision
+model should instantiate this owner-issued publication transition rather than
+copying it.
 
 This focused addition does not define source resolution, logical Root
 membership or order, expansion policy, closure, Navigation focus, browser

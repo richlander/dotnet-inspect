@@ -7,7 +7,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis.Tests;
 
-public sealed class CallGraphArrayKindIdentityTests
+public sealed partial class CallGraphArrayKindIdentityTests
 {
     [Fact]
     public void Resolve_PreservesArrayKindAcrossExtractedApiAndMemberRefSelectors()
