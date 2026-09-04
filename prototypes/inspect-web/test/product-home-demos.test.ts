@@ -3,7 +3,7 @@ import test from "node:test";
 import type {
   BrowserHomeDemoResolved,
   BrowserWorkspaceShareState,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-catalog.d.ts";
 import {
   HOME_DEMO_PENDING_SLOT_COUNT,
   PLATFORM_RUNTIME_PACK,
