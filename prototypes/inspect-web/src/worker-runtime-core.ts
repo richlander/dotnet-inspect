@@ -318,6 +318,7 @@ interface MainEpoch<TDiagnostic> {
   readonly source: WorkerRuntimeSource;
   readonly startupStartedAt: number;
   startupDeadline: number;
+  initializationDispatched: boolean;
   detach: (() => void) | null;
   phase:
     | "starting"
@@ -824,6 +825,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       source: transport.source,
       startupStartedAt: now,
       startupDeadline: now + this.#options.startupBudgetMilliseconds,
+      initializationDispatched: false,
       detach: null,
       phase: "starting",
       closure: null,
@@ -882,6 +884,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     }
     epoch.detach = detach;
 
+    epoch.initializationDispatched = true;
     const initialization = this.#post(epoch, {
       protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
       epochToken: epoch.token,
@@ -898,17 +901,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         detail: initialization.error,
       };
     }
-    if (this.#epochClosed(epoch)) {
+    if (epoch.closure !== null) {
       return {
         kind: "rejected",
         reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
       };
     }
     return { kind: "started", epochToken: epoch.token };
-  }
-
-  #epochClosed(epoch: MainEpoch<TDiagnostic>): boolean {
-    return epoch.phase === "closed";
   }
 
   #terminateUnownedTransport(
@@ -945,10 +944,14 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       || source !== epoch.source) {
       return;
     }
+    if (!epoch.initializationDispatched) {
+      this.#fail(epoch, "protocol", data, true);
+      return;
+    }
 
     const decoded = decodeWorkerToMainEnvelope(data, epoch.token);
     if (decoded.kind === "failure") {
-      const preReady = epoch.phase === "starting" || epoch.phase === "flushing";
+      const preReady = epoch.phase === "starting";
       if (preReady && hasMismatchedReadyEcho(
         data,
         epoch.token,
@@ -1761,6 +1764,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       && !this.#commitCommandResponse(epoch, "start", envelope.operation)) {
       return;
     }
+    if (epoch.phase === "closed") return;
     record.phase = "accepted";
     if (!sameAllowance(record.registration.allowance, envelope.allowance)) {
       if (!draining) this.#protocolFailure(epoch, envelope);
@@ -1786,6 +1790,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       && !this.#commitCommandResponse(epoch, "start", envelope.operation)) {
       return;
     }
+    if (epoch.phase === "closed") return;
     const received = record.receiveRejected(envelope);
     if (received.kind === "failure") {
       if (!draining) this.#protocolFailure(epoch, received.failure);
@@ -1821,6 +1826,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       && !this.#commitCommandResponse(epoch, "cancel", envelope.operation)) {
       return;
     }
+    if (epoch.phase === "closed") return;
     record.cancelAcknowledged = true;
     if (!draining) this.#recordTaskEvidence(epoch);
     this.#retireOperationIfComplete(epoch, record);
@@ -1908,6 +1914,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     }
     if (epoch.probe !== null
       && command.probeMark === epoch.probe.sequence) {
+      command.responded = true;
       this.#fail(
         epoch,
         "control-response",
@@ -1917,7 +1924,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         },
         false,
       );
-      return false;
+      return true;
     }
     command.responded = true;
     if (!this.#commandReferencedByProbe(epoch, command))
@@ -2066,8 +2073,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     const epoch = this.#current;
     if (epoch === null || epoch.phase === "closed" || epoch.suspended) return;
     const now = this.#options.clock.now();
-    if ((epoch.phase === "starting" || epoch.phase === "flushing")
-      && now >= epoch.startupDeadline) {
+    if (epoch.phase === "starting" && now >= epoch.startupDeadline) {
       this.#fail(
         epoch,
         "startup",
@@ -2178,7 +2184,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (epoch.phase === "draining") {
       return;
     }
-    const immediate = epoch.phase === "starting" || epoch.phase === "flushing";
+    const immediate = epoch.phase === "starting";
     this.#fail(epoch, "worker-message", diagnostic, immediate);
   }
 
@@ -2186,7 +2192,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch: MainEpoch<TDiagnostic>,
     detail: unknown,
   ): void {
-    const immediate = epoch.phase === "starting" || epoch.phase === "flushing";
+    const immediate = epoch.phase === "starting";
     this.#fail(epoch, "protocol", detail, immediate);
   }
 

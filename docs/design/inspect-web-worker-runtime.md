@@ -306,7 +306,16 @@ rechecks terminal disposal after each pre-commit callout. If disposal occurred,
 the outer start rejects as `host-disposed`; a transport already created but not
 installed is terminated before return. Once the epoch is installed, reentrant
 disposal or failure uses ordinary hard termination, and the outer start cannot
-return a success-shaped epoch after that closure.
+return a success-shaped epoch after any closure has committed, including a
+bounded draining closure that retains physical work.
+
+Installing the epoch before transport binding gives bind-time failures an
+authoritative source and token, but does not authorize Worker protocol input
+before initialization dispatch begins. A current-source message delivered
+synchronously by `bind()` fails the partial epoch as protocol-invalid. The host
+marks initialization dispatch immediately before calling `send(Initialize)`,
+so a synchronous response from inside that send follows the ordinary startup
+protocol.
 
 The first main-to-worker envelope supplies the protocol version, epoch token,
 structured-clone-safe bootstrap input, the expected idle-heartbeat interval,
@@ -332,12 +341,14 @@ failure, not a partially compatible realm.
 Worker creation starts one non-renewable active-time startup budget. Only a
 matching `Ready` received before the budget is exhausted succeeds. The handler
 compares the active-time deadline before opening the epoch; matching readiness
-at or after exhaustion closes the partial realm as startup failure. Heartbeats
-or probe acknowledgments received before matching `Ready` are protocol-invalid
-and immediately close the partial realm as described below; they cannot renew,
-reset, or satisfy that budget. Lifecycle suspension and a detected main-loop
-discontinuity pause active elapsed time; they preserve the remaining budget
-rather than grant a fresh one.
+at or after exhaustion closes the partial realm as startup failure. Matching
+readiness ends the startup budget before the host flushes held starts; time
+spent in synchronous start-send callbacks cannot retroactively expire
+successful readiness. Heartbeats or probe acknowledgments received before
+matching `Ready` are protocol-invalid and immediately close the partial realm
+as described below; they cannot renew, reset, or satisfy that budget.
+Lifecycle suspension and a detected main-loop discontinuity pause active
+elapsed time; they preserve the remaining budget rather than grant a fresh one.
 
 Startup rejection or budget exhaustion closes admission, terminates the
 partial realm, reports unexpected startup failure for every activated held
@@ -622,7 +633,11 @@ posting order. An immediate response for one of those commands while that same
 probe remains outstanding therefore proves that the lane passed the probe
 without committing `ProbeAcknowledged`. The host records `control-response`
 failure and begins bounded draining before treating that later response as
-liveness evidence. A matching acknowledgment or other register retirement
+liveness evidence. The valid response still commits its physical meaning:
+acceptance records admission, rejection records never-admitted closure, and a
+cancellation acknowledgment records release progress. Those transitions
+permit later settlement or acknowledgment to drain naturally but do not renew
+task-loop evidence. A matching acknowledgment or other register retirement
 discharges every mark for that probe; it cannot accuse a response that arrives
 after the register has moved to a later probe. This proof uses local posting
 order and the response's existing operation correlation; it does not add a
@@ -807,10 +822,11 @@ post-readiness `EpochFailed`, which permits bounded draining of admitted
 managed work and epoch-work leases.
 
 Other than `StartupFailed` and a mismatched `Ready` echo, any current-source
-message or protocol fault before matching readiness uses the same immediate
-partial-realm closure mechanics while retaining its specific `worker-message`
-or `protocol` failure kind. Bounded unexpected draining is reserved for faults
-committed after matching readiness.
+message or protocol fault while still waiting for matching readiness uses the
+same immediate partial-realm closure mechanics while retaining its specific
+`worker-message` or `protocol` failure kind. Matching readiness ends that
+classification before held-start flushing begins. Faults committed during the
+flush or later use bounded unexpected draining.
 
 Entering draining atomically refuses new assignments and fixes the exact
 closure kind and diagnostic identity.
@@ -1022,6 +1038,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   invalid traffic failing rather than producing stale diagnostics;
 - synchronous `Initialize` send failure rejecting the epoch start after
   preserving failure reporting, realm release, and token non-reuse;
+- bind-time `Ready` failing before initialization dispatch, synchronous
+  responses from inside `send(Initialize)` remaining legal, and any closure
+  committed by that send preventing a success-shaped start result even while
+  physical epoch work keeps the failed realm draining;
 - bootstrap encoding reserving start ownership before callout, with reentrant
   start rejecting as `epoch-active` and reentrant disposal rejecting the outer
   start as `host-disposed` without creating a post-disposal epoch;
@@ -1033,7 +1053,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   another differently typed kind remains live;
 - preparation, abandonment, activation, held starts, sequence-order readiness
   flush without warm-start overtaking, synchronous `Accepted` delivery from an
-  emitted held start during that flush, held cancellation,
+  emitted held start during that flush, startup-budget completion at matching
+  readiness before synchronous flush work, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
   failure without posting `Start`, including cross-session preparation
@@ -1059,7 +1080,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   acceptance, progress before acceptance, duplicate settlement, absent-record
   messages, including an absent ID while another record remains live, plus
   allowance-mismatched physical acceptance followed by natural settlement and
-  realm release during failed draining;
+  realm release during failed draining for both warm admission and synchronous
+  held-start flushing;
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
@@ -1074,7 +1096,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   that a later command cannot overwrite, deferred probe dispatch that cannot
   stall after the older register retires, main-loop recovery preserving every
   unresolved command's remaining active-time grace, plus asynchronous
-  cancellation that cannot be overtaken by a later probe;
+  cancellation that cannot be overtaken by a later probe, and a physically
+  valid later response applying admission, rejection, or cancellation-release
+  state after proving the missing acknowledgment so draining can complete;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded
@@ -1093,7 +1117,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   identity, and producer outcomes when a different protocol, worker-message,
   worker-declared, or worker-crash fault arrives during draining, with
   post-readiness worker `error` and `messageerror` permitting natural
-  operation and epoch-work release before the bounded fallback;
+  operation and epoch-work release before the bounded fallback, including
+  synchronous faults during the post-`Ready` held-start flush;
 - registered idle-compatible producer classes receiving opaque capabilities,
   with separately constructed equivalent main and worker registries accepting
   legitimate leases, initialization rejecting a worker registry configured for

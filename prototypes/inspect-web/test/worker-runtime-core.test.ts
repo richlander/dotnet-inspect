@@ -107,7 +107,14 @@ interface HarnessOptions {
   readonly clockUnsubscribeError?: Error;
   readonly lifecycleUnsubscribeError?: Error;
   readonly detachError?: Error;
+  readonly bindMessage?: unknown;
+  readonly synchronousInitializeMessages?: (
+    epochToken: number,
+  ) => readonly unknown[];
   readonly synchronousAccepted?: boolean;
+  readonly synchronousAcceptedAllowance?: WorkerLivenessAllowance;
+  readonly synchronousStartError?: unknown;
+  readonly synchronousStartActiveAdvanceMilliseconds?: number;
   readonly invoke?: (
     input: string,
     context: FakeWorkerOperationContext,
@@ -362,9 +369,20 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const detachError = options.detachError;
   const clockUnsubscribeError = options.clockUnsubscribeError;
   const lifecycleUnsubscribeError = options.lifecycleUnsubscribeError;
+  const bindMessage = options.bindMessage;
+  const synchronousInitializeMessages = options.synchronousInitializeMessages;
+  const synchronousAcceptedAllowance = options.synchronousAcceptedAllowance
+    ?? (options.synchronousAccepted === true ? allowance : undefined);
+  const synchronousStartError = options.synchronousStartError;
+  const synchronousStartActiveAdvanceMilliseconds =
+    options.synchronousStartActiveAdvanceMilliseconds;
   const queuedTransport = new QueueWorkerRuntimeTransportFactory(workers);
   const transport = detachError === undefined
-    && options.synchronousAccepted !== true
+    && bindMessage === undefined
+    && synchronousInitializeMessages === undefined
+    && synchronousAcceptedAllowance === undefined
+    && synchronousStartError === undefined
+    && synchronousStartActiveAdvanceMilliseconds === undefined
     ? queuedTransport
     : {
         create: (): WorkerRuntimeTransportBinding => {
@@ -373,19 +391,30 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
           const source: WorkerRuntimeSource = {
             send: message => {
               binding.source.send(message);
-              if (options.synchronousAccepted !== true
-                || typeof message !== "object"
-                || message === null
-                || ownDataProperty(message, "kind") !== "start") {
-                return;
-              }
+              if (typeof message !== "object" || message === null) return;
               const epochToken = ownDataProperty(message, "epochToken");
               if (typeof epochToken !== "number") return;
-              handlers?.message(source, workerEnvelope(epochToken, {
-                kind: "accepted",
-                operation: ownDataProperty(message, "operation"),
-                allowance,
-              }));
+              const kind = ownDataProperty(message, "kind");
+              if (kind === "initialize"
+                && synchronousInitializeMessages !== undefined) {
+                for (const response of synchronousInitializeMessages(epochToken))
+                  handlers?.message(source, response);
+              }
+              if (kind !== "start") return;
+              if (synchronousStartActiveAdvanceMilliseconds !== undefined) {
+                environment.advanceActive(
+                  synchronousStartActiveAdvanceMilliseconds,
+                );
+              }
+              if (synchronousStartError !== undefined)
+                handlers?.error(source, synchronousStartError);
+              if (synchronousAcceptedAllowance !== undefined) {
+                handlers?.message(source, workerEnvelope(epochToken, {
+                  kind: "accepted",
+                  operation: ownDataProperty(message, "operation"),
+                  allowance: synchronousAcceptedAllowance,
+                }));
+              }
             },
             terminate: () => binding.source.terminate(),
           };
@@ -401,6 +430,8 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
                 messageError: (_source, diagnostic) =>
                   nextHandlers.messageError(source, diagnostic),
               });
+              if (bindMessage !== undefined)
+                nextHandlers.message(source, bindMessage);
               return () => {
                 handlers = null;
                 detach();
@@ -704,6 +735,66 @@ test("bootstrap encoding disposal prevents post-disposal epoch creation", () => 
     kind: "rejected",
     reason: "host-disposed",
   });
+});
+
+test("bind-time Ready cannot bypass initialization dispatch", () => {
+  const harness = createHarness({
+    bindMessage: workerEnvelope(1, {
+      kind: "ready",
+      idleHeartbeatIntervalMilliseconds: 10,
+    }),
+  });
+
+  assert.deepEqual(harness.host.start("bootstrap"), {
+    kind: "rejected",
+    reason: "worker-creation-failed",
+  });
+  assert.equal(harness.failures[0]?.kind, "protocol");
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.deepEqual(harness.workers[0]!.receivedMessages, []);
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
+});
+
+test("synchronous initialization failure cannot return a started epoch", () => {
+  const leaseAllowance: WorkerLivenessAllowance = {
+    kind: "bounded",
+    maxSilentActiveMilliseconds: 30,
+  };
+  const harness = createHarness({
+    synchronousInitializeMessages: epochToken => [
+      workerEnvelope(epochToken, {
+        kind: "ready",
+        idleHeartbeatIntervalMilliseconds: 10,
+      }),
+      workerEnvelope(epochToken, {
+        kind: "epoch-work-started",
+        workSequence: 1,
+        allowance: leaseAllowance,
+      }),
+      workerEnvelope(epochToken, {
+        kind: "epoch-failed",
+        diagnostic: { code: "worker", detail: "initialization failed" },
+      }),
+    ],
+  });
+
+  assert.deepEqual(harness.host.start("bootstrap"), {
+    kind: "rejected",
+    reason: "worker-creation-failed",
+  });
+  assert.equal(harness.failures[0]?.kind, "worker-declared");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.equal(harness.host.snapshot().activeEpochWork, 1);
+  assert.equal(harness.workers[0]!.terminateCount, 0);
+
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "epoch-work-finished",
+    workSequence: 1,
+  }));
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
 });
 
 test("synchronous Initialize send failure rejects start without reusing its token", async () => {
@@ -1180,6 +1271,108 @@ test("readiness flush accepts a synchronous response to an emitted held start", 
   assert.equal(harness.host.snapshot().phase, "ready");
   assert.equal(harness.host.snapshot().activeOperations, 1);
   assert.equal(harness.failures.length, 0);
+  settlement.resolve({ kind: "succeeded", value: "output" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: "output",
+  });
+  await handle.quiesced;
+});
+
+test("readiness-flush allowance mismatch drains through later settlement", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "accepted",
+    synchronousAcceptedAllowance: {
+      kind: "bounded",
+      maxSilentActiveMilliseconds: 19,
+    },
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "protocol");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.equal(harness.workers[0]!.terminateCount, 0);
+  settlement.resolve({ kind: "succeeded", value: "late" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "boundary:protocol",
+  });
+  await handle.quiesced;
+});
+
+test("readiness-flush worker error uses bounded post-readiness draining", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const workerError = new Error("worker event during flush");
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    synchronousStartError: workerError,
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures[0]?.kind, "worker-message");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.equal(harness.workers[0]!.terminateCount, 0);
+  settlement.resolve({ kind: "succeeded", value: "late" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "boundary:worker-message",
+  });
+  await handle.quiesced;
+});
+
+test("matching Ready ends the startup deadline before held-start flush", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    startupBudgetMilliseconds: 10,
+    synchronousStartActiveAdvanceMilliseconds: 10,
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.failures.length, 0);
+  assert.equal(harness.workers[0]!.terminateCount, 0);
   settlement.resolve({ kind: "succeeded", value: "output" });
   await harness.environment.flushAsync();
   assert.deepEqual(await handle.outcome, {
@@ -2781,7 +2974,9 @@ test("a later serialized response proves a missing ProbeAcknowledged while heart
     },
   });
   const first = session(harness.adapter, authority);
-  started(first.session.start("first", harness.adapter));
+  const firstHandle = started(
+    first.session.start("first", harness.adapter),
+  );
   await harness.environment.flushAsync();
   harness.environment.advanceActive(20);
   await harness.environment.flushAsync();
@@ -2791,9 +2986,29 @@ test("a later serialized response proves a missing ProbeAcknowledged while heart
   assert.equal(harness.failures.length, 0);
 
   const second = session(harness.adapter, authority);
-  started(second.session.start("second", harness.adapter));
+  const secondHandle = started(
+    second.session.start("second", harness.adapter),
+  );
   await harness.environment.flushAsync();
   assert.equal(harness.failures[0]?.kind, "control-response");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "failed",
+    error: "boundary:control-response",
+  });
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "boundary:control-response",
+  });
+  settlements[1]!.resolve({ kind: "succeeded", value: "second" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "draining");
+  settlements[0]!.resolve({ kind: "succeeded", value: "first" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  await Promise.all([firstHandle.quiesced, secondHandle.quiesced]);
 });
 
 test("deferred control coverage dispatches after an older probe retires", async () => {
