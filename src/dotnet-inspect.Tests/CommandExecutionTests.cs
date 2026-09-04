@@ -11205,6 +11205,26 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceDiff_ExplicitInterfaceSetterUsesPropertyValueType()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "System.Data.DataView",
+            "--platform", "System.Data.Common",
+            "System.ComponentModel.IBindingListView.Filter:2",
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "string? IBindingListView.Filter",
+            output);
+        Assert.Contains("set => RowFilter = value;", output);
+        Assert.DoesNotContain(
+            "void IBindingListView.Filter",
+            output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfaceEventUsesPhysicalAccessor()
     {
         var (exit, output, error) = await RunAppAsync(

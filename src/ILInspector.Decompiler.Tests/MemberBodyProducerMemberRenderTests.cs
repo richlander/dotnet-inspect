@@ -90,6 +90,48 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_ExplicitInterfaceSetterUsesPropertyValueType()
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.Name.EndsWith(
+                    $".{nameof(IMemberRenderExplicitProperty.Label)}",
+                    StringComparison.Ordinal));
+        ApiMember setter = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.EndsWith(
+                $".set_{nameof(IMemberRenderExplicitProperty.Label)}",
+                StringComparison.Ordinal));
+        type.Members = [setter];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            setter,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "string? IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "set => _explicitLabel = value;",
+            rendered.Text,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "void IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProduceMember_RendersCustomEventAccessorBodiesAndReturnAttributes()
     {
         var type = Specimen();
@@ -730,9 +772,15 @@ public sealed class MemberBodyProducerMemberRenderTests
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
-public sealed class MemberRenderSpecimen
+public interface IMemberRenderExplicitProperty
+{
+    string? Label { get; set; }
+}
+
+public sealed class MemberRenderSpecimen : IMemberRenderExplicitProperty
 {
     EventHandler? _changed;
+    string? _explicitLabel;
 
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
@@ -745,6 +793,12 @@ public sealed class MemberRenderSpecimen
     public string Name { get; private set; } = "";
 
     public static string StaticName { get; set; } = "";
+
+    string? IMemberRenderExplicitProperty.Label
+    {
+        get => _explicitLabel;
+        set => _explicitLabel = value;
+    }
 
     public int AttributedValue
     {

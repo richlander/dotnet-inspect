@@ -1193,15 +1193,23 @@ public static class MemberBodyProducer
                         && ExplicitPropertyName(member.Name) is { } propertyPath
                         && body is not null)
                     {
-                        // The signature's leading token is the accessor's
-                        // return type ('bool Iface.get_X()').
-                        string accessorReturn = member.ReturnType
-                            ?? (member.Signature is { } sig && sig.IndexOf(' ') is var sp and > 0
-                                ? sig[..sp]
-                                : "object");
+                        bool isSetter =
+                            member.Name.Contains(".set_", StringComparison.Ordinal);
+                        string? accessorPropertyType = isSetter
+                            ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
+                            : member.ReturnType
+                                ?? (member.Signature is { } sig
+                                    && sig.IndexOf(' ') is var sp and > 0
+                                        ? sig[..sp]
+                                        : null);
+                        if (string.IsNullOrEmpty(accessorPropertyType))
+                        {
+                            throw new InvalidOperationException(
+                                "The explicit property accessor does not provide its property type.");
+                        }
                         string unsafeModifier = (member.IsUnsafe || requiresUnsafeContext) ? "unsafe " : "";
-                        string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
-                        if (member.Name.Contains(".set_", StringComparison.Ordinal))
+                        string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorPropertyType, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
+                        if (isSetter)
                         {
                             sb.AppendLf($"    {head}");
                             sb.AppendLf("    {");
