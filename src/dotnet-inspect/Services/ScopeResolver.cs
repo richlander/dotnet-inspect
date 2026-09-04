@@ -1,3 +1,5 @@
+using DotnetInspector.Ecosystems;
+
 namespace DotnetInspector.Services;
 
 /// <summary>
@@ -53,14 +55,34 @@ public static class ScopeResolver
                 frameworks = ScopeConstants.PlatformFrameworks;
 
             if (flags.Extensions)
-                packages = [.. packages, .. ScopeConstants.ExtensionsPackages];
+                packages =
+                [
+                    .. packages,
+                    .. PackageIds(PackageSetIds.MicrosoftExtensions),
+                ];
 
             if (flags.AspNetCore)
-                packages = [.. packages, .. ScopeConstants.AspNetCorePackages];
+                packages =
+                [
+                    .. packages,
+                    .. PackageIds(PackageSetIds.AspNetCore),
+                ];
         }
 
         return new ResolvedScope(
             frameworks,
             packages.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
+
+    private static IEnumerable<string> PackageIds(PackageSetId id) =>
+        PackageSetCatalog.Lookup(id) switch
+        {
+            PackageSetLookupResult.Known known =>
+                known.Descriptor.Members.Select(member => member.PackageId),
+            PackageSetLookupResult.Unknown unknown =>
+                throw new InvalidOperationException(
+                    $"Shipped package set '{unknown.Id}' is not registered."),
+            _ => throw new InvalidOperationException(
+                $"Shipped package-set lookup returned an unsupported result for '{id}'."),
+        };
 }

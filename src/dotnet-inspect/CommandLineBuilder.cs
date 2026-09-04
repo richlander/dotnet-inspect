@@ -60,10 +60,8 @@ public static class CommandLineBuilder
     /// </summary>
     public static HashSet<string> KnownCommands => ArgumentPreprocessor.KnownCommands;
 
-    // Scope constants delegated to ScopeConstants for backward compatibility
+    // Platform scope constants delegated to ScopeConstants for backward compatibility.
     internal static string[] PlatformFrameworkNames => ScopeConstants.PlatformFrameworks;
-    internal static string[] ExtensionsScopePackages => ScopeConstants.ExtensionsPackages;
-    internal static string[] AspNetCoreScopePackages => ScopeConstants.AspNetCorePackages;
 
     /// <summary>
     /// Pre-processes args and rewrites line-window shorthand only when the active

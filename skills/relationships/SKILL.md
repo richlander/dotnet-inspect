@@ -18,7 +18,7 @@ dnx dotnet-inspect -y -- <command>
 
 Scope any of these commands the same way: `--project path/to.csproj` (restored
 project references), `--package Foo` (repeatable), `--library path.dll`,
-`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (curated
+`--platform` (all in-box frameworks), `--extensions` or `--aspnetcore` (current
 Microsoft.* sets), and `--tfm net9.0`. For `implements` and `extensions`, use
 `--package-prefix Azure.AI` to search up to 500 packages under a NuGet ID
 prefix; the command warns when that bound is reached. `depends` does not accept
