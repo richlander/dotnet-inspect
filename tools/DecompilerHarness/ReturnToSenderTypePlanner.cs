@@ -1023,7 +1023,11 @@ public static class CompileBackSourceComposer
             ConsumedMemberEvidence.AddFrom(node, consumedMemberEvidence);
             foreach (var evidence in consumedMemberEvidence)
             {
-                if (evidence.Method is { } method)
+                if (evidence is
+                    {
+                        Method: { } method,
+                        IncludeInCompileBackClosure: true,
+                    })
                     AddMethodFact(method, evidence.EffectiveAllowTargetRoot);
                 if (evidence.Field is { } field)
                     AddFieldFact(field);

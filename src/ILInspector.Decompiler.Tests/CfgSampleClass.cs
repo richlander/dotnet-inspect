@@ -4744,6 +4744,38 @@ public class CfgSampleClass
         return sum;
     }
 
+    public static async System.Threading.Tasks.Task<int> AwaitForeachAfterUnsafeRead(
+        nint address,
+        System.Collections.Generic.IAsyncEnumerable<int> source)
+    {
+        int sum;
+        unsafe
+        {
+            sum = *(int*)address;
+        }
+
+        await foreach (int value in source)
+            sum += value;
+
+        return sum;
+    }
+
+    public static async System.Threading.Tasks.Task<int> AwaitUsingAfterUnsafeRead(
+        nint address,
+        System.IAsyncDisposable resource)
+    {
+        int value;
+        unsafe
+        {
+            value = *(int*)address;
+        }
+
+        await using (resource)
+        {
+            return value;
+        }
+    }
+
     public static async System.Threading.Tasks.Task<int> ManualAwaitEnumeratorLoop(
         System.Collections.Generic.IAsyncEnumerable<int> source)
     {

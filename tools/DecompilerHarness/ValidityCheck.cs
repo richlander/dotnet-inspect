@@ -749,10 +749,7 @@ static class ValidityCheck
     }
 
     static bool HasAwaitSyntax(IrFunction function)
-        => function.Descendants.Any(static node =>
-            node is AwaitExpression
-                or UsingStatement { IsAwait: true }
-                or ForeachStatement { IsAwait: true });
+        => UnsafeAwaitOperand.ContainsAwait(function);
 
     static string ParameterText(Parameter parameter)
         => parameter.Type.Kind == TypeRefKind.ByRef

@@ -193,6 +193,46 @@ public class ValidityShellNoiseTests
     }
 
     [Theory]
+    [InlineData(nameof(CfgSampleClass.AwaitUsingAfterUnsafeRead))]
+    [InlineData(nameof(CfgSampleClass.AwaitForeachAfterUnsafeRead))]
+    public void LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock(
+        string methodName)
+    {
+        using var source = MetadataSource.Open(
+            typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            methodName);
+        Assert.NotNull(function);
+        IrPasses.Run(function);
+
+        var result = CSharpPrinter.Print(function);
+        string body = Assert.IsType<string>(result.Output);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.False(function.UsesUpdatedMemorySafetyRules);
+        Assert.True(result.ContainsAwaitExpression);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.Contains("unsafe\n{", body);
+        Assert.Contains("await ", body);
+
+        string shell = ValidityCheck.Shell(
+            function,
+            body,
+            typeof(CfgSampleClass).FullName!,
+            methodName,
+            new Dictionary<string, Dictionary<string, string>>(),
+            ValidityCheck.MethodShellContext.Create(
+                function,
+                requiresUnsafeContext: true));
+
+        Assert.DoesNotContain(
+            Compile(shell),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Theory]
     [InlineData("CS0029", "class Real {} sealed class __Shell { Real M() => this; }")]
     [InlineData("CS0019", "sealed class Real {} sealed class __Shell { bool M(Real value) => this == value; }")]
     [InlineData("CS0019", "class Real {} sealed class __Shell { bool M((int, Real) value) => (1, this) == value; }")]

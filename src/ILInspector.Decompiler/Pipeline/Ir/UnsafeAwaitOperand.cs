@@ -3,7 +3,12 @@ namespace ILInspector.Decompiler.Pipeline;
 internal static class UnsafeAwaitOperand
 {
     public static bool ContainsAwait(IrNode root)
-        => root is AwaitExpression || root.Descendants.OfType<AwaitExpression>().Any();
+        => IsAwaitSyntax(root) || root.Descendants.Any(IsAwaitSyntax);
+
+    static bool IsAwaitSyntax(IrNode node)
+        => node is AwaitExpression
+            or UsingStatement { IsAwait: true }
+            or ForeachStatement { IsAwait: true };
 
     public static bool WouldPlaceAwaitInUnsafeContext(
         IrNode root,

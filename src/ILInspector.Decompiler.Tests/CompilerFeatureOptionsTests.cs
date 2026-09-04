@@ -813,6 +813,54 @@ public class CompilerFeatureOptionsTests
         Assert.DoesNotContain("unsafe", sameAssemblyResult.Output);
     }
 
+    [Fact]
+    public void UnsupportedDependencyMemorySafetyRules_WithExpressionRetainsCloneProvenance()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+            ]);
+        using var library = Compile(
+            """
+            public record RecordValue
+            {
+                public int Field;
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedRecordLibrary");
+        MetadataReference libraryReference =
+            MetadataReference.CreateFromImage(library.Image);
+        using var caller = Compile(
+            """
+            public static class Consumer
+            {
+                public static RecordValue M(
+                    RecordValue value,
+                    int replacement)
+                    => value with { Field = replacement };
+            }
+            """,
+            options,
+            assemblyName: "UnsupportedRecordConsumer",
+            additionalReferences: [libraryReference]);
+
+        byte[] unsupportedLibrary =
+            WithMemorySafetyRulesVersion(library.Image, version: 99);
+        DecompilerResult result = DecompileWithSibling(
+            "UnsupportedRecordLibrary.dll",
+            unsupportedLibrary,
+            "UnsupportedRecordConsumer.dll",
+            caller.Image,
+            "Consumer",
+            "M");
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains(" with { Field = replacement }", result.Output);
+    }
+
     static DecompilerResult DecompileWithSibling(
         string libraryName,
         byte[] libraryImage,

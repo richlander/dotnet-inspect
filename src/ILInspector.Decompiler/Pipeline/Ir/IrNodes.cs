@@ -2975,7 +2975,16 @@ public sealed class ObjectInitializerExpression : IrExpression
 public sealed class WithExpression : IrExpression
 {
     public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
+        : this(receiver, entries, cloneMethod: null)
     {
+    }
+
+    public WithExpression(
+        IrExpression receiver,
+        IEnumerable<InitializerEntry> entries,
+        MethodRef? cloneMethod)
+    {
+        CloneMethod = cloneMethod;
         AddChild(receiver);
         var members = ImmutableArray.CreateBuilder<string>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
@@ -2998,6 +3007,7 @@ public sealed class WithExpression : IrExpression
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
+    public MethodRef? CloneMethod { get; }
     public ImmutableArray<string> Members { get; }
     public ImmutableArray<MethodRef?> ConsumedMethods { get; }
     public ImmutableArray<FieldRef?> ConsumedFields { get; }

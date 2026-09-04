@@ -323,7 +323,10 @@ public sealed record DecompilerResult(
     /// </summary>
     public bool RequiresUnsafeBodyModifier { get; init; }
 
-    /// <summary>True when the rendered IR contains at least one recovered <c>await</c> expression.</summary>
+    /// <summary>
+    /// True when the rendered IR contains recovered <c>await</c> syntax,
+    /// including an await expression, await-using, or await-foreach.
+    /// </summary>
     public bool ContainsAwaitExpression { get; init; }
 
     /// <summary>

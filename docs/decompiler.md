@@ -89,16 +89,19 @@ module-level `MemorySafetyRulesAttribute`. Under those rules the member `unsafe`
 modifier no longer makes a method body an unsafe context, so `CSharpPrinter`
 emits explicit, minimally scoped `unsafe { }` blocks around the operations that
 still need one. For a legacy module (no attribute) it normally emits no blocks
-because the member modifier supplies the context. A body with a surviving
-reconstructed `await` is the exception: because C# forbids `await` in a
-member-level unsafe context, that legacy output uses the same explicit block
-boundaries and does not derive an `unsafe` modifier from body operations.
+because the member modifier supplies the context. A body with surviving reconstructed await syntax — an await expression,
+`await using`, or `await foreach` — is the exception: because C# forbids
+`await` in a member-level unsafe context, that legacy output uses the same
+explicit block boundaries and does not derive an `unsafe` modifier from body
+operations.
 Runtime-async metadata without a surviving `await` retains the legal
 member-level modifier when its body requires unsafe context. This handoff is
 gated by
 `ValidityShellNoiseTests.RuntimeAsyncNoAwaitUnsafeRts_PreservesUnsafeContextWithoutFloor`;
 the equivalent property and event-accessor handoff is gated by
-`ValidityShellNoiseTests.AccessorRts_PreservesUnsafeBodyContextWithoutFloor`.
+`ValidityShellNoiseTests.AccessorRts_PreservesUnsafeBodyContextWithoutFloor`,
+and raised await-using/await-foreach boundaries are gated by
+`ValidityShellNoiseTests.LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock`.
 
 An operation needs a block when it is:
 
@@ -132,7 +135,9 @@ authoritative contract outside a supported module model. A member-level
 contract that is itself malformed, ambiguous, or otherwise unavailable also
 declines rather than using pointer shape to invent a V2 caller requirement.
 `CompilerFeatureOptionsTests.UnsupportedDependencyMemorySafetyRules_DeclinesWithoutPromotingDirectAttribute`
-gates the compiler-produced dependency case, and
+gates the compiler-produced call case,
+`CompilerFeatureOptionsTests.UnsupportedDependencyMemorySafetyRules_WithExpressionRetainsCloneProvenance`
+gates record-clone evidence retained through `with` raising, and
 `FidelityRemarksTests.Collect_InvalidCalleeMemorySafetyRules_ReportsDec0015`
 gates the invalid-state census.
 

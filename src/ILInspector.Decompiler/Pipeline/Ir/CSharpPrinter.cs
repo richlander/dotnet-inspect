@@ -28,7 +28,7 @@ public sealed partial class CSharpPrinter
     /// printer wraps unsafe operations in explicit <c>unsafe { }</c> blocks.
     /// </summary>
     readonly bool _newMemorySafetyRules;
-    readonly bool _containsAwaitExpression;
+    readonly bool _containsAwaitSyntax;
 
     /// <summary>
     /// True when the method body skips locals initialization (<see
@@ -71,7 +71,7 @@ public sealed partial class CSharpPrinter
         _function = function;
         _options = options ?? PrinterOptions.Default;
         _newMemorySafetyRules = function.UsesUpdatedMemorySafetyRules;
-        _containsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any();
+        _containsAwaitSyntax = UnsafeAwaitOperand.ContainsAwait(function);
         _skipLocalsInit = function.SkipLocalsInit;
         _reservedScopeNames = reservedScopeNames is null
             ? []
@@ -379,9 +379,9 @@ public sealed partial class CSharpPrinter
             FieldInitializers = _fieldInitializers,
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = !function.UsesUpdatedMemorySafetyRules
-                && !_containsAwaitExpression
+                && !_containsAwaitSyntax
                 && function.Descendants.Prepend(function).Any(NeedsUnsafeBodyModifier),
-            ContainsAwaitExpression = _containsAwaitExpression,
+            ContainsAwaitExpression = _containsAwaitSyntax,
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
@@ -3018,7 +3018,7 @@ public sealed partial class CSharpPrinter
     bool HasUnsafeOperation(IrNode? node)
         => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
 
-    bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitExpression;
+    bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitSyntax;
 
     bool NeedsExplicitUnsafeContext(IrNode node)
         => EmitsUnsafeBlocks && NeedsUnsafeContext(node);
@@ -3101,7 +3101,8 @@ public sealed partial class CSharpPrinter
         AddressOfMethod a => MethodRequiresUnsafe(a.Method),
         ChainedAssignment c => c.Targets.Any(t => MethodRequiresUnsafe(t.Accessor)),
         ObjectInitializerExpression o => MethodsRequireUnsafe(o.ConsumedMethods),
-        WithExpression w => MethodsRequireUnsafe(w.ConsumedMethods),
+        WithExpression w => MethodRequiresUnsafe(w.CloneMethod)
+            || MethodsRequireUnsafe(w.ConsumedMethods),
         InitializerBlock i => MethodsRequireUnsafe(i.ConsumedMethods),
         RecursivePropertyDeclarationPattern p => MethodRequiresUnsafe(p.Accessor),
         PatternSwitchExpressionArm { Subpattern: { } p } => MethodRequiresUnsafe(p.Accessor),
