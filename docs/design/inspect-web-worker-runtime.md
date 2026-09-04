@@ -853,7 +853,9 @@ publications are being exercised records physical closure but cannot report
 quiescence, release the retained sink, or retire the record until every
 operation in the closure snapshot has published. Physical response reentrancy
 therefore cannot erase a sibling publication capability or let realm release
-overtake a committed terminal event.
+overtake a committed terminal event. A synchronous `CancelAcknowledged`
+following that physical response records the acknowledgment but remains under
+the same deferred-retirement barrier.
 
 Ordinary success, failure, progress, or cancellation messages arriving after
 that commit cannot replace the fixed closure. They may still prove physical
@@ -1082,7 +1084,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   final, exactly one runtime failure publishes, and old-epoch `realmReleased`
   follows that runtime failure, plus synchronous sibling `Settled` and
   `Rejected` responses that cannot erase the sibling's committed publication
-  or quiescence;
+  or quiescence, including a following `CancelAcknowledged` that cannot retire
+  the physically closed sibling before publication completes;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent
