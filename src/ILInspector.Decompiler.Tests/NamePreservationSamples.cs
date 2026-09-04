@@ -16,4 +16,10 @@ public static class NamePreservationSamples
         ReadOnlySpan<char> trimmed = MemoryExtensions.Trim(item);
         items[i] = trimmed.ToString();
     }
+
+    public static IEnumerable<int> YieldNamedStructReceiver(IEnumerable<DateTime> dates)
+    {
+        foreach (var date in dates)
+            yield return date.Year;
+    }
 }

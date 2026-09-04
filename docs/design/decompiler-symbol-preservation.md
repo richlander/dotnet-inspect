@@ -90,6 +90,11 @@ one arm, an enclosing reservation, or a flattened local-function declaration
 still collides and lowers fidelity when the exact local cannot be emitted.
 Printer-only receiver recomposition does not elide a slot carrying an exact PDB
 name; an unnamed receiver slot that is elided reserves no presentation name.
+Supported foreach-delegation iterators retain the exact iteration-variable name
+when it is also a struct receiver. Preserving that local must not make an
+already reconstructed foreach fail the iterator's reconstruction contract;
+`IteratorReconstructionPassTests.ForeachDelegationIterator_PreservesNamedStructReceiver`
+gates the compiler-produced case in P2.
 
 ### Portable PDB boundary
 
@@ -343,6 +348,7 @@ surface is gated by `MetadataDeclarationQueryTests`.
 ### P2: Portable PDB local names
 
 ```bash
+inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples YieldNamedStructReceiver "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass ReverseCopy "$CFG"
 inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StoreElementNamedReceiverTemp "$CFG"
 ```

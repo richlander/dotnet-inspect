@@ -887,6 +887,24 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
+    public void ForeachDelegationIterator_PreservesNamedStructReceiver()
+    {
+        using var source = MetadataSource.Open(typeof(NamePreservationSamples).Assembly.Location);
+        var (function, output) = RaisedFrom(
+            source,
+            typeof(NamePreservationSamples).FullName!,
+            nameof(NamePreservationSamples.YieldNamedStructReceiver));
+
+        var loop = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("date", function.LocalNames[loop.LocalIndex]);
+        Assert.Single(function.Descendants.OfType<YieldReturn>());
+        Assert.Empty(function.Descendants.OfType<UnsupportedNode>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("foreach (DateTime date in dates)", output);
+        Assert.Contains("yield return date.Year;", output);
+    }
+
+    [Fact]
     public void ForeachDelegationIterator_WithUserFinally_DeclinesToAcknowledgment()
     {
         var function = Raised(nameof(CfgSampleClass.ForeachUserFinally));
