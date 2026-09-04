@@ -253,7 +253,7 @@ produced them refuse verification.
 `StoreVerifier_RejectsMissingRequiredCountsAndGrandfatherTampering`,
 `TrackedHistory_OnlyGrandfatheredRowsOmitThePartition`,
 `TrackedHistory_OnlyTheOriginalRowOmitsACommit`,
-`ParseHistory_DefaultsMethodologyToV1WhenAbsentAndReadsExplicitVersion`,
+`ParseHistory_DefaultsMethodologyToV1WhenAbsentOrNullAndReadsExplicitVersion`,
 `ParseHistory_RejectsUnknownMethodologyVersion`, and
 `ParseHistory_RejectsFrontierAttributionBeforeMethodologyV3` gate the current
 compatibility boundary.
