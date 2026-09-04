@@ -156,7 +156,7 @@ public class RenderAbSensorTests
         Assert.Contains(
             "Semantic: valid->valid: 0, invalid->valid: 0, valid->invalid: 1, invalid->invalid: 0",
             output);
-        Assert.Contains("CS9360", output);
+        Assert.Contains("CS0214", output);
     }
 
     [Fact]

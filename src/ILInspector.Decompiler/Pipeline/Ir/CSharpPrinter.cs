@@ -481,6 +481,7 @@ public sealed partial class CSharpPrinter
 
     /// <summary>Stores that double as declarations: the local's first program-order reference, at statement level in the entry block.</summary>
     readonly HashSet<IrNode> _declaringStores = [];
+    readonly HashSet<IrNode> _legacyAwaitScopedDeclarations = [];
 
     /// <summary>Locals that may be read before they are definitely assigned, so their declaration must keep its `= default` zero-initializer (a bare declaration would be CS0165).</summary>
     HashSet<int> _readBeforeAssign = [];
@@ -1447,6 +1448,20 @@ public sealed partial class CSharpPrinter
                         // at that ref assignment instead.
                         _declaringStores.Add(store);
                     }
+                    else if (!_newMemorySafetyRules
+                        && _containsAwaitSyntax
+                        && ContainsPointer(store.Type)
+                        && UnsafeAwaitOperand.CanScopeLegacyPointerLocal(
+                            function,
+                            store))
+                    {
+                        // A legacy pointer local in an async body cannot be
+                        // declared at method scope: that would require a
+                        // member-wide unsafe context containing await. Keep the
+                        // declaration inside its await-free unsafe run.
+                        _declaringStores.Add(store);
+                        _legacyAwaitScopedDeclarations.Add(store);
+                    }
                     else if (function.IsLocalDeclaredInNestedScope(store.Index)
                         && LocalReferencesStayInsideStoreBlock(function, store))
                     {
@@ -1494,6 +1509,16 @@ public sealed partial class CSharpPrinter
                         // the first store, declare at that ref assignment instead.
                         _declaringStores.Add(slotStore);
                     }
+                    else if (!_newMemorySafetyRules
+                        && _containsAwaitSyntax
+                        && ContainsPointer(StackSlotTargetType(slotStore))
+                        && UnsafeAwaitOperand.CanScopeLegacyPointerStackSlot(
+                            function,
+                            slotStore))
+                    {
+                        _declaringStores.Add(slotStore);
+                        _legacyAwaitScopedDeclarations.Add(slotStore);
+                    }
                     break;
                 case LoadStackSlot slotLoad: seenSlots.Add(slotLoad.Slot); break;
             }
@@ -1509,6 +1534,8 @@ public sealed partial class CSharpPrinter
         {
             foreach (var store in _declaringStores.OfType<StoreLocal>().ToList())
             {
+                if (_legacyAwaitScopedDeclarations.Contains(store))
+                    continue;
                 if (store.Type.Kind != TypeRefKind.ByRef
                     && HasExplicitUnsafeOperation(store.Value)
                     && LocalIsRead(function, store.Index)
@@ -1531,6 +1558,8 @@ public sealed partial class CSharpPrinter
             }
             foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
             {
+                if (_legacyAwaitScopedDeclarations.Contains(store))
+                    continue;
                 if (!HasUnsafeOperation(store.Value)
                     || StackSlotReferencesStayInBlockAfterStore(function, store)
                         && !StackSlotUnsafeRunContainsAwait(store))
@@ -3017,26 +3046,39 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool NeedsUnsafeContext(IrNode node) => node switch
     {
-        ForLoop f => HasUnsafeOperation(f.Initializer) || HasUnsafeOperation(f.Condition) || HasUnsafeOperation(f.Increment),
-        WhileLoop w => HasUnsafeOperation(w.Condition),
-        DoWhileLoop d => HasUnsafeOperation(d.Condition),
-        IfStatement s => HasUnsafeOperation(s.Condition),
-        Switch s => HasUnsafeOperation(s.Value),
-        Lock l => HasUnsafeOperation(l.LockObject),
+        ForLoop f => HasRequiredUnsafeOperation(f.Initializer)
+            || HasRequiredUnsafeOperation(f.Condition)
+            || HasRequiredUnsafeOperation(f.Increment),
+        WhileLoop w => HasRequiredUnsafeOperation(w.Condition),
+        DoWhileLoop d => HasRequiredUnsafeOperation(d.Condition),
+        IfStatement s => HasRequiredUnsafeOperation(s.Condition),
+        Switch s => HasRequiredUnsafeOperation(s.Value),
+        Lock l => HasRequiredUnsafeOperation(l.LockObject),
         Fixed { RequiresUnsafeContext: true } => true,
-        Fixed fx => HasUnsafeOperation(fx.PinSource),
-        UsingStatement u => HasUnsafeOperation(u.Resource) || MethodsRequireUnsafe(u.ConsumedMemberRefs),
-        ForeachStatement f => HasUnsafeOperation(f.Collection) || MethodsRequireUnsafe(f.ConsumedMemberRefs),
+        Fixed fx => HasRequiredUnsafeOperation(fx.PinSource)
+            || !_newMemorySafetyRules,
+        UsingStatement u => HasRequiredUnsafeOperation(u.Resource)
+            || MethodsRequireUnsafe(u.ConsumedMemberRefs),
+        ForeachStatement f => HasRequiredUnsafeOperation(f.Collection)
+            || MethodsRequireUnsafe(f.ConsumedMemberRefs)
+            || !_newMemorySafetyRules && ContainsPointer(f.LocalType),
         LocalFunctionStatement => false,
-        TryCatch t => t.Clauses.Any(c => HasUnsafeOperation(c.Filter)),
+        TryCatch t => t.Clauses.Any(c => HasRequiredUnsafeOperation(c.Filter)),
         TryFinally => false,
         StoreElement s when _inlineReceiverTempStores.TryGetValue(s, out var store)
-            => HasUnsafeOperation(s) || HasUnsafeOperation(store.Value),
-        _ => HasUnsafeOperation(node),
+            => HasRequiredUnsafeOperation(s) || HasRequiredUnsafeOperation(store.Value),
+        _ => HasRequiredUnsafeOperation(node),
     };
 
     bool HasUnsafeOperation(IrNode? node)
         => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+
+    bool HasRequiredUnsafeOperation(IrNode? node)
+        => node is not null
+            && (HasUnsafeOperation(node)
+                || !_newMemorySafetyRules
+                    && (IsLegacyPointerOperation(node)
+                        || node.Descendants.Any(IsLegacyPointerOperation)));
 
     bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitSyntax;
 
@@ -3070,7 +3112,6 @@ public sealed partial class CSharpPrinter
     bool IsUnsafeOperation(IrNode node) => node switch
     {
         CallIndirect => true,
-        Lambda lambda => LambdaNeedsUnsafeContext(lambda),
         StackAllocate => true,
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
@@ -3178,33 +3219,10 @@ public sealed partial class CSharpPrinter
             .Select((argument, index) => (argument, index))
             .Any(pair => IsPointerByRefArgument(parameterTypes, pair.index, pair.argument));
 
-    bool IsLegacyPointerOperation(IrNode node) => node switch
-    {
-        StoreLocal store => ContainsPointer(store.Type),
-        StoreStackSlot store => ContainsPointer(StackSlotTargetType(store)),
-        Fixed => true,
-        LocalFunctionStatement localFunction => SignatureRequiresUnsafe(
-            localFunction.ReturnType,
-            localFunction.Parameters.Select(parameter => parameter.Type)),
-        ForeachStatement foreachStatement => ContainsPointer(foreachStatement.LocalType),
-        LoadField field => ContainsPointer(field.Field.Type),
-        StoreField field => ContainsPointer(field.Field.Type),
-        LoadFieldAddress field => ContainsPointer(field.Field.Type),
-        AddressOfMethod => true,
-        Convert
-        {
-            Operand: LoadLocalAddress or LoadArgumentAddress or LoadFieldAddress
-                or FixedBufferElementAddress or LoadElementAddress,
-        } => true,
-        SizeOf sizeOf => ContainsPointer(sizeOf.Type),
-        Binary b => b.Kind is BinaryKind.Add or BinaryKind.Subtract
-            && (b.Left.ResultType is { Kind: TypeRefKind.Pointer }
-                || b.Right.ResultType is { Kind: TypeRefKind.Pointer }),
-        Comparison c => c.Left.ResultType is { Kind: TypeRefKind.Pointer }
-            || c.Right.ResultType is { Kind: TypeRefKind.Pointer },
-        IncrementDecrement i => i.Target.ResultType is { Kind: TypeRefKind.Pointer },
-        _ => false,
-    };
+    bool IsLegacyPointerOperation(IrNode node)
+        => node is StoreStackSlot store
+            ? ContainsPointer(StackSlotTargetType(store))
+            : UnsafeAwaitOperand.IsLegacyPointerOperation(node);
 
     /// <summary>
     /// Compat-mode requires-unsafe heuristic for a callee whose
@@ -3222,10 +3240,6 @@ public sealed partial class CSharpPrinter
         TypeRef returnType,
         IEnumerable<TypeRef> parameterTypes)
         => ContainsPointer(returnType) || parameterTypes.Any(ContainsPointer);
-
-    static bool LambdaNeedsUnsafeContext(Lambda lambda)
-        => !lambda.ParameterRefKinds.IsDefaultOrEmpty
-            && lambda.Parameters.Any(parameter => ContainsPointer(parameter.Type));
 
     static bool ContainsPointer(TypeRef? type)
         => type is not null

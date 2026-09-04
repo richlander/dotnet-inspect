@@ -93,7 +93,13 @@ because the member modifier supplies the context. A body with surviving reconstr
 `await using`, or `await foreach` — is the exception: because C# forbids
 `await` in a member-level unsafe context, that legacy output uses the same
 explicit block boundaries and does not derive an `unsafe` modifier from body
-operations.
+operations. Those boundaries use the legacy operation set: pointer declarations,
+address-taking, pointer arithmetic and comparison, `fixed`, and pointer
+`sizeof` join dereferences and requires-unsafe calls inside await-free blocks.
+Pointer locals are declared inside the block that owns their complete use run
+rather than hoisted into the containing async body. If a recovered pointer
+lifetime would require that block to cross await, the method declines visibly
+instead of emitting an invalid member-wide or block-wide unsafe context.
 Runtime-async metadata without a surviving `await` retains the legal
 member-level modifier when its body requires unsafe context. This handoff is
 gated by
@@ -102,6 +108,11 @@ the equivalent property and event-accessor handoff is gated by
 `ValidityShellNoiseTests.AccessorRts_PreservesUnsafeBodyContextWithoutFloor`,
 and raised await-using/await-foreach boundaries are gated by
 `ValidityShellNoiseTests.LegacyUnsafeOperationWithRaisedAwaitSyntax_UsesExplicitBlock`.
+`CompilerFeatureOptionsTests.LegacyRuntimeAsyncPointerOperations_UseAwaitFreeUnsafeBlocks`
+gates the compiler-produced legacy pointer-declaration, arithmetic, `fixed`,
+and `sizeof` composition;
+`UnsafeEmitterTests.LegacyPointerLocalWhoseScopeCrossesAwait_DeclinesVisibly`
+gates the unrepresentable lifetime boundary.
 
 An operation needs a block when it is:
 
@@ -125,6 +136,10 @@ statement containing recovered await syntax; evaluation-stack spills are
 declared outside the block so the unsafe assignment and the await remain
 separate. `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates that compiler-produced boundary.
+An explicitly typed lambda parameter containing a pointer is likewise safe
+under the updated rules; it does not create an unsafe block around a neighboring
+await. `CompilerFeatureOptionsTests.UpdatedByRefPointerLambdaBesideAwait_RemainsReconstructable`
+gates that distinction from the legacy operation set.
 
 A raised stack allocation uses the same classifier as its lowered `localloc`
 form. In a `[SkipLocalsInit]` body, classic async reconstruction therefore

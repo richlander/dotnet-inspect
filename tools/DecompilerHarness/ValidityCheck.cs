@@ -366,9 +366,6 @@ static class ValidityCheck
         return hash;
     }
 
-    internal static CSharpParseOptions ParseOptions()
-        => CompilerFeatureOptions.ParseOptions();
-
     internal static CSharpCompilationOptions CompileOptions()
         => new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,

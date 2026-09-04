@@ -12,9 +12,6 @@ static class CompilerFeatureOptions
     const System.Reflection.MethodImplAttributes RuntimeAsync =
         (System.Reflection.MethodImplAttributes)0x2000;
 
-    public static CSharpParseOptions ParseOptions()
-        => new(LanguageVersion.Preview);
-
     public static CSharpParseOptions ParseOptions(string assemblyPath)
     {
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -23,9 +20,14 @@ static class CompilerFeatureOptions
 
     public static CSharpParseOptions ParseOptions(PEReader pe)
     {
-        var options = ParseOptions();
+        bool usesUpdatedMemorySafetyRules =
+            pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe);
+        var options = new CSharpParseOptions(
+            usesUpdatedMemorySafetyRules
+                ? LanguageVersion.Preview
+                : LanguageVersion.Latest);
         var features = new List<KeyValuePair<string, string>>();
-        if (pe.HasMetadata && ModuleUsesUpdatedMemorySafetyRules(pe))
+        if (usesUpdatedMemorySafetyRules)
         {
             features.Add(new("updated-memory-safety-rules", "true"));
         }

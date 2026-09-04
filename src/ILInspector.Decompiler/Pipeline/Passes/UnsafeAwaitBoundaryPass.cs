@@ -13,6 +13,18 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        if (!function.UsesUpdatedMemorySafetyRules
+            && UnsafeAwaitOperand.ContainsAwait(function)
+            && HasUnscopableLegacyPointerStorage(function))
+        {
+            context.Stepper.StepOver(
+                "decline legacy pointer lifetime crossing await");
+            DeclineFunction(
+                function,
+                "legacy pointer lifetime cannot be scoped outside await");
+            return;
+        }
+
         foreach (var statement in function.Descendants
             .Where(node => node.Parent is Block)
             .ToList())
@@ -43,6 +55,85 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
                 DiagnosticIds.UnsupportedConstruct,
                 "statement reconstruction declined: unsafe context would contain await"));
         }
+    }
+
+    static bool HasUnscopableLegacyPointerStorage(IrFunction function)
+    {
+        if (UnsafeAwaitOperand.ContainsPointer(function.Signature.ReturnType)
+            || function.Signature.Parameters.Any(
+                parameter => UnsafeAwaitOperand.ContainsPointer(parameter.Type)))
+        {
+            return true;
+        }
+
+        var fixedLocals = function.DescendantsOutsideNestedFunctions
+            .OfType<Fixed>()
+            .Where(fixedStatement => !fixedStatement.LocalIsStackSlot)
+            .Select(fixedStatement => fixedStatement.LocalIndex)
+            .ToHashSet();
+        var fixedStackSlots = function.DescendantsOutsideNestedFunctions
+            .OfType<Fixed>()
+            .Where(fixedStatement => fixedStatement.LocalIsStackSlot)
+            .Select(fixedStatement => fixedStatement.LocalIndex)
+            .ToHashSet();
+
+        var firstLocalStores = function.DescendantsOutsideNestedFunctions
+            .OfType<StoreLocal>()
+            .GroupBy(store => store.Index)
+            .ToDictionary(group => group.Key, group => group.First());
+        for (int index = 0; index < function.Locals.Length; index++)
+        {
+            if (!UnsafeAwaitOperand.ContainsPointer(function.Locals[index])
+                || fixedLocals.Contains(index)
+                || !LocalIsReferenced(function, index))
+            {
+                continue;
+            }
+
+            if (!firstLocalStores.TryGetValue(index, out var store)
+                || !UnsafeAwaitOperand.CanScopeLegacyPointerLocal(function, store))
+            {
+                return true;
+            }
+        }
+
+        foreach (var store in function.DescendantsOutsideNestedFunctions
+            .OfType<StoreStackSlot>()
+            .GroupBy(store => store.Slot)
+            .Select(group => group.First()))
+        {
+            if (fixedStackSlots.Contains(store.Slot)
+                || !UnsafeAwaitOperand.ContainsPointer(store.Value.ResultType))
+            {
+                continue;
+            }
+            if (!UnsafeAwaitOperand.CanScopeLegacyPointerStackSlot(function, store))
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool LocalIsReferenced(IrFunction function, int index)
+        => function.DescendantsOutsideNestedFunctions.Any(candidate =>
+            candidate is StoreLocal store && store.Index == index
+            || candidate is LoadLocal load && load.Index == index
+            || candidate is LoadLocalAddress address && address.Index == index);
+
+    static void DeclineFunction(IrFunction function, string reason)
+    {
+        function.Body.DetachChildren();
+        var marker = new UnsupportedNode(
+            0,
+            "unsafe await boundary",
+            reason);
+        var statement = new ExpressionStatement(marker);
+        var block = new Block(0);
+        block.Add(statement);
+        function.Body.Add(block);
+        function.Diagnostics.Add(new DecompilerDiagnostic(
+            DiagnosticIds.UnsupportedConstruct,
+            $"method reconstruction declined: {reason}"));
     }
 
     internal static bool RequiresUnsafeContext(

@@ -647,6 +647,54 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void LegacyPointerLocalWhoseScopeCrossesAwait_DeclinesVisibly()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var task = TypeRef.CoreLib("System.Threading.Tasks", "Task");
+        var bytePointer = TypeRef.Pointer(TypeRef.CoreLib("System", "Byte"));
+        var owner = TypeRef.Definition("Synthetic", "Holder", "Class1");
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(
+            0,
+            bytePointer,
+            new StackAllocate(new Constant(8, int32))));
+        block.Add(new ExpressionStatement(
+            new AwaitExpression(
+                new LoadArgument(0, "task", task),
+                resultType: null)));
+        block.Add(new ExpressionStatement(new LoadLocal(0, bytePointer)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            owner,
+            new MethodSignature(
+                voidType,
+                [new Parameter("task", task)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [bytePointer],
+            body)
+        {
+            RequiresAsyncBodyModifier = true,
+        };
+
+        new UnsafeAwaitBoundaryPass().Run(function, PassContext.None);
+        var result = CSharpPrinter.Print(function);
+        string output = Assert.IsType<string>(result.Output);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresUnsafeBodyModifier);
+        Assert.False(result.ContainsAwaitExpression);
+        Assert.Contains("legacy pointer lifetime cannot be scoped outside await", output);
+        Assert.DoesNotContain("unsafe\n{", output);
+        Assert.DoesNotContain("await task", output);
+        Assert.Equal(output, CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
     public void NewRulesModule_UnsafeRunHoistsInitObjectCapturedByLaterLambda()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");

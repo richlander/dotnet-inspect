@@ -53,6 +53,18 @@ different second projection.
 `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
 gates this ownership boundary with compiler-produced runtime-async IL.
 
+Semantic compilation replays the normalized memory-safety model with a compiler
+configuration that actually enforces it. Updated modules use Preview plus the
+`updated-memory-safety-rules` feature. Legacy, malformed, unsupported, and
+unmarked modules use the stable latest language version without that feature;
+Roslyn 5.9 Preview itself enables the updated behavior and therefore cannot
+serve as a legacy oracle. Runtime-async is added independently from method
+implementation metadata.
+`CompilerFeatureOptionsTests.HarnessReplayEnforcesDistinctLegacyAndUpdatedUnsafeRules`
+gates the observable distinction. Render A/B semantic comparisons select the
+same per-assembly options for both projections, so a legacy validity regression
+cannot be hidden by Preview's updated behavior.
+
 ReturnToSender authored-body controls therefore create a separate
 comparison-only `RoundTripRequest` with the independently acquired body as its
 typed replacement. After

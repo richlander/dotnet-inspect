@@ -99,9 +99,37 @@ public class CompilerFeatureOptionsTests
         using var pe = new PEReader(new MemoryStream(BuildMarkedModule(null)));
         var options = CompilerFeatureOptions.ParseOptions(pe);
 
+        Assert.NotEqual(LanguageVersion.Preview, options.LanguageVersion);
         Assert.DoesNotContain(
             options.Features,
             feature => feature.Key == "updated-memory-safety-rules");
+    }
+
+    [Fact]
+    public void HarnessReplayEnforcesDistinctLegacyAndUpdatedUnsafeRules()
+    {
+        const string source =
+            """
+            public static class C
+            {
+                public static bool M(int* left, int* right) => left < right;
+            }
+            """;
+        using var legacyPe = new PEReader(
+            new MemoryStream(BuildMarkedModule(null)));
+        using var updatedPe = new PEReader(
+            new MemoryStream(BuildMarkedModule(2)));
+        var legacyOptions = CompilerFeatureOptions.ParseOptions(legacyPe);
+        var updatedOptions = CompilerFeatureOptions.ParseOptions(updatedPe);
+
+        Assert.NotEqual(LanguageVersion.Preview, legacyOptions.LanguageVersion);
+        Assert.Equal(LanguageVersion.Preview, updatedOptions.LanguageVersion);
+        Assert.Contains(
+            CompileDiagnostics(source, legacyOptions),
+            diagnostic => diagnostic.Id == "CS0214");
+        Assert.DoesNotContain(
+            CompileDiagnostics(source, updatedOptions),
+            diagnostic => diagnostic.Id == "CS0214");
     }
 
     public static TheoryData<string, byte[], bool> ReplayModeImages() => new()
@@ -146,8 +174,9 @@ public class CompilerFeatureOptionsTests
                 public static int M() => 1;
             }
             """;
-        var legacyOptions = new CSharpParseOptions(LanguageVersion.Preview);
-        var updatedOptions = legacyOptions.WithFeatures([
+        var legacyOptions = new CSharpParseOptions(LanguageVersion.Latest);
+        var updatedOptions = new CSharpParseOptions(LanguageVersion.Preview)
+            .WithFeatures([
             new KeyValuePair<string, string>(
                 "updated-memory-safety-rules",
                 "true"),
@@ -190,6 +219,275 @@ public class CompilerFeatureOptionsTests
                     + $"{function.UsesUpdatedMemorySafetyRules}, "
                     + "harness replayed updated rules = "
                     + $"{harnessReplaysUpdatedRules}");
+        }
+    }
+
+    [Fact]
+    public void UpdatedByRefPointerLambdaBesideAwait_RemainsReconstructable()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public unsafe delegate int Callback(ref int* value);
+
+            public static class C
+            {
+                static int Consume(Callback callback, int value) => value;
+
+                public static async Task<int> M(Task<int> task)
+                    => Consume((ref int* value) => 1, await task);
+            }
+            """,
+            options,
+            assemblyName: "UpdatedPointerLambdaAwait");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"updated-pointer-lambda-await-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{output}\n{string.Join('\n', result.Diagnostics)}");
+            Assert.False(result.RequiresUnsafeBodyModifier);
+            Assert.DoesNotContain("unsafe", output);
+            Assert.Contains("await", output);
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public unsafe delegate int Callback(ref int* value);
+
+                public static class D
+                {
+                    static int Consume(Callback callback, int value) => value;
+
+                    public static async Task<int> M(Task<int> task)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                options,
+                assemblyName: "UpdatedPointerLambdaAwaitRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LegacyRuntimeAsyncPointerOperations_UseAwaitFreeUnsafeBlocks()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Latest)
+            .WithFeatures([
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public sealed unsafe class Holder
+            {
+                public int* Pointer => null;
+            }
+
+            public static class C
+            {
+                static unsafe int Read(int* value) => *value;
+
+                public static async Task<int> M(
+                    Task<int> task,
+                    Holder holder,
+                    int[] values)
+                {
+                    int result;
+                    unsafe
+                    {
+                        int* pointer = holder.Pointer;
+                        result = 0;
+                        fixed (int* pinned = values)
+                        {
+                            result = Read(pointer)
+                                + sizeof(int*)
+                                + (pointer + 1 > pointer ? 1 : 0)
+                                + *pinned;
+                        }
+                    }
+                    return result + await task;
+                }
+            }
+            """,
+            options,
+            assemblyName: "LegacyRuntimeAsyncUnsafeOperations");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"legacy-runtime-async-unsafe-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{output}\n{string.Join('\n', result.Diagnostics)}");
+            Assert.True(result.RequiresAsyncBodyModifier);
+            Assert.False(result.RequiresUnsafeBodyModifier);
+            Assert.Contains("unsafe", output);
+            Assert.DoesNotContain("await", FirstUnsafeBlockBody(output));
+
+            var replay = CompilerFeatureOptions.ParseOptions(path);
+            Assert.NotEqual(LanguageVersion.Preview, replay.LanguageVersion);
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public sealed unsafe class Holder
+                {
+                    public int* Pointer => null;
+                }
+
+                public static class D
+                {
+                    static unsafe int Read(int* value) => *value;
+
+                    public static async Task<int> M(
+                        Task<int> task,
+                        Holder holder,
+                        int[] values)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                replay,
+                assemblyName: "LegacyRuntimeAsyncUnsafeOperationsRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LegacyRuntimeAsyncNestedPointerLocal_DoesNotHoistOutsideUnsafe()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Latest)
+            .WithFeatures([
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                static unsafe int Read(int* value) => *value;
+
+                public static async Task<int> M(
+                    Task<int> task,
+                    int[] values,
+                    bool flag)
+                {
+                    int result;
+                    unsafe
+                    {
+                        fixed (int* pinned = values)
+                        {
+                            result = Read(pinned);
+                            int* pointer = pinned;
+                            if (flag)
+                            {
+                                pointer++;
+                            }
+                            result = Read(pointer);
+                        }
+                    }
+                    return result + await task;
+                }
+            }
+            """,
+            options,
+            assemblyName: "LegacyRuntimeAsyncNestedPointerLocal");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"legacy-runtime-async-nested-pointer-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+            Assert.DoesNotContain("int* V_2;", output);
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public static class D
+                {
+                    static unsafe int Read(int* value) => *value;
+
+                    public static async Task<int> M(
+                        Task<int> task,
+                        int[] values,
+                        bool flag)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                CompilerFeatureOptions.ParseOptions(path),
+                assemblyName: "LegacyRuntimeAsyncNestedPointerLocalRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 
@@ -1111,6 +1409,22 @@ public class CompilerFeatureOptionsTests
             stream,
             new PEReader(stream, PEStreamOptions.LeaveOpen),
             diagnostics);
+    }
+
+    static ImmutableArray<Diagnostic> CompileDiagnostics(
+        string source,
+        CSharpParseOptions options)
+    {
+        var compilation = CSharpCompilation.Create(
+            "CompilerFeatureOptionsDiagnostics",
+            [CSharpSyntaxTree.ParseText(source, options)],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: true));
+        return compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .ToImmutableArray();
     }
 
     static string FirstUnsafeBlockBody(string output)
