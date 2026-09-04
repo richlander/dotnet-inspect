@@ -317,11 +317,11 @@ required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
-boundary case and gate, complexity basis, consumer and host plan, rendering
-strategy, current slice and residual work, and the demo with a neighboring
-case. Use `Not applicable — <reason>` only when the reason names the relevant
-change classification and exact-head evidence; cite the owning design's exact
-section when it defines the boundary.
+boundary case and gate, complexity basis, consumer, production-host adoption,
+and retirement plan, rendering strategy, current slice and residual work, and
+the demo with a neighboring case. Use `Not applicable — <reason>` only when
+the reason names the relevant change classification and exact-head evidence;
+cite the owning design's exact section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
