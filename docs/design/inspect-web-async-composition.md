@@ -22,8 +22,9 @@ have landed through
 [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) and
 [#5005](https://github.com/richlander/dotnet-inspect/issues/5005).
 The operation-authority product component and its first Type Source adoption
-are implemented. The worker-runtime and managed-operation-bridge product
-components have not landed, so their composed behavior remains **unverified**.
+are implemented. The managed bridge's dynamic lifecycle core is implemented;
+its browser boundary and the worker-runtime product component have not landed,
+so their composed behavior remains **unverified**.
 
 ## Composition responsibility
 

@@ -753,6 +753,6 @@ This owner does not claim:
 - package acquisition, cache, reservation, or publication correctness; or
 - that an epoch-work allowance is bounded.
 
-Those claims require their adjacent owner and named gate. Until the concrete
-bridge and browser gates exist, implementation behavior described by this
-target design is unverified.
+Those claims require their adjacent owner and named gate. Until the remaining
+browser, shared-producer, and epoch-work gates exist, those implementation
+behaviors described by this target design are unverified.
