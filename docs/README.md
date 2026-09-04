@@ -138,6 +138,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
+| [Committed Authored-Corpus History](design/authored-corpus-history.md) | Admission, ordered observation addressing, sequence validity, provenance, compatibility, and consumer trust for the committed EVIL benchmark history. |
 | [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
 
 ### Contributor workflow and process docs
