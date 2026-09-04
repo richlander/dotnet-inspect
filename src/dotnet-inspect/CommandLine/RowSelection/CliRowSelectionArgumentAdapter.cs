@@ -282,16 +282,12 @@ internal static class CliRowSelectionArgumentAdapter
         CliRowSelectionOptionBindings bindings,
         out CliRowSelectionOccurrenceKind kind)
     {
-        foreach (BoundOption bound in BoundOptions(bindings))
+        if (TryClassifyBoundRowToken(
+                token,
+                bindings,
+                out kind))
         {
-            if (IsOptionToken(
-                    token,
-                    bound.Option,
-                    bindings.Limit))
-            {
-                kind = bound.Kind;
-                return true;
-            }
+            return true;
         }
 
         if (MatchesCanonicalValueOption(
@@ -308,6 +304,27 @@ internal static class CliRowSelectionArgumentAdapter
         {
             kind = CliRowSelectionOccurrenceKind.OrderBy;
             return true;
+        }
+
+        kind = default;
+        return false;
+    }
+
+    internal static bool TryClassifyBoundRowToken(
+        string token,
+        CliRowSelectionOptionBindings bindings,
+        out CliRowSelectionOccurrenceKind kind)
+    {
+        foreach (BoundOption bound in BoundOptions(bindings))
+        {
+            if (IsOptionToken(
+                    token,
+                    bound.Option,
+                    bindings.Limit))
+            {
+                kind = bound.Kind;
+                return true;
+            }
         }
 
         kind = default;

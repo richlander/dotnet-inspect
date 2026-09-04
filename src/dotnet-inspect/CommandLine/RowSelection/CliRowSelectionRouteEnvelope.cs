@@ -646,12 +646,26 @@ internal static class CliRowSelectionRouteEnvelope
                         CliRowSelectionOccurrenceKind
                             candidateKind
                     && CliRowSelectionArgumentAdapter
-                        .TryClassifyExplicitRowToken(
+                        .TryClassifyBoundRowToken(
                             token,
                             observations[index].Candidate.Bindings,
                             out _)
                     && observations[index].IsDeclared(
                         candidateKind);
+
+                if (declared[index]
+                    && meanings[index] is
+                        CliRowSelectionOccurrenceKind.Lines
+                        or CliRowSelectionOccurrenceKind.TailLines
+                    && !observations[index].LineSelection
+                    && observations[index].ArgumentFailure is { } failure
+                    && failure.Position <= position)
+                {
+                    // Extraction stops at an arity failure; missing later
+                    // line evidence does not establish a semantic count unit.
+                    lineSelectionDeferred = true;
+                    deferredPositions.Add(failure.Position);
+                }
             }
 
             requests.Add(
