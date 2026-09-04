@@ -84,8 +84,9 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
 | [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
-| [Package Set Registry](design/package-set-registry.md) | Named package-set identity and static discovery shared by source declarations, CLI adapters, and browser workspace controls. |
+| [Package Set Registry](design/package-set-registry.md) | Front-end-only static application identities, descriptors, and package membership over reusable package-coordinate validation. |
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
+| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -105,6 +106,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
+| [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |

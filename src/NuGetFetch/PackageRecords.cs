@@ -46,16 +46,30 @@ public record PackageSource(string Name, string Url, PackageSourceCredential? Cr
 
     public bool IsNuGetOrg => IsNuGetOrgServiceIndex(Url);
 
-    internal static bool IsNuGetOrgServiceIndex(string url) =>
-        Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
-        && uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-        && uri.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)
-        && uri.Port == 443
-        && (uri.AbsolutePath.Equals("/v3/index.json", StringComparison.Ordinal)
-            || uri.AbsolutePath.Equals("/v3/index.json/", StringComparison.Ordinal))
-        && string.IsNullOrEmpty(uri.Query)
-        && string.IsNullOrEmpty(uri.Fragment)
-        && string.IsNullOrEmpty(uri.UserInfo);
+    internal static bool IsNuGetOrgServiceIndex(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            || !uri.Scheme.Equals(
+                Uri.UriSchemeHttps,
+                StringComparison.OrdinalIgnoreCase)
+            || !uri.Host.Equals(
+                "api.nuget.org",
+                StringComparison.OrdinalIgnoreCase)
+            || uri.Port != 443
+            || !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            return false;
+        }
+
+        int schemeEnd = url.IndexOf("://", StringComparison.Ordinal);
+        int pathStart = url.IndexOfAny(
+            ['/', '?', '#'],
+            schemeEnd + 3);
+        string suffix = pathStart < 0
+            ? string.Empty
+            : url[pathStart..];
+        return suffix is "/v3/index.json" or "/v3/index.json/";
+    }
 
     public string? GetFlatContainerUrl() =>
         IsNuGetOrg ? NuGetClient.NuGetOrgFlatContainer.TrimEnd('/') : null;

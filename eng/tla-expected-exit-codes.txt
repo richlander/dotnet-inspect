@@ -8,6 +8,7 @@ docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecyc
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
+docs/design/models/workspace-binding-policy-realization/BrokenAutomaticRetryAfterFailure.cfg=12
 docs/design/models/workspace-binding-policy-realization/BrokenImportedBindingVersionLifecycle.cfg=13
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationLiveness.cfg=0
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationSafety.cfg=0
@@ -22,7 +23,9 @@ docs/models/artifact-session-group-release/BrokenIncompleteTransfer.cfg=12
 docs/models/artifact-session-group-release/BrokenPartialReceipt.cfg=12
 docs/models/artifact-session-group-release/BrokenTransferDuringAdmission.cfg=12
 docs/models/artifact-session-group-release/Liveness.cfg=0
+docs/models/artifact-session-group-release/ReachabilityFaultedSettlementWait.cfg=12
 docs/models/artifact-session-group-release/ReachabilityOwnerRecoveryRequest.cfg=12
+docs/models/artifact-session-group-release/ReachabilityUnrelatedAfterTransfer.cfg=12
 docs/models/artifact-session-group-release/Safety.cfg=0
 docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseBlocked.cfg=0
 docs/models/assembly-context-group-lifecycle/AssemblyContextGroupReleaseLifecycle.cfg=0

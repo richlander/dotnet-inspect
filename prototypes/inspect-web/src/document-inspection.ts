@@ -1,12 +1,12 @@
 import type { DocViewerMeta } from "./doc-viewer.ts";
 import type {
-  BrowserPackageDocument,
   BrowserPackageDocumentContent,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
+import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
 export interface DocumentInspectionState {
   docViewerOpen: boolean;
-  docViewer: BrowserPackageDocument | null;
+  docViewer: InspectedPackageDocument | null;
   docViewerLoading: boolean;
   docViewerError: string;
   docViewerHtml: string;
@@ -17,7 +17,7 @@ export interface DocumentInspectionState {
 export interface PackageDocumentRequest {
   packageId: string;
   version: string;
-  document: BrowserPackageDocument;
+  document: InspectedPackageDocument;
 }
 
 export interface DocumentInspectionDependencies {

@@ -83,10 +83,13 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. The proposed
-  [Package Set Registry](design/package-set-registry.md) places stable named-set
-  identity, discovery, and ordered package-coordinate membership with this
-  package owner; the current inventories remain CLI-owned until adoption.
+  resolution. The
+  [Package Set Registry](design/package-set-registry.md) reuses this package
+  owner's coordinate currency and validation while stable set identity, the
+  private shipped inventory, discovery, and lookup live in the front-end-only
+  `DotnetInspector.Ecosystems` application assembly. The CLI consumes that
+  application catalog and passes only package IDs into reusable scope
+  resolution.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -100,6 +103,9 @@ substrates, and inspection producers that will extend that space.
   and nuspec parsing. It owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
+  Its [package metadata persistence](design/package-metadata-persistence.md)
+  contract defines when one authority-scoped, time-bounded metadata observation
+  may replace a fresh metadata operation.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -193,6 +199,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
+  committed logical Root membership and order, closed-by-default selective
+  dependency expansion, scope revisions, logical limits, and complete
+  scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.
@@ -287,9 +297,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
-- [Package Set Registry](design/package-set-registry.md): stable product-owned
-  package-set identities, labels, purposes, order, static discovery, exact
-  lookup, and immutable ordered package-coordinate membership.
+- [Package Set Registry](design/package-set-registry.md): front-end-only static
+  application identity, labels, purposes, order, exact lookup, and immutable
+  ordered package-coordinate membership over the reusable package owner's
+  coordinate validation.
 - [Static Ecosystem Packs](design/ecosystem-packs.md): the proposed
   front-end-only application catalog, private source contribution shape, and
   static shipped-pack manifest that compose package-set identity, typed

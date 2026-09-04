@@ -4,11 +4,13 @@
 (* carrying a completed composed binding policy.                            *)
 (*                                                                         *)
 (* The workspace issues one immutable preparation envelope, validates the   *)
-(* returned completion against the exact participant, role, delegate-map,   *)
-(* and policy-version inputs, constructs the group only after policy         *)
-(* adoption, and atomically publishes or retires the group and policy.       *)
-(* A second generation represents replacement after observed delegated-     *)
-(* policy drift retires the first generation.                               *)
+(* returned completion against the exact participant, role, delegate-map    *)
+(* (including its complete participant-origin routes), and policy-version   *)
+(* inputs, constructs the group only after policy adoption, and atomically   *)
+(* publishes or retires the group and policy. A second generation represents *)
+(* a later authorized replacement after observed delegated-policy drift      *)
+(* retires the first generation. A failed private attempt does not schedule  *)
+(* that replacement.                                                        *)
 (*                                                                         *)
 (* The model treats artifact acquisition, candidate arbitration, policy     *)
 (* answer semantics, query leases, and group cleanup as adjacent contracts. *)
@@ -39,6 +41,7 @@ CONSTANTS
     EnforcePublishVersion,
     EnforceAtomicPublication,
     EnforceAtomicRetirement,
+    EnforceNoAutomaticRetryAfterFailure,
     EnforceRetirementBeforeReplacementStart,
     EnforceRetirementBeforeReplacement
 
@@ -69,6 +72,7 @@ ASSUME
     /\ EnforcePublishVersion \in BOOLEAN
     /\ EnforceAtomicPublication \in BOOLEAN
     /\ EnforceAtomicRetirement \in BOOLEAN
+    /\ EnforceNoAutomaticRetryAfterFailure \in BOOLEAN
     /\ EnforceRetirementBeforeReplacementStart \in BOOLEAN
     /\ EnforceRetirementBeforeReplacement \in BOOLEAN
 
@@ -291,7 +295,9 @@ CanStart(g) ==
                 \/ (/\ ~EnforceRetirementBeforeReplacementStart
                     /\ phase[GenerationOne] = "Published"
                     /\ CurrentGeneration(GenerationOne)
-                    /\ liveVersion # capturedVersion[GenerationOne]))
+                    /\ liveVersion # capturedVersion[GenerationOne])
+                \/ (/\ ~EnforceNoAutomaticRetryAfterFailure
+                    /\ phase[GenerationOne] = "Failed"))
             /\ (NoPublishedState
                 \/ ~EnforceRetirementBeforeReplacementStart)
 
@@ -648,8 +654,14 @@ ReplacementFollowsRetirement ==
         phase[GenerationOne] = "Retired"
 
 ReplacementStartsAfterRetirement ==
-    phase[GenerationTwo] # "Absent" =>
+    /\ phase[GenerationTwo] # "Absent"
+    /\ phase[GenerationOne] # "Failed"
+    =>
         phase[GenerationOne] = "Retired"
+
+FailedPrivateAttemptDoesNotRetry ==
+    phase[GenerationOne] = "Failed" =>
+        phase[GenerationTwo] = "Absent"
 
 PublicationObservedCurrentVersion ==
     publishVersionWitness

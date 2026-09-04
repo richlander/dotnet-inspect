@@ -12,6 +12,7 @@ import {
 } from "../src/package-query-view.ts";
 import {
   appendFailure,
+  appendProgress,
   appendRows,
   createQueryRequest,
   emptyOutcome,
@@ -90,17 +91,20 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
-test("the persistent brand opens the resident workspace", () => {
+test("the persistent application scopes distinguish Query from Workspace", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availableFacets: FACETS,
-    workspaceHref: "/?package=Example&version=1.0.0",
+    workspaceAvailable: true,
     escapeHtml,
   });
 
   assert.match(
     html,
-    /id="package-query-workspace" class="brand" href="\/\?package=Example&amp;version=1\.0\.0" aria-label="dotnet inspect workspace"/);
+    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)/);
+  assert.match(
+    html,
+    /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
@@ -133,6 +137,43 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /data-query-cancel="1"/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
+});
+
+test("streaming progress renders with and without matching rows", () => {
+  const progress = appendProgress(
+    appendProgress(emptyOutcome(), {
+      phase: "search",
+      completed: 1,
+      limit: 1,
+    }),
+    {
+      phase: "manifest",
+      completed: 14,
+      limit: 20,
+    });
+  const withoutRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: progress,
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+  const withRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: appendRows(progress, [row("System.Text.Json")]),
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(withoutRows, /Source search/);
+  assert.match(withoutRows, /Manifests/);
+  assert.match(withoutRows, /14 of up to 20/);
+  assert.match(withoutRows, /<progress value="14" max="20">/);
+  assert.match(withRows, /System\.Text\.Json/);
+  assert.match(withRows, /14 of up to 20/);
 });
 
 test("result rows render typed producer identity instead of a source literal", () => {
@@ -411,6 +452,8 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly id: string;
   focusCount = 0;
+  hidden = false;
+  rendered = true;
   scrollTop = 0;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
@@ -437,6 +480,10 @@ class FakeElement {
 
   focus() {
     this.focusCount++;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   setSelectionRange(start: number, end: number) {
@@ -485,9 +532,14 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-workspace"),
-      selector: "#package-query-workspace",
-      replacement: new FakeElement({}, "package-query-workspace"),
+      active: new FakeElement({ applicationScope: "workspace" }),
+      selector: "[data-application-scope]",
+      replacement: new FakeElement({ applicationScope: "workspace" }),
+    },
+    {
+      active: new FakeElement({}, "package-query-product"),
+      selector: "#package-query-product",
+      replacement: new FakeElement({}, "package-query-product"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
@@ -583,6 +635,26 @@ test("a vanished query control reports prefix fallback", () => {
   }
 });
 
+test("a CSS-hidden application scope reports prefix fallback", () => {
+  const active = new FakeElement({ applicationScope: "workspace" });
+  const replacement = new FakeElement({ applicationScope: "workspace" });
+  replacement.rendered = false;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(active);
+  root.add("[data-application-scope]", replacement);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(replacement.focusCount, 0);
+  assert.equal(prefix.focusCount, 1);
+});
+
 test("an unfocused query render does not move focus into the prefix", () => {
   const body = new FakeElement();
   const prefix = new FakeElement({}, "package-query-prefix");
@@ -621,12 +693,17 @@ test("query prefix focus preserves its selection across a full render", () => {
 test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
   const root = new FakeRoot();
   const [back] = root.add("#package-query-back", new FakeElement());
+  const [workspace] = root.add(
+    "[data-application-scope]",
+    new FakeElement({ applicationScope: "workspace" }));
   const [open] = root.add("[data-query-row-open]", new FakeElement({ queryRowOpen: "A", queryRowVersion: "1.0.0" }));
   const [facet] = root.add("[data-query-facet]", new FakeElement({ queryFacet: "tfm-out-of-support" }));
   const [cancel] = root.add("[data-query-cancel]", new FakeElement());
 
   const calls: string[] = [];
   const actions: PackageQueryBindingActions = {
+    onApplicationScopeSelect: scope =>
+      calls.push(`application:${scope}`),
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
     onFacetToggle: key => calls.push(`facet:${key}`),
@@ -637,12 +714,14 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
 
   bindPackageQueryView(fakeDom.parentNode(root), actions);
 
+  workspace?.dispatch("click");
   back?.dispatch("click");
   open?.dispatch("click");
   facet?.dispatch("click");
   cancel?.dispatch("click");
 
   assert.deepEqual(calls, [
+    "application:workspace",
     "back",
     "open:A:1.0.0",
     "facet:tfm-out-of-support",

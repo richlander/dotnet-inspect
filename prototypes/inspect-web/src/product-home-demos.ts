@@ -3,7 +3,7 @@ import type {
   BrowserHomeDemoMember,
   BrowserHomeDemoResolved,
   BrowserWorkspaceShareTab,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-catalog.d.ts";
 import {
   encodeWorkspaceShareState,
   type WorkspaceShareEncoder,

@@ -220,6 +220,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onOverloadSelect: value => calls.push(`overload:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterDisclosureToggle: value =>
+      calls.push(`type-filter-disclosure:${value}`),
     onTypeFilterEscape: () => calls.push("escape"),
     onTypeSelect: value => calls.push(`type:${value}`),
   };
@@ -294,6 +296,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   root.addAll("[data-namespace]", namespace, secondNamespace);
   root.addAll("[data-kind-filter]", kind, secondKind);
   const clear = root.add("#clear-filter", new FakeElement());
+  const disclosure = root.add(
+    "[data-type-filter-disclosure]",
+    new FakeElement());
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
@@ -317,6 +322,8 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespaceJump.dispatch("change");
   kind.dispatch("click");
   secondKind.dispatch("click");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
@@ -330,10 +337,12 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System.Text",
     "kind:class",
     "kind:interface",
+    "type-filter-disclosure:true",
     "clear",
     "filter:json",
     "list:End",
   ]);
+  assert.equal(clear.focused, true);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
 });
@@ -543,6 +552,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     kindFilters: ["class"],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -558,8 +569,14 @@ test("the type nav lists namespace groups with the current type selected", () =>
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
   assert.match(html, /id="clear-filter"/);
+  assert.match(
+    html,
+    /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
+  assert.match(html, /<summary id="type-filter-summary">/);
+  assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
@@ -578,6 +595,8 @@ test("the type nav reports no matches for an empty filtered group", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: true,
+    filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -585,6 +604,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   });
 
   assert.match(html, /No public types match this filter\./);
+  assert.match(html, /data-type-filter-disclosure open/);
 });
 
 test("the type nav handles a package with no projected types", () => {
@@ -600,6 +620,8 @@ test("the type nav handles a package with no projected types", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -641,6 +663,7 @@ test("the member nav marks the active group and its selected overload", () => {
   });
 
   assert.match(html, /class="type-row member-row active-group [^"]*" data-nav-member="method:Serialize"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(
     html,
     /data-nav-overload="1" role="option" aria-selected="true"/);
@@ -814,6 +837,12 @@ test("type metadata renders a loading state while the projection is in flight", 
   });
 
   assert.match(html, /Projecting type metadata…/);
+  assert.match(
+    html,
+    /class="metadata-surface"[\s\S]*?<h1 id="metadata-surface-title">Metadata<\/h1>[\s\S]*?class="metadata-surface-scroll"[\s\S]*?Projecting type metadata…[\s\S]*?class="metadata-surface-footer"/);
+  assert.match(html, /System\.Text\.Json\.JsonSerializer/);
+  assert.match(html, /net9\.0 · System\.Text\.Json\.dll · System\.Text\.Json@9\.0\.0/);
+  assert.doesNotMatch(html, /class="type-heading"/);
 });
 
 test("type metadata renders composition, interfaces, and derived types once loaded", () => {
@@ -845,11 +874,37 @@ test("type metadata renders composition, interfaces, and derived types once load
     factRows,
   });
 
+  assert.match(
+    html,
+    /class="metadata-surface-scroll"[\s\S]*?class="document-section metadata-shape-section"[\s\S]*?Type shape/);
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Known derived types/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
+});
+
+test("type metadata keeps projection failures inside the full-area surface", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const key = typeMetadataSignature(jsonSerializer, packageContext);
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: key,
+      typeMetadataLoading: false,
+      typeMetadataError: "projection unavailable",
+      typeMetadata: null,
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+
+  assert.match(
+    html,
+    /class="metadata-surface"[\s\S]*?class="document-section metadata-surface-state empty-document"[\s\S]*?Metadata projection failed[\s\S]*?projection unavailable[\s\S]*?class="metadata-surface-footer"/);
 });
 
 test("type PDB source renders code above provenance once loaded", () => {
