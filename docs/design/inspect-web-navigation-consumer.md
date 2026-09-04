@@ -445,6 +445,11 @@ streamed rows, failures, and completion state. Selecting Workspace from Query
 pushes the retained Workspace surface when one exists, so Back returns to the
 unchanged query entry. A direct query visit with no retained Workspace renders
 the Workspace control unavailable rather than routing its label to Home.
+If the retained Workspace cannot be projected into a complete workspace URL,
+the transition still pushes an active-package Workspace successor, preserves
+the complete in-memory surface, and exposes the projection failure. Refreshing
+that degraded successor restores only its represented active package; Back
+still returns to the unchanged query entry.
 
 `Open in workspace` commits its result through the same typed transition
 lifecycle as any other product-issued outcome: success leaves `/query`, pushes

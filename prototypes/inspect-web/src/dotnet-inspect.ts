@@ -364,6 +364,7 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
@@ -7918,9 +7919,11 @@ function openPackageQueryRoute(
 }
 
 function selectWorkspaceApplicationScope(fromPackageQuery = false) {
-  if (!state.package) return;
+  const pkg = state.package;
+  if (!pkg) return;
+  let navigationSeq: number | null = null;
   if (fromPackageQuery) {
-    packageQueryWorkspaceFocusNavigationSeq = navigationSequence.begin();
+    navigationSeq = navigationSequence.begin();
     packageQueryController.cancel();
     packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = false;
@@ -7933,7 +7936,25 @@ function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   if (fromPackageQuery) {
-    workspaceLocation.push(buildStateUrl().toString());
+    const successor = resolvePackageQueryWorkspaceSuccessor(
+      () => buildStateUrl(),
+      () => {
+        const fallback = buildPackageRootStateUrl(location.href, {
+          package: pkg.id,
+          version: pkg.version,
+          framework: pkg.activeFramework,
+          lens: state.packageLens,
+        });
+        fallback.hash = "workspace";
+        return fallback;
+      });
+    if (!successor.projected) {
+      appendQueryNotice(
+        `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+          || "workspace URL encoding failed."}`);
+    }
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+    workspaceLocation.push(successor.url.toString());
   }
   render();
 }

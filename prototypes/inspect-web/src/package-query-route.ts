@@ -17,6 +17,10 @@ export interface PackageQueryHistory {
   returnFocus: PackageQueryReturnFocus;
 }
 
+export type PackageQueryWorkspaceSuccessor =
+  | { url: URL; projected: true; projectionError: null }
+  | { url: URL; projected: false; projectionError: unknown };
+
 const ENTRY_ID_KEY = "dotnetInspectEntryId";
 const PACKAGE_QUERY_KEY = "dotnetInspectPackageQuery";
 
@@ -81,6 +85,25 @@ export function isPackageQueryPredecessor(
 ): boolean {
   return predecessorEntryId !== null
     && historyEntryId(value) === predecessorEntryId;
+}
+
+export function resolvePackageQueryWorkspaceSuccessor(
+  buildRetainedWorkspaceUrl: () => URL,
+  buildFallbackWorkspaceUrl: () => URL,
+): PackageQueryWorkspaceSuccessor {
+  try {
+    return {
+      url: buildRetainedWorkspaceUrl(),
+      projected: true,
+      projectionError: null,
+    };
+  } catch (projectionError) {
+    return {
+      url: buildFallbackWorkspaceUrl(),
+      projected: false,
+      projectionError,
+    };
+  }
 }
 
 export function validPackageQueryPrefix(value: string): string {
