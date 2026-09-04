@@ -1919,7 +1919,7 @@ public sealed class MemorySafetyMetadataIndexTests
                     opened.Reader,
                     associationRowBudget: 100,
                     attributeRowBudget: 100,
-                    nameWorkBudget: 147).Rules);
+                    nameWorkBudget: 163).Rules);
 
         Assert.Equal(
             MemorySafetyMetadataFailureKind.BudgetExceeded,

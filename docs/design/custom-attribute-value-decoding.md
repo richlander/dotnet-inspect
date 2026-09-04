@@ -9,15 +9,19 @@ where every element begins and ends.
 
 **We own that decode.** This document owns the contract that makes it safe.
 
-**Status: prescriptive, ahead of the implementation.** This document states the
-contract established by [#5288](https://github.com/richlander/dotnet-inspect/issues/5288),
-which inverts this subsystem's relationship to `System.Reflection.Metadata`.
-Slice 1 is this document; the decoder itself is slice 2. Until slice 2 lands,
-`AttributeDecoder` still calls `CustomAttribute.DecodeValue` behind
-`CustomAttributeValueGuard`, and the paired-walker hazards described under
-[How this design changed](#how-this-design-changed) are still live in the code.
-Read every invariant below as the target the implementation is held to, not as
-a description of what ships today.
+**Status: slice 2 implementation candidate; D1/D2/D3 gates still open.** This
+document states the contract established by
+[#5288](https://github.com/richlander/dotnet-inspect/issues/5288), which inverts
+this subsystem's relationship to `System.Reflection.Metadata`.
+Slice 1 is this document; the current slice 2 candidate is the owned decoder:
+`AttributeDecoder.TryDecode` now consumes `CustomAttributeValueGuard`'s owned
+walk directly and no production path calls `CustomAttribute.DecodeValue`. The
+paired-walker hazards described under
+[How this design changed](#how-this-design-changed) are gone from the code.
+The remaining slices are the D3 gate (slice 3) and cleanup (slice 4); D1's
+generative cost gate (#5733) and D3's value-equality gate (#5148) are still
+open, so the invariants below remain the target the implementation is held to
+rather than gated facts.
 
 ## Responsibility
 
@@ -40,9 +44,10 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   meaning *not decoded*. It never produces a partially decoded value.
 - **Defers** work-charging policy to the caller's observer. This design says
   what is charged, not what a budget does with it.
-- **Consumes** `System.Reflection.Metadata` as a *test-time oracle only*, once
-  #5288's slice 2 lands. No production path will call
-  `CustomAttribute.DecodeValue`; one still does today.
+- **Consumes** `System.Reflection.Metadata` as a *test-time oracle only*. No
+  production path calls `CustomAttribute.DecodeValue`; slice 2 removed the last
+  one and deleted the `ArgTypeProvider` that drove it. The owned decoder
+  materializes SRM's public `CustomAttributeValue<string>` shape itself.
 
 ## Non-claims
 
@@ -248,7 +253,9 @@ lifted. D1 still forbids a small blob from sizing a large allocation through
 large charge could appear next to a refusal and look like allocation accounting.
 With one walker that actually materializes, the charge means what its name says:
 this is what we are about to allocate. Keep it, and keep it before the
-allocation.
+allocation. The non-production `IsSafeToDecode` compatibility bridge makes no
+output allocation but reports the equivalent prospective charge stream while
+running the same parser in validation mode.
 
 **Charging is not an escape hatch for the cost clause.** The observer is
 optional and frequently absent, and `Charge` returns immediately when it is
@@ -470,9 +477,10 @@ walkers skip exactly the same bytes. A second invariant, I2, required the guard
 to bound quantities that drove *SRM's* cost.
 
 **I1 and I2 are deleted, not weakened.** I1 has no second party. I2's allocation
-half is D1's last clause; its time half — SRM's `Θ(P × G)` per-argument re-skip
-of the generic context, filed as #5098 — disappears because SRM never runs. I3
-survives verbatim as D1's cost clause.
+half is D1's last clause. Its SRM-specific time claim disappears because SRM
+never runs, but #5098's `Θ(P × G)` generic-context re-skip shape remains in the
+owned decoder and is therefore an open D1 implementation gap. I3 survives
+verbatim as D1's cost clause.
 
 **Why the old shape was the root cause.** I1 is a differential property of two
 parsers where the second is external, changes across runtime versions, exposes
@@ -815,14 +823,15 @@ encoding.
 
 ## Enforcement gates
 
-**Current state: `unverified` for all three.**
+**Current candidate state: the defaulted-width signal is gated; D1, D2, and D3
+remain `unverified`.**
 
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; six open defects violate it. |
-| **D2** | Slice 2 classifies and inverts the guard's deferral tests, then adds explicit coverage for the defaulted-width signal, caller-boundary provenance, and internal resource exhaustion. #5288 owns the obligation list. | Lands with slice 2. |
+| **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial in the slice 2 candidate; resource-exhaustion propagation remains unverified. |
 | **D3** | #5148 is re-targeted from offset agreement to value equality; stage 1 adds producer-truth widths where an SRM oracle would share the decoder's resolution path. | #5148 open; stage 1 not landed. |
-| **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. | Lands with slice 2. |
+| **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated in the slice 2 candidate. |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -967,30 +976,40 @@ place it.
 
 | Former gap | Was | Disposition |
 | --- | --- | --- |
-| SRM re-derives each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Moot.** SRM never runs. |
+| SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Transferred to D1.** SRM no longer runs, but the owned decoder currently re-skips the generic context per `VAR` argument and retains the same cost shape. |
 | The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
 | The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
 | Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
 
-## What slice 2 must decide
+## What slice 2 decided
 
-Two contracts the inversion changes that this document deliberately does not
-settle, recorded so slice 2 states them rather than improvising one and leaving
-callers to infer it.
+The inversion changed two contracts this document deliberately left open for
+slice 2. Both are now settled.
 
-- **The charge unit.** `beforeMaterialize` now reports work the decoder is about
-  to do rather than work it declined to do, so a charge means something new.
-  `DeclaredSlotCharge` is `16` today
-  ([`CustomAttributeValueGuard.cs:39`](../../src/ILInspector.MetadataPrimitives/CustomAttributeValueGuard.cs)),
-  a figure D1 has just shown undercounts retained bytes once boxing is included.
-  Slice 2 says what one unit of charge means after the inversion and whether
-  `DeclaredSlotCharge` survives. Twenty source files consume the observer and
-  their budgets depend on the answer, so this cannot be left implicit.
-- **The decoder's name.** This document cites `CustomAttributeValueGuard`,
-  `IsSafeToDecode`, and test names like `_GuardSkipMatchesDecodeWidth` throughout,
-  because those are the names in the tree today and the document describes what
-  exists. They are paired-walker names for a component that will no longer be a
-  guard. Slice 2 names the decoder; slice 4 retires the guard-era test names.
+- **The charge unit.** `beforeMaterialize` now reports work the decoder is
+  about to do rather than work it declined to do. `DeclaredSlotCharge` survives
+  at `16`, defined explicitly as a *legacy conservative decode-work-per-declared-slot
+  proxy* used by existing budgets, **not** exact retained-byte accounting — D1
+  admits `O(B + S*(C+N))` retained output and #5755 owns the representation
+  evidence. The value is preserved because roughly twenty observer consumers
+  budget against it and slice 2 does not retune them (#5733 owns the D1 cost
+  gate that would). Serialized-string byte charges are preserved and charged
+  raw (not slot-multiplied); existing type-name rendering and type-definition
+  index charges are also preserved. Every count is validated before its slot
+  charge, and every observer invocation is wrapped in a provenance sentinel so
+  a throwing observer is never absorbed as malformed metadata.
+- **The decoder's name.** The component keeps the name `CustomAttributeValueGuard`
+  because roughly twenty call sites and the whole test suite reference it, but
+  it is now the owned value-producing decoder rather than a guard.
+  `IsSafeToDecode` remains public as a temporary, inverted-semantics bridge that
+  runs the same walk in a non-materializing configuration and discards the
+  value; it is not on the production `TryDecode` path. `ArgTypeProvider` is
+  deleted as an SRM `ICustomAttributeTypeProvider`; its rendering and resolution
+  fold into the decoder's `Classifier`. The additive defaulted-width signal
+  rides a new `AttributeDecoder.TryDecodeDetailed` returning
+  `DetailedCustomAttributeValue`, with a new `EnumWidthResolver` delegate for
+  callers that must report a width unresolved. Slice 4 retires the remaining
+  guard-era test names.
 
 ## Open work
 
@@ -998,6 +1017,7 @@ callers to infer it.
 | --- | --- |
 | #5288 | This inversion. Slice 2 (the decoder), slice 3 (the D3 gate), and slice 4 (cleanup) are outstanding. |
 | #5047 | Per-element element-type replay; resolve once and loop. Gap 2. |
+| #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
 | #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
 | #5085 | An observer exception mistaken for malformed metadata. Gap 5. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
