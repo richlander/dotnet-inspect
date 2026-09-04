@@ -273,11 +273,8 @@ static class AuthoredSourceHarvest
             ownershipTransferred = true;
             return state;
         }
-        catch (Exception ex) when (ex is HttpRequestException
-            or IOException
-            or TaskCanceledException
-            or InvalidOperationException
-            or BadImageFormatException)
+        catch (Exception ex) when (
+            AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
         {
             Console.Error.WriteLine(
                 $"Warning: harvest skipped '{assemblyPath}' opening SourceLink ({ex.GetType().Name}: {ex.Message}).");

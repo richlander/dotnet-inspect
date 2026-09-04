@@ -174,6 +174,21 @@ site=$mono_site
 
 cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
 sed -i \
+  's/](operationId, eventCallback)/](operationId, (_kind, _value) => undefined)/' \
+  "$site/facades/alpha.js"
+if ! grep -Fq \
+    '](operationId, (_kind, _value) => undefined)' \
+    "$site/facades/alpha.js"; then
+  echo "Managed callback-drop mutation did not apply." >&2
+  exit 1
+fi
+expect_failure \
+  dropped-managed-events \
+  "Managed nonterminal event order" \
+  "$node" "$verifier" "$site" baseline
+
+cp "$scratch/modules/facades/alpha.js" "$site/facades/alpha.js"
+sed -i \
   's/TsJsExport\.MultiFacade\.Alpha/TsJsExport.MultiFacade.Beta/' \
   "$site/facades/alpha.js"
 expect_failure \

@@ -104,11 +104,8 @@ static class AuthoredCorpusDrift
                 foreach (var record in group)
                     results.Add(await EvaluateRowAsync(source, record, fetcher, repositoryPaths));
             }
-            catch (Exception ex) when (ex is IOException
-                or InvalidOperationException
-                or BadImageFormatException
-                or HttpRequestException
-                or TaskCanceledException)
+            catch (Exception ex) when (
+                AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
             {
                 // The assembly's SourceLink PDB could not be opened or acquired, so
                 // no row for it can be verified. Surface every row as Unavailable

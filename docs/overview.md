@@ -141,6 +141,11 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
+- [Committed authored-corpus history](design/authored-corpus-history.md) owns
+  admission of one complete EVIL benchmark artifact as a durable observation
+  and validity of the ordered committed observation sequence. Benchmark
+  production, methodology, ratchet comparison, and history-card rendering
+  remain separate concerns.
 - [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
   use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
   execution. MTP and xUnit retain runner semantics; suite owners retain
