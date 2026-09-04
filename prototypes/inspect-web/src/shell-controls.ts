@@ -41,7 +41,10 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
+  applicationScopeHtml: string;
+  contextualActionsHtml?: string;
   inspectedTargetHtml: string;
+  subjectInspectorHtml: string;
   titleNavigationHtml: string;
 }
 
@@ -51,9 +54,49 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
-        ${options.inspectedTargetHtml}
+        <div class="application-scope-region">
+          ${options.applicationScopeHtml}
+        </div>
+        <div class="subject-inspector-region">
+          ${options.subjectInspectorHtml}
+        </div>
         ${options.titleNavigationHtml}
-      </header>`;
+        ${renderApplicationMenuButton()}
+      </header>
+      <div class="targetbar">
+        ${options.inspectedTargetHtml}
+        ${options.contextualActionsHtml ?? ""}
+      </div>`;
+}
+
+export function renderTitleNavigation(
+  canNavigateBack: boolean,
+  canNavigateForward: boolean,
+): string {
+  return `<nav class="title-navigation" aria-label="Search and history">
+    <div class="nav-history">
+      <button id="nav-back" type="button"
+        ${canNavigateBack ? "" : "disabled"}
+        title="Back (Alt+← or Shift+←)" aria-label="Back">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M10.25 3.5 5.75 8l4.5 4.5"></path>
+        </svg>
+      </button>
+      <button id="nav-forward" type="button"
+        ${canNavigateForward ? "" : "disabled"}
+        title="Forward (Alt+→ or Shift+→)" aria-label="Forward">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="m5.75 3.5 4.5 4.5-4.5 4.5"></path>
+        </svg>
+      </button>
+    </div>
+    <button id="open-search" class="title-search" type="button"
+      aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+      <span class="title-search-glyph" aria-hidden="true">⌕</span>
+      <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+      <span class="title-search-label title-search-label-compact">Search</span>
+    </button>
+  </nav>`;
 }
 
 export function renderApplicationMenuButton(): string {

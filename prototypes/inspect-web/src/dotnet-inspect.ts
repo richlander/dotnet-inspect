@@ -149,8 +149,8 @@ import {
   focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
-  renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type HomeShellBindingActions,
@@ -236,9 +236,12 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  focusRenderedElement,
+  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
+  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -281,7 +284,6 @@ import {
   renderTypeNav,
   renderTypeSource,
   type MemberNavEntry,
-  typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
@@ -363,6 +365,7 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
@@ -661,6 +664,7 @@ const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   memberFiltersExpanded: false,
+  typeFiltersExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -882,7 +886,7 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryPredecessorEntryId: string | null;
-  packageQueryReturnFocus: "home-search" | "package-search" | null;
+  packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
@@ -890,6 +894,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -902,7 +907,6 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
-let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 
@@ -2109,6 +2113,23 @@ function accessibilityControl() {
   </div>`;
 }
 
+function typeFilterSummary() {
+  const buckets = accessibilityBuckets();
+  const activeAccessibility =
+    buckets.filter(bucket => state.accessibilityFilter.has(bucket.id));
+  const accessibilitySummary = activeAccessibility.length === buckets.length
+    ? ""
+    : activeAccessibility
+      .map(bucket => bucket.label.toLowerCase())
+      .join(", ");
+  return [
+    state.typeFilter,
+    state.namespaceFilter,
+    state.kindFilter,
+    accessibilitySummary,
+  ].filter(Boolean).join(" · ") || "All types";
+}
+
 // Options for the namespace picker dropdown: every namespace in the active
 // package (honoring the library + accessibility filters), sorted, with its type
 // count.
@@ -2263,7 +2284,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     activeTrait ?? "",
   ].filter(Boolean).join(" · ") || "All members";
   return `
-    <details class="member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
+    <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
         <span aria-hidden="true">/</span>
@@ -2754,11 +2775,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? document.activeElement
     : null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") != null;
+    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  packageQueryScopeBinding?.disconnect();
+  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -2857,6 +2880,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const metadataWorkingSurface =
+    activeScope === "type" && state.lens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2890,6 +2915,26 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          activeScope === "workspace" ? "workspace" : null,
+          true,
+          escapeHtml),
+        contextualActionsHtml: annotatedPageContext || sourcePageKind
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedPageContext
+                ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
+                : ""}
+              ${sourcePageKind
+                ? renderSourcePageActions({
+                    source: sourcePageSource,
+                    copyButtonId: sourcePageKind === "member"
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
+          : "",
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             ${renderInspectedSubjectIcon(pkg)}
@@ -2897,42 +2942,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${renderInspectedSubjectPath(subjectPath)}
             </div>
           </div>`,
-        titleNavigationHtml: `
-          <nav class="title-navigation" aria-label="Search and history">
-            <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
-            </div>
-            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
-              <span class="title-search-glyph" aria-hidden="true">⌕</span>
-              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
-              <span class="title-search-label title-search-label-compact">Search</span>
-            </button>
-          </nav>`,
+        subjectInspectorHtml: renderScopeBar(),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
       })}
-
-      <header class="subject-zone" aria-label="Subjects and inspectors">
-        <div class="subject-inspector-region">${renderScopeBar()}</div>
-        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
-          ${annotatedPageContext || sourcePageKind
-            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
-                ${annotatedPageContext
-                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
-                  : ""}
-                ${sourcePageKind
-                  ? renderSourcePageActions({
-                      source: sourcePageSource,
-                      copyButtonId: sourcePageKind === "member"
-                        ? "copy-source"
-                        : "copy-type-source",
-                      escapeHtml,
-                    })
-                  : ""}
-              </div>`
-            : ""}
-          ${renderApplicationMenuButton()}
-        </div>
-      </header>
 
       <div class="notice-stack">
         ${visibleQueryNotice()
@@ -2954,11 +2968,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="${activeScope === "workspace" ? "application-scope-workspace" : "active-subject-tab"}">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3193,6 +3207,8 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     libraryControlHtml: libraryControl(),
+    filtersExpanded: state.typeFiltersExpanded,
+    filterSummary: typeFilterSummary(),
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -4404,17 +4420,6 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: AppTypeSurface) {
-  return typeHeading({
-    item,
-    packageContext: currentPackage(),
-    escapeHtml,
-    typeDisplayName,
-    kindIcon,
-    highlight,
-  });
-}
-
 function renderGraphMemberPendingHtml(
   item: AppTypeSurface,
   title: string,
@@ -4476,7 +4481,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
-      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+      return renderTypeMetadataHtml(item);
     case "api":
       return renderApiLens(item);
     default:
@@ -5218,10 +5223,8 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
-      state.libraryScope = null;
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-      focusFilter({ immediate: true });
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -5365,6 +5368,9 @@ function bindTypePanelEvents() {
       render();
       focusFilter({ immediate: true });
     },
+    onTypeFilterDisclosureToggle: expanded => {
+      state.typeFiltersExpanded = expanded;
+    },
     onTypeFilterEscape: () => {
       state.typeFilter = "";
       render();
@@ -5385,6 +5391,16 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      if (applicationScope === "query") {
+        openPackageQueryRoute("", {
+          preserveState: true,
+          returnFocus: "application-query",
+        });
+      } else if (scope() !== "workspace") {
+        selectWorkspaceApplicationScope();
+      }
+    },
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -6827,10 +6843,16 @@ function focusFilter(
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
-    const disclosure = input.closest<HTMLDetailsElement>(
+    const memberDisclosure = input.closest<HTMLDetailsElement>(
       "[data-member-filter-disclosure]");
+    const typeDisclosure = input.closest<HTMLDetailsElement>(
+      "[data-type-filter-disclosure]");
+    const disclosure = memberDisclosure ?? typeDisclosure;
     if (disclosure && !disclosure.open) {
-      state.memberFiltersExpanded = true;
+      if (memberDisclosure)
+        state.memberFiltersExpanded = true;
+      else
+        state.typeFiltersExpanded = true;
       disclosure.open = true;
     }
     input.focus();
@@ -7075,16 +7097,14 @@ function syncUrl() {
       workspaceLocation.replace(
         buildStateUrl().toString(),
         history.state);
-      lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
     workspaceLocation.sync(snapshot, history.state);
-    lastCanonicalWorkspaceHref = location.href;
   } catch {
-    // Keep the last canonical URL while the active Browser state is not projectable.
+    // Keep the current URL while the active Browser state is not projectable.
   }
 }
 
@@ -7774,8 +7794,22 @@ function focusLevelOneHeading(): boolean {
 }
 
 function restorePackageQueryReturnFocus() {
-  if (!state.packageQueryReturnFocusPending
-    || state.packageQueryReturnFocus !== "package-search") return;
+  if (!state.packageQueryReturnFocusPending) return;
+  if (state.packageQueryReturnFocus === "application-query") {
+    afterCurrentNavigationFrame(() => {
+      const queryScope = document.querySelector<HTMLElement>(
+        '[data-application-scope="query"]');
+      if (focusRenderedElement(queryScope)) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      } else if (focusLevelOneHeading()) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      }
+    });
+    return;
+  }
+  if (state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
     if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
@@ -7842,19 +7876,28 @@ function applyPackageQueryHistory(historyState: unknown) {
   state.packageQueryReturnFocusPending = false;
 }
 
-function openPackageQueryRoute(seed = "") {
+function openPackageQueryRoute(
+  seed = "",
+  options: {
+    preserveState?: boolean;
+    returnFocus?: PackageQueryReturnFocus;
+  } = {},
+) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageQueryHandoffNavigationSeq = null;
-  resetPackageQueryState();
+  if (!options.preserveState) {
+    resetPackageQueryState();
+  }
   resetPackageQueryAnnouncements();
-  state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  if (!options.preserveState || seed) {
+    state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = state.home
-    ? "home-search"
-    : "package-search";
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
   const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
@@ -7877,6 +7920,46 @@ function openPackageQueryRoute(seed = "") {
       : null);
   render();
   focusPackageQueryInput();
+}
+
+function selectWorkspaceApplicationScope(fromPackageQuery = false) {
+  const pkg = state.package;
+  if (!pkg) return;
+  const navigationSeq = navigationSequence.begin();
+  if (fromPackageQuery) {
+    packageQueryController.cancel();
+    packageQueryHandoffNavigationSeq = null;
+    state.packageQueryOpen = false;
+    state.credits = false;
+    state.home = false;
+  }
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  const successor = resolvePackageQueryWorkspaceSuccessor(
+    () => buildStateUrl(),
+    () => {
+      const fallback = buildPackageRootStateUrl(location.href, {
+        package: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        lens: state.packageLens,
+      });
+      fallback.hash = "workspace";
+      return fallback;
+    });
+  if (!successor.projected) {
+    appendQueryNotice(
+      `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+        || "workspace URL encoding failed."}`);
+  }
+  if (fromPackageQuery) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  workspaceLocation.push(successor.url.toString());
+  render();
 }
 
 function closePackageQueryRoute() {
@@ -7991,6 +8074,11 @@ async function openPackageQueryRow(
 }
 
 const packageQueryActions: PackageQueryBindingActions = {
+  onApplicationScopeSelect: applicationScope => {
+    if (applicationScope === "workspace") {
+      selectWorkspaceApplicationScope(true);
+    }
+  },
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
@@ -8010,18 +8098,6 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
-function packageQueryWorkspaceHref(): string {
-  const residentPackage = state.package;
-  if (!residentPackage) return "/";
-  return lastCanonicalWorkspaceHref
-    ?? buildPackageRootStateUrl(location.href, {
-      package: residentPackage.id,
-      version: residentPackage.version,
-      framework: residentPackage.activeFramework,
-      lens: state.packageLens,
-    }).toString();
-}
-
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
@@ -8035,10 +8111,11 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceHref: packageQueryWorkspaceHref(),
+    workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryScopeBinding =
+    bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
@@ -9787,8 +9864,10 @@ function closeGraphSource() {
 //
 // That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
 // no gate at all: the pinned version was never checked against any advisory feed. The gate is
-// now the lockfile pin plus CI's `npm audit --audit-level=info`, which fails the build when
-// any dependency in the lockfile has a known advisory at any severity.
+// now the lockfile pin plus Dependabot vulnerability alerts, which watch that lockfile against
+// the same advisory database and open a security update when one lands. That is monitoring
+// rather than a merge gate: an advisory is reported after the fact instead of failing a build,
+// because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
     import("marked"),

@@ -4,8 +4,15 @@ import type {
   QueryResultRow,
 } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
+import {
+  bindApplicationScopeBar,
+  focusRenderedElement,
+  renderApplicationScopeBar,
+  type ApplicationScope,
+} from "./scope-bar.ts";
 
 export interface PackageQueryBindingActions {
+  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
@@ -20,7 +27,8 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "workspace" }
+  | { kind: "application-scope"; value: ApplicationScope }
+  | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -28,18 +36,13 @@ export type PackageQueryFocusSnapshot =
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
-interface FocusableQueryElement extends Element {
-  readonly dataset: DOMStringMap;
-  focus(): void;
-}
-
-interface SelectableQueryElement extends FocusableQueryElement {
+interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
 }
 
 function isFocusableQueryElement(
   element: Element | null,
-): element is FocusableQueryElement {
+): element is HTMLElement {
   return element !== null
     && "dataset" in element
     && "focus" in element
@@ -47,7 +50,7 @@ function isFocusableQueryElement(
 }
 
 function supportsSelectionRange(
-  element: FocusableQueryElement,
+  element: HTMLElement,
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
@@ -72,7 +75,11 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-workspace") return { kind: "workspace" };
+  const applicationScope = active.dataset.applicationScope;
+  if (applicationScope === "query" || applicationScope === "workspace") {
+    return { kind: "application-scope", value: applicationScope };
+  }
+  if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -104,8 +111,14 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "workspace":
-      target = root.querySelector("#package-query-workspace");
+    case "application-scope":
+      target = [...root.querySelectorAll<HTMLElement>(
+        "[data-application-scope]")]
+        .find(element =>
+          element.dataset.applicationScope === snapshot.value) ?? null;
+      break;
+    case "product":
+      target = root.querySelector("#package-query-product");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -135,12 +148,12 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target)) {
+  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
     target = root.querySelector("#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  target.focus();
+  if (usedFallback && !focusRenderedElement(target)) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -169,6 +182,12 @@ export function bindPackageQueryView(
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
+  const applicationBinding = bindApplicationScopeBar(root, {
+    onApplicationScopeSelect: actions.onApplicationScopeSelect,
+    onFocusedControlUnavailable: () => {
+      focusRenderedElement(prefixInput(), { preventScroll: true });
+    },
+  });
 
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
@@ -191,6 +210,7 @@ export function bindPackageQueryView(
       prefixInput()?.value ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
     button.addEventListener("click", actions.onCancel));
+  return applicationBinding;
 }
 
 function renderRow(
@@ -294,6 +314,34 @@ function renderCompletionFooter(
     </div>`;
 }
 
+function renderProgress(
+  outcome: PackageQueryState["outcome"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (outcome.completion.kind !== "streaming" || outcome.progress.length === 0)
+    return "";
+
+  const checkpoints = outcome.progress.map(progress => {
+    const label = progress.phase === "search"
+      ? "Source search"
+      : progress.phase === "manifest"
+        ? "Manifests"
+        : "Package content";
+    const detail = progress.phase === "search"
+      ? progress.completed === progress.limit ? "ready" : "running"
+      : `${progress.completed.toLocaleString()} of up to ${progress.limit.toLocaleString()}`;
+    return `
+      <div class="query-progress-item">
+        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(detail)}</strong></div>
+        <progress value="${progress.completed}" max="${progress.limit}"></progress>
+      </div>`;
+  }).join("");
+  return `
+    <div class="query-progress" aria-label="Query progress">
+      ${checkpoints}
+    </div>`;
+}
+
 function renderEmptyState(
   state: PackageQueryState,
   escapeHtml: (value: unknown) => string,
@@ -352,7 +400,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
+  workspaceAvailable?: boolean;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -364,7 +412,7 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
+    workspaceAvailable = false,
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -382,20 +430,24 @@ export function renderPackageQueryView(
     .map(row => renderRow(row, escapeHtml))
     .join("");
   const results = rows
-    ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
       : renderEmptyState(state, escapeHtml);
 
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        ${renderBrand({
-          id: "package-query-workspace",
-          href: workspaceHref,
-          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
-        })}
-        <button id="package-query-back" type="button">Back</button>
+        ${renderBrand({ id: "package-query-product" })}
+        <div class="query-page-navigation">
+          <div class="application-scope-region">
+            ${renderApplicationScopeBar(
+              "query",
+              workspaceAvailable,
+              escapeHtml)}
+          </div>
+          <button id="package-query-back" type="button">Back</button>
+        </div>
       </header>
       <main class="query-main">
         <div class="query-heading">
@@ -404,8 +456,8 @@ export function renderPackageQueryView(
           <p>Find packages by product-owned source, manifest, and package-content facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
-          <label for="package-query-prefix">Package ID prefix</label>
-          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Microsoft.Extensions." required maxlength="100" />
+          <label for="package-query-prefix">Package ID prefix (<code>*</code> optional)</label>
+          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="System.*" required maxlength="100" />
           <button id="package-query-run" type="submit">Run query</button>
           ${state.outcome.completion.kind === "streaming" && state.request
             ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`

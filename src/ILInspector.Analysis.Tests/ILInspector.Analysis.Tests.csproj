@@ -49,16 +49,16 @@
     <ProjectReference Include="..\ILInspector.Analysis.TopLevelClassicAsyncFixtures\ILInspector.Analysis.TopLevelClassicAsyncFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.UnoptimizedAsyncFixtures\ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffAsmFixtures.Target\DiffAsmFixtures.Target.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffAsmFixtures.Caller\DiffAsmFixtures.Caller.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
     <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.ILDiff\ILInspector.ILDiff.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\..\tools\AnalysisHarness\AnalysisHarness.csproj" />
-    <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
 </Project>

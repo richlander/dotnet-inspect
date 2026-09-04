@@ -63,29 +63,6 @@ public static class PackageMetadataService
         List<PackageVulnerability> Vulnerabilities);
 
     /// <summary>
-    /// Gets the published date for a specific package version.
-    /// </summary>
-    public static async Task<DateTimeOffset?> GetPublishedDateAsync(
-        HttpClient client,
-        string packageName,
-        string version,
-        Action<string>? log,
-        NuGetSourceOptions? sourceOptions = null,
-        HttpClient? untrustedClient = null)
-    {
-        PackageMetadata metadata = await FetchMetadataAsync(
-            client,
-            packageName,
-            version,
-            log,
-            forceLatest: false,
-            sourceOptions,
-            registrationOnly: true,
-            untrustedClient ?? HttpClientFactory.SharedUntrustedFetch).ConfigureAwait(false);
-        return metadata.Published;
-    }
-
-    /// <summary>
     /// Fetches all NuGet metadata for a package: published date, downloads, verified status, deprecation, vulnerabilities.
     /// Results are cached on disk; use <paramref name="forceLatest"/> to bypass the cache.
     /// </summary>
@@ -104,7 +81,6 @@ public static class PackageMetadataService
             log,
             forceLatest,
             sourceOptions,
-            registrationOnly: false,
             untrustedClient ?? HttpClientFactory.SharedUntrustedFetch).ConfigureAwait(false);
 
     private static async Task<PackageMetadata> FetchMetadataAsync(
@@ -114,7 +90,6 @@ public static class PackageMetadataService
         Action<string>? log,
         bool forceLatest,
         NuGetSourceOptions? sourceOptions,
-        bool registrationOnly,
         HttpClient untrustedClient)
     {
         string normalizedName = packageName.ToLowerInvariant();
@@ -127,8 +102,7 @@ public static class PackageMetadataService
             string cacheKey = MetadataCacheKey(
                 source,
                 normalizedName,
-                normalizedVersion,
-                registrationOnly);
+                normalizedVersion);
             if (!forceLatest)
             {
                 MetadataFieldCache.Entry? fromCache;
@@ -166,7 +140,6 @@ public static class PackageMetadataService
                 normalizedName,
                 normalizedVersion,
                 log,
-                registrationOnly,
                 untrustedClient).ConfigureAwait(false);
             if (result.Presence == SourcePresence.Indeterminate)
             {
@@ -226,9 +199,8 @@ public static class PackageMetadataService
     private static string MetadataCacheKey(
         PackageSource source,
         string normalizedName,
-        string normalizedVersion,
-        bool registrationOnly) =>
-        $"v6-{(registrationOnly ? "published" : "full")}-"
+        string normalizedVersion) =>
+        "v6-full-"
         + $"{NuGetCache.GetSourceKey(source.Url)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
@@ -243,7 +215,6 @@ public static class PackageMetadataService
         string normalizedName,
         string version,
         Action<string>? log,
-        bool registrationOnly,
         HttpClient untrustedClient)
     {
         IReadOnlyList<ServiceResource>? resources =
@@ -338,8 +309,7 @@ public static class PackageMetadataService
             }
         }
 
-        if (packageBaseAddresses.Count > 0
-            && (!registrationOnly || !found))
+        if (packageBaseAddresses.Count > 0)
         {
             sawExistenceEndpoint = true;
             foreach (ServiceResource packageBaseAddress in packageBaseAddresses)
@@ -363,15 +333,6 @@ public static class PackageMetadataService
                     sawIndeterminate = true;
                 }
             }
-        }
-
-        if (registrationOnly)
-        {
-            return found
-                ? new SourceMetadataResult(SourcePresence.Present, metadata)
-                : sawExistenceEndpoint && !sawIndeterminate
-                ? new SourceMetadataResult(SourcePresence.Absent)
-                : new SourceMetadataResult(SourcePresence.Indeterminate);
         }
 
         if (!found)

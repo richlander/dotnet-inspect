@@ -1,0 +1,139 @@
+using DotnetInspector.Packages;
+
+namespace DotnetInspector.Ecosystems;
+
+internal static class MicrosoftExtensionsPackageSet
+{
+    internal static PackageSetRegistration Registration { get; } = new(
+        PackageSetIds.MicrosoftExtensions,
+        "Microsoft.Extensions",
+        "Current Microsoft.Extensions packages that add managed APIs beyond the shared frameworks.",
+        100,
+        Coordinates(
+        [
+            "Microsoft.Extensions.AI",
+            "Microsoft.Extensions.AI.Abstractions",
+            "Microsoft.Extensions.AI.Evaluation",
+            "Microsoft.Extensions.AI.Evaluation.Quality",
+            "Microsoft.Extensions.AI.Evaluation.Reporting",
+            "Microsoft.Extensions.AI.Evaluation.Reporting.Azure",
+            "Microsoft.Extensions.AI.OpenAI",
+            "Microsoft.Extensions.AmbientMetadata.Application",
+            "Microsoft.Extensions.AmbientMetadata.Build",
+            "Microsoft.Extensions.AsyncState",
+            "Microsoft.Extensions.AuditReports",
+            "Microsoft.Extensions.Caching.Hybrid",
+            "Microsoft.Extensions.Caching.SqlServer",
+            "Microsoft.Extensions.Caching.StackExchangeRedis",
+            "Microsoft.Extensions.Compliance.Abstractions",
+            "Microsoft.Extensions.Compliance.Redaction",
+            "Microsoft.Extensions.Compliance.Testing",
+            "Microsoft.Extensions.DependencyInjection.AutoActivation",
+            "Microsoft.Extensions.DependencyInjection.Specification.Tests",
+            "Microsoft.Extensions.DependencyModel",
+            "Microsoft.Extensions.Diagnostics.ExceptionSummarization",
+            "Microsoft.Extensions.Diagnostics.HealthChecks.Common",
+            "Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore",
+            "Microsoft.Extensions.Diagnostics.HealthChecks.ResourceUtilization",
+            "Microsoft.Extensions.Diagnostics.ResourceMonitoring",
+            "Microsoft.Extensions.Diagnostics.ResourceMonitoring.Kubernetes",
+            "Microsoft.Extensions.Diagnostics.Testing",
+            "Microsoft.Extensions.Hosting.Systemd",
+            "Microsoft.Extensions.Hosting.WindowsServices",
+            "Microsoft.Extensions.Http.Diagnostics",
+            "Microsoft.Extensions.Http.Polly",
+            "Microsoft.Extensions.Http.Resilience",
+            "Microsoft.Extensions.Logging.AzureAppServices",
+            "Microsoft.Extensions.ObjectPool.DependencyInjection",
+            "Microsoft.Extensions.Resilience",
+            "Microsoft.Extensions.ServiceDiscovery",
+            "Microsoft.Extensions.ServiceDiscovery.Abstractions",
+            "Microsoft.Extensions.ServiceDiscovery.Dns",
+            "Microsoft.Extensions.ServiceDiscovery.Yarp",
+            "Microsoft.Extensions.Telemetry",
+            "Microsoft.Extensions.Telemetry.Abstractions",
+            "Microsoft.Extensions.TimeProvider.Testing",
+            "Microsoft.Extensions.VectorData.Abstractions",
+            "Microsoft.Extensions.VectorData.ConformanceTests",
+        ]));
+
+    private static PackageCoordinate[] Coordinates(string[] packageIds) =>
+        [.. packageIds.Select(packageId => new PackageCoordinate(packageId))];
+}
+
+internal static class AspNetCorePackageSet
+{
+    internal static PackageSetRegistration Registration { get; } = new(
+        PackageSetIds.AspNetCore,
+        "ASP.NET Core",
+        "Current ASP.NET Core packages that add managed APIs beyond the shared frameworks.",
+        200,
+        Coordinates(
+        [
+            "Microsoft.AspNetCore.AsyncState",
+            "Microsoft.AspNetCore.Authentication.Certificate",
+            "Microsoft.AspNetCore.Authentication.Facebook",
+            "Microsoft.AspNetCore.Authentication.Google",
+            "Microsoft.AspNetCore.Authentication.JwtBearer",
+            "Microsoft.AspNetCore.Authentication.MicrosoftAccount",
+            "Microsoft.AspNetCore.Authentication.Negotiate",
+            "Microsoft.AspNetCore.Authentication.OpenIdConnect",
+            "Microsoft.AspNetCore.Authentication.Twitter",
+            "Microsoft.AspNetCore.Authentication.WsFederation",
+            "Microsoft.AspNetCore.AzureAppServices.HostingStartup",
+            "Microsoft.AspNetCore.AzureAppServicesIntegration",
+            "Microsoft.AspNetCore.Components.CustomElements",
+            "Microsoft.AspNetCore.Components.QuickGrid",
+            "Microsoft.AspNetCore.Components.QuickGrid.EntityFrameworkAdapter",
+            "Microsoft.AspNetCore.Components.WebAssembly",
+            "Microsoft.AspNetCore.Components.WebAssembly.Authentication",
+            "Microsoft.AspNetCore.Components.WebAssembly.Server",
+            "Microsoft.AspNetCore.Components.WebView",
+            "Microsoft.AspNetCore.Components.WebView.Maui",
+            "Microsoft.AspNetCore.Components.WebView.WindowsForms",
+            "Microsoft.AspNetCore.Components.WebView.Wpf",
+            "Microsoft.AspNetCore.ConcurrencyLimiter",
+            "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore",
+            "Microsoft.AspNetCore.DataProtection.StackExchangeRedis",
+            "Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore",
+            "Microsoft.AspNetCore.Diagnostics.Middleware",
+            "Microsoft.AspNetCore.Grpc.JsonTranscoding",
+            "Microsoft.AspNetCore.HeaderParsing",
+            "Microsoft.AspNetCore.HeaderPropagation",
+            "Microsoft.AspNetCore.Hosting.WindowsServices",
+            "Microsoft.AspNetCore.Http.Connections.Client",
+            "Microsoft.AspNetCore.Identity.EntityFrameworkCore",
+            "Microsoft.AspNetCore.Identity.UI",
+            "Microsoft.AspNetCore.JsonPatch",
+            "Microsoft.AspNetCore.JsonPatch.SystemTextJson",
+            "Microsoft.AspNetCore.MiddlewareAnalysis",
+            "Microsoft.AspNetCore.Mvc.NewtonsoftJson",
+            "Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation",
+            "Microsoft.AspNetCore.Mvc.Testing",
+            "Microsoft.AspNetCore.OpenApi",
+            "Microsoft.AspNetCore.OutputCaching.StackExchangeRedis",
+            "Microsoft.AspNetCore.Owin",
+            "Microsoft.AspNetCore.SignalR.Client",
+            "Microsoft.AspNetCore.SignalR.Client.Core",
+            "Microsoft.AspNetCore.SignalR.Protocols.MessagePack",
+            "Microsoft.AspNetCore.SignalR.Protocols.NewtonsoftJson",
+            "Microsoft.AspNetCore.SignalR.Specification.Tests",
+            "Microsoft.AspNetCore.SignalR.StackExchangeRedis",
+            "Microsoft.AspNetCore.SpaProxy",
+            "Microsoft.AspNetCore.SpaServices.Extensions",
+            "Microsoft.AspNetCore.TestHost",
+            "Microsoft.AspNetCore.Testing",
+        ]));
+
+    private static PackageCoordinate[] Coordinates(string[] packageIds) =>
+        [.. packageIds.Select(packageId => new PackageCoordinate(packageId))];
+}
+
+internal static class ShippedPackageSets
+{
+    internal static PackageSetRegistry Registry { get; } = new(
+    [
+        MicrosoftExtensionsPackageSet.Registration,
+        AspNetCorePackageSet.Registration,
+    ]);
+}

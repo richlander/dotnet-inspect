@@ -5,6 +5,7 @@ namespace DotnetInspector.Fixtures;
 public sealed record FixtureDefinition(
     string Id,
     string ProjectName,
+    string RepositoryProjectDirectory,
     string AssemblyFileName,
     IReadOnlyList<string> Tags,
     IReadOnlyList<FixtureBoundary> Boundaries,
@@ -757,7 +758,11 @@ public static class FixtureCatalog
     {
         var fixture = Get(id);
         string root = RepositoryRoot();
-        string path = Path.Combine(root, "src", fixture.ProjectName);
+        string path = Path.Combine(
+            root,
+            fixture.RepositoryProjectDirectory.Replace(
+                '/',
+                Path.DirectorySeparatorChar));
         if (Directory.Exists(path))
             return path;
 
@@ -850,13 +855,90 @@ public static class FixtureCatalog
     }
 
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, params string[] tags)
-        => new(id, projectName, assemblyFileName, tags, [], []);
+        => new(
+            id,
+            projectName,
+            RepositoryProjectDirectory(projectName),
+            assemblyFileName,
+            tags,
+            [],
+            []);
 
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, FixtureBoundary[] boundaries, params string[] tags)
-        => new(id, projectName, assemblyFileName, tags, boundaries, []);
+        => new(
+            id,
+            projectName,
+            RepositoryProjectDirectory(projectName),
+            assemblyFileName,
+            tags,
+            boundaries,
+            []);
 
     static FixtureDefinition Fixture(string id, string projectName, string assemblyFileName, string[] tags, FixtureBoundary[] boundaries, params FixtureAsset[] assets)
-        => new(id, projectName, assemblyFileName, tags, boundaries, assets);
+        => new(
+            id,
+            projectName,
+            RepositoryProjectDirectory(projectName),
+            assemblyFileName,
+            tags,
+            boundaries,
+            assets);
+
+    static string RepositoryProjectDirectory(string projectName)
+        => projectName switch
+        {
+            "DiffAsmFixtures.Caller" => "fixtures/diff/DiffAsmFixtures.Caller",
+            "DiffAsmFixtures.LibA" => "fixtures/diff/DiffAsmFixtures.LibA",
+            "DiffAsmFixtures.LibB" => "fixtures/diff/DiffAsmFixtures.LibB",
+            "DiffAsmFixtures.Target" => "fixtures/diff/DiffAsmFixtures.Target",
+            "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
+            "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
+            "DotnetInspector.HostileNameFixtures" => "fixtures/cli/DotnetInspector.HostileNameFixtures",
+            "DotnetInspector.RestoredProjectFixtures" => "src/DotnetInspector.RestoredProjectFixtures",
+            "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
+            "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
+            "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "src/ILInspector.Analysis.AsyncSiblingFriendFixtures",
+            "ILInspector.Analysis.CallerGraphCaller" => "src/ILInspector.Analysis.CallerGraphCaller",
+            "ILInspector.Analysis.CallerGraphCallerTwin" => "src/ILInspector.Analysis.CallerGraphCallerTwin",
+            "ILInspector.Analysis.CallerGraphIndirectCaller" => "src/ILInspector.Analysis.CallerGraphIndirectCaller",
+            "ILInspector.Analysis.CallerGraphLookalikeCaller" => "src/ILInspector.Analysis.CallerGraphLookalikeCaller",
+            "ILInspector.Analysis.CallerGraphTarget" => "src/ILInspector.Analysis.CallerGraphTarget",
+            "ILInspector.Analysis.CallerGraphTargetV2" => "src/ILInspector.Analysis.CallerGraphTargetV2",
+            "ILInspector.Analysis.CrossAsmCollisionFixtures" => "src/ILInspector.Analysis.CrossAsmCollisionFixtures",
+            "ILInspector.Analysis.FacadeFixtures" => "src/ILInspector.Analysis.FacadeFixtures",
+            "ILInspector.Analysis.Fixtures" => "src/ILInspector.Analysis.Fixtures",
+            "ILInspector.Analysis.LookalikeFixtures" => "src/ILInspector.Analysis.LookalikeFixtures",
+            "ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures" => "src/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures",
+            "ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures" => "src/ILInspector.Analysis.MethodCorrespondenceSurfaceFixtures",
+            "ILInspector.Analysis.OwnershipFlowFixtures" => "src/ILInspector.Analysis.OwnershipFlowFixtures",
+            "ILInspector.Analysis.ProtobufFixtures" => "src/ILInspector.Analysis.ProtobufFixtures",
+            "ILInspector.Analysis.RenderFixtures" => "src/ILInspector.Analysis.RenderFixtures",
+            "ILInspector.Analysis.SpoofFixtures" => "src/ILInspector.Analysis.SpoofFixtures",
+            "ILInspector.Analysis.SpoofRuntimeFixtures" => "src/ILInspector.Analysis.SpoofRuntimeFixtures",
+            "ILInspector.Analysis.TopLevelAsyncFixtures" => "src/ILInspector.Analysis.TopLevelAsyncFixtures",
+            "ILInspector.Analysis.TopLevelClassicAsyncFixtures" => "src/ILInspector.Analysis.TopLevelClassicAsyncFixtures",
+            "ILInspector.Decompiler.Fixtures.CheckedArithmetic" => "src/ILInspector.Decompiler.Fixtures.CheckedArithmetic",
+            "ILInspector.Decompiler.Fixtures.ClassicAsync" => "src/ILInspector.Decompiler.Fixtures.ClassicAsync",
+            "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" => "src/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",
+            "ILInspector.Decompiler.Fixtures.ClassicStateMachines" => "src/ILInspector.Decompiler.Fixtures.ClassicStateMachines",
+            "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof" => "src/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
+            "ILInspector.Decompiler.Fixtures.Ladder" => "src/ILInspector.Decompiler.Fixtures.Ladder",
+            "ILInspector.Decompiler.Fixtures.LegacyUnsafe" => "src/ILInspector.Decompiler.Fixtures.LegacyUnsafe",
+            "ILInspector.Decompiler.Fixtures.NewUnsafe" => "src/ILInspector.Decompiler.Fixtures.NewUnsafe",
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync" => "src/ILInspector.Decompiler.Fixtures.RuntimeAsync",
+            "ILInspector.Decompiler.Fixtures.TypeIdentity" => "src/ILInspector.Decompiler.Fixtures.TypeIdentity",
+            "ILInspector.Decompiler.Fixtures.UnsafeChainA" => "src/ILInspector.Decompiler.Fixtures.UnsafeChainA",
+            "ILInspector.Decompiler.Fixtures.UnsafeChainB" => "src/ILInspector.Decompiler.Fixtures.UnsafeChainB",
+            "ILInspector.Decompiler.Fixtures.UnsafeChainC" => "src/ILInspector.Decompiler.Fixtures.UnsafeChainC",
+            "ILInspector.Decompiler.Fixtures.VbFinalizer" => "src/ILInspector.Decompiler.Fixtures.VbFinalizer",
+            "ILInspector.Research.TargetFixtures" => "src/ILInspector.Research.TargetFixtures",
+            "ResearchTargetCorrespondenceFixtures.V1" => "src/ResearchTargetCorrespondenceFixtures.V1",
+            "ResearchTargetCorrespondenceFixtures.V2" => "src/ResearchTargetCorrespondenceFixtures.V2",
+            "RunFaster.AllocationFixture" => "src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture",
+            _ => throw new ArgumentException(
+                $"Unknown fixture project '{projectName}'.",
+                nameof(projectName)),
+        };
 
     static FixtureAsset Asset(string name, string projectName, string relativePath)
         => new(name, projectName, relativePath);
