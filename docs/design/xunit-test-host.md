@@ -179,6 +179,13 @@ extension. Existing report checks remain the stronger evidence that every
 named method or class contributed execution; MTP supplies only aggregate
 non-vacuity.
 
+`ILInspector.Metadata.Tests` is the sixth adopter. Its ordinary Linux and
+Windows PR commands remain unfiltered, while Deep Inspect preserves the
+60-second long-running diagnostic threshold through MTP's `--long-running`
+option. Its process-isolated containment tests also select their child workers
+through MTP method filters. These paths reuse the pinned outcome-level host
+gate without changing the suite's metadata or oracle evidence.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
