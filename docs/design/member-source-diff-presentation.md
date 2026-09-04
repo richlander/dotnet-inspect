@@ -67,9 +67,11 @@ manufacturing a difference.
 
 The whole-member render preserves the selected physical MethodDef's declaration
 kind. An explicit-interface method is rendered as property syntax only when its
-metadata MethodSemantics relationship proves that it is a property accessor;
-an ordinary explicit method whose source name begins with `get_` or `set_`
-remains a method.
+metadata MethodSemantics relationship proves that it is a property accessor.
+The associated PropertyDef supplies the complete qualified property identity;
+the renderer does not parse accessor markers from the MethodDef name. An
+ordinary explicit method whose source name begins with `get_` or `set_` remains
+a method.
 
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No
@@ -385,8 +387,13 @@ Release CLI tests prove:
   visible failure when an exact non-code format cannot represent them;
 - ordinary explicit-interface methods beginning with `get_` or `set_` retain
   method syntax while metadata-proven property accessors use property syntax;
+- an explicit property's qualified interface identity comes from its
+  MethodSemantics-associated PropertyDef, including interface or namespace
+  segments that themselves begin with `get_` or `set_`;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
+- co-selecting Source Diff with a decompiler-backed section preserves that
+  section's portable-PDB local names and annotations;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the
   separate PDB Source and Decompiled Source sections keep their own labels and
   content;

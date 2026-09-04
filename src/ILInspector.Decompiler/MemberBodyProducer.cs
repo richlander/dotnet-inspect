@@ -1187,28 +1187,24 @@ public static class MemberBodyProducer
                         : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
-                    // as its accessor method (Iface.get_X). Require the
-                    // MethodSemantics relationship before rendering the
-                    // property form the source writes: 'bool Iface.X => ...;'.
-                    Pipeline.AccessorKind explicitAccessorKind =
+                    // as its accessor method. Derive the property identity from
+                    // the MethodSemantics-owned PropertyDef rather than parsing
+                    // get_/set_ markers from the qualified MethodDef name.
+                    bool isExplicitSetter = false;
+                    string? explicitPropertyPath =
                         member.Kind == "explicit-interface-implementation"
                             && memberHandle is { } explicitAccessorHandle
-                            ? Pipeline.MethodDefinitionFacts.ReadAccessorKind(
+                            ? ExplicitPropertyName(
                                 reader,
-                                reader.GetTypeDefinition(typeHandle),
-                                explicitAccessorHandle)
-                            : Pipeline.AccessorKind.None;
+                                typeHandle,
+                                explicitAccessorHandle,
+                                out isExplicitSetter)
+                            : null;
                     if (member.Kind == "explicit-interface-implementation"
-                        && explicitAccessorKind is
-                            Pipeline.AccessorKind.PropertyGet
-                            or Pipeline.AccessorKind.PropertySet
-                        && ExplicitPropertyName(member.Name) is { } propertyPath
+                        && explicitPropertyPath is { } propertyPath
                         && body is not null)
                     {
-                        bool isSetter =
-                            explicitAccessorKind
-                                == Pipeline.AccessorKind.PropertySet;
-                        string? accessorPropertyType = isSetter
+                        string? accessorPropertyType = isExplicitSetter
                             ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
                             : member.ReturnType
                                 ?? (member.Signature is { } sig
@@ -1230,7 +1226,7 @@ public static class MemberBodyProducer
                             type.TypeParameters.Select(p => p.Name));
                         string head =
                             $"{staticModifier}{unsafeModifier}{propertyType} {propertyPath}";
-                        if (isSetter)
+                        if (isExplicitSetter)
                         {
                             sb.AppendLf($"    {head}");
                             sb.AppendLf("    {");
@@ -1503,20 +1499,34 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// 'Iface.get_X' / 'Iface.set_X' → 'Iface.X'; null for non-accessor
-    /// names (including indexer accessors, which keep the method form).
+    /// Returns the explicit property name owned by the accessor's
+    /// MethodSemantics relationship. Indexer accessors keep method form.
     /// </summary>
-    static string? ExplicitPropertyName(string name)
+    static string? ExplicitPropertyName(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        MethodDefinitionHandle methodHandle,
+        out bool isSetter)
     {
-        foreach (var marker in (string[])[".get_", ".set_"])
+        isSetter = false;
+        var type = reader.GetTypeDefinition(typeHandle);
+        foreach (var propertyHandle in type.GetProperties())
         {
-            int at = name.IndexOf(marker, StringComparison.Ordinal);
-            if (at < 0)
+            var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
+            bool isGetter = accessors.Getter == methodHandle;
+            if (!isGetter && accessors.Setter != methodHandle)
                 continue;
-            string propName = name[(at + marker.Length)..];
+
+            isSetter = !isGetter;
+            string name = reader.GetString(property.Name);
+            int separator = name.LastIndexOf('.');
+            if (separator <= 0)
+                return null;
+            string propName = name[(separator + 1)..];
             if (propName.Length == 0 || propName is "Item" or "Chars")
                 return null;
-            return $"{EscapeQualifiedName(name[..at])}.{ContainedIdentifier(propName)}";
+            return $"{EscapeQualifiedName(name[..separator])}.{ContainedIdentifier(propName)}";
         }
         return null;
     }

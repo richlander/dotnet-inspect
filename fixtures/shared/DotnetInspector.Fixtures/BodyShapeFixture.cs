@@ -6,17 +6,21 @@ public interface IBodyShapeValue
     event Action Changed;
 }
 
-public interface IBodyShapePrefixMethods
+public interface get_IBodyShapePrefixMethods
 {
     int get_Count();
 
     void set_Count();
+
+    int Value { get; set; }
 }
 
 public sealed class BodyShapeFixture :
     IBodyShapeValue,
-    IBodyShapePrefixMethods
+    get_IBodyShapePrefixMethods
 {
+    int _explicitValue;
+
     public static object PublicCreation() => new object();
 
     public static int[] PublicSmallArray() => new int[3];
@@ -37,9 +41,15 @@ public sealed class BodyShapeFixture :
         remove { }
     }
 
-    int IBodyShapePrefixMethods.get_Count() => 1;
+    int get_IBodyShapePrefixMethods.get_Count() => 1;
 
-    void IBodyShapePrefixMethods.set_Count() => GC.KeepAlive(this);
+    void get_IBodyShapePrefixMethods.set_Count() => GC.KeepAlive(this);
+
+    int get_IBodyShapePrefixMethods.Value
+    {
+        get => _explicitValue;
+        set => _explicitValue = value;
+    }
 
     public static string Classify(int value) =>
         value switch

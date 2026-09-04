@@ -11253,6 +11253,49 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceDiff_CoSelectionPreservesAnnotatedSourcePdbLocals()
+    {
+        string[] command =
+        [
+            "member",
+            "System.Collections.Generic.Dictionary<TKey,TValue>",
+            "--platform",
+            "System.Collections",
+            "Item:1",
+            "--all",
+            "--tips",
+            "q",
+        ];
+        var (aloneExit, aloneOutput, aloneError) = await RunAppAsync(
+            [.. command, "-S", SectionNames.AnnotatedSource]);
+        var (togetherExit, togetherOutput, togetherError) =
+            await RunAppAsync(
+                [
+                    .. command,
+                    "-S",
+                    $"{SectionNames.AnnotatedSource},{SectionNames.SourceDiff}",
+                ]);
+
+        Assert.Equal(0, aloneExit);
+        Assert.Empty(aloneError);
+        Assert.Equal(0, togetherExit);
+        Assert.Empty(togetherError);
+
+        string alone = Assert.IsType<string>(
+            TryExtractSectionBody(
+                aloneOutput,
+                SectionNames.AnnotatedSource));
+        string together = Assert.IsType<string>(
+            TryExtractSectionBody(
+                togetherOutput,
+                SectionNames.AnnotatedSource));
+        Assert.Contains("value", alone);
+        Assert.Contains("local: value", alone);
+        Assert.DoesNotContain("V_0", alone);
+        Assert.Equal(alone, together);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -11319,7 +11362,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(BodyShapeFixture).FullName!,
-            $"explicit:DotnetInspector.Fixtures.IBodyShapePrefixMethods.{methodName}",
+            $"explicit:DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.{methodName}",
             "--library", typeof(BodyShapeFixture).Assembly.Location,
             "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
 
@@ -11332,6 +11375,28 @@ public partial class CommandExecutionTests
             "PDB comparison and Decompiled comparison are identical.",
             output);
         Assert.Contains($".{methodName}", output);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Member_SourceDiff_ExplicitQualifiedPropertyPreservesInterfaceIdentity(
+        int accessorOrdinal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(BodyShapeFixture).FullName!,
+            $"DotnetInspector.Fixtures.get_IBodyShapePrefixMethods.Value:{accessorOrdinal}",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "get_IBodyShapePrefixMethods.Value",
+            output);
+        Assert.DoesNotContain(
+            "DotnetInspector.Fixtures.IBodyShapePrefixMethods.",
+            output);
     }
 
     [Fact]

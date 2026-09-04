@@ -102,12 +102,12 @@ public sealed class MemberBodyProducerMemberRenderTests
             member => member.Kind == "property"
                 && !member.IsStatic
                 && member.Name.EndsWith(
-                    $".{nameof(IMemberRenderExplicitProperty.Label)}",
+                    $".{nameof(get_IMemberRenderExplicitProperty.Label)}",
                     StringComparison.Ordinal));
         ApiMember setter = Assert.Single(
             ApiMemberAccessors.Create(property, type),
             member => member.Name.EndsWith(
-                $".set_{nameof(IMemberRenderExplicitProperty.Label)}",
+                $".set_{nameof(get_IMemberRenderExplicitProperty.Label)}",
                 StringComparison.Ordinal));
         type.Members = [setter];
 
@@ -119,7 +119,7 @@ public sealed class MemberBodyProducerMemberRenderTests
 
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.Contains(
-            "string? IMemberRenderExplicitProperty.Label",
+            "string? get_IMemberRenderExplicitProperty.Label",
             rendered.Text,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -127,7 +127,7 @@ public sealed class MemberBodyProducerMemberRenderTests
             rendered.Text,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "void IMemberRenderExplicitProperty.Label",
+            "void get_IMemberRenderExplicitProperty.Label",
             rendered.Text,
             StringComparison.Ordinal);
     }
@@ -150,7 +150,7 @@ public sealed class MemberBodyProducerMemberRenderTests
                 && member.Name.EndsWith(
                     "."
                         + nameof(
-                            IMemberRenderStaticExplicitProperty<
+                            set_IMemberRenderStaticExplicitProperty<
                                 MemberRenderSpecimen>.Label),
                     StringComparison.Ordinal));
         ApiMember accessor = Assert.Single(
@@ -158,7 +158,7 @@ public sealed class MemberBodyProducerMemberRenderTests
             member => member.Name.Contains(
                 $".{accessorPrefix}"
                     + nameof(
-                        IMemberRenderStaticExplicitProperty<
+                        set_IMemberRenderStaticExplicitProperty<
                             MemberRenderSpecimen>.Label),
                 StringComparison.Ordinal));
         type.Members = [accessor];
@@ -171,7 +171,7 @@ public sealed class MemberBodyProducerMemberRenderTests
 
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.Contains(
-            "static string? IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label",
+            "static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label",
             rendered.Text,
             StringComparison.Ordinal);
     }
@@ -850,13 +850,13 @@ public sealed class MemberBodyProducerMemberRenderTests
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
-public interface IMemberRenderExplicitProperty
+public interface get_IMemberRenderExplicitProperty
 {
     string? Label { get; set; }
 }
 
-public interface IMemberRenderStaticExplicitProperty<TSelf>
-    where TSelf : IMemberRenderStaticExplicitProperty<TSelf>
+public interface set_IMemberRenderStaticExplicitProperty<TSelf>
+    where TSelf : set_IMemberRenderStaticExplicitProperty<TSelf>
 {
     static abstract string? Label { get; set; }
 }
@@ -869,8 +869,8 @@ public interface IMemberRenderExplicitPrefixMethods
 }
 
 public sealed class MemberRenderSpecimen :
-    IMemberRenderExplicitProperty,
-    IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>,
+    get_IMemberRenderExplicitProperty,
+    set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>,
     IMemberRenderExplicitPrefixMethods
 {
     EventHandler? _changed;
@@ -889,13 +889,13 @@ public sealed class MemberRenderSpecimen :
 
     public static string StaticName { get; set; } = "";
 
-    string? IMemberRenderExplicitProperty.Label
+    string? get_IMemberRenderExplicitProperty.Label
     {
         get => _explicitLabel;
         set => _explicitLabel = value;
     }
 
-    static string? IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label
+    static string? set_IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label
     {
         get => _staticExplicitLabel;
         set => _staticExplicitLabel = value;

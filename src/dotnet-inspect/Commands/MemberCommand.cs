@@ -482,10 +482,11 @@ public static class MemberCommand
                         Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
-                if (ApiCommand.GetRequestedMemberSections(
+                var requestedSourceSections =
+                    ApiCommand.GetRequestedMemberSections(
                         apiType,
-                        effectiveOptions)
-                        .Contains(SectionNames.SourceDiff)
+                        effectiveOptions);
+                if (requestedSourceSections.Contains(SectionNames.SourceDiff)
                     && sourceMember?.MetadataToken is not null)
                 {
                     bool? selectedMemberHasBody =
@@ -593,6 +594,32 @@ public static class MemberCommand
                                 : ApiCommand.PdbSourceUnavailableReason(
                                     comparison),
                     };
+                    if (effectiveOptions.PdbPath is null
+                        && NeedsMemberPipelinePdbPath(
+                            requestedSourceSections))
+                    {
+                        string? pdbPath = sourceAssembly is null
+                            ? await ApiCommand.TryAcquirePdbPathAsync(
+                                methodSourceAssemblyPath,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient)
+                            : await ApiCommand.TryAcquirePdbPathAsync(
+                                methodSourceAssemblyPath,
+                                sourceAssembly,
+                                effectiveOptions,
+                                logger,
+                                context.HttpClient,
+                                fallbackPackageName: packageName,
+                                fallbackPackageVersion: packageVersion);
+                        if (pdbPath is not null)
+                        {
+                            effectiveOptions = effectiveOptions with
+                            {
+                                PdbPath = pdbPath,
+                            };
+                        }
+                    }
                 }
                 else
                 {
@@ -984,8 +1011,25 @@ public static class MemberCommand
         SectionNames.IL
     ];
 
+    private static readonly string[] MemberPipelinePdbPathSectionNames =
+    [
+        SectionNames.DecompiledSource,
+        SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
+        SectionNames.AnnotatedSource,
+        SectionNames.AnnotatedSourceDocument,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
+        SectionNames.BodyShapes,
+        SectionNames.Facts,
+    ];
+
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
+
+    private static bool NeedsMemberPipelinePdbPath(
+        IReadOnlySet<string> sections)
+        => sections.Overlaps(MemberPipelinePdbPathSectionNames);
 
     private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
         => GetTargetCandidates(apiType, options, memberName)
@@ -1023,11 +1067,7 @@ public static class MemberCommand
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
                              || options.Verbosity >= Verbosity.Detailed;
         return pdbAuthorized
-               && (sections.Contains(SectionNames.DecompiledSource)
-                   || sections.Contains(SectionNames.AnnotatedSource)
-                   || sections.Contains(SectionNames.AnnotatedSourceDocument)
-                   || sections.Contains(SectionNames.BodyShapes)
-                   || sections.Contains(SectionNames.Facts));
+               && NeedsMemberPipelinePdbPath(sections);
     }
 
     internal static bool AuthorizesMemberSourceResolution(

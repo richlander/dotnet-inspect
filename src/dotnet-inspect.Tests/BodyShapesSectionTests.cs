@@ -1545,10 +1545,12 @@ public sealed class BodyShapesSectionTests
             candidate.FullName == typeof(BodyShapeFixture).FullName);
         var property = Assert.Single(type.Members, member =>
             member.Kind == "property"
-            && member.Name.EndsWith(".Value", StringComparison.Ordinal));
+            && member.Name
+                == $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Value)}");
         var @event = Assert.Single(type.Members, member =>
             member.Kind == "event"
-            && member.Name.EndsWith(".Changed", StringComparison.Ordinal));
+            && member.Name
+                == $"{typeof(IBodyShapeValue).FullName}.{nameof(IBodyShapeValue.Changed)}");
 
         type.Members = [property];
         var propertyMethods = ApiOutputFormatter.ResolveBodyMethods(
