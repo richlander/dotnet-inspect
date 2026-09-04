@@ -722,6 +722,47 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void CandidateSpecificArityDoesNotTruncateLineUnitEvidence()
+    {
+        CandidateFixture ownsFollowingOption =
+            new("owns-option", extraOptionName: "--only-in-first");
+        CandidateFixture doesNotOwnFollowingOption =
+            new("does-not-own-option");
+
+        foreach (string modifier in new[] { "--lines", "--tail-lines" })
+        {
+            string[][] inputs =
+            [
+                ["Target", "-n", "--only-in-first", modifier],
+                ["Target", modifier, "-n", "--only-in-first"],
+                ["Target", "-n", "2", "--rows", "--only-in-first", modifier]
+            ];
+            foreach (string[] arguments in inputs)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(arguments, ownsFollowingOption, doesNotOwnFollowingOption);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(arguments, doesNotOwnFollowingOption, ownsFollowingOption);
+
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.Deferred,
+                    result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+            }
+
+            CliRowSelectionRouteEnvelopeResult determinate =
+                Evaluate(
+                    ["Target", "-n=2", "--only-in-first", modifier],
+                    ownsFollowingOption,
+                    doesNotOwnFollowingOption);
+            Assert.Equal(
+                CliRowSelectionRouteEnvelopeOutcome.Success,
+                determinate.Outcome);
+        }
+    }
+
+    [Fact]
     public void DeferredLineModifierCannotChangeEarlierCountMeaning()
     {
         CandidateFixture lineIsRequiredValue =
@@ -845,6 +886,73 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void CanonicalValueSpellingsRequireMatchingBindings()
+    {
+        (string Canonical, string Renamed, string Value,
+            CliRowSelectionOccurrenceKind Kind)[] options =
+        [
+            ("--top", "--rank", "2", CliRowSelectionOccurrenceKind.Top),
+            ("--order-by", "--sort", "name", CliRowSelectionOccurrenceKind.OrderBy)
+        ];
+        foreach (var option in options)
+        {
+            string[][] inputs =
+            [
+                ["Target", option.Canonical, option.Value],
+                ["Target", $"{option.Canonical}={option.Value}"],
+                ["Target", $"{option.Canonical}:{option.Value}"]
+            ];
+            foreach (string[] arguments in inputs)
+            {
+                CandidateFixture canonical = new("canonical");
+                CandidateFixture renamed =
+                    new("renamed", topName: "--rank", orderByName: "--sort");
+                CandidateFixture alsoRenamed =
+                    new("also-renamed", topName: "--rank", orderByName: "--sort");
+
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(arguments, canonical, renamed);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(arguments, renamed, canonical);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.ExplicitCommandRequired,
+                    result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal(option.Kind, result.RequestKind);
+                Assert.Equal(result.RequestKind, reversed.RequestKind);
+                Assert.Equal(1, result.Position);
+                Assert.Equal(result.Position, reversed.Position);
+
+                CliRowSelectionRouteEnvelopeResult unsupported =
+                    Evaluate(arguments, renamed, alsoRenamed);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability,
+                    unsupported.Outcome);
+                Assert.Equal(option.Kind, unsupported.RequestKind);
+
+                CliRowSelectionRouteEnvelopeResult custom =
+                    Evaluate(
+                        ["Target", option.Renamed, option.Value],
+                        renamed,
+                        alsoRenamed);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.Success,
+                    custom.Outcome);
+
+                Option binding = option.Kind == CliRowSelectionOccurrenceKind.Top
+                    ? renamed.Candidate.Bindings.Top!
+                    : renamed.Candidate.Bindings.OrderBy!;
+                binding.Aliases.Add(option.Canonical);
+                CliRowSelectionRouteEnvelopeResult aliased =
+                    Evaluate(arguments, canonical, renamed);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.Success,
+                    aliased.Outcome);
+            }
+        }
+    }
+
+    [Fact]
     public void CandidateBindingsMayOmitTopGrammar()
     {
         CandidateFixture windowOnly =
@@ -924,7 +1032,9 @@ public sealed class CliRowSelectionRouterPreflightTests
                 RowDeclarations.None,
             string? extraOptionName = null,
             bool omitTopOrderBindings = false,
-            string rowsName = "--rows")
+            string rowsName = "--rows",
+            string topName = "--top",
+            string orderByName = "--order-by")
         {
             Option<string[]> limit =
                 RowValueOption("-n");
@@ -933,11 +1043,11 @@ public sealed class CliRowSelectionRouterPreflightTests
             Option<string[]>? top =
                 omitTopOrderBindings
                     ? null
-                    : RowValueOption("--top");
+                    : RowValueOption(topName);
             Option<string[]>? orderBy =
                 omitTopOrderBindings
                     ? null
-                    : RowValueOption("--order-by");
+                    : RowValueOption(orderByName);
             Option<bool> head =
                 ModifierOption("--head");
             Option<bool> tail =
