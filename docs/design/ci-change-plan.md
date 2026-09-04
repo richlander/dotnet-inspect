@@ -30,11 +30,11 @@ foundational repository infrastructure rather than product behavior.
 
 ## Problem
 
-The current change detector has grown into a policy engine without a single
-typed boundary. `eng/ci-detect-changes.sh` acquires paths, validates API
-responses and Git streams, evaluates job rules, reads policy manifests, and
-enforces implications among eleven outputs. Separate workflow and domain-job
-logic can still establish another candidate relation or reinterpret paths.
+The former change detector had grown into a policy engine without a single
+typed boundary. It acquired paths, validated API responses and Git streams,
+evaluated job rules, read policy manifests, and enforced implications among
+eleven outputs. Separate workflow and domain-job logic could establish another
+candidate relation or reinterpret paths.
 
 PR #5347 demonstrated the concrete consequence. GitHub's pull-request Files
 API described merge-base-to-PR-head paths, while the checked-out workflow
@@ -42,8 +42,8 @@ validated the current synthetic merge candidate. A base-branch rename made
 those path sets disagree, so TLA+ scheduling had to recompute its decision from
 the candidate that the job actually checked.
 
-Structural tests make the current behavior safer, but they do not remove the
-distributed ownership that caused the mismatch.
+Structural tests made that behavior safer, but did not remove the distributed
+ownership that caused the mismatch.
 
 ## Boundary
 
@@ -91,9 +91,9 @@ endpoints must resolve to themselves as commits, so a tag or tree object is
 refused rather than peeled.
 
 A push event without a usable before-tree endpoint therefore refuses instead
-of preserving the legacy classifier's conservative over-run. The aggregate
-gate keeps that refusal visible and blocking until a separately designed
-provenance case supplies an exact replacement endpoint.
+of conservatively over-running. The aggregate gate keeps that refusal visible
+and blocking until a separately designed provenance case supplies an exact
+replacement endpoint.
 
 "The checked candidate" is a checked condition, not an assumption: the
 repository's `HEAD^{commit}` object ID must equal the candidate endpoint. A
@@ -408,9 +408,7 @@ The planner implementation gate must also cover:
 - every job-level and named in-job validation rule, event rule, and cross-field
   implication as planner values;
 - an oversized plan or scoped-evidence descriptor;
-- effective validation-selection parity with the combined existing classifier
-  and workflow routing when both receive the same event and changed-path
-  corpus;
+- every raw routing rule and effective event mapping as planner-native values;
 - the deliberate provenance change from API or event approximations to exact
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
@@ -447,11 +445,9 @@ serialization, plan publisher, and command boundary are implemented behind
 which constructs plans through the production planner rather than a
 harness-built substitute. That gate covers the routing canaries and
 first-match exclusions, event semantics, the `ilRoundTrip` implication,
-effective-selection parity against the legacy shell classifier for every
-scenario where both receive the same event and changed-path corpus, real
-temporary Git repository fixtures including the #5347 rename fixtures, raw
-parser fixtures with invalidly encoded path bytes, the refusal contract, and
-deterministic serialization with strict deserialization rejection.
+real temporary Git repository fixtures including the #5347 rename fixtures,
+raw parser fixtures with invalidly encoded path bytes, the refusal contract,
+and deterministic serialization with strict deserialization rejection.
 
 The workflow consumes the planner's compact JSON as its sole
 candidate-relevance output and projects `validations.*` fields for job and
@@ -465,7 +461,7 @@ The live CI run demonstrates the artifact actions and cross-job transport.
 
 ## Adoption sequence
 
-Adoption proceeds in focused slices:
+Adoption completed in focused slices:
 
 1. Implement the planner types, path-evidence reader, routing policy, canonical
    serialization, and effective-selection parity harness without making it
@@ -474,7 +470,7 @@ Adoption proceeds in focused slices:
    an explicit evidence directory, and whose gate is
    `dotnet run eng/test-ci-change-detection.cs`. Before workflow adoption, that
    gate pinned the entrypoint shim to the planner façade independently of the
-   legacy classifier.
+   then-current workflow detector.
 2. The workflow's change-planning job consumes the planner and replaces
    candidate-relevance conditions with mechanical plan projections. Existing
    event gates and named in-job selectors are planner validation fields;
@@ -483,11 +479,11 @@ Adoption proceeds in focused slices:
    changes. GitHub workflow parsing, live execution, and review provide its
    wiring evidence rather than a repository-owned YAML expression evaluator.
 3. Move each scoped-path consumer to planner-produced evidence and remove its
-   independent provenance and path acquisition. TLA+ is the first consumer:
-   the producer uploads its bounded scope, and the job verifies the descriptor
-   and exact bytes before invoking the scoped runner.
-4. Remove the legacy shell classifier and obsolete structural seams only after
-   parity and all planned consumers have transferred.
+   independent provenance and path acquisition. TLA+ is the plan's only
+   current scoped consumer: the producer uploads its bounded scope, and the job
+   verifies the descriptor and exact bytes before invoking the scoped runner.
+4. Remove the legacy shell classifier and obsolete parity seams after the
+   authoritative workflow and planned scoped consumers have transferred.
 
 Each slice names its own adopting owner and gate. The design does not authorize
 a single PR to rewrite every CI consumer.
