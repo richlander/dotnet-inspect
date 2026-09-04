@@ -26,16 +26,19 @@ scope and are unverified.
 ## Shell placement boundary
 
 [Inspect Web Surface Composition](inspect-web-surface-composition.md) owns
-`/query` route placement, layout, and placement of the per-row
-`Open in workspace` action.
+the persistent Query/Workspace application-scope strip, `/query` route
+placement, layout, and placement of the per-row `Open in workspace` action.
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search) owns
-the Search entry. This document owns the action's package-ID/version request
-semantics as part of the query surface contract.
+the Search entry. [Inspect Web Navigation
+Presentation](inspect-web-navigation-presentation.md#application-scope-strip)
+owns the separate Query entry. This document owns the action's
+package-ID/version request semantics as part of the query surface contract.
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
 owns commitment of the returned result, including focus and browser history.
-Together these focused owners replace this document's former `Query`-tab
-placement and package-tab handoff path. This document continues to own the
-query surface's internal request, state, evidence, and rendering contract.
+Together these focused owners keep Query outside the inspection-subject and
+inspector tablists while making it a first-class application scope. This
+document continues to own the query surface's internal request, state,
+evidence, and rendering contract.
 
 ## Why this is not another workbench lens
 
@@ -93,7 +96,10 @@ evaluation failures remain visible per-package failures.
 The query content is a full-bleed working surface rather than a modal over one
 package. Its `/query` route and layout are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query);
-its Search entry is owned by
+its persistent application-scope entry and Search entry are owned by
+[Inspect Web Navigation
+Presentation](inspect-web-navigation-presentation.md#application-scope-strip)
+and
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search):
 
 ```text

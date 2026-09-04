@@ -63,8 +63,10 @@ migration paths.
 
 The end-to-end tracker is #5512. The concrete consumers are:
 
-- the Browser/Wasm Workspace and subject-strip experience demonstrated by
-  #5433, with product descriptor adoption tracked by #5510 and result-authority
+- the Browser/Wasm Workspace and structural-subject experience demonstrated by
+  #5433, with product descriptor adoption tracked by #5510, presentation
+  composed by [Inspect Web Navigation
+  Presentation](inspect-web-navigation-presentation.md), and result-authority
   adoption by #5511; and
 - the agent-inspectable CLI Workspace navigation surface tracked by #5513.
 
@@ -101,17 +103,20 @@ concerns; it does not reconstruct product semantics from rendered text.
 
 ## Design demo
 
-The production Browser/Wasm screenshots in #5433 are the visual oracle:
-Workspace and Package are distinct subject-strip entries, the Workspace surface
+The production Browser/Wasm scenario in #5433 is behavioral evidence:
+Workspace and Package are distinct navigation identities, the Workspace surface
 lists retained coordinates without package tabs, and Package has its own
-icon-backed inspection surface. #5501 preserves that subject identity while
+icon-backed inspection surface. Navigation Presentation composes the
+product-issued Workspace subject in the application-scope strip and Package in
+the structural-subject strip. #5501 preserves those subject identities while
 changing only responsive strip allocation.
 
 The contract behind the Workspace-selected case is:
 
 ```text
-Subjects:   [Workspace*] [Package] [Library] [Type] [Member]
-Inspectors: [Overview]
+Application: [Query] [Workspace*]
+Subjects:    [Package] [Library] [Type] [Member]
+Inspectors:  [Overview]
 
 Workspace
   System.Text.Json 10.0.0 / net10.0    current

@@ -24,8 +24,8 @@ This owner defines:
 - package-source presentation placement (feed tabs absence, producer-label
   display);
 - the placement and allocation of the two persistent shell rows, including the
-  subject/inspector region, inspected target, shell-owned Application menu, and
-  contextual working-surface actions;
+  application-scope and subject/inspector regions, inspected target,
+  shell-owned Application menu, and contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
 - the data bar and Diagnostics surface.
@@ -80,29 +80,41 @@ This document consumes, without redefining:
 - the Slideable Subject Strip's inventories, representations, internal
   allocation, terminal-deficit behavior, and focus contract owned by
   [Inspect Web Navigation
-  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip).
+  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
+  and
+- the Query/Workspace application-scope inventory, selection, and interaction
+  owned by
+  [Inspect Web Navigation
+  Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
 
 ## Shell navigation and application actions
 
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [subject and inspector region]
+row one: [product] [Query | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
 ```
 
-Row one contains navigation and the stable application-action home. The
-product control and Application menu occupy non-shrinking slots. The
-Navigation Presentation-owned subject/inspector region receives the primary
-flexible allocation between them, followed by the Shell Interaction-owned
-history and Search cluster. Search progresses from its full label to its
-compact label and then disappears; history disappears after Search. This
-cluster yields before the Slideable Subject Strip starts reducing active
-Subject or Inspector identity. Once those shell controls have yielded, the
-SlideStrip resolves its own normal, control-free, and terminal-deficit states
-inside the remaining page boundary.
+Row one contains navigation and the stable application-action home. The product
+control and Application menu occupy non-shrinking slots. The
+Navigation Presentation-owned application-scope strip precedes the
+subject/inspector region, which receives the primary flexible allocation. The
+Shell Interaction-owned history and Search cluster follows it. Search
+progresses from its full label to its compact label and then disappears;
+the application-scope strip yields next, while history remains available until
+a narrower width. History then disappears before the Slideable Subject Strip
+starts reducing active Subject or Inspector identity. Once those controls have
+yielded, the SlideStrip resolves its own normal, control-free, and
+terminal-deficit states inside the remaining page boundary.
+
+The application-scope strip uses a distinct quiet treatment and may be removed
+at constrained widths only after focus has left it. Query remains reachable
+through Spotlight's global keyboard entry and Workspace through hierarchical
+drill-out or a return action. On `/query`, the visible heading and
+route-specific Back action continue to orient the surface if the strip yields.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel

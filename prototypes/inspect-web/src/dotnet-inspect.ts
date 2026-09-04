@@ -236,9 +236,12 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  focusRenderedElement,
+  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
+  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -362,6 +365,7 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
@@ -882,7 +886,7 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryPredecessorEntryId: string | null;
-  packageQueryReturnFocus: "home-search" | "package-search" | null;
+  packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
@@ -890,6 +894,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -902,7 +907,6 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
-let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 
@@ -2771,11 +2775,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? document.activeElement
     : null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") != null;
+    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  packageQueryScopeBinding?.disconnect();
+  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -2909,6 +2915,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          activeScope === "workspace" ? "workspace" : null,
+          true,
+          escapeHtml),
         contextualActionsHtml: annotatedPageContext || sourcePageKind
           ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
               ${annotatedPageContext
@@ -2958,7 +2968,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="${activeScope === "workspace" ? "application-scope-workspace" : "active-subject-tab"}">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
@@ -5381,6 +5391,16 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      if (applicationScope === "query") {
+        openPackageQueryRoute("", {
+          preserveState: true,
+          returnFocus: "application-query",
+        });
+      } else if (scope() !== "workspace") {
+        selectWorkspaceApplicationScope();
+      }
+    },
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -7077,16 +7097,14 @@ function syncUrl() {
       workspaceLocation.replace(
         buildStateUrl().toString(),
         history.state);
-      lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
     workspaceLocation.sync(snapshot, history.state);
-    lastCanonicalWorkspaceHref = location.href;
   } catch {
-    // Keep the last canonical URL while the active Browser state is not projectable.
+    // Keep the current URL while the active Browser state is not projectable.
   }
 }
 
@@ -7776,8 +7794,22 @@ function focusLevelOneHeading(): boolean {
 }
 
 function restorePackageQueryReturnFocus() {
-  if (!state.packageQueryReturnFocusPending
-    || state.packageQueryReturnFocus !== "package-search") return;
+  if (!state.packageQueryReturnFocusPending) return;
+  if (state.packageQueryReturnFocus === "application-query") {
+    afterCurrentNavigationFrame(() => {
+      const queryScope = document.querySelector<HTMLElement>(
+        '[data-application-scope="query"]');
+      if (focusRenderedElement(queryScope)) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      } else if (focusLevelOneHeading()) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      }
+    });
+    return;
+  }
+  if (state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
     if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
@@ -7844,19 +7876,28 @@ function applyPackageQueryHistory(historyState: unknown) {
   state.packageQueryReturnFocusPending = false;
 }
 
-function openPackageQueryRoute(seed = "") {
+function openPackageQueryRoute(
+  seed = "",
+  options: {
+    preserveState?: boolean;
+    returnFocus?: PackageQueryReturnFocus;
+  } = {},
+) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageQueryHandoffNavigationSeq = null;
-  resetPackageQueryState();
+  if (!options.preserveState) {
+    resetPackageQueryState();
+  }
   resetPackageQueryAnnouncements();
-  state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  if (!options.preserveState || seed) {
+    state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = state.home
-    ? "home-search"
-    : "package-search";
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
   const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
@@ -7879,6 +7920,46 @@ function openPackageQueryRoute(seed = "") {
       : null);
   render();
   focusPackageQueryInput();
+}
+
+function selectWorkspaceApplicationScope(fromPackageQuery = false) {
+  const pkg = state.package;
+  if (!pkg) return;
+  const navigationSeq = navigationSequence.begin();
+  if (fromPackageQuery) {
+    packageQueryController.cancel();
+    packageQueryHandoffNavigationSeq = null;
+    state.packageQueryOpen = false;
+    state.credits = false;
+    state.home = false;
+  }
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  const successor = resolvePackageQueryWorkspaceSuccessor(
+    () => buildStateUrl(),
+    () => {
+      const fallback = buildPackageRootStateUrl(location.href, {
+        package: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        lens: state.packageLens,
+      });
+      fallback.hash = "workspace";
+      return fallback;
+    });
+  if (!successor.projected) {
+    appendQueryNotice(
+      `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+        || "workspace URL encoding failed."}`);
+  }
+  if (fromPackageQuery) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  workspaceLocation.push(successor.url.toString());
+  render();
 }
 
 function closePackageQueryRoute() {
@@ -7993,6 +8074,11 @@ async function openPackageQueryRow(
 }
 
 const packageQueryActions: PackageQueryBindingActions = {
+  onApplicationScopeSelect: applicationScope => {
+    if (applicationScope === "workspace") {
+      selectWorkspaceApplicationScope(true);
+    }
+  },
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
@@ -8012,18 +8098,6 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
-function packageQueryWorkspaceHref(): string {
-  const residentPackage = state.package;
-  if (!residentPackage) return "/";
-  return lastCanonicalWorkspaceHref
-    ?? buildPackageRootStateUrl(location.href, {
-      package: residentPackage.id,
-      version: residentPackage.version,
-      framework: residentPackage.activeFramework,
-      lens: state.packageLens,
-    }).toString();
-}
-
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
@@ -8037,10 +8111,11 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceHref: packageQueryWorkspaceHref(),
+    workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryScopeBinding =
+    bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
@@ -9789,8 +9864,10 @@ function closeGraphSource() {
 //
 // That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
 // no gate at all: the pinned version was never checked against any advisory feed. The gate is
-// now the lockfile pin plus CI's `npm audit --audit-level=info`, which fails the build when
-// any dependency in the lockfile has a known advisory at any severity.
+// now the lockfile pin plus Dependabot vulnerability alerts, which watch that lockfile against
+// the same advisory database and open a security update when one lands. That is monitoring
+// rather than a merge gate: an advisory is reported after the fact instead of failing a build,
+// because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
     import("marked"),
