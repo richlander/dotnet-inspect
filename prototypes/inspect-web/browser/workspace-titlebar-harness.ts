@@ -96,6 +96,7 @@ const limitationMode = params.has("limitation");
 const historyBackMode = params.has("history-back");
 const historyForwardMode = params.has("history-forward");
 const longMode = params.has("long");
+const emptyMemberEntryMode = params.has("empty-member-entry");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
 const systemTextJsonIcon =
@@ -590,6 +591,10 @@ harnessDispatchKeybindings.register({
         "button, a[href], input, select, textarea, summary, "
         + "[role=button], [role=link], [role=checkbox]")),
   run: () => {
+    if (emptyMemberEntryMode) {
+      enterEmptyMemberNavigation();
+      return true;
+    }
     document.body.dataset.drillIn = "true";
     return true;
   },
@@ -697,6 +702,29 @@ function renderHarnessWorkspace() {
   bindHarnessWorkspace();
   requestAnimationFrame(() =>
     focusWorkspace(document));
+}
+
+function enterEmptyMemberNavigation() {
+  const navigation =
+    document.querySelector<HTMLElement>("#content-navigation-pane");
+  if (!navigation)
+    throw new Error("The content navigation pane is unavailable.");
+  navigation.outerHTML = `
+    <aside id="content-navigation-pane" class="type-browser member-nav"
+      aria-label="Members">
+      <header class="browser-head">
+        <span class="pane-label">MEMBERS</span>
+        ${renderContentNavigationCloseButton()}
+      </header>
+      <div id="type-list" class="type-list member-list" role="listbox"
+        tabindex="0">
+        <div class="empty-list">No members match these filters.</div>
+      </div>
+    </aside>`;
+  contentFramePane = "navigation";
+  document.querySelector<HTMLElement>(".content-frame")
+    ?.setAttribute("data-content-pane", contentFramePane);
+  requestAnimationFrame(() => focusContentNavigation(document));
 }
 
 function bindHarnessWorkspace() {

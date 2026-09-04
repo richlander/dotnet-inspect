@@ -83,6 +83,20 @@ test("content frame binding and focus target the visible pane", () => {
   assert.equal(toggle.focused, true);
 });
 
+test("content navigation focuses an empty inventory", () => {
+  const list = new FakeElement();
+  const root = {
+    querySelector(selector: string) {
+      if (selector === "#type-list") return list;
+      return null;
+    },
+  };
+
+  focusContentNavigation(fakeDom.parentNode(root));
+
+  assert.equal(list.focused, true);
+});
+
 test("content frame resize follows focus and replaces a removed toggle", () => {
   assert.deepEqual(
     decideContentFrameResize("detail", true, "navigation"),

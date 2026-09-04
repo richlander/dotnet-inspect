@@ -178,6 +178,22 @@ test("narrowing retains detail after focus leaves the content frame", async ({
   await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
+test("keyboard entry focuses an empty Member inventory after replacement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?empty-member-entry=1");
+
+  await page.getByRole("button", { name: "Types" }).click();
+  await expect(page.locator("#type-list")).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByText("No members match these filters.")).toBeVisible();
+  await expect(page.locator("#type-list")).toBeFocused();
+  await expect(page.locator(".detail-pane")).toBeHidden();
+});
+
 test("the narrow return control integrates with Metadata and Source frames", async ({
   page,
 }) => {

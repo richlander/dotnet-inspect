@@ -1647,15 +1647,20 @@ function canRestoreWorkbenchFocus(
     && !applicationMenuOwnsFocus(document) && !isTextEntry();
 }
 
-function focusTypeList(generation = spotlightFocusGeneration) {
-  if (!canRestoreWorkbenchFocus(generation)) return;
+function focusTypeList(
+  generation = spotlightFocusGeneration,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
-    if (!canRestoreWorkbenchFocus(generation)) return;
+    if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
     if (contentFrameUsesPush() && contentFrameMedia.matches) {
       contentFramePane = "detail";
       render({ synchronizeUrl: false });
-      afterCurrentNavigationFrame(() =>
-        focusContentNavigationToggle(document));
+      afterCurrentNavigationFrame(() => {
+        if (canRestoreWorkbenchFocus(generation, focusGeneration))
+          focusContentNavigationToggle(document);
+      });
       return;
     }
     focusContentNavigation(document);
@@ -2841,7 +2846,12 @@ function drillIn() {
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
-    if (enterMemberScope()) render();
+    const focusGeneration = beginSpotlightNavigation();
+    if (enterMemberScope()) {
+      contentFramePane = "navigation";
+      render();
+      restoreContentNavigationFocus(focusGeneration);
+    }
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
@@ -6724,10 +6734,11 @@ async function loadPackageFromSpotlight(
   version = "latest",
   framework = "",
 ) {
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   spotlight.reset();
   await loadPackage(id, version, framework);
-  focusTypeList(focusGeneration);
+  focusTypeList(navigationGeneration, focusGeneration);
 }
 
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
@@ -6770,7 +6781,8 @@ async function openPlatformLibrary(
   options: OpenPlatformLibraryOptions = {},
 ) {
   const scopeOnly = options.scopeOnly === true;
-  const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
+  const navigationGeneration = scopeOnly ? null : beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
   spotlight.reset();
@@ -6837,7 +6849,8 @@ async function openPlatformLibrary(
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  if (focusGeneration != null) focusTypeList(focusGeneration);
+  if (navigationGeneration != null)
+    focusTypeList(navigationGeneration, focusGeneration);
   return undefined;
 }
 
@@ -6877,7 +6890,8 @@ async function pickSpotlightMember(
       || item.activeFramework === result.pkg.activeFramework));
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!pkg || !type) { closeSpotlight(); return; }
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -6895,7 +6909,7 @@ async function pickSpotlightMember(
   state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
   render();
   await loadSelectedMemberDocumentation();
-  focusTypeList(focusGeneration);
+  focusTypeList(navigationGeneration, focusGeneration);
 }
 
 async function pickSpotlight(
@@ -6912,7 +6926,8 @@ async function pickSpotlight(
     closeSpotlight();
     return;
   }
-  const focusGeneration = beginSpotlightNavigation();
+  const navigationGeneration = beginSpotlightNavigation();
+  const focusGeneration = documentFocusGeneration;
   state.home = false;
   activatePackage(pkg);
   state.atPackageRoot = false;
@@ -6942,12 +6957,12 @@ async function pickSpotlight(
   const selectionData = loadSelectionData();
   render();
   await selectionData;
-  if (focusGeneration !== spotlightFocusGeneration) return;
+  if (navigationGeneration !== spotlightFocusGeneration) return;
   requestAnimationFrame(() => {
-    if (focusGeneration !== spotlightFocusGeneration) return;
+    if (navigationGeneration !== spotlightFocusGeneration) return;
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
-  focusTypeList(focusGeneration);
+  focusTypeList(navigationGeneration, focusGeneration);
 }
 
 function executeCommand(

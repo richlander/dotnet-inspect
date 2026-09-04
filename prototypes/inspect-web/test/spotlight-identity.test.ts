@@ -1274,15 +1274,17 @@ test("delayed Share completion preserves newer focus ownership", () => {
     /requestAnimationFrame\(\(\) =>\s*restoreApplicationMenuFocusIfOwned\(document, focusOwner\)\)/);
 });
 
-test("deferred Spotlight focus preserves newer Application-menu focus", () => {
+test("deferred Spotlight focus preserves newer document focus", () => {
   const focusGuard =
     appSource.match(/function canRestoreWorkbenchFocus\([\s\S]*?\n}/)?.[0]
     ?? "";
   const focusTypeList =
     appSource.match(/function focusTypeList\([\s\S]*?\n}/)?.[0] ?? "";
   assert.match(focusGuard, /applicationMenuOwnsFocus\(document\)/);
-  assert.equal(focusTypeList.match(/canRestoreWorkbenchFocus\(generation\)/g)
-    ?.length, 2);
+  assert.equal(
+    focusTypeList.match(
+      /canRestoreWorkbenchFocus\(generation, focusGeneration\)/g)?.length,
+    3);
 });
 
 test("the shell separates typed target and Subject navigation rows", () => {
@@ -2281,16 +2283,19 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
+    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /async function openPlatformLibrary[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
+    /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
+    /async function pickSpotlightMember[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadSelectedMemberDocumentation\(\);[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
-    /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*canRestoreWorkbenchFocus\(generation\)/);
+    /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
+  assert.match(
+    appSource,
+    /let spotlightFocusGeneration = 0;\s*let documentFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\([\s\S]*generation === spotlightFocusGeneration[\s\S]*focusGeneration === documentFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\([\s\S]*focusGeneration = documentFocusGeneration,[\s\S]*canRestoreWorkbenchFocus\(generation, focusGeneration\)/);
   assert.match(
     appSource,
     /captureFocusAfterDismiss: \(\) => \{\s*const navigationGeneration = spotlightFocusGeneration;\s*const focusGeneration = documentFocusGeneration;\s*return \(\) => restoreContentFrameFocusAfterDismiss\(\s*navigationGeneration,\s*focusGeneration\)/);
@@ -2791,6 +2796,9 @@ test("package-root Open and selected-Type activation preserve local frame state"
   assert.match(
     drillInSource,
     /if \(state\.atPackageRoot\) \{\s*state\.atPackageRoot = false;\s*showContentDetailAfterRender\(\);\s*render\(\);/);
+  assert.match(
+    drillInSource,
+    /if \(navMode\(\) === "type"\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*if \(enterMemberScope\(\)\) \{\s*contentFramePane = "navigation";\s*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     bindings,
     /onTypeSelect: typeId => \{\s*if \(scope\(\) === "type" && typeId === state\.selectedTypeId\) \{\s*if \(contentFrameMedia\.matches\) showContentDetail\(\);\s*return;\s*}\s*showContentDetailAfterRender\(\);[\s\S]*resetMemberFilters\(\)/);
