@@ -2,6 +2,7 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
   scopeBarShortLabel,
@@ -376,6 +377,10 @@ const harnessKeyboardHelpBindings = [
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
+      applicationScopeHtml: renderApplicationScopeBar(
+        workspaceMode ? "workspace" : null,
+        true,
+        escapeHtml),
       contextualActionsHtml: annotatedMode || sourceMode
         ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
             ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
@@ -411,7 +416,7 @@ app.innerHTML = `
         historyForwardMode),
     })}
     <div class="notice-stack"></div>
-    <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+    <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="${workspaceMode ? "application-scope-workspace" : "active-subject-tab"}">
       ${navigationHtml}
       <section class="detail-pane">
         <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
@@ -571,6 +576,9 @@ function renderHarnessScopeBar() {
 
 function bindHarnessScopeBar() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      document.body.dataset.applicationScope = applicationScope;
+    },
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();

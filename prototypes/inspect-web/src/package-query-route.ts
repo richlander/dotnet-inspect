@@ -7,7 +7,10 @@ export function isPackageQueryPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.packageQuery);
 }
 
-export type PackageQueryReturnFocus = "home-search" | "package-search";
+export type PackageQueryReturnFocus =
+  | "application-query"
+  | "home-search"
+  | "package-search";
 
 export interface PackageQueryHistory {
   predecessorEntryId: string;
@@ -65,7 +68,9 @@ export function readPackageQueryHistory(
   const returnFocus = query.returnFocus;
   return typeof predecessorEntryId === "string"
     && predecessorEntryId.length > 0
-    && (returnFocus === "home-search" || returnFocus === "package-search")
+    && (returnFocus === "application-query"
+      || returnFocus === "home-search"
+      || returnFocus === "package-search")
     ? { predecessorEntryId, returnFocus }
     : null;
 }

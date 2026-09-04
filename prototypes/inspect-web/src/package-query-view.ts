@@ -4,8 +4,14 @@ import type {
   QueryResultRow,
 } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
+import {
+  bindApplicationScopeBar,
+  renderApplicationScopeBar,
+  type ApplicationScope,
+} from "./scope-bar.ts";
 
 export interface PackageQueryBindingActions {
+  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
@@ -20,7 +26,7 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "workspace" }
+  | { kind: "application-scope"; value: ApplicationScope }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -72,7 +78,10 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-workspace") return { kind: "workspace" };
+  const applicationScope = active.dataset.applicationScope;
+  if (applicationScope === "query" || applicationScope === "workspace") {
+    return { kind: "application-scope", value: applicationScope };
+  }
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -104,8 +113,11 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "workspace":
-      target = root.querySelector("#package-query-workspace");
+    case "application-scope":
+      target = [...root.querySelectorAll<HTMLElement>(
+        "[data-application-scope]")]
+        .find(element =>
+          element.dataset.applicationScope === snapshot.value) ?? null;
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -167,6 +179,7 @@ export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
 ) {
+  bindApplicationScopeBar(root, actions);
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
 
@@ -380,7 +393,7 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
+  workspaceAvailable?: boolean;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -392,7 +405,7 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
+    workspaceAvailable = false,
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -418,12 +431,16 @@ export function renderPackageQueryView(
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        ${renderBrand({
-          id: "package-query-workspace",
-          href: workspaceHref,
-          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
-        })}
-        <button id="package-query-back" type="button">Back</button>
+        ${renderBrand()}
+        <div class="query-page-navigation">
+          <div class="application-scope-region">
+            ${renderApplicationScopeBar(
+              "query",
+              workspaceAvailable,
+              escapeHtml)}
+          </div>
+          <button id="package-query-back" type="button">Back</button>
+        </div>
       </header>
       <main class="query-main">
         <div class="query-heading">

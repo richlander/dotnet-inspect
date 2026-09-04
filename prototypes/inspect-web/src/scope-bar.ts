@@ -27,6 +27,8 @@ type LensDefinition<TId extends string = string> = readonly [
   icon?: string,
 ];
 
+export type ApplicationScope = "query" | "workspace";
+
 export interface RenderScopeBarOptions<TId extends string = string> {
   scope: WorkspaceScope;
   strip: readonly LensDefinition<TId>[];
@@ -40,13 +42,19 @@ export interface RenderScopeBarOptions<TId extends string = string> {
 }
 
 export interface ScopeBarBindingActions {
+  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onMemberSectionSelect: (section: MemberSection) => void;
   onPackageLensSelect: (lens: PackageLens) => void;
   onScopeSelect: (scope: WorkspaceScope) => void;
   onTypeLensSelect: (lens: TypeLens) => void;
 }
 
+export interface ApplicationScopeBarBindingActions {
+  onApplicationScopeSelect: (scope: ApplicationScope) => void;
+}
+
 export type ScopeBarFocusTarget =
+  | { kind: "application-scope"; value: ApplicationScope }
   | { kind: "member-section"; value: MemberSection }
   | { kind: "package-lens"; value: PackageLens }
   | { kind: "scope"; value: WorkspaceScope }
@@ -113,9 +121,20 @@ export function scopeBarShortLabel(label: string): string {
     .toUpperCase();
 }
 
+function isApplicationScope(
+  value: string | null | undefined,
+): value is ApplicationScope {
+  return value === "query" || value === "workspace";
+}
+
 export function captureScopeBarFocus(
   element: HTMLElement,
 ): ScopeBarFocusTarget | null {
+  const applicationScope = element.dataset.applicationScope;
+  if (isApplicationScope(applicationScope)) {
+    return { kind: "application-scope", value: applicationScope };
+  }
+
   const scope = element.dataset.scope;
   if (isWorkspaceScope(scope)) return { kind: "scope", value: scope };
 
@@ -137,16 +156,19 @@ export function restoreScopeBarFocus(
   root: ParentNode,
   target: ScopeBarFocusTarget,
 ): boolean {
-  const [selector, value] = target.kind === "scope"
-    ? ["[data-scope]", target.value]
-    : target.kind === "package-lens"
-      ? ["[data-package-lens]", target.value]
-      : target.kind === "type-lens"
-        ? ["[data-lens]", target.value]
-        : ["[data-member-section]", target.value];
+  const [selector, value] = target.kind === "application-scope"
+    ? ["[data-application-scope]", target.value]
+    : target.kind === "scope"
+      ? ["[data-scope]", target.value]
+      : target.kind === "package-lens"
+        ? ["[data-package-lens]", target.value]
+        : target.kind === "type-lens"
+          ? ["[data-lens]", target.value]
+          : ["[data-member-section]", target.value];
   const tabs = [...root.querySelectorAll<HTMLElement>(selector)];
   const replacement = tabs.find(element => (
-      element.dataset.scope
+      element.dataset.applicationScope
+      ?? element.dataset.scope
       ?? element.dataset.packageLens
       ?? element.dataset.lens
       ?? element.dataset.memberSection
@@ -208,8 +230,10 @@ export function bindScopeBar(
   const controller = state
     ? ScopeBarController.create(root, state)
     : null;
+  bindApplicationScopeBar(root, actions);
   bindRovingTabs([
-    ...root.querySelectorAll<HTMLButtonElement>("[data-subject-tab]"),
+    ...root.querySelectorAll<HTMLButtonElement>(
+      "[data-subject-tab]"),
   ], target => controller?.reveal(target));
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
@@ -235,6 +259,23 @@ export function bindScopeBar(
       if (isMemberSection(section)) actions.onMemberSectionSelect(section);
     }));
   return controller ?? EMPTY_BINDING;
+}
+
+export function bindApplicationScopeBar(
+  root: ParentNode,
+  actions: ApplicationScopeBarBindingActions,
+): void {
+  bindRovingTabs([
+    ...root.querySelectorAll<HTMLButtonElement>(
+      "[data-application-scope-tab]:not([disabled])"),
+  ], () => {});
+  root.querySelectorAll<HTMLElement>("[data-application-scope]").forEach(
+    button => button.addEventListener("click", () => {
+      const applicationScope = button.dataset.applicationScope;
+      if (isApplicationScope(applicationScope)) {
+        actions.onApplicationScopeSelect(applicationScope);
+      }
+    }));
 }
 
 function presentationHtml(
@@ -291,15 +332,16 @@ function lensButton(
 }
 
 function scopeSegment(
-  id: WorkspaceScope,
+  id: Exclude<WorkspaceScope, "workspace">,
   label: string,
   active: boolean,
+  tabStop: boolean,
   subjectPanelId: string,
   index: number,
   escapeHtml: (value: unknown) => string,
 ): string {
   const activeAttributes = active ? ' id="active-subject-tab"' : "";
-  return `<button class="slide-strip-item scope-seg ${active ? "active" : ""}" data-scope="${id}" ${itemData(id, label, undefined, undefined, escapeHtml)} role="tab" aria-selected="${active}" tabindex="${active ? "0" : "-1"}"${activeAttributes} data-subject-tab aria-controls="${subjectPanelId}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${presentationHtml(label, undefined, undefined, index, escapeHtml)}</button>`;
+  return `<button class="slide-strip-item scope-seg ${active ? "active" : ""}" data-scope="${id}" ${itemData(id, label, undefined, undefined, escapeHtml)} role="tab" aria-selected="${active}" tabindex="${tabStop ? "0" : "-1"}"${activeAttributes} data-subject-tab aria-controls="${subjectPanelId}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${presentationHtml(label, undefined, undefined, index, escapeHtml)}</button>`;
 }
 
 function edgeIndicators(): string {
@@ -310,15 +352,37 @@ function edgeIndicators(): string {
 
 function subjectDefinitions(
   showMemberScope: boolean,
-): readonly (readonly [WorkspaceScope, string])[] {
+): readonly (readonly [Exclude<WorkspaceScope, "workspace">, string])[] {
   return [
-    ["workspace", "Workspace"],
     ["package", "Package"],
     ["type", "Type"],
     ...(showMemberScope
       ? [["member", "Member"] as const]
       : []),
   ];
+}
+
+export function renderApplicationScopeBar(
+  activeScope: ApplicationScope | null,
+  workspaceAvailable: boolean,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const scopes = [
+    ["query", "Query"],
+    ["workspace", "Workspace"],
+  ] as const;
+  return `
+    <nav class="application-scope-strip"
+         data-application-scope-strip
+         aria-label="Application scopes">
+      ${scopes.map(([id, label]) => {
+        const active = activeScope === id;
+        const disabled = id === "workspace" && !workspaceAvailable;
+        const tabStop = active
+          || (activeScope === null && id === "query");
+        return `<button id="application-scope-${id}" type="button" class="application-scope-item ${active ? "active" : ""}" data-application-scope="${id}" data-application-scope-tab${active ? ' aria-current="page"' : ""} tabindex="${tabStop ? "0" : "-1"}"${disabled ? " disabled" : ""} aria-label="${escapeHtml(label)}" title="${escapeHtml(disabled ? "No workspace is open" : label)}">${escapeHtml(label)}</button>`;
+      }).join("")}
+    </nav>`;
 }
 
 export function renderScopeBar<TId extends string>(
@@ -353,7 +417,9 @@ export function renderScopeBar<TId extends string>(
     : strip[0]?.[0] ?? "";
   const subjectAnchor = subjects.some(([id]) => id === scope)
     ? scope
-    : subjects.at(-1)?.[0] ?? "";
+    : scope === "workspace"
+      ? subjects[0]?.[0] ?? ""
+      : subjects.at(-1)?.[0] ?? "";
   const escapedSubjectPanelId = escapeHtml(subjectPanelId);
   const inspectorHtml = strip.length > 0
     ? `
@@ -395,6 +461,7 @@ export function renderScopeBar<TId extends string>(
               id,
               label,
               scope === id,
+              id === subjectAnchor,
               escapedSubjectPanelId,
               index,
               escapeHtml)).join("")}
@@ -608,6 +675,7 @@ class ScopeBarController implements ScopeBarBinding {
   }
 
   revealFocusTarget(target: ScopeBarFocusTarget): void {
+    if (target.kind === "application-scope") return;
     const controller = targetStrip(target) === "subject"
       ? this.subject
       : this.inspector;

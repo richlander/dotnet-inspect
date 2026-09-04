@@ -228,6 +228,46 @@ body {
   height: 100%;
   overflow: hidden;
 }
+.application-scope-region {
+  flex: 0 1 154px;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.application-scope-strip {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 3px;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+}
+.application-scope-item {
+  flex: none;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  font: 10px var(--mono);
+}
+.application-scope-item:hover:not(:disabled) {
+  background: rgba(127,127,127,.08);
+  color: var(--text);
+}
+.application-scope-item.active {
+  background: color-mix(in srgb, var(--shell-accent) 11%, transparent);
+  color: var(--shell-accent);
+}
+.application-scope-item:disabled {
+  opacity: .38;
+  cursor: default;
+}
+.application-scope-item:focus-visible {
+  outline: 1px solid var(--shell-accent);
+  outline-offset: -1px;
+}
 .lensbar {
   display: flex;
   align-items: center;
@@ -2411,11 +2451,23 @@ kbd {
 .query-page-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  min-height: 52px;
-  padding: 0 24px;
+  min-height: 42px;
+  padding: 0;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+.query-page-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  height: 100%;
+  margin-left: auto;
+  gap: 8px;
+  padding-right: 12px;
+}
+.query-page-navigation .application-scope-region {
+  flex-basis: auto;
 }
 .query-page-bar button,
 .query-bar button,
@@ -2694,6 +2746,16 @@ kbd {
   .query-progress-item { grid-template-columns: 1fr; gap: 4px; }
   .query-row-meta { flex-wrap: wrap; }
   .query-row-meta button { flex-basis: 100%; margin-left: 0; }
+}
+
+@media (max-width: 1160px) {
+  .titlebar > .application-scope-region:not(:focus-within) { display: none; }
+}
+
+@media (max-width: 560px) {
+  .query-page-bar .application-scope-region:not(:focus-within) {
+    display: none;
+  }
 }
 
 /* Light mode: code surfaces are light, so re-tint the syntax tokens and copy

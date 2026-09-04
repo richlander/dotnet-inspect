@@ -62,7 +62,7 @@ async function renderSpotlightFooter(
   }, spotlightScope);
 }
 
-test("the top shell row contains navigation without tab-like workspace identity", async ({
+test("the top shell row separates application scopes from inspection subjects", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -89,6 +89,20 @@ test("the top shell row contains navigation without tab-like workspace identity"
   await expect(page.locator(".titlebar .nav-history")).toBeVisible();
   await expect(page.locator(".titlebar .subject-inspector-region"))
     .toBeVisible();
+  await expect(page.locator(".titlebar .application-scope-strip"))
+    .toBeVisible();
+  await expect(page.locator("[data-application-scope]"))
+    .toHaveText(["Query", "Workspace"]);
+  await expect(page.locator("[data-application-scope='query']"))
+    .not.toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-application-scope='workspace']"))
+    .not.toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".scope-switch [data-scope]")).toHaveCount(2);
+  await expect(page.locator("[data-scope='package']"))
+    .toHaveAttribute("aria-label", "Package");
+  await expect(page.locator("[data-scope='type']"))
+    .toHaveAttribute("aria-label", "Type");
+  await expect(page.locator("[data-scope='workspace']")).toHaveCount(0);
   await expect(page.locator(".titlebar #application-menu-button")).toBeVisible();
   await expect(page.locator(".targetbar #application-menu-button"))
     .toHaveCount(0);
@@ -432,7 +446,7 @@ test("removed focused tabs fall back to the persistent shell control", async ({
 test("replaced allocation controls park focus on the persistent shell", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 680, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("[data-more-subjects]").focus();
@@ -463,7 +477,7 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   await expect(page.locator(".title-search-label-compact")).toBeHidden();
   const subjectTabs = page.locator(".scope-switch [data-subject-tab]");
   const inspectorStrip = page.locator(".slide-strip-inspector");
-  await expect(subjectTabs).toHaveCount(4);
+  await expect(subjectTabs).toHaveCount(3);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -475,7 +489,7 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
     page,
     ".subject-inspector-region",
   )).width;
-  await expect(subjectTabs).toHaveCount(4);
+  await expect(subjectTabs).toHaveCount(3);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
@@ -512,7 +526,7 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   await expect(page.locator("#inspector-panel")).toHaveAttribute(
     "aria-labelledby",
     "active-inspector-tab");
-  await expect(subjectTabs).toHaveCount(4);
+  await expect(subjectTabs).toHaveCount(3);
   expect(await subjectTabs.evaluateAll(tabs =>
     tabs.every(tab => tab.getAttribute("aria-controls") === "subject-panel")))
     .toBe(true);
@@ -553,25 +567,28 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   expect(await page.evaluate(() => window.focusWorkbenchSearchProbe()))
     .toBe(false);
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
-  await expect(subjectTabs).toHaveCount(4);
+  await expect(subjectTabs).toHaveCount(3);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
-  expect(Math.abs(
-    (await box(page, ".subject-inspector-region")).width
-    - preferredSubjectWidth,
-  )).toBeLessThanOrEqual(1);
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
+  const yieldedSubjectWidth = (await box(
+    page,
+    ".subject-inspector-region",
+  )).width;
+  expect(yieldedSubjectWidth).toBeGreaterThan(preferredSubjectWidth);
   await expect(page.locator("#application-menu-button")).toBeVisible();
 
   await page.setViewportSize({ width: 1000, height: 900 });
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(subjectTabs).toHaveCount(4);
+  await expect(subjectTabs).toHaveCount(3);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
   expect(Math.abs(
     (await box(page, ".subject-inspector-region")).width
-    - preferredSubjectWidth,
+    - yieldedSubjectWidth,
   )).toBeLessThanOrEqual(1);
   await expect(page.locator("#application-menu-button")).toBeVisible();
 
@@ -580,7 +597,7 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
   await expect(
     page.locator(".scope-switch [data-subject-tab]:not([hidden])"),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
 
   await page.setViewportSize({ width: 480, height: 900 });
   await expect(page.locator("#application-menu-button")).toBeVisible();
@@ -878,7 +895,7 @@ test("every allocation level strictly trades subject for inspector richness", as
   page,
 }) => {
   const modeOrder = ["label", "short-label", "icon", "index"];
-  for (const width of [600, 760]) {
+  for (const width of [600, 680]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto("/browser/workspace-titlebar.html?member=1");
     await page.getByRole("tab", { name: "Overview" }).click();
@@ -927,7 +944,7 @@ test("every allocation level strictly trades subject for inspector richness", as
 test("temporary pressure does not discard the retained allocation", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 680, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const moreSubjects = page.locator("[data-more-subjects]");
@@ -938,7 +955,7 @@ test("temporary pressure does not discard the retained allocation", async ({
   await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
 
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 680, height: 900 });
 
   await expect(moreSubjects).toHaveAttribute("aria-disabled", "true");
 });
@@ -1004,7 +1021,7 @@ test("manual windows survive resize and reset with inspector inventory", async (
 test("removing a focused allocation control transfers focus before removal", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 680, height: 900 });
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   const moreSubjects = page.locator("[data-more-subjects]");
@@ -1017,7 +1034,7 @@ test("removing a focused allocation control transfers focus before removal", asy
   await expect(page.locator(".slide-strip-subject [tabindex='0']"))
     .toHaveCount(1);
 
-  await page.setViewportSize({ width: 760, height: 900 });
+  await page.setViewportSize({ width: 680, height: 900 });
   await moreSubjects.focus();
   await page.setViewportSize({ width: 1440, height: 900 });
 
@@ -1077,6 +1094,7 @@ test("allocation focus transfer participates in pressure selection", async ({
     const binding = scopeBar.bindScopeBar(
       document,
       {
+        onApplicationScopeSelect() {},
         onMemberSectionSelect() {},
         onPackageLensSelect() {},
         onScopeSelect() {},
@@ -1554,6 +1572,30 @@ test("Workspace keeps the Default Workspace visible and menu fixed", async ({
   await expect(page.getByRole("menuitem", { name: "Share" })).toBeVisible();
   await expect(page.locator("#copy-name")).toHaveCount(0);
   await expect(page.locator("[data-subject-copy]")).toHaveCount(0);
+  await expect(page.locator("[data-application-scope='workspace']"))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.locator("[data-scope='package']"))
+    .toHaveAttribute("aria-selected", "false");
+});
+
+test("application scopes yield before inspection identity without dropping focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const query = page.locator("[data-application-scope='query']");
+  await query.focus();
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(query).toBeVisible();
+  await expect(query).toBeFocused();
+
+  await page.keyboard.press("Tab");
+  await expect(page.locator("[data-scope='type']")).toBeFocused();
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
+  await expect(page.locator(".slide-strip-subject")).toBeVisible();
+  await expect(page.locator(".slide-strip-inspector")).toBeVisible();
 });
 
 test("Workspace selection is observational and occurrence activation executes", async ({
