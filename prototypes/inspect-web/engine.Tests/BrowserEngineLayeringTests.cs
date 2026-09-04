@@ -667,14 +667,45 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EngineCoreProject_PinsBrowserLayeringGate()
+    public void EveryBrowserProjectPinsTheLayeringGate()
     {
-        Assert.Contains(
-            ProjectItems(CoreProjectPath, "AdditionalFiles"),
-            path => path.Equals(
-                BanListPath,
-                StringComparison.OrdinalIgnoreCase));
+        // The ban list is what makes the compiler enforce "inspect only through a public product
+        // query". Every browser-owned project that can reach product APIs must pin it, or a
+        // capability could quietly open a session in its own assembly.
+        string[] projects =
+        [
+            CoreProjectPath,
+            .. CapabilityProjectPaths,
+        ];
+
+        Assert.NotEmpty(projects);
+        Assert.All(
+            projects,
+            project => Assert.Contains(
+                ProjectItems(project, "AdditionalFiles"),
+                path => path.Equals(
+                    BanListPath,
+                    StringComparison.OrdinalIgnoreCase)));
     }
+
+    static IReadOnlyList<string> CapabilityProjectPaths =>
+    [
+        .. new[]
+        {
+            ("engine.PackageExports", "InspectWeb.Engine.PackageExports.csproj"),
+            ("engine.MetadataExports", "InspectWeb.Engine.MetadataExports.csproj"),
+            ("engine.AnalysisExports", "InspectWeb.Engine.AnalysisExports.csproj"),
+            ("engine.SourceExports", "InspectWeb.Engine.SourceExports.csproj"),
+            ("engine.CallGraphExports", "InspectWeb.Engine.CallGraphExports.csproj"),
+            ("engine.CatalogExports", "InspectWeb.Engine.CatalogExports.csproj"),
+        }
+            .Select(project => Path.Combine(
+                RepositoryRoot(),
+                "prototypes",
+                "inspect-web",
+                project.Item1,
+                project.Item2)),
+    ];
 
     [Fact]
     public void EngineCoreAssembly_HasNoFacadeContracts()
@@ -836,6 +867,9 @@ public sealed class BrowserEngineLayeringTests
                 pending.Push(reference);
         }
 
+        // Owner-issued product assemblies only. The browser's own host, core, and capability
+        // export assemblies are L3 consumer adapters, so they are guarded by the facade
+        // partition tests rather than by the product-ownership guards below.
         return
         [
             .. projects
@@ -844,6 +878,7 @@ public sealed class BrowserEngineLayeringTests
                         EngineProjectPath,
                         StringComparison.OrdinalIgnoreCase))
                 .Select(ProjectAssemblyName)
+                .Where(name => !name.StartsWith("InspectWeb.", StringComparison.Ordinal))
                 .Distinct(StringComparer.Ordinal)
                 .Select(name => Assembly.Load(new AssemblyName(name)))
                 .OrderBy(assembly => assembly.GetName().Name, StringComparer.Ordinal),

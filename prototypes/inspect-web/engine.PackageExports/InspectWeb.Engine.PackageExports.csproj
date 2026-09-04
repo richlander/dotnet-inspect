@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <!--
+      Every browser interaction that inspects an assembly runs inside a workspace, through a
+      public product query that owns the session. BannedSymbols.txt makes the compiler enforce
+      that for every export assembly; BrowserEngineLayeringTests pins this wiring.
+    -->
+    <AdditionalFiles Include="..\engine\BannedSymbols.txt" />
+    <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+</Project>
