@@ -101,7 +101,12 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results.
+  query results. Its proposed, design-locked but not yet implemented
+  [Package Query assembly-pattern
+  evaluation](design/package-query-assembly-evaluation.md) owner defines
+  bounded one-candidate primary-assembly evaluation and resource-free
+  package-plus-selected-asset semantic evidence without realizing unrelated
+  package assemblies.
 - `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
   floor for generation-scoped artifact identity, typed provenance and
   diagnostics, acquisition outcomes, and owner-issued guarded access.
@@ -114,6 +119,10 @@ substrates, and inspection producers that will extend that space.
   Its [package metadata persistence](design/package-metadata-persistence.md)
   contract defines when one authority-scoped, time-bounded metadata observation
   may replace a fresh metadata operation.
+  `LocalRepoSourceAcquisition` owns [local repository source
+  acquisition](design/local-repository-source-acquisition.md): when a
+  caller-supplied Git clone may satisfy one PDB document request with verified
+  bytes, or decline so acquisition can continue.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -278,6 +287,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Structured type-forwarding resolution](design/type-forwarding-resolution.md): typed reference-to-definition resolution, forwarding evidence, binding policy, outcomes, and consumer migration.
 - [Signals](assembly-audit.md): package/library signal semantics and network scope.
 - [PDB acquisition](pdb-acquisition.md): symbols and SourceLink acquisition.
+- [Local repository source acquisition](design/local-repository-source-acquisition.md):
+  local Git locator interpretation, checksum-backed byte admission, optional
+  decline, and execution-limit evidence.
 - [Untrusted data threat model](design/untrusted-data-threat-model.md): trust boundaries and security rules for inspected artifacts, network input, caches, output paths, and rendering.
 - [Inspect-web TypeScript semantic facts](design/inspect-web-typescript-semantic-facts.md):
   one pinned TypeScript project snapshot exposed through repository-owned
@@ -371,7 +383,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
-- [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency.
+- [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency; its proposed [scanner binding](design/integration-scanner-binding.md) separates decoded observations from application-authored interpretation.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Capability section registry spike](design/capability-section-registry-spike.md): measured static lambda-table and precompiled-plan pilot layered on `SectionPipeline`.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.

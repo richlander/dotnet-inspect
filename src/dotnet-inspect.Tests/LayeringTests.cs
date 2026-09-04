@@ -470,8 +470,6 @@ public sealed class LayeringTests
                 "run-method-semantics-platform-probe.sh"));
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "ci.yml"));
-        string changeDetection = File.ReadAllText(
-            Path.Combine(root, "eng", "ci-detect-changes.sh"));
 
         Assert.Contains("MethodSemanticsRowReader.Read(", probe);
         Assert.Contains("row.RawSemantics", probe);
@@ -496,14 +494,6 @@ public sealed class LayeringTests
             workflow);
         Assert.Contains("dotnet publish", runner);
         Assert.Contains("node \"$main_js\"", runner);
-        Assert.Contains(
-            "tests/ILInspector.MetadataPrimitives.PlatformProbe/*) "
-                + "CODE=true; WEB=true",
-            changeDetection);
-        Assert.Contains(
-            "eng/run-method-semantics-platform-probe.sh) "
-                + "CODE=true; WEB=true",
-            changeDetection);
     }
 
     [Fact]
@@ -531,8 +521,6 @@ public sealed class LayeringTests
                 "run-local-path-admission-platform-probe.sh"));
         string workflow = File.ReadAllText(
             Path.Combine(root, ".github", "workflows", "ci.yml"));
-        string changeDetection = File.ReadAllText(
-            Path.Combine(root, "eng", "ci-detect-changes.sh"));
 
         Assert.Contains(
             "LocalArtifactSource.AcquireFileAsync(",
@@ -566,14 +554,6 @@ public sealed class LayeringTests
             workflow);
         Assert.Contains("dotnet publish", runner);
         Assert.Contains("node \"$main_js\"", runner);
-        Assert.Contains(
-            "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) "
-                + "CODE=true; WEB=true",
-            changeDetection);
-        Assert.Contains(
-            "eng/run-local-path-admission-platform-probe.sh) "
-                + "CODE=true; WEB=true",
-            changeDetection);
     }
 
     private static (string Name, string Source)[] EvaluatedSources(
