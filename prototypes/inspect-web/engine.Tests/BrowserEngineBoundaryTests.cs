@@ -20,6 +20,30 @@ using ILInspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
 
+using InspectWeb.Engine.PackageFacade;
+using BrowserMetadataJsonContext = InspectWeb.Engine.MetadataFacade.BrowserMetadataJsonContext;
+using BrowserAnalysisJsonContext = InspectWeb.Engine.AnalysisFacade.BrowserAnalysisJsonContext;
+using BrowserSourceJsonContext = InspectWeb.Engine.SourceFacade.BrowserSourceJsonContext;
+using BrowserCallGraphJsonContext = InspectWeb.Engine.CallGraphFacade.BrowserCallGraphJsonContext;
+using BrowserCatalogJsonContext = InspectWeb.Engine.CatalogFacade.BrowserCatalogJsonContext;
+using BrowserPackageMetadata = InspectWeb.Engine.MetadataFacade.BrowserPackageMetadata;
+using BrowserMetadataCompileLibraryStatus = InspectWeb.Engine.MetadataFacade.BrowserCompileLibraryStatus;
+using BrowserAnalysisCompileLibraryStatus = InspectWeb.Engine.AnalysisFacade.BrowserCompileLibraryStatus;
+using BrowserPackageIntegrations = InspectWeb.Engine.AnalysisFacade.BrowserPackageIntegrations;
+using BrowserPackageOpportunities = InspectWeb.Engine.AnalysisFacade.BrowserPackageOpportunities;
+using BrowserPackagePerformance = InspectWeb.Engine.AnalysisFacade.BrowserPackagePerformance;
+using BrowserPerformanceMember = InspectWeb.Engine.AnalysisFacade.BrowserPerformanceMember;
+using BrowserOpportunityItem = InspectWeb.Engine.AnalysisFacade.BrowserOpportunityItem;
+using BrowserSource = InspectWeb.Engine.SourceFacade.BrowserSource;
+using BrowserCallGraph = InspectWeb.Engine.CallGraphFacade.BrowserCallGraph;
+using BrowserCallGraphTarget = InspectWeb.Engine.CallGraphFacade.BrowserCallGraphTarget;
+using BrowserCallGraphWireProjection = InspectWeb.Engine.CallGraphFacade.BrowserCallGraphWireProjection;
+using BrowserCallGraphDiagnostics = InspectWeb.Engine.CallGraphFacade.BrowserCallGraphDiagnostics;
+using BrowserHomeDemoRunResult = InspectWeb.Engine.CatalogFacade.BrowserHomeDemoRunResult;
+using BrowserHomeDemoRunActivation = InspectWeb.Engine.CatalogFacade.BrowserHomeDemoRunActivation;
+using BrowserHomeDemoRunPlan = InspectWeb.Engine.CatalogFacade.BrowserHomeDemoRunPlan;
+using BrowserHomeDemoRunMember = InspectWeb.Engine.CatalogFacade.BrowserHomeDemoRunMember;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
@@ -162,12 +186,12 @@ public sealed class BrowserEngineBoundaryTests
             Assert.Single(
                 BrowserSurfaceProjection.ApiSurfaceFailureEntries(
                     surface.Assemblies.Assemblies)),
-            InspectionEngine.CreateIntegrations(
+            AnalysisExports.CreateIntegrations(
                 "Package.Sample",
                 "1.0.0",
                 "net11.0",
                 integrations.Assemblies).InspectionError!,
-            InspectionEngine.CreateOpportunities(
+            AnalysisExports.CreateOpportunities(
                 "Package.Sample",
                 "1.0.0",
                 "net11.0",
@@ -224,7 +248,7 @@ public sealed class BrowserEngineBoundaryTests
             IsObsolete = true,
         };
 
-        BrowserMemberSurface projected = BrowserSurfaceProjection.Member(type, member);
+        BrowserMemberSurfaceInfo projected = BrowserSurfaceProjection.Member(type, member);
 
         Assert.Equal("protected", projected.Accessibility);
         Assert.True(projected.IsStatic);
@@ -235,7 +259,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.True(projected.IsExtension);
         Assert.True(projected.IsObsolete);
 
-        BrowserMemberSurface ordinary = BrowserSurfaceProjection.Member(
+        BrowserMemberSurfaceInfo ordinary = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
             {
@@ -248,7 +272,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
 
-        BrowserMemberSurface explicitImplementation = BrowserSurfaceProjection.Member(
+        BrowserMemberSurfaceInfo explicitImplementation = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
             {
@@ -259,7 +283,7 @@ public sealed class BrowserEngineBoundaryTests
 
         Assert.Equal("private", explicitImplementation.Accessibility);
 
-        BrowserMemberSurface finalizer = BrowserSurfaceProjection.Member(
+        BrowserMemberSurfaceInfo finalizer = BrowserSurfaceProjection.Member(
             type,
             new ApiMember
             {
@@ -328,9 +352,9 @@ public sealed class BrowserEngineBoundaryTests
     public void SourceContexts_UseFreshMemoryOnlyPdbStores()
     {
         AssemblyContextSourceQueryContext first =
-            InspectionEngine.CreateSourceContext();
+            SourceExports.CreateSourceContext();
         AssemblyContextSourceQueryContext second =
-            InspectionEngine.CreateSourceContext();
+            SourceExports.CreateSourceContext();
 
         var firstStore =
             Assert.IsType<InMemoryPdbStore>(first.PdbStore);
@@ -459,8 +483,8 @@ public sealed class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                InspectionEngine.ProjectPlatformSurface(resolution),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                PackageExports.ProjectPlatformSurface(resolution),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         BrowserAssemblySurface selectedAssembly =
             Assert.Single(surface.Assemblies);
@@ -479,7 +503,7 @@ public sealed class BrowserEngineBoundaryTests
                 && candidate.Member.BodySelectors.Length > 0);
         BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.ExpandPlatformCallGraph(
+                await CallGraphExports.ExpandPlatformCallGraph(
                     "net11.0-ios",
                     "InspectWeb.Engine.Tests",
                     "aspnetcore.app",
@@ -490,7 +514,7 @@ public sealed class BrowserEngineBoundaryTests
                     selected.Member.Name,
                     selected.Member.GraphSelectorKey,
                     selected.Member.MetadataToken!.Value),
-                BrowserJsonContext.Default.BrowserCallGraph));
+                BrowserCallGraphJsonContext.Default.BrowserCallGraph));
         BrowserCallGraphTarget[] ownTargets =
         [
             .. graph.Targets.Where(target =>
@@ -1478,11 +1502,11 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.QueryPackage(
+                await PackageExports.QueryPackage(
                     packageId,
                     "1.0.0",
                     "net11.0"),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.DoesNotContain(
             surface.Frameworks,
@@ -1497,7 +1521,7 @@ public sealed class BrowserEngineBoundaryTests
             surface.CompileLibrary.TargetFramework ?? "");
         InvalidOperationException dependencyFailure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => InspectionEngine.QueryPackageDependencies(
+                () => PackageExports.QueryPackageDependencies(
                     packageId,
                     "1.0.0",
                     "net11.0",
@@ -1861,7 +1885,7 @@ public sealed class BrowserEngineBoundaryTests
             cause);
 
         InvalidOperationException adapted =
-            InspectionEngine.SourceUnavailable(failure);
+            SourceExports.SourceUnavailable(failure);
 
         Assert.Contains(
             nameof(AssemblySourceFailureKind.InspectionFailed),
@@ -1874,7 +1898,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Same(cause, adapted.InnerException);
 
         InvalidOperationException withPdbSourceFailure =
-            InspectionEngine.SourceUnavailable(
+            SourceExports.SourceUnavailable(
                 failure,
                 "The host does not authorize this SourceLink destination.");
         Assert.Contains(
@@ -1936,7 +1960,7 @@ public sealed class BrowserEngineBoundaryTests
                 memberAttempt));
 
         BrowserSource memberSource =
-            InspectionEngine.Adapt(memberEntry, participant);
+            SourceExports.Adapt(memberEntry, participant);
         Assert.Equal(MemberLimitation, memberSource.PdbSourceLimitation);
 
         const string TypeLimitation = "type PDB source unavailable";
@@ -1960,7 +1984,7 @@ public sealed class BrowserEngineBoundaryTests
                 typeAttempt));
 
         BrowserSource typeSource =
-            InspectionEngine.Adapt(typeEntry, participant);
+            SourceExports.Adapt(typeEntry, participant);
         Assert.Equal(TypeLimitation, typeSource.PdbSourceLimitation);
     }
 
@@ -2064,7 +2088,7 @@ public sealed class BrowserEngineBoundaryTests
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => InspectionEngine.QueryPackage(
+                () => PackageExports.QueryPackage(
                     packageId,
                     version,
                     "net11.0"));
@@ -2108,8 +2132,8 @@ public sealed class BrowserEngineBoundaryTests
                 TestContext.Current.CancellationToken);
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                InspectionEngine.ProjectPlatformSurface(initial),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                PackageExports.ProjectPlatformSurface(initial),
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal("Microsoft.NETCore.App", surface.Package);
         Assert.Equal(version, surface.Version);
@@ -2169,49 +2193,49 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageSurface siblingSurface =
             Assert.IsType<BrowserPackageSurface>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.LoadRuntimePackAssembly(
+                    await PackageExports.LoadRuntimePackAssembly(
                         "net11.0",
                         "InspectWeb.Engine.Tests.dll",
                         "netcore.app"),
-                    BrowserJsonContext.Default.BrowserPackageSurface));
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
         Assert.Equal(
             "InspectWeb.Engine.Tests",
             siblingSurface.DefaultAssemblyId);
         BrowserPackageIntegrations integrations =
             Assert.IsType<BrowserPackageIntegrations>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPlatformIntegrations(
+                    await AnalysisExports.QueryPlatformIntegrations(
                         "net11.0",
                         "InspectWeb.Engine.Tests.dll",
                         "netcore.app"),
-                    BrowserJsonContext.Default.BrowserPackageIntegrations));
+                    BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations));
         Assert.True(integrations.IsComplete);
         Assert.Equal(
-            BrowserCompileLibraryStatus.Selected,
+            BrowserAnalysisCompileLibraryStatus.Selected,
             integrations.CompileLibrary.Status);
         BrowserPackageOpportunities opportunities =
             Assert.IsType<BrowserPackageOpportunities>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPlatformOpportunities(
+                    await AnalysisExports.QueryPlatformOpportunities(
                         "net11.0",
                         "InspectWeb.Engine.Tests.dll",
                         "netcore.app"),
-                    BrowserJsonContext.Default.BrowserPackageOpportunities));
+                    BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities));
         Assert.True(opportunities.IsComplete);
         Assert.Equal(
-            BrowserCompileLibraryStatus.Selected,
+            BrowserAnalysisCompileLibraryStatus.Selected,
             opportunities.CompileLibrary.Status);
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPlatformMetadata(
+                    await MetadataExports.QueryPlatformMetadata(
                         "net11.0",
                         version,
                         "InspectWeb.Engine.Tests.dll",
                         "netcore.app"),
-                    BrowserJsonContext.Default.BrowserPackageMetadata));
+                    BrowserMetadataJsonContext.Default.BrowserPackageMetadata));
         Assert.Equal(
-            BrowserCompileLibraryStatus.Selected,
+            BrowserMetadataCompileLibraryStatus.Selected,
             metadata.CompileLibrary.Status);
 
         var selected = siblingSurface.Types
@@ -2225,7 +2249,7 @@ public sealed class BrowserEngineBoundaryTests
                 assembly => assembly.Id == selected.Type.AssemblyId);
         BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.ExpandPlatformCallGraph(
+                await CallGraphExports.ExpandPlatformCallGraph(
                     "net11.0",
                     "InspectWeb.Engine.Tests",
                     "netcore.app",
@@ -2236,7 +2260,7 @@ public sealed class BrowserEngineBoundaryTests
                     selected.Member.Name,
                     selected.Member.GraphSelectorKey,
                     selected.Member.MetadataToken!.Value),
-                BrowserJsonContext.Default.BrowserCallGraph));
+                BrowserCallGraphJsonContext.Default.BrowserCallGraph));
         Assert.Equal(0, graph.Scope.Packages);
         Assert.Equal(2, graph.Scope.Assemblies);
         BrowserCallGraphTarget[] attributedTargets =
@@ -2251,7 +2275,7 @@ public sealed class BrowserEngineBoundaryTests
             target => Assert.Equal("netcore.app", target.PlatformPack));
         InvalidOperationException identityMismatch =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => InspectionEngine.ExpandPlatformCallGraph(
+                () => CallGraphExports.ExpandPlatformCallGraph(
                     "net11.0",
                     "InspectWeb.Engine.Tests",
                     "netcore.app",
@@ -2278,7 +2302,7 @@ public sealed class BrowserEngineBoundaryTests
         BrowserCallGraph lazySelectorGraph =
             Assert.IsType<BrowserCallGraph>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.ExpandPlatformCallGraph(
+                    await CallGraphExports.ExpandPlatformCallGraph(
                         "net11.0-browser",
                         "InspectWeb.Engine.Tests",
                         "netcore.app",
@@ -2289,7 +2313,7 @@ public sealed class BrowserEngineBoundaryTests
                         selected.Member.Name,
                         selected.Member.GraphSelectorKey,
                         metadataToken: 0),
-                    BrowserJsonContext.Default.BrowserCallGraph));
+                    BrowserCallGraphJsonContext.Default.BrowserCallGraph));
         Assert.Equal(2, lazySelectorGraph.Scope.Assemblies);
 
         qualifiedRuntime.Dispose();
@@ -2337,18 +2361,18 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageSurface surface =
             Assert.IsType<BrowserPackageSurface>(
                 JsonSerializer.Deserialize(
-                    InspectionEngine.ProjectPlatformSurface(
+                    PackageExports.ProjectPlatformSurface(
                         resolution),
-                    BrowserJsonContext.Default.BrowserPackageSurface));
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
         BrowserPackageOpportunities opportunities =
             Assert.IsType<BrowserPackageOpportunities>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine
+                    await AnalysisExports
                         .QueryPlatformOpportunities(
                             framework,
                             "System.Data.Common.dll",
                             "netcore.app"),
-                    BrowserJsonContext.Default
+                    BrowserAnalysisJsonContext.Default
                         .BrowserPackageOpportunities));
 
         BrowserAssemblySurface assembly =
@@ -2573,7 +2597,7 @@ public sealed class BrowserEngineBoundaryTests
     public void MemberCallGraphRequests_PreserveContextOrderAndLocateNonFirstRoot()
     {
         (BrowserPackageRequest[] requests, int rootIndex) =
-            InspectionEngine.MemberCallGraphRequests(
+            CallGraphExports.MemberCallGraphRequests(
                 "Root.Package",
                 "1.0.0",
                 "net11.0",
@@ -2603,7 +2627,7 @@ public sealed class BrowserEngineBoundaryTests
     public void MemberCallGraphRequests_RequireOneRootInExpandedContext()
     {
         InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
-            () => InspectionEngine.MemberCallGraphRequests(
+            () => CallGraphExports.MemberCallGraphRequests(
                 "Root.Package",
                 "1.0.0",
                 "net11.0",
@@ -2641,7 +2665,7 @@ public sealed class BrowserEngineBoundaryTests
 
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => InspectionEngine.QueryMemberCallGraph(
+                () => CallGraphExports.QueryMemberCallGraph(
                     "CallGraph.Root",
                     "1.0.0",
                     "net11.0",
@@ -3046,8 +3070,9 @@ public sealed class BrowserEngineBoundaryTests
             "Identity.Mismatch",
             PackagePair(surfaceImage, differentImage, "Identity.Pair.dll"));
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageWorkspace.OpenScope([mismatched]));
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
+                () => BrowserPackageWorkspace.OpenScope([mismatched]));
 
         Assert.Contains(
             "different assembly identities",
@@ -3110,10 +3135,12 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void CallGraphDiagnostics_PreserveIncompleteProductEvidence()
     {
-        BrowserCallGraphDiagnostics diagnostics = InspectionEngine.Diagnostics(
-            new CatalogCallGraphDiagnostics(2, 3, 4),
-            hasUnexploredTraversalBoundary: true,
-            hasAnalysisFailureBoundary: true);
+        BrowserCallGraphDiagnostics diagnostics =
+            BrowserCallGraphWireProjection.Project(
+                BrowserCallGraphProjection.Diagnostics(
+                    new CatalogCallGraphDiagnostics(2, 3, 4),
+                    hasUnexploredTraversalBoundary: true,
+                    hasAnalysisFailureBoundary: true));
 
         Assert.True(diagnostics.IsIncomplete);
         Assert.Equal(2, diagnostics.IncompleteNodes);
@@ -3141,7 +3168,7 @@ public sealed class BrowserEngineBoundaryTests
             Kind = "class",
         };
 
-        BrowserTypeSurface projected = BrowserSurfaceProjection.Type(
+        BrowserTypeSurfaceInfo projected = BrowserSurfaceProjection.Type(
             type,
             "Physical.dll",
             "asset:physical",
@@ -3167,7 +3194,7 @@ public sealed class BrowserEngineBoundaryTests
                 .Name,
             Kind = "class",
         };
-        BrowserTypeSurface projectedLiteral =
+        BrowserTypeSurfaceInfo projectedLiteral =
             BrowserSurfaceProjection.Type(
                 literalPlus,
                 "Physical.dll",
@@ -3180,7 +3207,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("Sample.Outer+Inner", projectedLiteral.QueryId);
         Assert.Equal(projected.MetadataId, projectedLiteral.MetadataId);
 
-        BrowserTypeSurface qualified = projected with { Id = $"Sample.dll:{projected.Id}" };
+        BrowserTypeSurfaceInfo qualified = projected with { Id = $"Sample.dll:{projected.Id}" };
         Assert.NotEqual(qualified.Id, qualified.DefinitionId);
         Assert.Equal(projected.DefinitionId, qualified.DefinitionId);
     }
@@ -3409,11 +3436,11 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.QueryPackage(
+                await PackageExports.QueryPackage(
                     packageId,
                     "1.0.0",
                     "net11.0"),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal(
             BrowserCompileLibraryStatus.NoCompileAssets,
@@ -3430,12 +3457,12 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageDependencies dependencies =
             Assert.IsType<BrowserPackageDependencies>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackageDependencies(
+                    await PackageExports.QueryPackageDependencies(
                         packageId,
                         "1.0.0",
                         "net11.0",
                         assemblyId: ""),
-                    BrowserJsonContext.Default.BrowserPackageDependencies));
+                    BrowserPackageJsonContext.Default.BrowserPackageDependencies));
         Assert.Null(dependencies.Assembly);
         Assert.Empty(dependencies.AssemblyReferences);
         Assert.Equal(
@@ -3449,7 +3476,7 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal("Tool.Payload", dependency.Id);
         InvalidOperationException metadataTableFailure =
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => InspectionEngine.QueryPackageMetadataTable(
+                () => MetadataExports.QueryPackageMetadataTable(
                     packageId,
                     "1.0.0",
                     "net11.0",
@@ -3481,11 +3508,11 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.QueryPackage(
+                await PackageExports.QueryPackage(
                     packageId,
                     "1.0.0",
                     "net11.0"),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal(
             BrowserCompileLibraryStatus.EmptyCompileGroup,
@@ -3516,11 +3543,11 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
-                await InspectionEngine.QueryPackage(
+                await PackageExports.QueryPackage(
                     packageId,
                     "1.0.0",
                     "net10.0"),
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Equal(
             BrowserCompileLibraryStatus.NoMatchingTargetFramework,
@@ -3543,55 +3570,57 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackageMetadata(
+                    await MetadataExports.QueryPackageMetadata(
                         packageId,
                         "1.0.0",
                         framework),
-                    BrowserJsonContext.Default.BrowserPackageMetadata));
+                    BrowserMetadataJsonContext.Default.BrowserPackageMetadata));
         Assert.Empty(metadata.Assemblies);
         Assert.Null(metadata.InspectionError);
-        Assert.Equal(expectedStatus, metadata.CompileLibrary.Status);
+        // Each export assembly declares its own compile-library enum, and the wire
+        // value is the member name, so the aggregate is compared by that name.
+        Assert.Equal(expectedStatus.ToString(), metadata.CompileLibrary.Status.ToString());
 
         BrowserPackageIntegrations integrations =
             Assert.IsType<BrowserPackageIntegrations>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackageIntegrations(
+                    await AnalysisExports.QueryPackageIntegrations(
                         packageId,
                         "1.0.0",
                         framework),
-                    BrowserJsonContext.Default.BrowserPackageIntegrations));
+                    BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations));
         Assert.Empty(integrations.Categories);
         Assert.Equal(0, integrations.TotalSignals);
         Assert.False(integrations.IsComplete);
         Assert.Null(integrations.InspectionError);
-        Assert.Equal(expectedStatus, integrations.CompileLibrary.Status);
+        Assert.Equal(expectedStatus.ToString(), integrations.CompileLibrary.Status.ToString());
 
         BrowserPackageOpportunities opportunities =
             Assert.IsType<BrowserPackageOpportunities>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackageOpportunities(
+                    await AnalysisExports.QueryPackageOpportunities(
                         packageId,
                         "1.0.0",
                         framework),
-                    BrowserJsonContext.Default.BrowserPackageOpportunities));
+                    BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities));
         Assert.Empty(opportunities.Categories);
         Assert.Equal(0, opportunities.TotalOpportunities);
         Assert.False(opportunities.IsComplete);
         Assert.Null(opportunities.InspectionError);
-        Assert.Equal(expectedStatus, opportunities.CompileLibrary.Status);
+        Assert.Equal(expectedStatus.ToString(), opportunities.CompileLibrary.Status.ToString());
 
         BrowserPackagePerformance performance =
             Assert.IsType<BrowserPackagePerformance>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackagePerformance(
+                    await AnalysisExports.QueryPackagePerformance(
                         packageId,
                         "1.0.0",
                         framework),
-                    BrowserJsonContext.Default.BrowserPackagePerformance));
+                    BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
         Assert.Empty(performance.Members);
         Assert.Equal(0, performance.TotalOpportunities);
         Assert.Null(performance.InspectionError);
-        Assert.Equal(expectedStatus, performance.CompileLibrary.Status);
+        Assert.Equal(expectedStatus.ToString(), performance.CompileLibrary.Status.ToString());
     }
 
     [Fact]
@@ -3606,14 +3635,14 @@ public sealed class BrowserEngineBoundaryTests
             packageId,
             Package(image, $"lib/net11.0/{packageId}.dll"));
 
-        string json = await InspectionEngine.QueryPackage(
+        string json = await PackageExports.QueryPackage(
             packageId,
             "1.0.0",
             "net11.0");
         BrowserPackageSurface surface = Assert.IsType<BrowserPackageSurface>(
             JsonSerializer.Deserialize(
                 json,
-                BrowserJsonContext.Default.BrowserPackageSurface));
+                BrowserPackageJsonContext.Default.BrowserPackageSurface));
 
         Assert.Empty(surface.Assemblies);
         Assert.NotEmpty(surface.Accessibility);
@@ -3650,7 +3679,7 @@ public sealed class BrowserEngineBoundaryTests
         var qualifiedBudget =
             new BrowserSurfaceProjection.BrowserSurfaceTextBudget(10_000);
         qualifiedBudget.BeginParticipant();
-        BrowserTypeSurface qualified = BrowserSurfaceProjection.Type(
+        BrowserTypeSurfaceInfo qualified = BrowserSurfaceProjection.Type(
             type,
             assembly,
             "asset:collision",
@@ -3828,7 +3857,7 @@ public sealed class BrowserEngineBoundaryTests
                 nupkg,
                 fromCache: false));
 
-        string json = await InspectionEngine.QueryPackageDependencies(
+        string json = await PackageExports.QueryPackageDependencies(
             packageId,
             "1.0.0",
             "net11.0",
@@ -3898,12 +3927,12 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageDependencies dependencies =
             Assert.IsType<BrowserPackageDependencies>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine.QueryPackageDependencies(
+                    await PackageExports.QueryPackageDependencies(
                         packageId,
                         "1.0.0",
                         "net11.0",
                         $"{packageId}.dll"),
-                    BrowserJsonContext.Default.BrowserPackageDependencies));
+                    BrowserPackageJsonContext.Default.BrowserPackageDependencies));
 
         Assert.Equal(2, dependencies.DependencyGroups.Length);
         Assert.Equal("net11.0", dependencies.DependencyGroups[0].Framework);
@@ -3933,11 +3962,11 @@ public sealed class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await InspectionEngine.QueryPackage(
+        string surfaceJson = await PackageExports.QueryPackage(
             PackageId,
             "1.0.0",
             "net11.0");
-        string json = await InspectionEngine.QueryPackagePerformance(
+        string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -4040,7 +4069,7 @@ public sealed class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await InspectionEngine.QueryPackage(
+        string surfaceJson = await PackageExports.QueryPackage(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -4067,7 +4096,7 @@ public sealed class BrowserEngineBoundaryTests
             property.GetProperty("bodySelectors").EnumerateArray());
 
         string graphMemberJson =
-            await InspectionEngine.QueryGraphMemberSurface(
+            await MetadataExports.QueryGraphMemberSurface(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4106,7 +4135,7 @@ public sealed class BrowserEngineBoundaryTests
                 .GetProperty("selectorKey").GetString());
 
         string accessorFactsJson =
-            await InspectionEngine.QueryMemberFacts(
+            await AnalysisExports.QueryMemberFacts(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4127,7 +4156,7 @@ public sealed class BrowserEngineBoundaryTests
             accessorFactsDocument.RootElement
                 .GetProperty("metadataToken").GetInt32());
 
-        string json = await InspectionEngine.QueryMemberFacts(
+        string json = await AnalysisExports.QueryMemberFacts(
             PackageId,
             "1.0.0",
             "net11.0",
@@ -4177,7 +4206,7 @@ public sealed class BrowserEngineBoundaryTests
             candidate =>
                 candidate.GetProperty("name").GetString()
                 == nameof(PerformanceGenericCallProbe));
-        string genericCallJson = await InspectionEngine.QueryMemberFacts(
+        string genericCallJson = await AnalysisExports.QueryMemberFacts(
             PackageId,
             "1.0.0",
             "net11.0",
@@ -4222,7 +4251,7 @@ public sealed class BrowserEngineBoundaryTests
             .GetMethod(nameof(PerformanceBoxingProbe))!
             .MetadataToken;
         string implementationBodyJson =
-            await InspectionEngine.QueryMemberFacts(
+            await AnalysisExports.QueryMemberFacts(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4242,7 +4271,7 @@ public sealed class BrowserEngineBoundaryTests
                 .GetInt32());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => InspectionEngine.QueryMemberFacts(
+            () => AnalysisExports.QueryMemberFacts(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4259,7 +4288,7 @@ public sealed class BrowserEngineBoundaryTests
             candidate =>
                 candidate.GetProperty("name").GetString()
                 == nameof(PerformanceValueTypeConstructionProbe));
-        string valueTypeJson = await InspectionEngine.QueryMemberFacts(
+        string valueTypeJson = await AnalysisExports.QueryMemberFacts(
             PackageId,
             "1.0.0",
             "net11.0",
@@ -4284,7 +4313,7 @@ public sealed class BrowserEngineBoundaryTests
             candidate =>
                 candidate.GetProperty("name").GetString()
                 == nameof(PerformanceStackAllocProbe));
-        string stackAllocJson = await InspectionEngine.QueryMemberFacts(
+        string stackAllocJson = await AnalysisExports.QueryMemberFacts(
             PackageId,
             "1.0.0",
             "net11.0",
@@ -4328,7 +4357,7 @@ public sealed class BrowserEngineBoundaryTests
                     $"{PackageId}.dll"),
                 fromCache: false));
 
-        string surfaceJson = await InspectionEngine.QueryPackage(
+        string surfaceJson = await PackageExports.QueryPackage(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -4348,7 +4377,7 @@ public sealed class BrowserEngineBoundaryTests
                 == nameof(InvocationDestinationProbe));
 
         string annotatedJson =
-            await InspectionEngine.QueryMemberAnnotatedSource(
+            await SourceExports.QueryMemberAnnotatedSource(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4415,7 +4444,7 @@ public sealed class BrowserEngineBoundaryTests
 
         for (int attempt = 0; attempt < 2; attempt++)
         {
-            string json = await InspectionEngine.QueryGraphMemberSurface(
+            string json = await MetadataExports.QueryGraphMemberSurface(
                 PackageId,
                 "1.0.0",
                 "net11.0",
@@ -4466,7 +4495,7 @@ public sealed class BrowserEngineBoundaryTests
                     "InspectWeb.Engine.Tests.dll"),
                 fromCache: false));
 
-        string json = await InspectionEngine.QueryPackagePerformance(
+        string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -4496,7 +4525,7 @@ public sealed class BrowserEngineBoundaryTests
                     $"lib/net11.0/{PackageId}.dll"),
                 fromCache: false));
 
-        string json = await InspectionEngine.QueryPackagePerformance(
+        string json = await AnalysisExports.QueryPackagePerformance(
             PackageId,
             "1.0.0",
             "net11.0");
@@ -4527,12 +4556,12 @@ public sealed class BrowserEngineBoundaryTests
 
         var exactFailures = new List<string>();
         BrowserPerformanceMember[] exact =
-            InspectionEngine.ApplyPerformanceMemberLimit(
+            AnalysisExports.ApplyPerformanceMemberLimit(
                 Enumerable.Range(0, 200).Select(Member),
                 exactFailures);
         var truncatedFailures = new List<string>();
         BrowserPerformanceMember[] truncated =
-            InspectionEngine.ApplyPerformanceMemberLimit(
+            AnalysisExports.ApplyPerformanceMemberLimit(
                 Enumerable.Range(0, 201).Select(Member),
                 truncatedFailures);
 
@@ -4549,7 +4578,7 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public void MermaidLabel_ContainsGrammarSignificantArtifactText()
     {
-        string encoded = InspectionEngine.MermaidLabel(
+        string encoded = BrowserCallGraphProjection.MermaidLabel(
             "A\"B\n<x>&\\\u2028\u202E\u200D\uD800X\uDC00\U000E0001-Caf\u00E9\U0001F600");
 
         Assert.Equal(
@@ -4614,7 +4643,7 @@ public sealed class BrowserEngineBoundaryTests
                 [peerCoordinate, coordinate]);
 
             BrowserHomeDemoRunResult result =
-                InspectionEngine.RunHomeDemoCore(plan, resolution);
+                CatalogExports.RunHomeDemoCore(plan, resolution);
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
@@ -4630,7 +4659,7 @@ public sealed class BrowserEngineBoundaryTests
             Assert.Null(activation.MemberName);
             Assert.Null(activation.MemberSection);
             Assert.Null(result.CallGraph);
-            BrowserTypeSurface type = Assert.Single(
+            InspectWeb.Engine.CatalogFacade.BrowserTypeSurface type = Assert.Single(
                 result.Packages[1].Types,
                 candidate => candidate.Id
                     == typeof(BrowserEngineBoundaryTests).FullName);
@@ -4670,19 +4699,19 @@ public sealed class BrowserEngineBoundaryTests
                 [peerCoordinate, coordinate]);
         try
         {
-            BrowserPackageSurface surface =
-                InspectionEngine.ProjectPackageSurface(scope, coordinate);
-            BrowserTypeSurface type = Assert.Single(
+            BrowserPackageSurfaceInfo surface =
+                BrowserPackageSurfaceProjection.ProjectSurface(scope, coordinate);
+            BrowserTypeSurfaceInfo type = Assert.Single(
                 surface.Types,
                 candidate => candidate.Id
                     == typeof(BrowserEngineBoundaryTests).FullName);
-            BrowserMemberSurface[] members =
+            BrowserMemberSurfaceInfo[] members =
             [
                 .. type.Api.Where(candidate => candidate.Name
                     == nameof(HomeDemoRunFixture)),
             ];
             Assert.Equal(2, members.Length);
-            BrowserMemberSurface member = members[1];
+            BrowserMemberSurfaceInfo member = members[1];
             var plan = new BrowserHomeDemoRunPlan(
                 [
                     new BrowserPackageRequest(
@@ -4707,7 +4736,7 @@ public sealed class BrowserEngineBoundaryTests
                 [peerCoordinate, coordinate]);
 
             BrowserHomeDemoRunResult result =
-                InspectionEngine.RunHomeDemoCore(plan, resolution);
+                CatalogExports.RunHomeDemoCore(plan, resolution);
 
             Assert.True(result.Found);
             Assert.Equal(2, result.Packages.Length);
@@ -4760,7 +4789,7 @@ public sealed class BrowserEngineBoundaryTests
             Children: []);
         CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
 
-        string mermaid = InspectionEngine.Mermaid(projection);
+        string mermaid = BrowserCallGraphProjection.Mermaid(projection);
 
         Assert.Contains(
             "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
@@ -4809,7 +4838,7 @@ public sealed class BrowserEngineBoundaryTests
             [calleeNode, nonLoopNode],
             new CallTreePerf(0, 0, 1, false));
 
-        string mermaid = InspectionEngine.Mermaid(
+        string mermaid = BrowserCallGraphProjection.Mermaid(
             CallGraphProjection.FromCallees(root));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
@@ -4867,7 +4896,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(
+        BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(
             nodes,
             [new AssemblyReferenceIdentity(
                 "Example",
@@ -4927,8 +4956,8 @@ public sealed class BrowserEngineBoundaryTests
             CallGraphNodeKind.Normal,
             DefinitionAssemblyIdentity: definition);
 
-        BrowserCallGraphTarget target = Assert.Single(
-            InspectionEngine.Targets(
+        BrowserCallGraphTargetInfo target = Assert.Single(
+            BrowserCallGraphProjection.Targets(
                 [node],
                 [facade, definition],
                 assembly => assembly == definition.Name
@@ -4990,9 +5019,9 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageSurface surface =
             Assert.IsType<BrowserPackageSurface>(
                 JsonSerializer.Deserialize(
-                    InspectionEngine.ProjectPlatformSurface(
+                    PackageExports.ProjectPlatformSurface(
                         console),
-                    BrowserJsonContext.Default.BrowserPackageSurface));
+                    BrowserPackageJsonContext.Default.BrowserPackageSurface));
         BrowserTypeSurface consoleType = Assert.Single(
             surface.Types,
             type => type.Namespace == "System"
@@ -5011,7 +5040,7 @@ public sealed class BrowserEngineBoundaryTests
         BrowserCallGraph graph =
             Assert.IsType<BrowserCallGraph>(
                 JsonSerializer.Deserialize(
-                    await InspectionEngine
+                    await CallGraphExports
                         .ExpandPlatformCallGraph(
                             framework,
                             "System.Console",
@@ -5023,7 +5052,7 @@ public sealed class BrowserEngineBoundaryTests
                             writeLine.Name,
                             writeLine.GraphSelectorKey,
                             writeLine.MetadataToken!.Value),
-                    BrowserJsonContext.Default.BrowserCallGraph));
+                    BrowserCallGraphJsonContext.Default.BrowserCallGraph));
 
         Assert.Equal(requestsBeforeGraph, handler.Requests);
         Assert.Equal(2, console.Scope.Members.Length);
@@ -5982,14 +6011,14 @@ public sealed class BrowserEngineBoundaryTests
     {
         string candidatesJson = JsonSerializer.Serialize(
             candidates,
-            BrowserJsonContext.Default.BrowserDependencyCoordinateCandidateArray);
-        string resultJson = InspectionEngine.MatchPackageDependencyCoordinate(
+            BrowserPackageJsonContext.Default.BrowserDependencyCoordinateCandidateArray);
+        string resultJson = PackageExports.MatchPackageDependencyCoordinate(
             packageId,
             declaredRange,
             candidatesJson);
         return JsonSerializer.Deserialize(
             resultJson,
-            BrowserJsonContext.Default.BrowserDependencyCoordinateMatch)
+            BrowserPackageJsonContext.Default.BrowserDependencyCoordinateMatch)
             ?? throw new InvalidOperationException("The dependency-coordinate result is absent.");
     }
 
@@ -6092,7 +6121,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(nodes);
+        BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(nodes);
 
         // Both declaring types flatten to the same metadata spelling. That spelling genuinely
         // names the nested type, so it is still published for it; for the literal-plus type it
@@ -6157,7 +6186,7 @@ public sealed class BrowserEngineBoundaryTests
                 CallGraphNodeKind.Normal),
         ];
 
-        BrowserCallGraphTarget[] targets = InspectionEngine.Targets(nodes);
+        BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(nodes);
 
         Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeMetadataId);
         Assert.Equal("Example.Outer`1+Widget`1", targets[0].TypeDefinitionId);

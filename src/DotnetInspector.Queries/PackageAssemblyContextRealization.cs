@@ -285,9 +285,13 @@ public sealed record PackageAssemblyContextRealizationOptions
     public int MaxAssembliesPerRole { get; init; } = int.MaxValue;
 
     /// <summary>
-    /// The retained-image budget across both roles. Distinct surface and
-    /// implementation groups receive half each.
+    /// The retained-byte budget for one package realization.
     /// </summary>
+    /// <remarks>
+    /// Artifact-backed realization divides this budget between the artifact
+    /// generation and the resulting role groups. Distinct surface and
+    /// implementation groups divide the role-group share again.
+    /// </remarks>
     public long MaxAggregateRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
 
@@ -342,6 +346,19 @@ public sealed class PackageAssemblyRoleParticipant
     public PackageCompileAsset Asset { get; }
 
     public AssemblyContextParticipant Participant { get; }
+}
+
+/// <summary>
+/// Reports that selected package surface and implementation assets cannot form
+/// an exact assembly-role correspondence.
+/// </summary>
+public sealed class PackageAssemblyRoleCorrespondenceException :
+    InvalidOperationException
+{
+    internal PackageAssemblyRoleCorrespondenceException(string message)
+        : base(message)
+    {
+    }
 }
 
 /// <summary>
@@ -596,25 +613,12 @@ public sealed partial class InspectionWorkspace
         long entryLimit,
         int roleIndex)
     {
-        AssemblyResolutionProvenance provenance =
-            AssemblyResolutionProvenance.Package(
-                asset.Package.PackageId,
-                asset.Package.PackageVersion,
-                asset.Asset.TargetFramework,
-                rid: null);
-        string fallbackName = "RejectedPackageAsset"
-            + roleIndex.ToString(CultureInfo.InvariantCulture);
-        var fallbackIdentity = new AssemblyReferenceIdentity(
-            fallbackName,
-            Version: null,
-            Culture: null,
-            PublicKeyToken: null);
         Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
                 openRead,
-                fallbackIdentity,
-                provenance,
+                RejectionCarrierIdentity(roleIndex),
+                PackageProvenance(asset),
                 out bool usedFallbackIdentity);
         return new RoleAssembly(
             asset.PackageIndex,
@@ -624,8 +628,29 @@ public sealed partial class InspectionWorkspace
             IdentityDecoded: !usedFallbackIdentity);
     }
 
-    static Stream OpenEntry(RoleAsset asset, long maxExpandedBytes)
+    static AssemblyResolutionProvenance PackageProvenance(
+        RoleAsset asset) =>
+        AssemblyResolutionProvenance.Package(
+            asset.Package.PackageId,
+            asset.Package.PackageVersion,
+            asset.Asset.TargetFramework,
+            rid: null);
+
+    static AssemblyReferenceIdentity RejectionCarrierIdentity(
+        int roleIndex) =>
+        new(
+            "RejectedPackageAsset"
+                + roleIndex.ToString(CultureInfo.InvariantCulture),
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+
+    static Stream OpenEntry(
+        RoleAsset asset,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!asset.Package.Content.TryOpenEntry(
                 asset.Asset.Path,
                 maxExpandedBytes,
@@ -638,6 +663,7 @@ public sealed partial class InspectionWorkspace
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return new BoundedPackageEntryStream(
                 stream,
                 maxExpandedBytes);
@@ -762,7 +788,7 @@ public sealed partial class InspectionWorkspace
                 && !surface.Assembly.Identity.IsEquivalentTo(
                     implementation.Assembly.Identity))
             {
-                throw new InvalidOperationException(
+                throw new PackageAssemblyRoleCorrespondenceException(
                     "The selected reference and implementation assets have "
                     + "different assembly identities.");
             }

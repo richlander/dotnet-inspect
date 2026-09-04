@@ -69,6 +69,7 @@ public static partial class Exports
             || s_intDescribeCalls != 1
             || s_stringDescribeCalls != 1
             || s_asyncCalls != 1
+            || !ManagedOperationCanaryWasInvokedExactlyOnce()
             || SecondaryExports.IdentityCalls != 1)
         {
             throw new InvalidOperationException(

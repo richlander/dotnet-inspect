@@ -80,6 +80,32 @@ Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
 
+### Library inspection subject
+
+After a `library` source resolver identifies a physical participant, the
+command forms one command-scoped inspection subject carrying its path and the
+selected `ResolvedAssemblyReference`, when one exists. An integration-produced
+descriptor is preferred unchanged; otherwise the command consumes
+`ResolvedAssemblyReference.SelectFromPath` with the direct-file, package, or
+platform resolver's typed provenance. The command does not decode metadata to
+reclassify that result.
+
+A `Rejected` selection is reported with the selected path before SourceLink
+probing, ordinary inspection, or an IL-coordinate early return. A
+`Descriptorless` selection keeps the path-only compatibility route. The same
+subject supplies local SourceLink probing, `LibraryMetadataService`, and both
+single and batch IL-coordinate resolution. Package selection remains
+participant-scoped: a rejected participant contributes a warning and non-zero
+exit status without suppressing healthy participants.
+
+`LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
+`LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates`,
+and
+`LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
+gate this composition.
+
 ## Command families
 
 The command surface is organized by operation shape rather than by

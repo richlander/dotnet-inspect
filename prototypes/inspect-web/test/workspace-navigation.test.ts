@@ -32,7 +32,7 @@ import type {
   BrowserWorkspaceShareDecodeResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-catalog.d.ts";
 
 interface TestView {
   id: string;

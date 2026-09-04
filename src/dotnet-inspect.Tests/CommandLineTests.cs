@@ -326,12 +326,16 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ApiCommand_Deprecated_ParsesCorrectly()
+    public void ApiCommand_IsRemovedButReserved()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json"]);
+        var rootCommand = CommandLineBuilder.CreateRootCommand();
+        var result = rootCommand.Parse(["api", "--package", "System.Text.Json"]);
 
-        Assert.Empty(result.Errors);
-        Assert.Equal("api", result.CommandResult.Command.Name);
+        Assert.DoesNotContain(
+            rootCommand.Subcommands,
+            command => command.Name == "api");
+        Assert.NotEmpty(result.Errors);
+        Assert.Contains("api", ArgumentPreprocessor.KnownCommands);
     }
 
     [Fact]
@@ -405,14 +409,6 @@ public class CommandLineTests
     public void MemberCommand_WithIndex_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["member", "JsonSerializer", "--package", "System.Text.Json", "-m", "Deserialize", "--index", "1"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithType_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json"]);
 
         Assert.Empty(result.Errors);
     }
@@ -729,7 +725,7 @@ public class CommandLineTests
 
     [Theory]
     [InlineData("find")]
-    [InlineData("api")]
+    [InlineData("type")]
     public void PreprocessArgs_RequiredLibraryValueCanResembleLineLimit(
         string command)
     {
@@ -1226,63 +1222,6 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void ApiCommand_WithAllFlag_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--all"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithFilterOption_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "Spectre.Console", "--filter", "Progress*"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithAllFlagAndFilter_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json", "--all", "--filter", "*Serializer*"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithFieldsOnly_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "System.Text.Json", "--fields-only"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_PackageWideWithFieldsOnly_ParsesCorrectly()
-    {
-        // --fields-only without a type name should still parse (even if behavior is limited)
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "--package", "System.Text.Json", "--fields-only"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithDocs_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonSerializer", "--package", "Newtonsoft.Json", "--docs"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithDocsAndMember_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "JsonConvert", "--package", "Newtonsoft.Json", "--docs", "-m", "SerializeObject"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
     public void DiffCommand_WithPackageVersionRange_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0"]);
@@ -1570,22 +1509,6 @@ public class CommandLineTests
     public void DiffCommand_WithNameOnly_ParsesCorrectly()
     {
         var result = CommandLineBuilder.CreateRootCommand().Parse(["diff", "--package", "System.Text.Json@8.0.0..9.0.0", "--name-only"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithHierarchy_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--hierarchy"]);
-
-        Assert.Empty(result.Errors);
-    }
-
-    [Fact]
-    public void ApiCommand_WithInterfacesAndHierarchy_ParsesCorrectly()
-    {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["api", "Command", "--package", "System.CommandLine", "--interfaces", "--hierarchy"]);
 
         Assert.Empty(result.Errors);
     }

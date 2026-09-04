@@ -30,7 +30,7 @@
     <ProjectReference Include="../../src/CSharpText/CSharpText.csproj" />
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
-    <ProjectReference Include="../../src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="Fixtures/StateMachines/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
     <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
@@ -44,8 +44,8 @@
     <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
          its signature is stamped [RequiresUnsafeAttribute]; used to verify the
          API surface marks it unsafe. -->
-    <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
-    <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj">
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <ProjectReference Include="../../fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe/ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj">
       <Aliases>legacyunsafe</Aliases>
     </ProjectReference>
     <!-- #1741 fixture: DiffAsmTarget exposes two overloads whose parameter types

@@ -66,7 +66,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Restored Project Dependency Facts](design/restored-project-dependency-facts.md) | Host-neutral `project.assets.json` declarations, resolved package graph, typed identity, completion, failure, and containment. |
 | [Projected JSON Output](design/projected-json.md) | Typed versus lowered JSON, section-scoped projection, representability, atomic output, and adoption gates. |
 | [Inspection Graph Document](design/inspection-graph-document.md) | Typed multi-subject graph envelope for calls, metadata, integrations, Findings, occurrences, characteristics, and package/type lenses. |
-| [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The alignment, bounding, and guard-work invariants relating the custom-attribute value guard to SRM's decode, the two width-resolution paths, bounds, charging, and refusal semantics. Descriptive, with seven known gaps recorded against the contract. |
+| [Custom-Attribute Value Decoding](design/custom-attribute-value-decoding.md) | The bounding, fail-closed, and fidelity invariants for a custom-attribute decoder this repository will own, the format's adversarial properties, the two width-resolution paths, bounds, charging, and refusal semantics. Prescriptive ahead of the decoder (#5288 slice 2); SRM is still the production decoder today and becomes a test-time oracle when that lands. Nine known gaps recorded against the contract. |
 | [Bounded Metadata Signature Decoding](design/metadata-signature-decoding.md) | Design-only, unverified node, materialization, and work-ledger bounds for decoding one artifact-authored metadata signature. |
 | [Inspection Graph Modes](design/inspection-graph-modes.md) | Single-seed, peer-seed, and induced-set requests over member, type, assembly, and package subjects. |
 | [Call Graph Characteristics](design/call-graph-characteristics.md) | Mapping current call nodes, edges, occurrences, signals, and loop state into the inspection-graph descriptor model. |
@@ -86,6 +86,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
 | [Package Set Registry](design/package-set-registry.md) | Front-end-only static application identities, descriptors, and package membership over reusable package-coordinate validation. |
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
+| [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -137,6 +138,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
+| [Committed Authored-Corpus History](design/authored-corpus-history.md) | Admission, ordered observation addressing, sequence validity, provenance, compatibility, and consumer trust for the committed EVIL benchmark history. |
 | [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
 
 ### Contributor workflow and process docs

@@ -382,7 +382,8 @@ returned effect authority remains current.
 Before an asynchronous transition or snapshot installation removes the focused
 element, the UI synchronously parks focus on the persistent `dotnet-inspect`
 shell control outside replaceable destination renderers. This applies to
-closing a focused menu, dialog, or drawer, replacing a native Library `select`
+closing a focused menu or dialog, replacing a local navigation pane, replacing
+a native Library `select`
 with the custom listbox, and omitting a focused lens tablist after a
 no-effective-lens result. This parking step reflects local surface cleanup, not
 a product result.
@@ -425,19 +426,45 @@ replaces that renderer, the ordinary authority-validated replacement and
 fallback rules in [Shell and menu focus resolution](#shell-and-menu-focus-resolution)
 apply instead; focus never returns to an outgoing-renderer element.
 
+Opening a demo from the Workspace is an explicit replacement action. The
+consumer retains the source history entry while acquisition and destination
+rendering are in flight, pushes the canonical Workspace destination only after
+replacement succeeds, and leaves the source entry unchanged on failure.
+Any ordinary inspection action that leaves the demo catalog, including scope,
+Search, and loaded-package occurrence activation, follows the same push
+classification so Back returns to the catalog. If a catalog-origin NuGet
+package or Platform-library acquisition fails, the consumer restores the prior
+Workspace and catalog, restarts derived Workspace occurrence discovery,
+surfaces retry there, and returns focus to the stable Search control when it is
+rendered or otherwise to the retained surface's level-one heading, without
+committing a destination. The restarted occurrence discovery preserves that
+focus when its result replaces the catalog DOM.
+
 ### Package query entry and return
 
 Package query's `/query` route is a full-bleed routed surface under
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md)'s general
 Back/Forward and focus-restoration classification. This UI owns the entry and
 return specifics beyond that classification. Browser Back and Forward own
-entry and return; returning to the prior surface restores focus to the stable
-Search control when it is still rendered, otherwise it focuses that surface's
-level-one heading. The route's visible `Back` action invokes the same history
-transition, falling back to Home only when the route was loaded without an
-in-app predecessor. Each query history entry carries its own predecessor
-identity and focus target in session-only history state, so a later query
-route cannot change an older entry's Back behavior.
+entry and return. Entry from Search returns focus to Search when it remains
+rendered; entry from the application-scope strip returns focus to its Query
+control. Either path falls back to the prior surface's level-one heading. The
+route's visible `Back` action invokes the same history transition, falling back
+to Home only when the route was loaded without an in-app predecessor. Each
+query history entry carries its own predecessor identity and focus target in
+session-only history state, so a later query route cannot change an older
+entry's Back behavior.
+
+Selecting Query without a new seed restores the current session request,
+streamed rows, failures, and completion state. Selecting Workspace from Query
+pushes the retained Workspace surface when one exists, so Back returns to the
+unchanged query entry. A direct query visit with no retained Workspace renders
+the Workspace control unavailable rather than routing its label to Home.
+If the retained Workspace cannot be projected into a complete workspace URL,
+the transition still pushes an active-package Workspace successor, preserves
+the complete in-memory surface, and exposes the projection failure. Refreshing
+that degraded successor restores only its represented active package; Back
+still returns to the unchanged query entry.
 
 `Open in workspace` commits its result through the same typed transition
 lifecycle as any other product-issued outcome: success leaves `/query`, pushes

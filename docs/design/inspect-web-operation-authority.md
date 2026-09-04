@@ -16,6 +16,14 @@ Issue #5672 adds atomic unexpected-terminal publication for the Worker runtime
 consumer in #5636. It remains an operation-authority contract: producer
 placement and Worker settlement decoding stay outside this owner.
 
+Issue #5570 adds typed durable nonterminal publication for async-stream
+adopters. The authority owns current-operation admission and ordered
+publication, not feature event meaning, batching, or transport.
+
+Issue #5735 adds two-phase ordinary-terminal publication for the same consumer.
+It lets a producer commit multiple operation outcomes before any observer
+callout while leaving Worker closure selection and batching outside this owner.
+
 The checked
 [operation-authority model](models/inspect-web-operation-authority/README.md)
 establishes only the bounded abstract properties recorded with that model. It
@@ -41,7 +49,8 @@ The inspect-web operation-authority component owns:
 - one current operation for each independently replaceable feature view;
 - one typed logical outcome per operation;
 - cancellation, supersession, and disposal transitions;
-- authority to publish progress and terminal state into the current view; and
+- authority to publish progress, durable nonterminal events, and terminal state
+  into the current view; and
 - a separate quiescence signal after the producer releases
   operation-scoped resources.
 
@@ -71,6 +80,7 @@ placements.
 The producer adapter accepts one cancellation request and reports:
 
 - optional typed progress;
+- zero or more typed durable nonterminal events;
 - exactly one physical terminal result;
 - an unexpected terminal failure through one atomic diagnostic-and-terminal
   report when that classification applies;
@@ -123,6 +133,11 @@ interface OperationProgress<TProgress> {
   readonly value: TProgress;
 }
 
+interface OperationDurable<TDurable> {
+  readonly operationId: OperationId;
+  readonly value: TDurable;
+}
+
 interface OperationHandle<TValue, TError> {
   readonly id: OperationId;
   readonly outcome: Promise<OperationOutcome<TValue, TError>>;
@@ -158,7 +173,7 @@ type OperationControlResult =
       readonly reason: "feature-observer-active";
     };
 
-type OperationFeatureEvent<TValue, TError, TProgress> =
+type OperationFeatureEvent<TValue, TError, TProgress, TDurable = never> =
   | {
       readonly kind: "started";
       readonly operation: OperationIdentity;
@@ -172,6 +187,10 @@ type OperationFeatureEvent<TValue, TError, TProgress> =
   | {
       readonly kind: "progress";
       readonly progress: OperationProgress<TProgress>;
+    }
+  | {
+      readonly kind: "durable";
+      readonly durable: OperationDurable<TDurable>;
     }
   | {
       readonly kind: "terminal";
@@ -188,9 +207,14 @@ type OperationFeatureEvent<TValue, TError, TProgress> =
       readonly operationId: OperationId | null;
     };
 
-interface OperationFeatureObserver<TValue, TError, TProgress> {
+interface OperationFeatureObserver<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> {
   readonly publish: (
-    event: OperationFeatureEvent<TValue, TError, TProgress>,
+    event: OperationFeatureEvent<TValue, TError, TProgress, TDurable>,
   ) => undefined;
 }
 
@@ -207,8 +231,21 @@ interface OperationDiagnosticObserver {
   readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
-interface OperationProducerSink<TValue, TError, TProgress> {
+interface OperationTerminalPublication {
+  readonly publish: () => undefined;
+}
+
+interface OperationProducerSink<
+  TValue,
+  TError,
+  TProgress,
+  TDurable = never,
+> {
   readonly reportProgress: (value: TProgress) => undefined;
+  readonly reportDurable: (value: TDurable) => undefined;
+  readonly commitTerminal: (
+    outcome: OperationOutcome<TValue, TError>,
+  ) => OperationTerminalPublication;
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
@@ -244,11 +281,12 @@ interface OperationProducerAdapter<
   TError,
   TProgress,
   TPrepareError,
+  TDurable = never,
 > {
   readonly prepare: (
     identity: OperationIdentity,
     input: TInput,
-    sink: OperationProducerSink<TValue, TError, TProgress>,
+    sink: OperationProducerSink<TValue, TError, TProgress, TDurable>,
   ) => OperationPreparation<TPrepareError>;
 }
 
@@ -258,6 +296,7 @@ interface OperationSession<
   TError,
   TProgress,
   TPrepareError,
+  TDurable = never,
 > {
   start(
     input: TInput,
@@ -266,7 +305,8 @@ interface OperationSession<
       TValue,
       TError,
       TProgress,
-      TPrepareError
+      TPrepareError,
+      TDurable
     >,
   ): OperationStartResult<TValue, TError, TPrepareError>;
   cancelCurrent(reason?: OperationCancelReason): OperationControlResult;
@@ -282,6 +322,9 @@ because the returned handle is not observable until `start()` returns.
 The page owner creates a session with its feature and diagnostic observers.
 The feature observer receives only owner-issued events and retains all
 responsibility for the view's data shape, rendering, focus, and wording.
+`TDurable` defaults to `never`, so a producer for a feature without useful
+partial outcomes cannot call `reportDurable` with a payload or invent a
+durable-event type.
 
 Feature-event delivery is synchronous, one event at a time, and guarded against
 operation-authority reentrancy. The feature-delivery guard is the first
@@ -291,13 +334,15 @@ disposal, before disposed, terminal, canceled, or idempotency checks.
 return a rejected `OperationControlResult`, during every feature event; none
 changes authority state.
 
-All immediate callback interfaces use readonly function properties whose
-return is `undefined`, not TypeScript methods returning `void`. Under strict
-function types, this rejects Promise-returning implementations and
-implementations whose event, diagnostic, input, sink, or cancellation-reason
-parameter is narrower than the owner-issued type. This is an internal typed
-TypeScript boundary; an adapter that admits untyped JavaScript must validate
-equivalent synchronous behavior before constructing these values.
+All immediate callback interfaces use readonly function properties, not
+TypeScript methods returning `void`. Observer and producer-callout returns are
+exactly `undefined`; `commitTerminal` synchronously returns only its
+owner-issued publication capability. Under strict function types, this rejects
+Promise-returning implementations and implementations whose event, diagnostic,
+input, sink, outcome, or cancellation-reason parameter is narrower than the
+owner-issued type. This is an internal typed TypeScript boundary; an adapter
+that admits untyped JavaScript must validate equivalent synchronous behavior
+before constructing these values.
 
 Product feature observers are required to return normally. If one throws, the
 authority performs an internal fault transition rather than reentering the
@@ -315,6 +360,32 @@ diagnostic delivery, so the observer may reenter operation APIs. If diagnostic
 delivery throws, the authority catches it and writes the original diagnostic
 plus observer failure to the browser's last-resort console sink without
 recursively invoking the observer.
+
+`commitTerminal(outcome)` separates ordinary terminal authority from observer
+publication. It synchronously validates the producer record, commits the
+authorized outcome, and returns an opaque one-shot
+`OperationTerminalPublication` without invoking a feature or diagnostic
+observer. Calling `publish()` exercises only the already-reserved feature event
+or deferred producer-contract diagnostic. The capability remains valid after
+the outcome commit, but replacement or disposal before publication suppresses
+the stale feature event without replacing that committed outcome.
+
+A producer that needs cross-operation atomicity first calls `commitTerminal`
+for every affected sink and only then exercises the returned capabilities.
+Observer failure or diagnostic reentrancy from one publication therefore sees
+every sibling outcome as final. The producer must exercise each returned
+capability exactly once, synchronously before returning control from the
+producer callback that performed the final commit and before reporting
+quiescence. Repeated publication or quiescence with an outstanding capability
+is a producer-contract failure. Dropping a capability cannot be diagnosed until
+the producer attempts quiescence or another physical-liveness owner detects the
+missing release. `reportTerminal(outcome)` remains the one-step convenience
+path implemented as commit followed by immediate publication.
+
+Capability publication uses the same feature-event callout path as ordinary
+producer reports. A nested producer publication therefore retains the existing
+page-wide feature-delivery guard until the outermost event returns; the new
+capability does not add a separate operation-authority reentrancy entry point.
 
 `reportUnexpectedTerminal(error, diagnostic)` is the producer's atomic form
 for a terminal failure that also requires unexpected-failure reporting. It
@@ -451,28 +522,44 @@ hold:
 - it is that session's current operation; and
 - its logical outcome is pending.
 
-Progress and the acquisition of a success or failure terminal-event reservation
-use this one authority predicate. Cancellation, replacement, disposal, and
-observer-failure cleanup instead acquire their one-time feature-event or
-cancellation-forwarding reservations atomically with the transition that
-revokes authority. A reservation authorizes only its captured callout; it does
-not restore general publication authority. Request equality, a loading flag,
-or an independently maintained generation number is not a substitute.
+Progress, durable nonterminal events, and the acquisition of a success or
+failure terminal-event reservation use this one authority predicate.
+Cancellation, replacement, disposal, and observer-failure cleanup instead
+acquire their one-time feature-event or cancellation-forwarding reservations
+atomically with the transition that revokes authority. A reservation authorizes
+only its captured callout; it does not restore general publication authority.
+Request equality, a loading flag, or an independently maintained generation
+number is not a substitute.
 
 Progress with authority reserves one `progress` event before calling the
 feature observer; no authority state is written after the callout. Progress
-without authority is discarded. A producer success or expected failure without
-authority is consumed without publication. An unexpected late producer failure
-also cannot mutate the stale view, but the authority component forwards it to
-the diagnostic observer so stale suppression does not become silent failure
-suppression.
+without authority is discarded.
+
+Each `reportDurable(value)` call with authority synchronously publishes one
+`durable` event before returning. The authority neither coalesces nor discards
+authorized durable reports, so sequential calls retain producer order and a
+later terminal report cannot overtake them. The feature-owned payload may be
+one item, one item failure, or an already-formed batch; the authority does not
+interpret or split it. A durable report without authority is consumed without
+publication and cannot regain authority after replacement, cancellation,
+observer failure, or disposal. A durable report after the producer has already
+committed its own terminal outcome is instead a visible producer-contract
+failure, even if the terminal publication capability has not yet been
+exercised; completion must remain after every nonterminal event.
+
+A producer success or expected failure without authority is consumed without
+publication. An unexpected late producer failure also cannot mutate the stale
+view, but the authority component forwards it to the diagnostic observer so
+stale suppression does not become silent failure suppression.
 
 ### Logical completion
 
 The first authorized logical-completion transition atomically resolves
 `outcome` exactly once and reserves exactly one corresponding feature event:
 
-- producer success or failure reserves `terminal`;
+- ordinary producer success or failure may reserve `terminal` without
+  publication through `commitTerminal`, while `reportTerminal` immediately
+  exercises that reservation;
 - atomic unexpected terminal failure reserves `terminal` before delivering its
   diagnostic and exercises that reservation after diagnostic delivery;
 - direct cancellation reserves `canceled`;
@@ -482,15 +569,22 @@ The first authorized logical-completion transition atomically resolves
 These variants do not stack: replacement does not additionally publish
 `canceled` plus `started`, and disposal does not additionally publish
 `canceled`. A producer-reported canceled outcome uses `canceled` with its typed
-reason. Each reserved event remains authorized after the outcome or current
-operation changes, publishes after the authority commit, and permits no later
-authority write from that transition. Disposal's atomic feature-publication
-transition is the exception: it suppresses an unexpected-terminal reservation
-that is waiting behind diagnostic delivery and publishes only `disposed`,
-without changing the already-committed failed outcome. Physical producer
-completion after logical cancellation does not replace the canceled outcome.
-Duplicate terminal reports are producer-contract failures reported
-diagnostically; they do not
+reason. Except for the two publication-suppression rules below, each reserved
+event remains authorized after the outcome or current operation changes,
+publishes after the authority commit, and permits no later authority write from
+that transition:
+
+- replacement or disposal suppresses an ordinary terminal reservation returned
+  by `commitTerminal` if its capability has not yet published, without changing
+  the already-committed outcome; and
+- disposal's atomic feature-publication transition suppresses an
+  unexpected-terminal reservation waiting behind diagnostic delivery and
+  publishes only `disposed`, without changing the already-committed failed
+  outcome.
+
+Physical producer completion after logical cancellation does not replace the
+canceled outcome. Duplicate terminal reports are producer-contract failures
+reported diagnostically; they do not
 resolve the handle again or regain publication authority.
 
 ### Cancellation and supersession
@@ -536,6 +630,10 @@ producer adapter reports that physical work settled and all operation-scoped
 callbacks, subscriptions, registrations, and payload references are released,
 or when successful synchronous `abandon()` acknowledges that a never-activated
 installed binding released every prepared resource.
+For an activated producer, the authority accepts that report only after a
+physical terminal settlement is reported and every returned terminal
+publication capability is exercised. An earlier report is a producer-contract
+failure and does not resolve `quiesced`.
 The authority component does not infer quiescence from logical cancellation, a
 terminal outcome, elapsed time, or feature cleanup.
 
@@ -659,9 +757,15 @@ eventual producer quiescence. Choosing between them is producer policy.
 
 The model deliberately abstracts page-wide allocation, multiple sessions,
 TypeScript implementation and observer callouts, browser queues, producer
-internals, worker transport, managed interop, and arbitrary operation
-cardinality. Those are covered by focused implementation gates or adjacent
-owners.
+internals, worker transport, managed interop, arbitrary operation cardinality,
+and the two-phase commit/publication interval. In particular, exercising a
+reserved event after its commit is checked by focused implementation gates,
+not by the model's atomic completion action.
+
+The model's progress publication transition establishes the shared
+current-and-pending admission predicate for a nonterminal producer report. It
+does not claim durable payload retention or producer-order delivery; the
+Release TypeScript gate below owns those concrete properties.
 
 ## Required implementation gate
 
@@ -709,14 +813,28 @@ under the ordinary inspect-web `npm test` gate and include:
   commit-before-callout, one diagnostic, no escaping exception, no retry, and
   an unchanged first outcome;
 - synchronous and deferred producer completion;
+- two-phase terminal commit across independent sessions, with every handle
+  outcome final before the first feature or diagnostic observer callout and
+  diagnostic-reentrant sibling cancellation remaining a no-op;
+- one-shot terminal publication, deferred producer-contract diagnostics, and
+  quiescence rejection while any publication capability remains outstanding;
+- replacement and disposal between commit and publication suppressing the
+  stale feature event without replacing the committed outcome;
 - one logical outcome and one quiescence resolution;
 - omitted cancellation normalization, reason immutability, and exactly one
   producer cancellation request;
 - supersession atomically replacing current authority;
-- progress, success, failure, and cleanup mutations that try to update a stale
-  view;
-- exact `started`, `replaced`, `progress`, `terminal`, `canceled`, and
-  `disposed` feature events, including start/replacement publication before
+- progress, durable-event, success, failure, and cleanup mutations that try to
+  update a stale view;
+- current durable events reaching the feature exactly once in producer order,
+  without coalescing, and before a later terminal publication;
+- stale durable events being consumed without publication or diagnostics,
+  while progress remains a distinct replaceable event kind;
+- durable events after the producer's own terminal commit remaining suppressed
+  as visible producer-contract failures, including before delayed terminal
+  publication;
+- exact `started`, `replaced`, `progress`, `durable`, `terminal`, `canceled`,
+  and `disposed` feature events, including start/replacement publication before
   producer activation and cancellation/disposal publication before producer
   cancellation, with no stacked cancellation/start events for replacement or
   disposal;
@@ -748,7 +866,8 @@ under the ordinary inspect-web `npm test` gate and include:
 - stale-handle cancellation after supersession and after terminal/quiescence,
   leaving the replacement outcome, authority, cancellation count, and producer
   endpoint unchanged;
-- duplicate producer reports remaining visible contract failures;
+- duplicate producer reports and durable or progress reports after release
+  remaining visible contract failures;
 - disposal atomically preventing starts and publication before its endpoint
   callout, including a callout that synchronously attempts another start, while
   retaining event consumption through quiescence;
@@ -772,6 +891,7 @@ This owner does not claim:
 - worker message validation, replay handling, liveness, restart, or hard
   termination;
 - managed cancellation-token, progress-delegate, or result-envelope behavior;
+- durable-event batching, transport validation, or feature payload semantics;
 - generated-facade construction or bootstrap;
 - a CLI operation-authority abstraction;
 - feature rendering, retry, cache, shared-work, or queue semantics; or

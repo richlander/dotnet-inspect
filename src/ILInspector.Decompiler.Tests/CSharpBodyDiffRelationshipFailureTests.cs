@@ -320,7 +320,7 @@ public class CSharpBodyDiffRelationshipFailureTests
         return image.ToArray();
     }
 
-    static byte[] BuildBodyReferenceImage()
+    internal static byte[] BuildBodyReferenceImage()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(

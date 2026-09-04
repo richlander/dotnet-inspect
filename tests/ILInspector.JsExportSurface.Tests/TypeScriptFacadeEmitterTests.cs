@@ -67,7 +67,7 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Contains(
-            """import { dotnet, type RuntimeAPI } from "./_framework/dotnet.js";""",
+            """import { dotnet } from "./_framework/dotnet.js";""",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -330,11 +330,6 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Contains(
-            "$initialization = Promise.resolve()\n"
-                + "      .then($initializeRuntimeCore)",
-            source,
-            StringComparison.Ordinal);
-        Assert.Contains(
             "$initializationFailure = { error };\n"
                 + "        throw error;",
             source,
@@ -351,7 +346,18 @@ public sealed class TypeScriptFacadeEmitterTests
                 "throw $notInitializedError;",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
-            "export function initializeRuntime(): Promise<void>",
+            "export function initializeRuntime(\n"
+                + "  runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,\n"
+                + "): Promise<void>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "export function createRuntime(): Promise<JsExportRuntime>",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".then(() => runtime === undefined ? createRuntime() : runtime)\n"
+                + "      .then($initializeRuntimeCore)",
             source,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -739,6 +745,9 @@ public sealed class TypeScriptFacadeEmitterTests
                         StringComparison.Ordinal))
                 .Where(line =>
                     !line.StartsWith(
+                        "export function createRuntime(",
+                        StringComparison.Ordinal)
+                    && !line.StartsWith(
                         "export function initializeRuntime(",
                         StringComparison.Ordinal)
                     && !line.StartsWith(
@@ -827,7 +836,8 @@ public sealed class TypeScriptFacadeEmitterTests
             .. source.Split('\n')
                 .Where(line => line.StartsWith(
                     "export interface ",
-                    StringComparison.Ordinal)),
+                    StringComparison.Ordinal))
+                .Where(line => line != "export interface JsExportRuntime {"),
         ];
         Assert.Equal(2, declarations.Length);
         Assert.Equal(2, declarations.Distinct(StringComparer.Ordinal).Count());
@@ -966,6 +976,11 @@ public sealed class TypeScriptFacadeEmitterTests
             Name = "Promise",
             Kind = "class",
         };
+        var runtimeType = new ApiType
+        {
+            Name = "JsExportRuntime",
+            Kind = "class",
+        };
         var runtimeApiType = new ApiType
         {
             Name = "RuntimeAPI",
@@ -979,13 +994,18 @@ public sealed class TypeScriptFacadeEmitterTests
                     new Version(1, 0, 0, 0),
                     culture: null,
                     publicKeyToken: null),
-                Records = [promiseType, runtimeApiType],
+                Records = [promiseType, runtimeType, runtimeApiType],
                 Functions =
                 [
                     Function(
                         "Fixture.Exports",
                         "InitializeRuntime",
                         "InitializeRuntime.1",
+                        "void"),
+                    Function(
+                        "Fixture.Exports",
+                        "CreateRuntime",
+                        "CreateRuntime.2",
                         "void"),
                 ],
             };
@@ -995,21 +1015,32 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Equal(
-            2,
+            3,
             source.Split(
                 "export interface type_",
                 StringSplitOptions.None).Length - 1);
-        Assert.DoesNotContain(
-            "export interface RuntimeAPI",
-            source,
-            StringComparison.Ordinal);
         Assert.Equal(
             1,
             source.Split(
-                "export function initializeRuntime(): Promise<void>",
+                "export interface JsExportRuntime {",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export function createRuntime(",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            1,
+            source.Split(
+                "export function initializeRuntime(",
+                StringSplitOptions.None).Length - 1);
+        Assert.Equal(
+            2,
+            source.Split(
+                "export function operation_",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
-            "export function operation_",
+            "function $ownDataProperty(value: unknown, key: string): unknown",
             source,
             StringComparison.Ordinal);
     }
@@ -1059,7 +1090,7 @@ public sealed class TypeScriptFacadeEmitterTests
         Assert.Equal(
             1,
             source.Split(
-                "export function initializeRuntime(): Promise<void>",
+                "export function initializeRuntime(",
                 StringSplitOptions.None).Length - 1);
         Assert.Contains(
             "function $ownDataProperty(value: unknown, key: string): unknown",
@@ -1313,6 +1344,7 @@ public sealed class TypeScriptFacadeEmitterTests
             .Where(line =>
                 line.StartsWith("export interface ", StringComparison.Ordinal)
                 || line.StartsWith("export type ", StringComparison.Ordinal))
+            .Where(line => line != "export interface JsExportRuntime {")
             .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[2]),
     ];
 
