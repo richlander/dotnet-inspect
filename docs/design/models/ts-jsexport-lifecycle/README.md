@@ -12,10 +12,10 @@ facade, two assembly-specific export roots, and one SDK-owned runtime in a
 JavaScript realm. It checks both coordination modes permitted by the design:
 
 - `SharedInFlight`: both facade modules begin initialization concurrently and
-  attach through runtime-owner coordination.
+  attach through one consumer-supplied runtime promise.
 - `Serialized`: the consumer starts the second facade only after the first
-  reaches a terminal result. A local failure therefore does not strand the
-  second facade, which can still reuse the completed runtime.
+  reaches a terminal result, passing both the same completed runtime handle. A
+  local failure therefore does not strand the second facade.
 
 Each caller issues its own initialization request. The first request for a
 facade starts its state machine; concurrent and later requests join the same
@@ -43,9 +43,11 @@ Those concerns retain their concrete gates in the owning design and in
 
 ## Assumptions
 
-- One imported SDK builder owns one runtime state per JavaScript realm.
-- The consumer either serializes facade initialization or supplies shared
-  in-flight runtime coordination.
+- One consumer-selected generated module invokes the imported SDK builder
+  exactly once per JavaScript realm.
+- The consumer passes that one runtime promise or completed handle to every
+  facade and either serializes facade initialization or supplies the shared
+  in-flight promise.
 - Each bounded caller eventually requests initialization. Runtime creation,
   assembly acquisition, and validation eventually complete when enabled.
   `Spec` states those weak-fairness assumptions explicitly.
@@ -80,11 +82,11 @@ Those concerns retain their concrete gates in the owning design and in
 | Ready and failed states are stable until realm restart | `TerminalPhasePersistsUntilRestart` |
 
 In the shared-in-flight positive trace, separate caller actions start both
-facades, one facade changes the runtime from absent to creating, the other
-joins that creation, and each then acquires its own root. In the serialized
-positive trace, caller actions start only `FacadeA`; after it reaches a
-terminal result, callers start `FacadeB`, which observes the same completed
-runtime without starting another one.
+facades, the consumer-owned promise changes the runtime from absent to
+creating, both facades join that creation, and each then acquires its own root.
+In the serialized positive trace, caller actions start only `FacadeA`; after it
+reaches a terminal result, callers start `FacadeB` with the same completed
+runtime handle and do not start another one.
 
 ## Running TLC
 

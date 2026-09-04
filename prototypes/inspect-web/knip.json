@@ -10,7 +10,13 @@
     "scripts/*.ts"
   ],
   "ignore": [
-    "engine/wwwroot/inspect-web-engine.js"
+    "engine/wwwroot/inspect-web-host.js",
+    "engine/wwwroot/inspect-web-package.js",
+    "engine/wwwroot/inspect-web-metadata.js",
+    "engine/wwwroot/inspect-web-analysis.js",
+    "engine/wwwroot/inspect-web-source.js",
+    "engine/wwwroot/inspect-web-call-graph.js",
+    "engine/wwwroot/inspect-web-catalog.js"
   ],
   "ignoreDependencies": [
     "type-fest"

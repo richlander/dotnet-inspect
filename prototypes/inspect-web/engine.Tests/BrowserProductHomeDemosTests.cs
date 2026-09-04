@@ -2,6 +2,8 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries.Definitions;
 
+using InspectWeb.Engine.CatalogFacade;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
@@ -10,7 +12,7 @@ public sealed class BrowserProductHomeDemosTests
     [Fact]
     public void ListHomeDemos_MatchesProductCatalogOrderAndLabels()
     {
-        using var document = JsonDocument.Parse(InspectionEngine.ListHomeDemos());
+        using var document = JsonDocument.Parse(CatalogExports.ListHomeDemos());
         var demos = document.RootElement.GetProperty("demos");
         Assert.Equal(ProductInspectionDemos.Entries.Count, demos.GetArrayLength());
         for (var i = 0; i < demos.GetArrayLength(); i++)
@@ -26,11 +28,11 @@ public sealed class BrowserProductHomeDemosTests
     [Fact]
     public void ResolveHomeDemo_UnknownId_ReturnsNotFound()
     {
-        using var missing = JsonDocument.Parse(InspectionEngine.ResolveHomeDemo("not-a-demo"));
+        using var missing = JsonDocument.Parse(CatalogExports.ResolveHomeDemo("not-a-demo"));
         Assert.False(missing.RootElement.GetProperty("found").GetBoolean());
         Assert.Equal(JsonValueKind.Null, missing.RootElement.GetProperty("demo").ValueKind);
 
-        using var legacy = JsonDocument.Parse(InspectionEngine.ResolveHomeDemo("stj"));
+        using var legacy = JsonDocument.Parse(CatalogExports.ResolveHomeDemo("stj"));
         Assert.False(legacy.RootElement.GetProperty("found").GetBoolean());
     }
 
@@ -38,7 +40,7 @@ public sealed class BrowserProductHomeDemosTests
     public void ResolveHomeDemo_StjSerializer_ProjectsPackageAndTypeView()
     {
         using var document = JsonDocument.Parse(
-            InspectionEngine.ResolveHomeDemo(ProductInspectionDemos.StjSerializerScenarioId));
+            CatalogExports.ResolveHomeDemo(ProductInspectionDemos.StjSerializerScenarioId));
         var root = document.RootElement.GetProperty("demo");
         Assert.True(document.RootElement.GetProperty("found").GetBoolean());
         Assert.Equal(ProductInspectionDemos.StjSerializerScenarioId, root.GetProperty("id").GetString());
@@ -62,7 +64,7 @@ public sealed class BrowserProductHomeDemosTests
     public void ResolveHomeDemo_ExtensionsCallGraph_ProjectsPackagesAndMemberAnchor()
     {
         using var document = JsonDocument.Parse(
-            InspectionEngine.ResolveHomeDemo(ProductInspectionDemos.ExtensionsCallGraphScenarioId));
+            CatalogExports.ResolveHomeDemo(ProductInspectionDemos.ExtensionsCallGraphScenarioId));
         var root = document.RootElement.GetProperty("demo");
         var members = root.GetProperty("workspaceMembers");
         Assert.Equal(3, members.GetArrayLength());
@@ -229,7 +231,7 @@ public sealed class BrowserProductHomeDemosTests
     public async Task RunHomeDemo_UnknownId_ReturnsNotFound()
     {
         using var document = JsonDocument.Parse(
-            await InspectionEngine.RunHomeDemo("not-a-demo"));
+            await CatalogExports.RunHomeDemo("not-a-demo"));
 
         Assert.False(document.RootElement.GetProperty("found").GetBoolean());
         Assert.Empty(document.RootElement.GetProperty("packages").EnumerateArray());
