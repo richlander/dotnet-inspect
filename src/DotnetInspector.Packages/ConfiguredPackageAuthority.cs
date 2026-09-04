@@ -111,7 +111,7 @@ public sealed class ConfiguredPackageAuthority
             }
 
             stableIdentity =
-                $"http:{PackageSourceIdentity.ForHttpEndpoint(endpoint).Value}";
+                $"http:{classification.HttpEndpointKey}";
         }
 
         byte[] digest = SHA256.HashData(
@@ -133,28 +133,28 @@ internal sealed record ClassifiedPackageSourceIdentity
 {
     private ClassifiedPackageSourceIdentity(
         ConfiguredPackageAuthorityKind kind,
-        PackageSourceIdentity? httpIdentity,
+        string? httpEndpointKey,
         LocalPackageSourceIdentity? localIdentity)
     {
         Kind = kind;
-        HttpIdentity = httpIdentity;
+        HttpEndpointKey = httpEndpointKey;
         LocalIdentity = localIdentity;
     }
 
     public ConfiguredPackageAuthorityKind Kind { get; }
-    public PackageSourceIdentity? HttpIdentity { get; }
+    public string? HttpEndpointKey { get; }
     public LocalPackageSourceIdentity? LocalIdentity { get; }
 
     public static ClassifiedPackageSourceIdentity Http(Uri endpoint) =>
         new(
             ConfiguredPackageAuthorityKind.Http,
-            PackageSourceIdentity.ForHttpEndpoint(endpoint),
+            NuGetCredentialScope.CanonicalizeEndpoint(endpoint),
             localIdentity: null);
 
     public static ClassifiedPackageSourceIdentity Local(
         LocalPackageSourceIdentity identity) =>
         new(
             ConfiguredPackageAuthorityKind.LocalFolder,
-            httpIdentity: null,
+            httpEndpointKey: null,
             identity);
 }
