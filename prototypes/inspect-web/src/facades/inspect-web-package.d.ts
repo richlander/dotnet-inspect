@@ -265,7 +265,7 @@ export interface JsExportRuntime {
 export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
-export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
+export declare function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation>;
 export declare function cancelPackageQuery(): void;
 export declare function clearWorkspacePackageOccurrences(): void;
 export declare function getPackageDocument(packageId: string, version: string, path: string): Promise<BrowserPackageDocumentContent>;

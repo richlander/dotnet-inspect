@@ -2338,9 +2338,9 @@ function workspaceOccurrenceViewIsVisible() {
   });
 }
 
-function activateWorkspacePackageOccurrence(action: string) {
+async function activateWorkspacePackageOccurrence(action: string) {
   const result: BrowserWorkspacePackageOccurrenceActivation =
-    inspectActivateWorkspacePackageOccurrence(action);
+    await inspectActivateWorkspacePackageOccurrence(action);
   if (!result.activated || !result.package) {
     state.workspaceOccurrenceSignature = "";
     ensureWorkspaceOccurrenceView();

@@ -304,7 +304,7 @@ export interface BrowserWorkspacePackageOccurrenceView {
 
 type $ManagedExports = {
   readonly "PackageExports": {
-    readonly "ActivateWorkspacePackageOccurrence.304094707": (action: string) => string;
+    readonly "ActivateWorkspacePackageOccurrence.976702342": (action: string) => Promise<string>;
     readonly "CancelPackageQuery.19325221": () => void;
     readonly "ClearWorkspacePackageOccurrences.19325221": () => void;
     readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
@@ -369,9 +369,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+    value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.976702342");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+      throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.976702342\u0027 is not callable.");
     }
   }
   {
@@ -539,8 +539,8 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
-export function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation {
-  const $result = $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+export async function activateWorkspacePackageOccurrence(action: string): Promise<BrowserWorkspacePackageOccurrenceActivation> {
+  const $result = await $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserWorkspacePackageOccurrenceActivation;
 }

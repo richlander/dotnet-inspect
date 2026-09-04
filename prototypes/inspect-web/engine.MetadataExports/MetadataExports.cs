@@ -144,34 +144,38 @@ public static partial class MetadataExports
         string assemblyFileName,
         string pack)
     {
-        await using BrowserPlatformScopeResolution resolution =
+        BrowserPackageMetadata metadata;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        AssemblyContextEntry<MetadataImageOverview> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                AssemblyContextMetadataImageQuery.ExecuteParticipant);
-        string assembly = PlatformAssemblyFileName(
-            resolution.Participant.Participant.Assembly.Identity.Name);
-        BrowserPackageMetadata metadata = result switch
+                pack))
         {
-            AssemblyContextEntry<MetadataImageOverview>.Available available =>
-                new BrowserPackageMetadata(
-                    [ProjectMetadataAssembly(assembly, available.Value)],
-                    null,
+            AssemblyContextEntry<MetadataImageOverview> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextMetadataImageQuery.ExecuteParticipant);
+            string assembly = PlatformAssemblyFileName(
+                resolution.Participant.Participant.Assembly.Identity.Name);
+            metadata = result switch
+            {
+                AssemblyContextEntry<MetadataImageOverview>.Available available =>
+                    new BrowserPackageMetadata(
+                        [ProjectMetadataAssembly(assembly, available.Value)],
+                        null,
+                        BrowserMetadataWireProjection.Project(
+                            BrowserCompileLibraryProjection.Selected(
+                                resolution.Scope.Framework))),
+                _ => new BrowserPackageMetadata(
+                    [],
+                    MetadataFailure(result),
                     BrowserMetadataWireProjection.Project(
-                        BrowserCompileLibraryProjection.Selected(
-                            resolution.Scope.Framework))),
-            _ => new BrowserPackageMetadata(
-                [],
-                MetadataFailure(result),
-                BrowserMetadataWireProjection.Project(
-                        BrowserCompileLibraryProjection.Selected(
-                            resolution.Scope.Framework))),
-        };
+                            BrowserCompileLibraryProjection.Selected(
+                                resolution.Scope.Framework))),
+            };
+        }
+
         return JsonSerializer.Serialize(
             metadata,
             BrowserMetadataJsonContext.Default.BrowserPackageMetadata);
@@ -187,30 +191,35 @@ public static partial class MetadataExports
         int startRowId,
         int maxRows)
     {
-        await using BrowserPlatformScopeResolution resolution =
+        BrowserMetadataWindow window;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        var request = new MetadataTableWindowRequest(
-            (TableIndex)tableIndex,
-            startRowId,
-            maxRows);
-        AssemblyContextEntry<MetadataTableWindow> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, participant) =>
-                    AssemblyContextMetadataTableQuery.ExecuteParticipant(
-                        group,
-                        participant,
-                        request));
-        return JsonSerializer.Serialize(
-            ProjectMetadataWindow(
+                pack))
+        {
+            var request = new MetadataTableWindowRequest(
+                (TableIndex)tableIndex,
+                startRowId,
+                maxRows);
+            AssemblyContextEntry<MetadataTableWindow> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, participant) =>
+                        AssemblyContextMetadataTableQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            request));
+            window = ProjectMetadataWindow(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 tableIndex,
-                result),
+                result);
+        }
+
+        return JsonSerializer.Serialize(
+            window,
             BrowserMetadataJsonContext.Default.BrowserMetadataWindow);
     }
 
@@ -222,27 +231,32 @@ public static partial class MetadataExports
         string pack,
         string heap)
     {
-        await using BrowserPlatformScopeResolution resolution =
+        HeapKind heapKind = ParseHeap(heap);
+        BrowserHeapListing listing;
+        await using (BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
                 assemblyFileName,
-                pack);
-        HeapKind heapKind = ParseHeap(heap);
-        AssemblyContextEntry<MetadataHeapEntrySet> result =
-            resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, participant) =>
-                    AssemblyContextMetadataHeapQuery.ExecuteParticipant(
-                        group,
-                        participant,
-                        heapKind));
-        return JsonSerializer.Serialize(
-            ProjectHeapListing(
+                pack))
+        {
+            AssemblyContextEntry<MetadataHeapEntrySet> result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, participant) =>
+                        AssemblyContextMetadataHeapQuery.ExecuteParticipant(
+                            group,
+                            participant,
+                            heapKind));
+            listing = ProjectHeapListing(
                 PlatformAssemblyFileName(
                     resolution.Participant.Participant.Assembly.Identity.Name),
                 heapKind,
-                result),
+                result);
+        }
+
+        return JsonSerializer.Serialize(
+            listing,
             BrowserMetadataJsonContext.Default.BrowserHeapListing);
     }
 

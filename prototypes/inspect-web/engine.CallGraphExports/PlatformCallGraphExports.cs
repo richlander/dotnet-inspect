@@ -32,7 +32,8 @@ public static partial class CallGraphExports
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        await using PlatformGraphBuild build =
+        BrowserCallGraph graph;
+        await using (PlatformGraphBuild build =
             await BuildPlatformGraphAsync(
                 targetFramework,
                 platformVersion,
@@ -44,44 +45,47 @@ public static partial class CallGraphExports
                 typeFullName,
                 memberName,
                 selectorKey,
-                metadataToken);
-        BrowserPlatformScopeResolution resolution = build.Resolution;
-        MemberCallGraphView view = build.View;
-        CallGraphProjection projection = build.Projection;
-        int callerAssemblies = resolution.Scope.Members
-            .Select(candidate =>
-                candidate.Participant.Assembly.Identity.Name)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
+                metadataToken))
+        {
+            BrowserPlatformScopeResolution resolution = build.Resolution;
+            MemberCallGraphView view = build.View;
+            CallGraphProjection projection = build.Projection;
+            int callerAssemblies = resolution.Scope.Members
+                .Select(candidate =>
+                    candidate.Participant.Assembly.Identity.Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            graph = new BrowserCallGraph(
+                    BrowserCallGraphProjection.Mermaid(projection),
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Tree(view.CallerRoot)),
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Tree(view.CalleeRoot)),
+                    new BrowserCallGraphScope(
+                        Packages: 0,
+                        resolution.Scope.Members.Length,
+                        callerAssemblies,
+                        view.Tier.ToString()),
+                    [
+                        .. BrowserCallGraphProjection.Targets(
+                            projection.Nodes,
+                            resolution.Scope.Members.Select(candidate =>
+                                candidate.Participant.Assembly.Identity),
+                            resolution.Scope.PlatformPackForAssembly)
+                            .Select(BrowserCallGraphWireProjection.Project),
+                    ],
+                    BrowserCallGraphWireProjection.Project(
+                        BrowserCallGraphProjection.Diagnostics(
+                            view.Diagnostics,
+                            projection.HasUnexploredTraversalBoundary,
+                            projection.HasAnalysisFailureBoundary)),
+                    NoBody:
+                        view.CalleeRoot is null
+                        && view.CallerRoot is null);
+        }
 
         return JsonSerializer.Serialize(
-            new BrowserCallGraph(
-                BrowserCallGraphProjection.Mermaid(projection),
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Tree(view.CallerRoot)),
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Tree(view.CalleeRoot)),
-                new BrowserCallGraphScope(
-                    Packages: 0,
-                    resolution.Scope.Members.Length,
-                    callerAssemblies,
-                    view.Tier.ToString()),
-                [
-                    .. BrowserCallGraphProjection.Targets(
-                        projection.Nodes,
-                        resolution.Scope.Members.Select(candidate =>
-                            candidate.Participant.Assembly.Identity),
-                        resolution.Scope.PlatformPackForAssembly)
-                        .Select(BrowserCallGraphWireProjection.Project),
-                ],
-                BrowserCallGraphWireProjection.Project(
-                    BrowserCallGraphProjection.Diagnostics(
-                        view.Diagnostics,
-                        projection.HasUnexploredTraversalBoundary,
-                        projection.HasAnalysisFailureBoundary)),
-                NoBody:
-                    view.CalleeRoot is null
-                    && view.CallerRoot is null),
+            graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
     }
 

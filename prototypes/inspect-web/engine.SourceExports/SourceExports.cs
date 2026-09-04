@@ -76,6 +76,7 @@ public static partial class SourceExports
             assemblyName,
             typeIdentity,
             operation.CancellationToken);
+        BrowserSource source;
         await using (scopeLease)
         {
             BrowserInspectionScope scope = scopeLease.Scope;
@@ -90,11 +91,12 @@ public static partial class SourceExports
                     request,
                     CreateSourceContext(),
                     operation.CancellationToken));
-
-            return JsonSerializer.Serialize(
-                Adapt(result, participant),
-                BrowserSourceJsonContext.Default.BrowserSource);
+            source = Adapt(result, participant);
         }
+
+        return JsonSerializer.Serialize(
+            source,
+            BrowserSourceJsonContext.Default.BrowserSource);
     }
 
     [JSExport]
