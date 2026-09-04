@@ -34,7 +34,7 @@ internal static class DecompilerProjectGraphPolicy
         if (!ProjectInventory.TryLoad(
                 repository,
                 "eng/decompiler-gate-skip-projects.txt",
-                ["src/", "tests/", "tools/"],
+                ["fixtures/", "src/", "tests/", "tools/"],
                 requireNonEmpty: false,
                 out ProjectInventory inventory))
         {

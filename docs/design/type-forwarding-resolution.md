@@ -1058,13 +1058,13 @@ public sealed class AssemblyBindingSelectionSnapshot
         AssemblyBindingPolicyVersion policyVersion,
         AssemblyBindingSelection selection)
     {
-        PolicyVersion = policyVersion
+        Version = policyVersion
             ?? throw new ArgumentNullException(nameof(policyVersion));
         Selection = selection
             ?? throw new ArgumentNullException(nameof(selection));
     }
 
-    public AssemblyBindingPolicyVersion PolicyVersion { get; }
+    public AssemblyBindingPolicyVersion Version { get; }
     public AssemblyBindingSelection Selection { get; }
 }
 
@@ -1158,11 +1158,13 @@ internal interface IAssemblyBindingResolver
 
 #### Atomic selection/version snapshots
 
-> **Status: design-only and unverified.** #5264 defines this target contract,
-> and the companion TLA+ model checks it. The product still returns
-> `AssemblyBindingSelection` from `Select` and observes `Version` separately;
-> formal model-to-implementation correspondence and product gates remain
-> unverified.
+> **Status: partially implemented by #5646.** Policies return
+> `AssemblyBindingSelectionSnapshot`, and Metadata validates the returned token
+> before interpreting a cold answer and validates the current token again at
+> the generation commit point. Focused Release tests enforce foreign-snapshot
+> rejection and policy-publication exclusion. Non-reused transforming-policy
+> tokens, delegated-version refresh, supersession retry, and full
+> model-to-implementation correspondence remain unverified.
 
 `AssemblyBindingSelectionSnapshot` is the policy owner's immutable answer for
 one request. It atomically carries the exact
@@ -2584,8 +2586,10 @@ current ownership boundaries.
   frozen manifest does.
 - The focused
   [binding selection/version models](models/binding-selection-version/README.md)
-  are bounded design evidence only; their snapshot contract and product
-  correspondence remain unverified.
+  are bounded design evidence. Focused Release gates implement the
+  selection-side snapshot association, foreign-payload exclusion, and final
+  commit ordering; transforming-policy refresh, workspace retry, producer token
+  non-reuse, and full model-to-product correspondence remain unverified.
 - The focused
   [binding name-ownership model](models/binding-name-ownership/README.md)
   and its mapped Release gates remain the executable evidence for

@@ -1239,7 +1239,7 @@ public class PlatformResolverTests
                                 Culture: null,
                                 PublicKeyToken: null)),
                         AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Any)));
+                        AssemblyResolutionScope.Any)).Selection);
     }
 
     /// <summary>

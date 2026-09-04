@@ -75,6 +75,7 @@
         "ILInspector.Analysis.CallerGraph*",
         "DotnetInspector.MetadataRendering",
         "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.Services"
       ],
@@ -91,6 +92,21 @@
       ],
       "targets": [
         "DotnetInspector.MetadataRendering"
+      ],
+      "allowOnly": [
+        "$platform",
+        "$repository",
+        "Markout"
+      ]
+    },
+    {
+      "id": "presentation-external-dependencies",
+      "source": "docs/architecture.md#query-and-current-lens-composition",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspector.Presentation"
       ],
       "allowOnly": [
         "$platform",
@@ -126,6 +142,7 @@
       "allowOnly": [
         "$platform",
         "$repository",
+        "NuGet.Frameworks",
         "NuGet.Versioning"
       ]
     },

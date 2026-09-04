@@ -213,8 +213,30 @@ requests. The two profile passes ran concurrently from separate networks, so
 the values characterize observed end-to-end service latency rather than
 isolated CPU throughput. The probe used a 30-minute operation ceiling so the
 source boundary could be measured; the CLI default is 120 seconds. The 5,000
-request did not produce 5,000 candidates: NuGet Gallery
-reached its documented 3,000-skip boundary after 2,933 matching package IDs.
+request did not produce 5,000 candidates. NuGet Gallery's
+[Search Query Service](https://learn.microsoft.com/nuget/api/search-query-service-resource)
+permits `skip` values only through 3,000 and `take` values only through 1,000.
+Its response contains `totalHits` and `data`, not a continuation cursor or
+next-page link that can cross that offset boundary.
+
+The current prefix client requests fixed 100-row pages. In this measurement it
+therefore examined the ranked search rows at offsets 0 through 3,000, at most
+3,100 raw rows, before returning `SourcePageLimit`. The Gallery query is
+broader ranked text search; the client then applies exact case-insensitive
+prefix matching and package-ID deduplication. Those steps yielded 2,933
+accepted `Microsoft.` package IDs. That number is neither the source's maximum
+package count nor the maximum legal offset.
+
+A client could use the documented maximum `take` on the final legal offset and
+inspect up to the first 4,000 ranked rows, but it still could not request the
+next offset. The current fixed-page path leaves that final-page capacity
+unused. Exhaustive enumeration beyond the bounded Search window requires a
+different source mechanism, such as a maintained view over the append-only
+NuGet Catalog; it is not another Search page. The measured 500 default and
+1,000 CLI maximum remain below this distinction and continue to be selected
+from end-to-end latency and operation-deadline evidence rather than from the
+largest theoretically reachable search window.
+
 The profile issued 2,964 HTTP requests, produced 2,931 matches and two visible
 manifest failures, and retained `SourcePageLimit` truncation. CPU time remained
 below 1.3 seconds in every profile run, so wall time was network-bound rather
@@ -279,8 +301,9 @@ product-issued opaque facet IDs and do not reconstruct those predicates:
 - **`nuspec` tier.** Available over the bounded package profile produced from
   source metadata and exact manifests. `PackageQuery.Facets` is the finite,
   ordered vocabulary. `PackageQuery.Plan` validates selected IDs and
-  compatibility, and `PackageQuery.ExecuteAsync` ANDs the selected definitions
-  before applying the semantic match limit. A facet's tier names the
+  compatibility. `PackageQuery.ExecuteAsync` ANDs independent facets and ORs
+  selected combining members of one product-issued selection group before
+  applying the semantic match limit. A facet's tier names the
   production envelope in which it is available, not the narrowest individual
   field its predicate reads; the common nuspec result row still carries exact
   manifest facts.
@@ -289,7 +312,9 @@ product-issued opaque facet IDs and do not reconstruct those predicates:
   `PackageQuery` still applies manifest predicates first, so a tool-format
   facet does not acquire non-tool packages. The current archive-derived
   facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
-  `skills/SKILL.md` or `skills/**/SKILL.md`.
+  `skills/SKILL.md` or `skills/**/SKILL.md`. Tool v1 and v2 are combining
+  members, so selecting both returns either format with evidence identifying
+  the matched version; the manifest-only any-tool facet remains exclusive.
 - **Future promoted IL tier.** Requires opening IL for a bounded set of
   candidates — never for the whole corpus. It must be capability-gated the
   same way the repository already gates other exhaustive/expensive work

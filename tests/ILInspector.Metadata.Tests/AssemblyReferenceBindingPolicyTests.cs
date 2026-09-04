@@ -30,13 +30,15 @@ public class AssemblyReferenceBindingPolicyTests
         var firstRequest = Request(AssemblyBindingTarget.Reference(Reference));
         var equivalentRequest = Request(AssemblyBindingTarget.Reference(Reference));
 
-        AssemblyBindingSelection first = policy.Select(firstRequest);
-        AssemblyBindingSelection second = policy.Select(equivalentRequest);
+        AssemblyBindingSelectionSnapshot first = policy.Select(firstRequest);
+        AssemblyBindingSelectionSnapshot second =
+            policy.Select(equivalentRequest);
 
         Assert.Same(first, second);
+        Assert.Same(version, first.Version);
         Assert.Equal(
             AssemblyBindingMissDisposition.Undifferentiated,
-            Assert.IsType<AssemblyBindingSelection.Missing>(first)
+            Assert.IsType<AssemblyBindingSelection.Missing>(first.Selection)
                 .Disposition);
         Assert.Equal(Reference, Assert.Single(resolver.Requests).Identity);
         Assert.Same(version, policy.Version);
@@ -62,6 +64,19 @@ public class AssemblyReferenceBindingPolicyTests
     }
 
     [Fact]
+    public void AssemblyBindingSelectionSnapshot_RequiresBothComponents()
+    {
+        var version = new AssemblyBindingPolicyVersion();
+        AssemblyBindingSelection selection =
+            AssemblyBindingSelection.NameNotOwned();
+
+        Assert.Throws<ArgumentNullException>(
+            () => new AssemblyBindingSelectionSnapshot(null!, selection));
+        Assert.Throws<ArgumentNullException>(
+            () => new AssemblyBindingSelectionSnapshot(version, null!));
+    }
+
+    [Fact]
     public void Select_MapsRecoverableResolverFailuresToUnavailable()
     {
         Exception[] failures =
@@ -82,7 +97,8 @@ public class AssemblyReferenceBindingPolicyTests
                 Assert.IsType<AssemblyBindingSelection.Unavailable>(
                     policy.Select(
                         Request(
-                            AssemblyBindingTarget.Reference(Reference))));
+                            AssemblyBindingTarget.Reference(Reference)))
+                        .Selection);
 
             Assert.Equal(
                 AssemblyBindingFailureKind.CandidateUnavailable,
@@ -97,7 +113,8 @@ public class AssemblyReferenceBindingPolicyTests
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
-            policy.Select(Request(AssemblyBindingTarget.CoreLibrary())));
+            policy.Select(Request(AssemblyBindingTarget.CoreLibrary()))
+                .Selection);
 
         Assert.Equal(
             AssemblyBindingFailureKind.UnsupportedScope,
@@ -127,13 +144,18 @@ public class AssemblyReferenceBindingPolicyTests
         AssemblyBindingRequest coreRequest =
             Request(AssemblyBindingTarget.CoreLibrary());
 
-        AssemblyBindingSelection first = policy.Select(referenceRequest);
-        AssemblyBindingSelection second = policy.Select(referenceRequest);
-        AssemblyBindingSelection core = policy.Select(coreRequest);
+        AssemblyBindingSelectionSnapshot first =
+            policy.Select(referenceRequest);
+        AssemblyBindingSelectionSnapshot second =
+            policy.Select(referenceRequest);
+        AssemblyBindingSelectionSnapshot core = policy.Select(coreRequest);
 
-        Assert.Same(referenceSelection, first);
-        Assert.Same(referenceSelection, second);
-        Assert.Same(coreSelection, core);
+        Assert.Same(referenceSelection, first.Selection);
+        Assert.Same(referenceSelection, second.Selection);
+        Assert.Same(coreSelection, core.Selection);
+        Assert.Same(resolver.Version, first.Version);
+        Assert.Same(resolver.Version, second.Version);
+        Assert.Same(resolver.Version, core.Version);
         Assert.Equal(
             [referenceRequest, referenceRequest, coreRequest],
             resolver.Requests);
@@ -154,7 +176,8 @@ public class AssemblyReferenceBindingPolicyTests
         var policy = new AssemblyReferenceBindingPolicy(resolver);
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
-            policy.Select(Request(AssemblyBindingTarget.CoreLibrary())));
+            policy.Select(Request(AssemblyBindingTarget.CoreLibrary()))
+                .Selection);
 
         Assert.Same(selected, result.Assembly);
         Assert.Equal(1, resolver.SelectionCount);
@@ -177,7 +200,8 @@ public class AssemblyReferenceBindingPolicyTests
 
         var result = Assert.IsType<AssemblyBindingSelection.Selected>(
             policy.Select(
-                Request(AssemblyBindingTarget.Reference(Reference))));
+                Request(AssemblyBindingTarget.Reference(Reference)))
+                .Selection);
 
         Assert.Same(selected, result.Assembly);
         Assert.Same(shadow, Assert.Single(result.ShadowedAssemblies));
@@ -198,7 +222,8 @@ public class AssemblyReferenceBindingPolicyTests
 
         var result = Assert.IsType<AssemblyBindingSelection.Ambiguous>(
             policy.Select(
-                Request(AssemblyBindingTarget.Reference(Reference))));
+                Request(AssemblyBindingTarget.Reference(Reference)))
+                .Selection);
 
         Assert.Equal([first, second], result.Assemblies);
         Assert.Equal(1, resolver.SelectionCount);
@@ -309,13 +334,14 @@ public class AssemblyReferenceBindingPolicyTests
         AssemblyBindingRequest request =
             Request(AssemblyBindingTarget.CoreLibrary());
 
-        AssemblyBindingSelection selection = policy.Select(request);
+        AssemblyBindingSelectionSnapshot snapshot = policy.Select(request);
 
-        Assert.Same(missing, selection);
+        Assert.Same(missing, snapshot.Selection);
+        Assert.Same(resolver.LastSnapshot, snapshot);
         var rejected = Assert.IsType<AssemblyBindingSelection.Rejected>(
             AssemblyBindingSelection.ValidateForRequest(
                 request,
-                selection));
+                snapshot.Selection));
         Assert.Equal(
             AssemblyBindingFailureKind.InvalidPolicyResult,
             rejected.Failure.Kind);
@@ -329,10 +355,11 @@ public class AssemblyReferenceBindingPolicyTests
         var missing =
             Assert.IsType<AssemblyBindingSelection.Missing>(
                 NoResolverAssemblyBindingPolicy.Instance.Select(
-                    Request(AssemblyBindingTarget.Reference(Reference))));
+                    Request(AssemblyBindingTarget.Reference(Reference)))
+                    .Selection);
         var unavailable = Assert.IsType<AssemblyBindingSelection.Unavailable>(
             NoResolverAssemblyBindingPolicy.Instance.Select(
-                Request(AssemblyBindingTarget.CoreLibrary())));
+                Request(AssemblyBindingTarget.CoreLibrary())).Selection);
 
         Assert.Equal(
             AssemblyBindingMissDisposition.NoNameOwner,
@@ -384,6 +411,11 @@ public class AssemblyReferenceBindingPolicyTests
         public List<AssemblyBindingRequest> Requests { get; } = [];
         public int ResolutionCount { get; private set; }
         public int SelectionCount { get; private set; }
+        public AssemblyBindingSelectionSnapshot? LastSnapshot
+        {
+            get;
+            private set;
+        }
 
         public ResolvedAssemblyReference? Resolve(
             AssemblyReferenceIdentity identity,
@@ -393,12 +425,21 @@ public class AssemblyReferenceBindingPolicyTests
             return null;
         }
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            SelectionCount++;
-            Requests.Add(request);
-            return select(request);
+            LastSnapshot = new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+            return LastSnapshot;
+
+            AssemblyBindingSelection SelectCore()
+            {
+                SelectionCount++;
+                Requests.Add(request);
+                return select(request);
+
+            }
         }
 
         public void AdvanceVersion() =>
