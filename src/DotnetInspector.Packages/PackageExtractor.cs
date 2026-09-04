@@ -3783,14 +3783,16 @@ public static class PackageExtractor
     public static async Task<List<PackageVersionSourceInfo>?> GetVersionListingsWithSourceAsync(
         HttpClient client, string packageName, bool includePrerelease, bool includeUnlisted,
         int? limit, Action<string>? log,
-        NuGetSourceOptions? sourceOptions = null)
+        NuGetSourceOptions? sourceOptions = null,
+        bool useCache = true)
     {
         string normalizedName = packageName.ToLowerInvariant();
         var sources = NuGetSourceResolver.ResolveSourcesForPackage(
             sourceOptions,
             packageName);
 
-        var perSource = await FetchListingsPerSourceAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        var perSource = await FetchListingsPerSourceAsync(
+            client, normalizedName, sources, log, useCache).ConfigureAwait(false);
         if (perSource == null)
             return null;
 

@@ -714,7 +714,8 @@ public class PackageCommand
                         || hasPinnedSemanticCoordinate,
                     limit: null,
                     logger.Log,
-                    options.SourceOptions);
+                    options.SourceOptions,
+                    useCache: !options.ForceLatest);
                 if (versionFeeds == null)
                 {
                     WriteVersionLookupFailure(

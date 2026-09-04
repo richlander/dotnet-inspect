@@ -604,6 +604,88 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    public async Task LatestVersionListing_RefreshesWarmFeedCache(string selector)
+    {
+        string packageName = $"FreshFeed{Guid.NewGuid():N}";
+        string[] ordinaryArgs =
+        [
+            "package", packageName, "--versions-with-feed", "-n", "1",
+            "--json", "--source", SecondSource,
+        ];
+        var warm = await RunOnlineVersionFeedCommandAsync(
+            packageName, "1.0.0", ordinaryArgs);
+        Assert.Equal(0, warm.Exit);
+        Assert.Empty(warm.Error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+            warm.Requests);
+
+        string[] publishedVersions = ["1.0.0", "2.0.0"];
+        var cached = await RunOnlineVersionFeedCommandAsync(
+            packageName, publishedVersions, ordinaryArgs);
+        Assert.Equal(0, cached.Exit);
+        Assert.Empty(cached.Error);
+        Assert.Empty(cached.Requests);
+        using JsonDocument cachedDocument = JsonDocument.Parse(cached.Output);
+        Assert.Equal(
+            "1.0.0",
+            Assert.Single(cachedDocument.RootElement.EnumerateArray())
+                .GetProperty("version").GetString());
+
+        var fresh = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            publishedVersions,
+            [
+                "package", $"{packageName}@latest", selector, "-n", "1",
+                "--json", "--source", SecondSource,
+            ]);
+        Assert.Equal(0, fresh.Exit);
+        Assert.Empty(fresh.Error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
+            fresh.Requests);
+        using JsonDocument freshDocument = JsonDocument.Parse(fresh.Output);
+        JsonElement row = Assert.Single(freshDocument.RootElement.EnumerateArray());
+        Assert.Equal("2.0.0", row.GetProperty("version").GetString());
+        if (selector == "--versions-with-feed")
+        {
+            Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("feed").GetString()));
+            Assert.Equal("listed", row.GetProperty("listing").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task FeedLatest_RefreshFailureDoesNotFallBackToCachedRows()
+    {
+        string packageName = $"RefreshedRefusal{Guid.NewGuid():N}";
+        var warm = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "1.0.0",
+            [
+                "package", packageName, "--versions-with-feed", "-n", "1",
+                "--json", "--source", SecondSource,
+            ]);
+        Assert.Equal(0, warm.Exit);
+        Assert.Empty(warm.Error);
+        Assert.NotEmpty(warm.Requests);
+
+        var refused = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            "2.0.0",
+            [
+                "package", $"{packageName}@latest", "--versions-with-feed",
+                "-n", "1", "--json", "--source", SecondSource,
+            ],
+            requireAuthorization: true);
+        Assert.Equal(1, refused.Exit);
+        Assert.Empty(refused.Output);
+        Assert.NotEmpty(refused.Requests);
+        Assert.Contains("requires credentials", refused.Error);
+    }
+
+    [Theory]
     [InlineData("pinned")]
     [InlineData("latest")]
     [InlineData("all")]

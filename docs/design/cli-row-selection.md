@@ -589,6 +589,7 @@ The plural package-version adoption is enforced by:
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |
+| `LatestVersionListing_RefreshesWarmFeedCache` and `FeedLatest_RefreshFailureDoesNotFallBackToCachedRows` | `@latest` refreshes warm feed-listing caches, preserves feed row identity, and reports refresh failures rather than returning cached rows. |
 | `PackageVersionListing_LimitOneStillReportsPartialEvidence` and `PackageVersionFeedListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress authenticated multi-source completion evidence in merged or feed-attributed listings. |
 | `PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport` | Local-directory and file-URI sources enumerate versions without HTTP/plugin authentication under semantic Head(1). |
 
