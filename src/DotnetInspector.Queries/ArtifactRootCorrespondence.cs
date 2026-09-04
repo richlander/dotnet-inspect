@@ -78,7 +78,10 @@ internal readonly record struct PackageArtifactRootRequest(
             framework,
             out string canonical)
                 ? canonical
-                : framework;
+                : PackageCoordinateResolver.IsAcquisitionTargetText(
+                    framework)
+                    ? framework.ToLowerInvariant()
+                    : framework;
     }
 
     static string? NormalizeRuntime(string? runtimeIdentifier) =>

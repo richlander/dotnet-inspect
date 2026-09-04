@@ -11,6 +11,7 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class ArtifactRootCorrespondenceTests
 {
     const string Framework = "net11.0";
+    const string ExtendedFramework = "net10.0-browser-wasm";
 
     [Fact]
     public void PackageArtifactRootCorrespondence_IsExactAndResourceFree()
@@ -64,6 +65,18 @@ public sealed class ArtifactRootCorrespondenceTests
                 "Stable.Correspondence",
                 producer: "tests",
                 targetFramework: "NET11.0");
+        PackageRootBinding extendedTarget =
+            Binding(
+                "Stable.Correspondence",
+                producer: "tests",
+                targetFramework: ExtendedFramework,
+                assetTargetFramework: ExtendedFramework);
+        PackageRootBinding equivalentExtendedTargetSpelling =
+            Binding(
+                "Stable.Correspondence",
+                producer: "tests",
+                targetFramework: ExtendedFramework.ToUpperInvariant(),
+                assetTargetFramework: ExtendedFramework);
         PackageRootBinding changedProducer =
             Binding(
                 "Stable.Correspondence",
@@ -95,6 +108,14 @@ public sealed class ArtifactRootCorrespondenceTests
                 omittedTarget),
             workspace.CreatePackageArtifactRootCorrespondence(
                 blankTarget));
+        Assert.True(extendedTarget.Root.AssetSelection.IsSelected);
+        Assert.True(
+            equivalentExtendedTargetSpelling.Root.AssetSelection.IsSelected);
+        Assert.Equal(
+            workspace.CreatePackageArtifactRootCorrespondence(
+                extendedTarget),
+            workspace.CreatePackageArtifactRootCorrespondence(
+                equivalentExtendedTargetSpelling));
         Assert.NotEqual(
             firstCorrespondence,
             workspace.CreatePackageArtifactRootCorrespondence(
@@ -124,7 +145,7 @@ public sealed class ArtifactRootCorrespondenceTests
     [Fact]
     public void PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess()
     {
-        PackageArtifactRootRequest request =
+        PackageArtifactRootRequest omittedRequest =
             PackageArtifactRootRequest.Create(
                 new RealizedMemberCoordinate.Package(
                     "exact.match",
@@ -134,6 +155,16 @@ public sealed class ArtifactRootCorrespondenceTests
                     runtimeIdentifier: null),
                 selectionTargetFramework: " ",
                 selectionRuntimeIdentifier: null);
+        PackageArtifactRootRequest extendedRequest =
+            PackageArtifactRootRequest.Create(
+                new RealizedMemberCoordinate.Package(
+                    "exact.match",
+                    "1.0.0",
+                    "tests",
+                    ExtendedFramework,
+                    runtimeIdentifier: null),
+                ExtendedFramework.ToUpperInvariant(),
+                selectionRuntimeIdentifier: null);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
                 Archive(
@@ -141,29 +172,42 @@ public sealed class ArtifactRootCorrespondenceTests
                         "lib/net11.0/Exact.Match.dll",
                         File.ReadAllBytes(
                             typeof(AssemblyReferenceIdentity)
+                                .Assembly.Location)),
+                    (
+                        $"lib/{ExtendedFramework}/Exact.Match.dll",
+                        File.ReadAllBytes(
+                            typeof(AssemblyReferenceIdentity)
                                 .Assembly.Location))),
                 fromCache: false,
                 producerKey: "tests"));
-        PackageRootBinding binding =
+        var payload =
+            new AcquiredPackageSourcePayload(
+                PackageSourceCoordinate.Create(
+                    "Exact.Match",
+                    "1.0.0"),
+                content,
+                "tests",
+                PackagePayloadOrigin.Download);
+        PackageRootBinding omittedBinding =
             PackageRootBinding.CreateFromSource(
-                new AcquiredPackageSourcePayload(
-                    PackageSourceCoordinate.Create(
-                        "Exact.Match",
-                        "1.0.0"),
-                    content,
-                    "tests",
-                    PackagePayloadOrigin.Download),
+                payload,
                 selectionTargetFramework: null);
+        PackageRootBinding extendedBinding =
+            PackageRootBinding.CreateFromSource(
+                payload,
+                ExtendedFramework);
         content.ResetAccessCount();
         using var workspace = new InspectionWorkspace();
 
-        PackageArtifactRootCorrespondence first =
-            workspace.CreatePackageArtifactRootCorrespondence(binding);
-        PackageArtifactRootCorrespondence second =
-            workspace.CreatePackageArtifactRootCorrespondence(binding);
+        PackageArtifactRootCorrespondence omitted =
+            workspace.CreatePackageArtifactRootCorrespondence(
+                omittedBinding);
+        PackageArtifactRootCorrespondence extended =
+            workspace.CreatePackageArtifactRootCorrespondence(
+                extendedBinding);
 
-        Assert.Equal(first, second);
-        Assert.True(first.Matches(request));
+        Assert.True(omitted.Matches(omittedRequest));
+        Assert.True(extended.Matches(extendedRequest));
         AssertResourceFree(typeof(PackageArtifactRootRequest));
         Assert.Equal(0, content.AccessCount);
     }
@@ -192,12 +236,13 @@ public sealed class ArtifactRootCorrespondenceTests
         string packageId,
         string producer,
         string? targetFramework,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null,
+        string assetTargetFramework = Framework)
     {
         var content = new InMemoryPackageContent(
             Archive(
                 (
-                    $"lib/net11.0/{packageId}.dll",
+                    $"lib/{assetTargetFramework}/{packageId}.dll",
                     File.ReadAllBytes(
                         typeof(AssemblyReferenceIdentity)
                             .Assembly.Location))),
