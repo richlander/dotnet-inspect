@@ -277,14 +277,18 @@ projection binding or selection failure becomes a typed candidate failure, not
 reselection.
 
 The artifact registration and participant are execution-time checks, never
-receipt fields. The resource-free evidence copies the exact realized package
-coordinate, opaque `PackageContentGenerationIdentity`,
-`PackageRootSelectionIdentity`, selected target framework and runtime
-identifier, selected asset identity, role, pattern identity, producer-issued
-match evidence, and the number of selected siblings that were not evaluated.
+receipt fields. Every post-selection outcome carries one resource-free
+selected-asset context containing the exact realized package coordinate,
+opaque `PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`,
+selected target framework and requested runtime identifier, canonical selected
+asset identity, role, pattern identity and validated operand, semantic producer
+identity, and the number of selected siblings that were not evaluated. Match
+evidence and non-match discrimination compose with that context rather than
+repeating or reconstructing it.
+
 The two process-local identities contain no content or opening authority; they
-preserve current-run correspondence only. For compile-surface evaluation that
-count is
+preserve current-run correspondence only. For compile-surface evaluation the
+unevaluated-sibling count is
 `Assets.Count - 1`; for implementation-body evaluation it is
 `ImplementationAssets.Count - 1`. It is scoped to the selected TFM and RID and
 does not count assets outside those selected role sequences. The receipt
@@ -340,8 +344,8 @@ reopening content or inferring a failure from exception text:
 
 | Sparse projection outcome | Evaluator action |
 | --- | --- |
-| `Available` with `IdentityDecoded` | Continue through the exact returned group and participant. |
-| `Available` without `IdentityDecoded` | Attempt the participant's ordinary snapshot acquisition, map its typed rejection to `Failure(ImageAdmission)`, and do not invoke the prefilter or semantic producer. The rejection-carrier identity is never semantic evidence. |
+| `Available` with `IdentityDecoded` | Attempt ordinary snapshot acquisition through the exact returned group and participant. A typed rejection becomes `Failure(ImageAdmission)`; only a ready snapshot may reach the prefilter or semantic producer. |
+| `Available` without `IdentityDecoded` | Attempt ordinary snapshot acquisition with an evaluator no-op callback, map its typed rejection to `Failure(ImageAdmission)`, and do not invoke the prefilter or semantic producer. An unexpectedly ready snapshot is `Failure(ProjectionContractViolation)` because the rejection-carrier identity is not semantic evidence. |
 | `InvalidBinding` | Return `Failure(InvalidBinding)`. This remains a defensive parent outcome even if the first immutable binding implementation cannot currently produce it. |
 | `InvalidSelectedAsset` | Return `Failure(ProjectionContractViolation)`. The evaluator supplied a canonical object from the same binding, so this arm indicates a composition defect rather than package-authored content. |
 | `SelectedEntryUnavailable` | Return `Failure(SelectedEntryUnavailable)`. |
@@ -366,11 +370,14 @@ selection. Evaluation adds a narrower candidate-scoped realization:
    generation and one-participant group.
 5. Consume the projection's exact participant and `IdentityDecoded` signal.
    When identity was not decoded, attempt ordinary snapshot acquisition,
-   preserve `AssemblyImageSnapshotResult.Rejected.Failure`, and stop because no
-   prefilter or semantic callback body can run.
-6. Within one workspace snapshot scope, give the optional prefilter a borrowed
-   `AssemblyImageView` and the semantic producer an
-   `AssemblyInspectionSession` over that same `AssemblyImageSnapshot`.
+   preserve `AssemblyImageSnapshotResult.Rejected.Failure`, and stop without
+   invoking either executable binding. An unexpectedly ready snapshot is a
+   projection contract violation.
+6. When identity was decoded, request one workspace snapshot scope. Preserve
+   any typed snapshot rejection as image-admission failure. For a ready
+   snapshot, give the optional prefilter a borrowed `AssemblyImageView` and the
+   semantic producer an `AssemblyInspectionSession` over that same
+   `AssemblyImageSnapshot`.
 7. Copy all evidence needed by the outcome into resource-free values.
 8. Dispose the query session and candidate workspace, which releases the
    participant and artifact generation, before returning the outcome.
@@ -494,22 +501,43 @@ pipeline; no TLA+ model is required for this contract.
 
 One completed evaluation returns exactly one resource-free outcome:
 
-- **Matched**: exact subject, selector-issued default or counterpart asset and
-  role, pattern identity, non-empty producer evidence, current-run
-  correspondence receipt, and unevaluated-sibling count.
-- **NoMatch**: exact subject, selector-issued default or counterpart asset and
-  role, pattern identity, current-run correspondence receipt,
-  unevaluated-sibling count, and a `PrefilterRejected` or
+- **Matched**: selected-asset context plus non-empty producer evidence.
+- **NoMatch**: selected-asset context plus a `PrefilterRejected` or
   `SemanticallyConfirmed` discriminator.
 - **NotApplicable**: exact subject, pattern identity, and a typed asset-role
   reason.
-- **Failure**: exact subject when known, stage, and a bounded product-authored
-  diagnostic.
+- **Failure**: one of the closed preselection or selected-asset failure shapes
+  below.
 
 Pattern construction rejects an unknown identity, mismatched operand arm,
 invalid operand, missing producer budget, or non-positive bound before
 execution. Nulls and other caller contract violations retain argument
 exceptions rather than becoming candidate outcomes.
+
+Failures before an asset can be selected carry the exact subject,
+content-generation identity, selection identity, pattern request, declared
+role, and typed package-selection reason. They do not invent an asset context.
+
+Every failure after asset selection carries the complete selected-asset
+context plus one stage-specific resource-free payload:
+
+- invalid binding, projection-contract, and semantic-producer-contract
+  failures carry a stable product-authored failure code;
+- selected-entry unavailable carries its exact package-projection reason;
+- selected-entry byte limit carries the admitted entry and aggregate
+  retained-image bounds;
+- artifact publication carries each owner-issued
+  `ArtifactSetAdmissionFailureKind` and diagnostic code, copied without the
+  diagnostic implementation object or cleanup exception;
+- image admission carries the exact Metadata-owned `CandidateOpenFailure`;
+- semantic decode and unsupported-input failures carry the producer-owned
+  typed failure; and
+- semantic work limit carries the producer-owned budget kind, admitted limit,
+  and charged work when available.
+
+A bounded product-authored presentation diagnostic may accompany a failure,
+but it is derived from the typed payload and is never the only durable cause.
+Package-authored text and exception messages remain excluded.
 
 Failure stages distinguish:
 
@@ -620,11 +648,13 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes. |
 | `PackageAssemblyEvaluation_UsesSparsePackageArtifactProjection` | One evaluation calls the sparse selected-asset projection rather than the full package-role realization path. |
 | `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. |
-| `PackageAssemblyEvaluation_RequiresDecodedIdentityBeforeSemanticBinding` | A rejection-carrier participant is opened only through ordinary snapshot acquisition; its typed rejection is preserved and no prefilter or semantic callback body runs. |
+| `PackageAssemblyEvaluation_RequiresDecodedIdentityBeforeSemanticBinding` | A rejection-carrier participant is opened only through ordinary snapshot acquisition with a no-op evaluator callback; its typed rejection is preserved, an unexpectedly ready snapshot is a contract failure, and neither executable binding runs. |
+| `PackageAssemblyEvaluation_ReadyIdentityCanStillRejectSnapshot` | A decoded participant whose snapshot acquisition later rejects preserves the exact `CandidateOpenFailure` and cannot become semantic no-match. |
 | `PackageAssemblyEvaluation_SuppliesSparseProjectionBounds` | The evaluator passes the admitted entry and aggregate retained-image bounds unchanged and maps the package owner's typed limit outcome without restating its partition mechanics. |
 | Conditional producer prefilter gate | Each prefilter-bearing adoption derives fixtures from its complete declared representation set, obtains byte and semantic views from the same snapshot, admits every semantic match, and requires semantic confirmation for false byte positives. A prefilter-free adoption needs no such gate. |
 | `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
+| `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
 | `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, and cancellation path closes and releases its query, workspace, participant, and artifact resource. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
