@@ -1,25 +1,30 @@
 using DotnetInspector.Queries;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries.Definitions;
 
 namespace InspectWeb.Engine.CatalogFacade;
 
 /// <summary>
-/// Maps product-owned <see cref="ProductInspectionDemos"/> catalog and
-/// <see cref="ResolvedScenario"/> values to browser-local transport records so
+/// Maps product-owned ecosystem demo descriptors and resolved scenarios to
+/// browser-local transport records so
 /// <c>ts-jsexport</c> can generate real TypeScript interfaces (same reason as
 /// <see cref="BrowserVocabulary"/>).
 /// </summary>
 internal static class BrowserProductHomeDemos
 {
     internal static BrowserHomeDemoCatalog ToCatalog(
-        IReadOnlyList<ProductInspectionDemos.Entry> entries) =>
+        IReadOnlyList<EcosystemDemoDescriptor> entries) =>
         new([.. entries.Select(static e => new BrowserHomeDemoCatalogEntry(
-            e.Id,
+            e.ScenarioId,
             e.Title,
             e.Summary))]);
 
-    internal static BrowserHomeDemoResolved ToResolved(ResolvedScenario scenario)
+    internal static BrowserHomeDemoResolved ToResolved(
+        EcosystemDemoSelection selection)
     {
+        ArgumentNullException.ThrowIfNull(selection);
+        EcosystemDemoDescriptor descriptor = selection.Descriptor;
+        ResolvedScenario scenario = selection.Scenario;
         ArgumentNullException.ThrowIfNull(scenario);
 
         var selected = scenario.SelectedContext
@@ -34,8 +39,8 @@ internal static class BrowserProductHomeDemos
 
         return new BrowserHomeDemoResolved(
             scenario.ScenarioId,
-            scenario.Title ?? scenario.ScenarioId,
-            scenario.Description ?? "",
+            descriptor.Title,
+            descriptor.Summary,
             [.. selected.Members.Select(ToMember)],
             [.. navigation.Tabs.Select(ToTab)],
             navigation.FocusIndex,

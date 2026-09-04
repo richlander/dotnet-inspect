@@ -16,7 +16,7 @@ import {
 
 /**
  * Browser host adapters over product home demos exported by the Wasm engine
- * (`ListHomeDemos` / `ResolveHomeDemo` → `ProductInspectionDemos`).
+ * (`ListHomeDemos` / `ResolveHomeDemo` -> `EcosystemPackCatalog`).
  *
  * Catalog ids/titles/summaries and resolved coordinates come from C#. This
  * module owns only the Browser projection into the long-form share transport.
