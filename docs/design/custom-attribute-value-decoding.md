@@ -57,7 +57,8 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   [Trust boundaries](untrusted-data-threat-model.md#trust-boundaries).
 - Not a promise that attribute values are *correct*, only that reading them
   cannot be turned into an unbounded or out-of-bounds operation, and that on
-  output from compilers in the certified range they match SRM's.
+  output from compilers in the certified range they match what the producing
+  compiler encoded — except for the one width case D3 explicitly carves out.
 - Not a promise that our decoder matches SRM on **illegal** input. There the
   obligation is D1 and D2 only.
 - Not a change to any caller's API or output shape. The decoder produces the
@@ -263,6 +264,12 @@ assumed OOM had no path at all. Swallowing `OutOfMemoryException` is precisely
 the "laundered exception" D2 forbids, and it stays forbidden whether the OOM came
 from an attack or from a large honest blob.
 
+This is a **deliberate divergence from the owning specification**, and it is
+normative here: slice 4 must not close #5397. The divergence is proposed to
+issue #5288 so the owner can fold it into the slice-4 list; until that edit
+lands, an implementer following the issue verbatim would leave a known D2
+violation in place, so this document governs.
+
 ### The `Int32` enum-width default is a named exception to "refuse; do not defer"
 
 The table above says the decoder refuses what it cannot follow. Enum width
@@ -330,18 +337,39 @@ bytes where eight were written, both mis-read every subsequent argument, and bot
 produce the identical wrong answer. An SRM-equality oracle passes.
 
 So D3 names **producer truth** as the standard and SRM as an arbiter only where
-it can arbitrate:
+SRM is actually independent. The distinction that matters is not what SRM knows;
+it is whether the oracle's resolution path is separate from the one under test.
+SRM reads an enum's width by asking its provider, so an oracle wired to our
+resolution logic returns our answer and the comparison proves nothing.
 
-| Where | Oracle |
-| --- | --- |
-| Any value both decoders can resolve independently | SRM equality. Cheap, broad, and sufficient. |
-| A width that both decoders default to `Int32` because resolution failed | **The certified corpus.** It built the assemblies, so it knows each enum's real underlying type from source; SRM cannot arbitrate here at all. |
+| Where the width comes from | Oracle | Is the decoder obliged to be right? |
+| --- | --- | --- |
+| The value's type is decoded without consulting our resolution logic — primitives, strings, `System.Type` names, arrays of these | SRM equality. Cheap, broad, and sufficient. | Yes |
+| Our frozen adapter resolves the width from a retained defining image, where a faithful SRM oracle would have to consult that **same** adapter | **The certified corpus**, which built the assemblies and knows each enum's underlying type from source. SRM equality here is degenerate, not independent. | Yes — the information is present, so a wrong width is a fidelity defect |
+| No resolution path can establish the width, because the defining image is genuinely absent | **None exists.** Both decoders default to `Int32`. | **No.** See the carve-out below |
 
-The second row is an obligation on the D3 gate, not an aspiration: the stage-1
-corpus must include assemblies that reference a non-`Int32` enum across an
-assembly boundary and are decoded *without* the defining reference available, and
-must assert the decoded value against the known underlying type. Omitting that
-case leaves the defect class ungated while the gate reports green.
+Row two is an obligation on the D3 gate, not an aspiration: the stage-1 corpus
+must include assemblies that reference a non-`Int32` enum across an assembly
+boundary *whose defining image the workspace has retained*, assert the decoded
+value against the underlying type known from source, and do so without crediting
+an SRM run that consulted the same adapter. Omitting that case leaves the defect
+class ungated while the gate reports green.
+
+**Row three is a carve-out from D3, not a gate obligation.** When the defining
+image is absent, the underlying type is not recoverable from anything the decoder
+can see, so no gate can require the produced value — demanding it would state a
+contract the component cannot satisfy at any level of effort. The decoder
+defaults to `Int32` under the [named exception](#the-int32-enum-width-default-is-a-named-exception-to-refuse-do-not-defer)
+to "refuse; do not defer", and the gate's assertion is that documented behavior:
+`Int32` is chosen, the choice is reachable by a caller that wants to know, and the
+resulting misread is not laundered into a success-shaped value for the *rest* of
+the blob. A real `Int64` enum in this position still yields a wrong value and
+still drifts the cursor; that consequence is owned by D2's refusal machinery,
+which sees the drift, not by a fidelity claim that cannot be met.
+
+Narrowing the carve-out is [#4741](https://github.com/richlander/dotnet-inspect/issues/4741)'s
+job: the more names product extraction plans into a frozen generation, the more
+of row three becomes row two.
 
 D3 is scoped to legal producer output on purpose. Outside the certified range
 the obligation drops from *decode correctly* to *refuse safely* — D1 and D2 with
@@ -517,8 +545,15 @@ identity test, and two distinct facts make the gap real rather than theoretical:
   because splitting `System` + `Type` keeps the namespace column populated on
   both.
 - **An assembly may define its own `System.Type`.** `namespace System { public
-  enum TYPE }` compiles clean, and nothing prevents a hostile assembly from
-  defining a type that renders exactly `System.Type` and is not the framework's.
+  enum Type : long { A = 1 } }` compiles clean — the compiler emits CS0436 and
+  binds references in that assembly to the *local* type. An attribute constructor
+  taking that parameter is spelled `ELEMENT_TYPE_VALUETYPE` + `TypeDef`, and an
+  argument is encoded as its eight-byte underlying value. Verified against a
+  built assembly: the ctor signature is `20 01 01 11 10` and the blob is
+  `01 00 88 77 66 55 44 33 22 11 00 00`. SRM resolves that width through the
+  handle, so a provider answering `Int32` consumes four bytes and then throws
+  `BadImageFormatException` on the remainder — the width error surfaces as a
+  structural failure one argument later, not as a wrong value in place.
 
 Both are **D3 fidelity** concerns, and neither is a safety concern, because D1's
 allocation clause holds independently of how this predicate answers. Record them
@@ -701,7 +736,7 @@ encoding.
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3. | Lands with slice 2. |
-| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases SRM cannot arbitrate**; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. |
+| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle's SRM version is unpinned and must be chosen; see [Certification bounds](#certification-bounds). |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -788,10 +823,16 @@ is both cheaper and more honest.
 
 Two version axes, behaving oppositely.
 
-**SRM** is the oracle, not the counterpart. It is pinned de facto by TFM
-(`net10.0`, statically linked in the AOT build). Pinning it states which decoder
-D3 is measured against; it no longer under-specifies a safety invariant, which is
-what pinning it would have done under the previous design.
+**SRM** is the oracle, not the counterpart. It is **not** pinned today, and the
+D3 gate must choose its oracle rather than inherit one. `Directory.Build.props`
+resolves `net10.0` only for `OfficialBuild` non-AOT builds — the single managed
+fallback package — while development, tests, and the RID-specific Native AOT
+builds take `net$(NETCoreAppMaximumVersion)`. The AOT build that statically links
+SRM is therefore the one that does *not* get `net10.0`, and the gate runs on the
+latest TFM. Slice 3 must either name the oracle's runtime explicitly or run D3
+against each supported SRM version. Naming it states which decoder D3 is measured
+against; it no longer under-specifies a safety invariant, which is what leaving it
+implicit would have done under the previous design.
 
 **The producer toolchain** cannot narrow D1 or D2, because the adversary does not
 use an SDK. It narrows D3: the must-approve set is what compilers in the certified
