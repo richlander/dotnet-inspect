@@ -21,7 +21,8 @@ their named Release gates land.
 
 Given one exact acquisition-issued `PackageRootBinding`, one separate
 resource-free product-issued assembly-pattern request, and explicit
-selected-entry, retained-image, and semantic-work bounds, the evaluator:
+selected-entry, retained-image, producer-working-set, semantic-work, and
+deadline bounds, the evaluator:
 
 1. maps the frozen package selection to a typed non-applicable or failure
    outcome, or resolves exactly one canonical selected asset for the pattern's
@@ -208,6 +209,12 @@ Cancellation and unexpected producer exceptions remain cancellation and
 exceptional failure respectively; neither becomes a producer verdict or
 completed evaluation outcome.
 
+Producer evidence that preserves artifact-authored text must expose that text
+as an owner-issued canonical identity or an `InertString` constructed under the
+appropriate field or prose policy. A producer cannot return a raw metadata
+name, decoded literal excerpt, package path, or other artifact string and leave
+containment to Package Query or a host renderer.
+
 The assembly-pattern registry is distinct from the existing
 `PackageQuery.Facets` registry. Existing facets remain source-, manifest-, or
 archive-path predicates. A host or L2 adapter maps an explicitly promoted
@@ -246,6 +253,24 @@ available projection or typed failure without reconstructing an asset from ID
 or path. The evaluator never opens the asset path as an ambient filesystem or
 archive location.
 
+The canonical `PackageCompileAsset` remains execution context and never enters
+a public outcome. The evaluator issues a resource-free occurrence identity
+from the exact frozen asset sequence (`Assets` or `ImplementationAssets`) and
+zero-based ordinal established by reference-identity lookup. Combined with
+`PackageRootSelectionIdentity`, that occurrence identifies the canonical
+selected object without using its path-derived `Id` as authority. The
+evaluation role remains a separate field, so a missing implementation
+counterpart can identify its primary compile occurrence without pretending
+that occurrence belongs to the implementation sequence.
+
+Public selected-asset evidence may expose the asset kind plus assembly name,
+target framework, and package-relative path for explanation. Each
+archive-authored string is converted at result construction to
+`InertString(TextPolicy.Field)`. The raw `Id`, `Path`, `AssemblyName`, and
+`TargetFramework` strings are not copied into the outcome graph. Hosts consume
+the contained values opaquely; they do not reconstruct an opening path or
+asset identity from display text.
+
 The first contract accepts no ecosystem override. A later ecosystem owner may
 issue an opaque role-selection binding, but only after a focused prerequisite
 defines how Package Query executes that binding against one exact
@@ -280,11 +305,11 @@ The artifact registration and participant are execution-time checks, never
 receipt fields. Every post-selection outcome carries one resource-free
 selected-asset context containing the exact realized package coordinate,
 opaque `PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`,
-selected target framework and requested runtime identifier, canonical selected
-asset identity, role, pattern identity and validated operand, semantic producer
-identity, and the number of selected siblings that were not evaluated. Match
-evidence and non-match discrimination compose with that context rather than
-repeating or reconstructing it.
+requested runtime identifier, selection-relative asset occurrence identity,
+contained selected-asset evidence, role, pattern identity and validated
+operand, semantic producer identity, and the number of selected siblings that
+were not evaluated. Match evidence and non-match discrimination compose with
+that context rather than repeating or reconstructing it.
 
 The two process-local identities contain no content or opening authority; they
 preserve current-run correspondence only. For compile-surface evaluation the
@@ -314,12 +339,25 @@ Asset resolution is explicit and typed:
 | Invalid implementation selection | `Failure(InvalidAssetSelection)` for either role |
 | Compile-surface pattern with a selected default | Evaluate the default compile asset |
 | Implementation-body pattern with a selected counterpart | Evaluate that counterpart |
-| Implementation-body pattern without a counterpart | `NotApplicable(NoImplementationCounterpart)` |
+| Implementation-body pattern without a counterpart | `NotApplicable(NoImplementationCounterpart)` with the selected primary compile occurrence |
 
 `NotApplicable` is not a match and is not malformed-content failure. The later
 streaming owner decides whether it remains an explicit durable candidate event
 or contributes only to final accounting. It must not be presented as a
 semantic `NoMatch`.
+
+The non-applicable algebra has two resource-free shapes:
+
+- **Selection not applicable** carries the exact subject,
+  `PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`, pattern
+  request, declared role, and typed `NoCompileAssets`,
+  `NoMatchingTargetFramework`, or `EmptyCompileGroup` reason. It carries no
+  selected asset because none was issued.
+- **Implementation counterpart not applicable** carries those same fields plus
+  the primary compile asset's selection-relative occurrence identity and
+  contained selected-asset evidence. It reports the count of implementation
+  assets that remained unevaluated; it does not invent an implementation asset
+  or claim that the compile image was semantically evaluated.
 
 The current selector couples compile and implementation selection: an invalid
 implementation universe returns no selected default even when discovered
@@ -350,7 +388,7 @@ reopening content or inferring a failure from exception text:
 | `InvalidSelectedAsset` | Return `Failure(ProjectionContractViolation)`. The evaluator supplied a canonical object from the same binding, so this arm indicates a composition defect rather than package-authored content. |
 | `SelectedEntryUnavailable` | Return `Failure(SelectedEntryUnavailable)`. |
 | `EntryByteLimitExceeded` | Return `Failure(SelectedEntryByteLimit)`. |
-| `ArtifactPublicationFailed` | Return `Failure(ArtifactPublication)` while preserving only the artifact owner's typed failure code and product-authored bounded diagnostic. |
+| `ArtifactPublicationFailed` | Return `Failure(ArtifactPublication)` while preserving each artifact-owner failure kind and diagnostic code. A bounded presentation diagnostic is derived from that typed evidence. |
 
 The evaluator does not reproduce the package owner's missing-entry sentinel,
 manifest preflight, observed-copy limit mapping, aggregate byte partition, or
@@ -504,8 +542,8 @@ One completed evaluation returns exactly one resource-free outcome:
 - **Matched**: selected-asset context plus non-empty producer evidence.
 - **NoMatch**: selected-asset context plus a `PrefilterRejected` or
   `SemanticallyConfirmed` discriminator.
-- **NotApplicable**: exact subject, pattern identity, and a typed asset-role
-  reason.
+- **NotApplicable**: one of the selection or implementation-counterpart shapes
+  defined above, preserving exact frozen-selection correspondence.
 - **Failure**: one of the closed preselection or selected-asset failure shapes
   below.
 
@@ -572,7 +610,9 @@ A match explains why it matched. Producer evidence is typed before either host
 renders it and includes the semantic occurrence needed by that pattern, such
 as a metadata identity, API target, method address, or instruction occurrence.
 Package Query adds the exact package and selected-asset context; it does not
-rephrase the semantic fact from display text.
+rephrase the semantic fact from display text. Artifact-authored explanatory
+text is already contained by the asset or producer owner before either host
+receives it.
 
 Opening a match starts the standard typed Workspace transition from its exact
 realized package coordinate. The transition may reacquire content or use an
@@ -624,11 +664,13 @@ The implementation must preserve focused fixtures for:
 5. a semantic match in every encoding or indirection covered by an enabled
    prefilter;
 6. a selected assembly at the exact byte limit and one byte above it;
-7. native, module, unsupported Windows Metadata, and malformed managed input;
-8. a selected entry that cannot be materialized from the retained content
+7. a selected asset whose assembly name, TFM, and package path contain control,
+   format, bidirectional, or markup-significant text;
+8. native, module, unsupported Windows Metadata, and malformed managed input;
+9. a selected entry that cannot be materialized from the retained content
    generation;
-9. semantic work reaching its exact limit and exceeding it; and
-10. cancellation during sparse projection and semantic traversal.
+10. semantic work reaching its exact limit and exceeding it; and
+11. cancellation during sparse projection and semantic traversal.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
 must run in the ordinary Release suite. Performance and peak-memory corpus
@@ -645,7 +687,8 @@ gates where a Metadata or Analysis binding is adopted.
 | --- | --- |
 | `PackageAssemblyEvaluation_PrimaryAssetIsSelectorIssuedAndAssetScoped` | General primary selection consumes the selector-issued default, preserves its exact asset identity and the role-sequence sibling count, and never claims that the heuristic proves a package-wide representative. |
 | `PackageAssemblyEvaluation_ImplementationUsesExactSelectedCounterpart` | An implementation-body pattern uses only the counterpart of the selected compile asset, including RID replacement and the `lib`-only case where both role intents resolve to the same asset. |
-| `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes. |
+| `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes with the exact generation and selection identities; counterpart absence also preserves the primary compile occurrence without inventing an implementation asset. |
+| `PackageAssemblyEvaluation_SelectedAssetEvidenceIsContained` | Hostile package-authored assembly name, TFM, and path text become `InertString(TextPolicy.Field)` at result construction, while exact occurrence identity uses only the frozen asset-sequence kind, ordinal, and selection identity; evaluation role remains separate. |
 | `PackageAssemblyEvaluation_UsesSparsePackageArtifactProjection` | One evaluation calls the sparse selected-asset projection rather than the full package-role realization path. |
 | `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. |
 | `PackageAssemblyEvaluation_RequiresDecodedIdentityBeforeSemanticBinding` | A rejection-carrier participant is opened only through ordinary snapshot acquisition with a no-op evaluator callback; its typed rejection is preserved, an unexpectedly ready snapshot is a contract failure, and neither executable binding runs. |
@@ -659,7 +702,7 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
-| Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, and optional prefilter implication in the owning Metadata or Analysis Release suite. |
+| Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, containment of artifact-authored evidence text, and optional prefilter implication in the owning Metadata or Analysis Release suite. |
 | CLI and Browser consumer canaries | Both hosts can plan and consume the same descriptors and outcomes without duplicating pattern semantics. |
 
 ### Resource-free absence-claim coverage
@@ -711,8 +754,8 @@ The following boundaries transfer; their broader architectures do not:
 
 The survey also exposed one important limit rule: a declared ZIP length is a
 preflight hint, not proof of actual consumption. NuGet Insights deliberately
-accepts unknown and mismatched advertised lengths, so this contract retains a
-hard observed-byte gate during package-adapter materialization.
+accepts unknown and mismatched advertised lengths, supporting the sparse
+projection owner's hard observed-byte gate during materialization.
 ([tests](https://github.com/NuGet/Insights/blob/c449aa472b10aea098bf46e94767f9952fd16a60/test/Logic.Test/TempStream/TempStreamWriterTest.cs#L33-L120))
 
 Further producer-specific comparison belongs in the first producer adoption.
