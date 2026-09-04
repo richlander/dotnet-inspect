@@ -72,7 +72,10 @@ internal static class CSharpSpellability
         {
             IrFunction function => ParameterNamesIssue(
                 function.Signature.Parameters,
-                function.Signature.GenericParameterNames)
+                ParameterReservedNames(
+                    function,
+                    function.Signature.GenericParameterNames),
+                "a method generic parameter or local-function declaration")
                 ?? LocalNamesIssue(
                     function,
                     function.Locals.Length,
@@ -104,8 +107,10 @@ internal static class CSharpSpellability
             EventSubscription subscription => PropertyIssue(subscription.EventName),
             Lambda lambda => ParameterNamesIssue(
                     lambda.Parameters,
-                    lambda.CapturedBinderNames,
-                    "an actually referenced enclosing binder")
+                    ParameterReservedNames(
+                        lambda.Body,
+                        lambda.CapturedBinderNames),
+                    "an actually referenced enclosing binder or local-function declaration")
                 ?? NestedLocalNamesIssue(
                     lambda.LocalNames,
                     lambda.Parameters,
@@ -114,8 +119,10 @@ internal static class CSharpSpellability
             LocalFunctionStatement statement => LocalFunctionIssue(statement.Name)
                 ?? ParameterNamesIssue(
                     statement.Parameters,
-                    statement.CapturedBinderNames,
-                    "an actually referenced enclosing binder")
+                    ParameterReservedNames(
+                        statement.Body,
+                        statement.CapturedBinderNames),
+                    "an actually referenced enclosing binder or local-function declaration")
                 ?? NestedLocalNamesIssue(
                     statement.LocalNames,
                     statement.Parameters,
@@ -125,6 +132,14 @@ internal static class CSharpSpellability
             _ => null,
         };
     }
+
+    static IEnumerable<string> ParameterReservedNames(
+        IrNode scope,
+        IEnumerable<string> reservedNames)
+        => reservedNames.Concat(
+            scope.DescendantsOutsideNestedFunctions
+                .OfType<LocalFunctionStatement>()
+                .Select(statement => statement.Name));
 
     static NameIssue? ParameterNamesIssue(
         ImmutableArray<Parameter> parameters,

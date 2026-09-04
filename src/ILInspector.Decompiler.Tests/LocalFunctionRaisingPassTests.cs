@@ -10,10 +10,12 @@ public class LocalFunctionRaisingPassTests
 
     static string PrintRaised(
         string methodName,
-        Action<IrFunction>? inspectFunction = null)
+        Action<IrFunction>? inspectFunction = null,
+        Type? fixtureType = null)
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+        var type = fixtureType ?? typeof(CfgSampleClass);
+        using var source = MetadataSource.Open(type.Assembly.Location);
+        var function = IrImporter.Import(source, type.FullName!, methodName);
         Assert.NotNull(function);
 
         var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
@@ -21,6 +23,20 @@ public class LocalFunctionRaisingPassTests
         Assert.NotNull(result.Output);
         inspectFunction?.Invoke(function!);
         return result.Output!.ReplaceLineEndings("\n").Trim();
+    }
+
+    [Fact]
+    public void CapturingLocalWithNestedLambda_RaisesByEnvironmentIdentity()
+    {
+        string output = PrintRaised(
+            nameof(NestedBinderOwnershipSamples.CapturingLocalWithNestedLambda),
+            fixtureType: typeof(NestedBinderOwnershipSamples));
+
+        Assert.Contains("return Outer(0);", output);
+        Assert.Contains("int Outer(int value)", output);
+        Assert.Contains("(first, second) => first + second", output);
+        Assert.Contains("captured + value", output);
+        Assert.DoesNotContain("DisplayClass", output);
     }
 
     [Fact]

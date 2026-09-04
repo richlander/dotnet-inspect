@@ -77,9 +77,12 @@ public sealed class LambdaRaisingPass : IIrPass
         if (body is null)
             return null;
 
-        // A non-capturing body holds no state, so it reads its receiver (arg 0,
-        // the <>c singleton) never; any such read is a shape we cannot present.
-        if (body.Descendants.OfType<LoadArgument>().Any(a => a.Index == 0))
+        // A non-capturing body holds no state, so it never reads its <>c receiver.
+        // Nested functions have independent argument ordinals, so identify the
+        // receiver by its imported binder rather than by index.
+        if (body.ReceiverParameter is { } receiver
+            && body.Descendants.OfType<LoadArgument>().Any(
+                argument => IsReceiverArgument(argument, receiver)))
             return null;
 
         return Finish(creation, body, creation, allowLocals: true);
@@ -304,7 +307,13 @@ public sealed class LambdaRaisingPass : IIrPass
         if (body is null)
             return null;
 
-        var thisReads = body.Descendants.OfType<LoadArgument>().Where(a => a.Index == 0).ToList();
+        if (body.ReceiverParameter is not { } receiver)
+            return null;
+
+        var thisReads = body.Descendants
+            .OfType<LoadArgument>()
+            .Where(argument => IsReceiverArgument(argument, receiver))
+            .ToList();
         if (!thisReads.All(a => a.Parent is LoadField field
                 && Equals(field.Field.DeclaringType, creation.Method.DeclaringType)
                 && captures.ContainsKey(field.Field.Name)))
@@ -316,7 +325,8 @@ public sealed class LambdaRaisingPass : IIrPass
 
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
-            if (load.Instance is LoadArgument { Index: 0 }
+            if (load.Instance is LoadArgument argument
+                && IsReceiverArgument(argument, receiver)
                 && Equals(load.Field.DeclaringType, creation.Method.DeclaringType)
                 && captures.TryGetValue(load.Field.Name, out var value))
                 load.ReplaceWith(value.Clone());
@@ -329,6 +339,11 @@ public sealed class LambdaRaisingPass : IIrPass
             allowLocals: CapturesAreArgumentOnly(captures.Values),
             CapturedBinderNames(readFields, captures, RootFunction(creation)));
     }
+
+    static bool IsReceiverArgument(LoadArgument argument, Parameter receiver)
+        => argument.Parameter is { } binding
+            ? ReferenceEquals(binding, receiver)
+            : argument.Index == 0;
 
     // A hoisted capture binds a variable, not an expression: a parameter/this load
     // or a non-display-class local (a display-class local would be a nested

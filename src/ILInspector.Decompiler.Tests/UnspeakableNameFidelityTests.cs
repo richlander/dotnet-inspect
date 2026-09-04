@@ -661,6 +661,39 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void ExactParameterConflictingWithFlattenedLocalFunction_DegradesToPartial()
+    {
+        var parameter = new Parameter("Pick", Int32);
+        var localFunction = new LocalFunctionStatement(
+            "Pick",
+            Int32,
+            [],
+            isStatic: true,
+            locals: [],
+            localNames: [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new Constant(1, Int32))));
+        var function = Function(
+            Int32,
+            [parameter],
+            [],
+            Container(
+                localFunction,
+                new Return(new LoadArgument(0, parameter))));
+
+        string output = CSharpPrinter.Print(function).Output!;
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Contains("int Pick()", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableParameterName,
+            issue?.Discriminator);
+        Assert.Contains("local-function declaration", issue?.Reason);
+    }
+
+    [Fact]
     public void SameNamedBindingsInOneSwitchArm_DegradeToPartial()
     {
         var accessor = new MethodRef(

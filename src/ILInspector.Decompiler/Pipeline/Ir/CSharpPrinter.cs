@@ -392,8 +392,7 @@ public sealed partial class CSharpPrinter
                 EffectiveDecompilerOptions(),
                 [.. _decisions])
             {
-                ParameterNames = function.Signature.Parameters.Any(
-                    parameter => parameter.DisplayName != parameter.Name)
+                ParameterNames = RequiresParameterNameComposition(function)
                         ? [
                             .. function.Signature.Parameters.Select(
                                 parameter => parameter.DisplayName),
@@ -401,6 +400,26 @@ public sealed partial class CSharpPrinter
                         : [],
             },
         };
+
+    static bool RequiresParameterNameComposition(IrFunction function)
+    {
+        if (function.Signature.Parameters.Any(
+            parameter => parameter.DisplayName != parameter.Name))
+        {
+            return true;
+        }
+
+        int separator = function.Name.LastIndexOf('.');
+        ReadOnlySpan<char> simpleName = function.Name.AsSpan(separator + 1);
+        bool hasImplicitValueBinder = simpleName.StartsWith(
+                "set_",
+                StringComparison.Ordinal)
+            || simpleName.StartsWith("add_", StringComparison.Ordinal)
+            || simpleName.StartsWith("remove_", StringComparison.Ordinal);
+        return hasImplicitValueBinder
+            && function.Signature.Parameters is [.., var valueParameter]
+            && valueParameter.DisplayName != "value";
+    }
 
     /// <summary>
     /// True when the printed body is exactly one top-level statement whose whole

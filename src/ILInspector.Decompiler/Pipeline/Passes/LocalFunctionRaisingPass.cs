@@ -545,15 +545,24 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         out ImmutableArray<string> capturedBinderNames)
     {
         capturedBinderNames = [];
+        if (environment.ArgIndex < 0
+            || environment.ArgIndex >= body.Signature.Parameters.Length)
+        {
+            return false;
+        }
+        var environmentParameter = body.Signature.Parameters[environment.ArgIndex];
+
         // Every use of the environment parameter must be the receiver of a
         // LoadField we can substitute. Check that on the original body, before
         // substitution: the captured values cloned in below are themselves
-        // host LoadArguments, so a post-substitution index test cannot tell a
-        // leftover environment read from a substituted host argument that
-        // happens to share the same index.
+        // host LoadArguments, while nested functions have independent argument
+        // ordinals. Binder identity distinguishes all three.
         foreach (var arg in body.Descendants.OfType<LoadArgument>())
         {
-            if (arg.Index != environment.ArgIndex)
+            if (!IsEnvironmentArgument(
+                    arg,
+                    environment.ArgIndex,
+                    environmentParameter))
                 continue;
             if (arg.Parent is not LoadField load
                 || !Equals(load.Field.DeclaringType, environment.Type)
@@ -565,7 +574,11 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
-            if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
+            if (load.Instance is LoadArgument arg
+                && IsEnvironmentArgument(
+                    arg,
+                    environment.ArgIndex,
+                    environmentParameter)
                 && Equals(load.Field.DeclaringType, environment.Type)
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
             {
@@ -584,6 +597,14 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         capturedBinderNames = names.ToImmutable();
         return true;
     }
+
+    static bool IsEnvironmentArgument(
+        LoadArgument argument,
+        int environmentArgumentIndex,
+        Parameter environmentParameter)
+        => argument.Parameter is { } binding
+            ? ReferenceEquals(binding, environmentParameter)
+            : argument.Index == environmentArgumentIndex;
 
     /// <summary>
     /// Whether the body reaches a DIFFERENT local function. Mutual and nested local

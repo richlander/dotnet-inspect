@@ -33,6 +33,30 @@ public class LambdaRaisingPassTests
         return result.Output!.ReplaceLineEndings("\n").Trim();
     }
 
+    [Fact]
+    public void NonCapturingLambdaWithNestedLambda_RaisesByReceiverIdentity()
+    {
+        string output = PrintRaised(
+            nameof(NestedBinderOwnershipSamples.NonCapturingLambdaWithNestedLambda),
+            typeof(NestedBinderOwnershipSamples));
+
+        Assert.Contains("_ => item => item * 2", output);
+        Assert.DoesNotContain("___c.", output);
+    }
+
+    [Fact]
+    public void CapturingLambdaWithNestedLambda_RaisesByReceiverIdentity()
+    {
+        string output = PrintRaised(
+            nameof(NestedBinderOwnershipSamples.CapturingLambdaWithNestedLambda),
+            typeof(NestedBinderOwnershipSamples));
+
+        Assert.Contains("value =>", output);
+        Assert.Contains("captured + value", output);
+        Assert.Contains("item => item * 2", output);
+        Assert.DoesNotContain("DisplayClass", output);
+    }
+
     [Theory]
     [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetExplicitTupleLiteralConversion")]
     [InlineData("Microsoft.CodeAnalysis.CSharp.ConversionsBase", "GetImplicitTupleLiteralConversion")]

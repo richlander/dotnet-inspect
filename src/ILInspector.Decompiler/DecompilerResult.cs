@@ -376,7 +376,9 @@ public sealed record DecompilerResult(
 
     /// <summary>
     /// Complete parameter-name overrides for the declaration enclosing
-    /// <see cref="Output"/>, or empty when no declaration name changed.
+    /// <see cref="Output"/>, or empty when declaration composition needs no
+    /// name coordination. Accessor bodies also report an unchanged final list
+    /// when C#'s implicit <c>value</c> binder cannot represent the body name.
     /// </summary>
     public IReadOnlyList<string> ParameterNames => Metadata.ParameterNames;
 

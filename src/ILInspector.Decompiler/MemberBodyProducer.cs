@@ -2248,7 +2248,7 @@ public static class MemberBodyProducer
             return;
 
         throw new InvalidOperationException(
-            $"Accessor '{accessorName}' requires changed body-owned parameter names, "
+            $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
                 + "which accessor declaration composition cannot yet coordinate (issue #5778).");
     }
 

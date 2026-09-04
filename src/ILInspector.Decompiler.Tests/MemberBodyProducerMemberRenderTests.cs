@@ -123,6 +123,71 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMember_MissingSetterValueName_FailsVisibly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-missing-setter-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("MissingSetterValueName");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "MissingSetterValueNameSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var field = typeBuilder.DefineField(
+                "_value",
+                typeof(int),
+                FieldAttributes.Private);
+            var setter = typeBuilder.DefineMethod(
+                "set_Value",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(int)]);
+            var il = setter.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Stfld, field);
+            il.Emit(OpCodes.Ret);
+            typeBuilder
+                .DefineProperty("Value", PropertyAttributes.None, typeof(int), null)
+                .SetSetMethod(setter);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(
+                directory,
+                "MissingSetterValueName.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "MissingSetterValueNameSample");
+            var property = Assert.Single(
+                type.Members,
+                member => member.Name == "Value");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                property,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+            Assert.Contains("issue #5778", rendered.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ProduceMember_PreservesFieldLikeEventDeclaration()
     {
         using var pe = new PEReader(File.OpenRead(AssemblyPath));
