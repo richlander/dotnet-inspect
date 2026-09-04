@@ -22689,6 +22689,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Tip:", error);
     }
 
+    [Theory]
+    [InlineData("Microsoft.CSharp@4.7.0")]
+    [InlineData("Microsoft.TestPlatform.TestHost@17.14.1")]
+    [InlineData("System.Private.ServiceModel@4.10.3")]
+    public async Task PackageCommand_AllLibraries_UnsupportedArtifactRoleShapePreservesLegacyOutput(
+        string package)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            package,
+            "--all-libraries",
+            "-S",
+            "@Integrations",
+            "--markdown",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "matched sections have no data across all libraries",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task LibraryCommand_AspNetCoreSection_ForAzureDataProtectionKeys_ShowsDataProtectionCurrency()
     {

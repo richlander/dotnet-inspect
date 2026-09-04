@@ -14,10 +14,12 @@ remaining target behavior are identified explicitly under
 
 The resource-free Root projection tracked by
 [#5713](https://github.com/richlander/dotnet-inspect/issues/5713) is a focused
-addition to this existing owner. It is the bottom slice of a design stack. The
-Root preparation and publication handoff tracked by
-[#5727](https://github.com/richlander/dotnet-inspect/issues/5727) is the middle
-slice, and the logical Workspace Scope contract is the upper slice in
+addition to this existing owner. Its initial implementation supplies the
+resource-free Package correspondence currency; physical-generation identity,
+current status, and stale-access validation remain with the publication
+handoff tracked by
+[#5727](https://github.com/richlander/dotnet-inspect/issues/5727), the middle
+slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
@@ -2272,6 +2274,47 @@ callers. CLI and browser/Wasm adoption are separate slices in
 [#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
 adds no host retention, cache, eviction, or presentation behavior.
 
+The first CLI adoption is the remote `package --all-libraries` grouped
+Integrations path when the command resolves one default target framework and
+the binding's frozen surface role exactly covers the command's visible library
+selection.
+After the existing desktop extraction resolves the exact package and version,
+the CLI reacquires that immutable payload through the authorized
+`FileSystemPackageStore`, creates its `PackageRootBinding`, and realizes the
+binding in an asynchronous `InspectionWorkspace`. The host maps the existing
+surface-library selection to its exact body-bearing implementation participant
+when correspondence exists. The selected surface descriptor remains the input
+to ordinary library inspection while only the Integration query runs against
+the implementation participant; this prevents implementation-only metadata
+from being presented as part of the compile surface. The host consumes those
+typed Integration results through the existing library section pipeline and
+preserves the selected extraction file's timestamp for ordinary presentation;
+that timestamp remains a host presentation fact rather than artifact identity.
+The host awaits workspace close so artifact cleanup follows exact group
+settlement. It does not mint an artifact registration or infer correspondence
+from assembly display text.
+
+`ArtifactBackedCreate_RetainsArtifactUntilActiveQueryCompletes` gates
+distinct surface and implementation descriptors at the CLI adapter,
+implementation-query lifetime across a racing close, and rejection of access
+after terminal settlement.
+`ArtifactBackedImplementationRejection_PreservesSurfaceWithoutPathFallback`
+gates a valid selected surface beside a malformed implementation carrier:
+ordinary inspection still receives the surface while the typed implementation
+failure remains visible. Existing package command gates continue to own Markout
+output compatibility.
+
+Local archives and explicit `--tfm` selection remain on the legacy grouped
+workspace. Those modes can select tools or multiple package layout roles that
+are not one compile-role projection; silently narrowing their visible library
+set would not be a behavior-preserving adoption. A default selection also
+retains the legacy workspace when it includes nested or implementation-only
+libraries, resolves an explicit empty compile group, or cannot form exact
+surface/implementation assembly-identity correspondence. These are ordinary
+package shapes but not valid inputs to the shared compile-role realization;
+falling back preserves the command's existing visible library set and output.
+Browser/Wasm adoption remains the separate #5576 slice.
+
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed
 operations must report the retained compile-library outcome as unavailable or
@@ -2592,10 +2635,20 @@ The target Release gates are:
 | `ArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess` | Owner validation, not equality alone, rejects a stale, foreign, unknown, or non-current reference before physical access or lease issuance. |
 | `BrowserArtifactRootProjection_DoesNotRetainRetiredPackageBytes` | Browser package bytes can drain after artifact leases release even while logical consumers retain old projections. |
 
-Every target is **unverified** until its named Release gate exists. The
-implementation should extend the existing package binding and Workspace
-generation suites rather than create a second acquisition or admission
-protocol.
+The initial implementation verifies the Package correspondence arm through:
+
+- `PackageArtifactRootCorrespondence_IsExactAndResourceFree`;
+- `PackageArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement`;
+- `PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess`;
+  and
+- `PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance`.
+
+The generic target gates remain **unverified** until the non-package adapter
+exists. Generation-reference, current-status, stale-access, and byte-drain
+targets also remain **unverified**. #5727 must issue physical-generation
+identity from the ArtifactSetSession-backed realization established by #5607,
+publish it through the owner gate, and validate it at physical access; the
+older direct-group completion does not define Workspace current composition.
 
 This focused addition does not define logical Workspace membership, Root
 occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion
