@@ -1226,8 +1226,8 @@ public sealed class PackageAssemblyContextRealizationTests
             ("lib/net11.0/Mismatch\u202e.Sample.dll", implementation));
         using var workspace = new InspectionWorkspace();
 
-        InvalidOperationException failure =
-            Assert.Throws<InvalidOperationException>(
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
                 () => workspace.RealizePackageAssemblyContextRoles(
                     [package],
                     cancellationToken: TestContext.Current.CancellationToken));

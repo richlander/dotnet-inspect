@@ -729,12 +729,16 @@ assemblies into one runtime under both Mono and CoreCLR, requests readiness
 concurrently, and then invokes both facades. It requires exactly one SDK
 creation and one live runtime, assembly-distinct results through both declaring
 types and exact overload keys, a genuinely awaited operation from each
-assembly, and independent record and enum declarations. Its negative cases
-prove that the gate fails for a wrong assembly root, a separately loaded
-runtime module, both operational paths routed through one facade, an
-uninitialized second facade, or a dropped managed invocation. This canary does
-not split the production engine binding or expose raw `ILInspector` APIs; that
-production partition remains [#4497].
+assembly, independent record and enum declarations, and the managed operation
+bridge's authenticated nonterminal callback lifecycle. The bridge case carries
+Progress, Item, and ItemFailure events in producer order before the terminal
+result, rejects callback failure, and prevents later invocation through a
+retained sink. Its negative cases prove that the gate fails for a dropped
+managed event callback, wrong assembly root, separately loaded runtime module,
+both operational paths routed through one facade, uninitialized second facade,
+or dropped managed invocation. This canary does not split the production engine
+binding or expose raw `ILInspector` APIs; that production partition remains
+[#4497].
 
 The purpose-built `managed-operation-bridge-canary` directly drives the product
 `BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its

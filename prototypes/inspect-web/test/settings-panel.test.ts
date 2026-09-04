@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindSettingsPanel,
+  reconcileStyleTaste,
   renderSettingsView,
   type SettingsPanelBindingActions,
   styleCatalogGroupsHtml,
@@ -96,6 +97,14 @@ const styleOptions = [
   { id: "readable-locals", tier: "naming", title: "Readable local names", summary: "Synthesize readable local names.", oracle_endorsed: true },
   { id: "expanded-braces", tier: "layout", title: "Expanded braces", summary: "Always use braces." },
 ];
+
+test("style taste reconciliation drops retired catalog choices", () => {
+  assert.deepEqual(
+    reconcileStyleTaste(
+      ["readable-local-names", "expanded-braces"],
+      styleOptions),
+    ["expanded-braces"]);
+});
 
 test("settings bindings dispatch the home entry control", () => {
   const root = new FakeRoot();

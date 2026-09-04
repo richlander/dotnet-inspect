@@ -808,7 +808,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "src/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
+            "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
             outputs);
         AssertRouting(
             decompilerFixture,

@@ -9,4 +9,9 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Include="../ManagedOperationCanary.cs" Link="ManagedOperationCanary.cs" />
+    <ProjectReference Include="../../engine.Core/InspectWeb.Engine.Core.csproj" />
+  </ItemGroup>
+
 </Project>

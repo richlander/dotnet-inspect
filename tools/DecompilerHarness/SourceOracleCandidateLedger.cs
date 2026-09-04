@@ -1418,10 +1418,8 @@ static class SourceOracleCandidateLedger
         {
             await AuthoredRebuildFidelity.AcquirePdbAsync(source, httpClient);
         }
-        catch (Exception ex) when (ex is HttpRequestException
-            or IOException
-            or TaskCanceledException
-            or InvalidOperationException)
+        catch (Exception ex) when (
+            AuthoredRebuildFidelity.IsPdbAcquisitionFailure(ex))
         {
             Console.Error.WriteLine(
                 $"Could not acquire a portable PDB for '{assemblyPath}' "
