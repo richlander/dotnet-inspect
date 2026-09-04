@@ -14,10 +14,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Fixtures/**/*.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
@@ -32,14 +28,14 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <ProjectReference Include="../../src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <ProjectReference Include="../../fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
-    <ProjectReference Include="Fixtures/StateMachines/ILInspector.Metadata.StateMachineFixtures.csproj" />
-    <ProjectReference Include="Fixtures/SignatureSpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
-    <ProjectReference Include="Fixtures/SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
-    <ProjectReference Include="Fixtures/MemorySafety/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
-    <ProjectReference Include="Fixtures/ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer/ILInspector.Metadata.SpellabilityConsumer.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj">
       <Aliases>extensionold</Aliases>
     </ProjectReference>
-    <ProjectReference Include="Fixtures/ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj">
+    <ProjectReference Include="../../fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj">
       <Aliases>extensionnew</Aliases>
     </ProjectReference>
     <!-- New-rules unsafe fixture: a member declared `unsafe` with no pointer in
