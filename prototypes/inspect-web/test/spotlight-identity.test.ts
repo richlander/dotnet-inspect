@@ -1157,7 +1157,10 @@ test("typed library controls own library and Platform picker bindings", () => {
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
   assert.match(
     appSource,
-    /const requiresSelection = selectedKey !== undefined && !scoped;[\s\S]*?<option value="" selected disabled>Choose a library<\/option>/);
+    /const requiresSelection = options\.requireSelection === true && !scoped;[\s\S]*?<option value="" selected disabled>Choose a library<\/option>/);
+  assert.equal(
+    appSource.match(/requireSelection: true/g)?.length,
+    1);
   assert.match(
     binding,
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
@@ -4955,7 +4958,7 @@ test("package metadata uses compact coordinates in a full-area working surface",
     /if \(state\.packageLens === "metadata"\) return body;/);
   assert.match(
     renderMetadata,
-    /data-platform-metadata-library[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
+    /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);

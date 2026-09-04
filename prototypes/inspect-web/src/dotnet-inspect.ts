@@ -3965,13 +3965,17 @@ function renderPackageMetadata() {
   const isPlatform = pkg.isRuntimePack;
   const fresh = state.packageMetadataKey === packageScopeSignature();
   const scopedLibrary = scopedPlatformLibrary() || "";
-  const metadataLibraryControl = isPlatform
+  const platformMetadataSelect = isPlatform
+    ? platformLibrarySelectHtml({
+        dataAttr: "data-platform-metadata-library",
+        selected: scopedLibrary,
+        requireSelection: true,
+      })
+    : "";
+  const metadataLibraryControl = platformMetadataSelect
     ? `<label class="metadata-library-select">
         <span>Library</span>
-        ${platformLibrarySelectHtml({
-          dataAttr: "data-platform-metadata-library",
-          selected: scopedLibrary,
-        })}
+        ${platformMetadataSelect}
       </label>`
     : "";
   return renderPackageMetadataHtml({
@@ -10407,6 +10411,7 @@ type PlatformLibrary = ReturnType<typeof platformLibraryRoster>[number];
 interface PlatformLibrarySelectOptions {
   dataAttr?: string;
   selected?: string | null;
+  requireSelection?: boolean;
 }
 
 function platformLibrarySelectHtml(
@@ -10434,10 +10439,7 @@ function platformLibrarySelectHtml(
   };
   for (const entry of state.platformRecent || []) pushRecent(byAssembly.get(entry.assembly));
   for (const lib of roster) if (lib.loaded) pushRecent(lib);
-  // Lens-local selectors pass an explicit empty selection while they require the
-  // user to choose a library. Other placements keep the most-recent or largest
-  // library as their useful default.
-  const requiresSelection = selectedKey !== undefined && !scoped;
+  const requiresSelection = options.requireSelection === true && !scoped;
   const current = requiresSelection
     ? ""
     : scoped || recent[0]?.assembly || roster[0]?.assembly || "";
