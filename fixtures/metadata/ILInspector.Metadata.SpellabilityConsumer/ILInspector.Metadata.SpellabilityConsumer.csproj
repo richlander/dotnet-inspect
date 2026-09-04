@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
+    <ProjectReference Include="../ILInspector.Metadata.SpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
   </ItemGroup>
 </Project>
