@@ -310,6 +310,8 @@ internal sealed class NuGetOperationDeadline : IDisposable
 
     internal TimeSpan RequestTimeout => _requestTimeout;
 
+    internal CancellationToken OperationToken => _context.OperationToken;
+
     private void ThrowTranslated(
         OperationCanceledException exception,
         CancellationTokenSource requestCancellation,
