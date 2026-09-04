@@ -431,8 +431,9 @@ rendering are in flight, pushes the canonical Workspace destination only after
 replacement succeeds, and leaves the source entry unchanged on failure.
 Any ordinary inspection action that leaves the demo catalog, including scope,
 Search, and loaded-package occurrence activation, follows the same push
-classification so Back returns to the catalog. If a catalog-origin package
-acquisition fails, the consumer restores the prior Workspace and catalog,
+classification so Back returns to the catalog. If a catalog-origin NuGet
+package or Platform-library acquisition fails, the consumer restores the prior
+Workspace and catalog, restarts derived Workspace occurrence discovery,
 surfaces retry there, and returns focus to the stable Search control without
 committing a destination.
 

@@ -972,8 +972,13 @@ CanonicalWorkspaceRestoreSnapshot {
 function restoreCanonicalWorkspaceRestoreSnapshot(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
 ) {
+  clearWorkspaceOccurrenceView();
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
+  state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrenceLoading = false;
+  state.workspaceOccurrences = null;
+  state.workspaceOccurrenceError = "";
   navigationHistory.restore(snapshot.navigation);
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
@@ -2037,10 +2042,10 @@ function workspaceOccurrenceRequest() {
 function ensureWorkspaceOccurrenceView() {
   if (!state.engineReady) return;
   const signature = JSON.stringify(workspaceOccurrenceRequest());
+  if (state.workspaceOccurrenceLoading) return;
   if (signature === state.workspaceOccurrenceSignature) return;
 
   state.workspaceOccurrenceSignature = signature;
-  if (state.workspaceOccurrenceLoading) return;
   void queryWorkspaceOccurrenceView();
 }
 
@@ -2057,25 +2062,30 @@ async function queryWorkspaceOccurrenceView() {
     superseded = view.superseded;
     if (!superseded
       && revision === workspaceOccurrenceRevision
-      && signature === state.workspaceOccurrenceSignature) {
+      && signature === state.workspaceOccurrenceSignature
+      && signature === JSON.stringify(workspaceOccurrenceRequest())) {
       state.workspaceOccurrences = view;
     }
   } catch (error: unknown) {
     if (revision === workspaceOccurrenceRevision
-      && signature === state.workspaceOccurrenceSignature) {
+      && signature === state.workspaceOccurrenceSignature
+      && signature === JSON.stringify(workspaceOccurrenceRequest())) {
       state.workspaceOccurrences = null;
       state.workspaceOccurrenceError =
         error instanceof Error ? error.message : String(error);
     }
   } finally {
-    state.workspaceOccurrenceLoading = false;
+    const ownsCurrentRequest =
+      revision === workspaceOccurrenceRevision
+      && signature === state.workspaceOccurrenceSignature;
+    if (ownsCurrentRequest) state.workspaceOccurrenceLoading = false;
+    const desiredSignature = JSON.stringify(workspaceOccurrenceRequest());
     if (workspaceOccurrenceViewIsVisible()
+      && !state.workspaceOccurrenceLoading
       && (superseded
-        || revision !== workspaceOccurrenceRevision
-        || signature !== state.workspaceOccurrenceSignature)) {
-      state.workspaceOccurrenceSignature =
-        JSON.stringify(workspaceOccurrenceRequest());
-      void queryWorkspaceOccurrenceView();
+        || state.workspaceOccurrenceSignature !== desiredSignature)) {
+      state.workspaceOccurrenceSignature = "";
+      ensureWorkspaceOccurrenceView();
     }
     render();
   }
@@ -2091,6 +2101,7 @@ function clearWorkspaceOccurrenceView() {
   inspectClearWorkspacePackageOccurrences();
   workspaceOccurrenceRevision++;
   state.workspaceOccurrenceSignature = "";
+  state.workspaceOccurrenceLoading = false;
   state.workspaceOccurrences = null;
   state.workspaceOccurrenceError = "";
 }
@@ -6789,7 +6800,12 @@ async function openPlatformLibrary(
   const focusGeneration = scopeOnly ? null : beginSpotlightNavigation();
   const navigationSeq = options.navigationSeq ?? navigationSequence.begin();
   if (!navigationSequence.isCurrent(navigationSeq)) return undefined;
+  const openedFromProductDemos =
+    !scopeOnly && isProductHomeDemosPath(location.pathname);
   spotlight.reset();
+  const catalogSnapshot = openedFromProductDemos
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
   const key = (assembly || "").replace(/\.dll$/i, "");
   const fileName = key ? `${key}.dll` : "";
   const tfm = platformScopeTfm();
@@ -6817,9 +6833,19 @@ async function openPlatformLibrary(
       state.loading = false;
       const failureMessage =
         runtimeResult.failureMessage || state.runtimePackError;
-      state.error = failureMessage
+      const message = failureMessage
         ? `Couldn’t load ${key}: ${failureMessage}`
         : `Couldn’t load ${key} from the .NET runtime pack.`;
+      if (catalogSnapshot) {
+        failWorkspaceCatalogAction(
+          message,
+          catalogSnapshot,
+          () => openPlatformLibrary(assembly, pack),
+          () => focusWorkbenchSearch(document),
+        );
+        return undefined;
+      }
+      state.error = message;
       state.errorTitle = "Platform library failed";
       state.retryAction = options.retryAction
         ?? (() => openPlatformLibrary(assembly, pack));

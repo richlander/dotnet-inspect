@@ -2912,6 +2912,47 @@ test("catalog package acquisition failure restores warm and cold workspaces loca
   assert.match(
     loadPackage,
     /if \(options\.failureHandler\) \{\s*options\.failureHandler\(friendly\.message\);\s*return null;\s*\}\s*if \(prevPackage\)/);
+
+  const platformLibraryLoad =
+    appSource.match(/async function openPlatformLibrary\([\s\S]*?\n}\n\nfunction pickSpotlightLoadedPackage/)?.[0]
+    ?? "";
+  assert.match(
+    platformLibraryLoad,
+    /const openedFromProductDemos =\s*!scopeOnly && isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
+  assert.match(
+    platformLibraryLoad,
+    /if \(!loaded\) \{[\s\S]*const message = failureMessage[\s\S]*if \(catalogSnapshot\) \{\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack\),\s*\(\) => focusWorkbenchSearch\(document\),\s*\);[\s\S]*return undefined;[\s\S]*\}\s*state\.error = message;/);
+});
+
+test("catalog rollback reacquires Workspace occurrences with current authority", () => {
+  const restoreSnapshot =
+    appSource.match(/function restoreCanonicalWorkspaceRestoreSnapshot\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    restoreSnapshot,
+    /clearWorkspaceOccurrenceView\(\);[\s\S]*Object\.assign\(state, snapshot\.state\);[\s\S]*state\.workspaceOccurrenceSignature = "";[\s\S]*state\.workspaceOccurrenceLoading = false;[\s\S]*state\.workspaceOccurrences = null;[\s\S]*state\.workspaceOccurrenceError = "";/);
+
+  const ensureOccurrence =
+    appSource.match(/function ensureWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    ensureOccurrence,
+    /const signature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;/);
+  const occurrenceQuery =
+    appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    occurrenceQuery,
+    /!superseded[\s\S]*revision === workspaceOccurrenceRevision[\s\S]*signature === state\.workspaceOccurrenceSignature[\s\S]*signature === JSON\.stringify\(workspaceOccurrenceRequest\(\)\)/);
+  assert.match(
+    occurrenceQuery,
+    /const ownsCurrentRequest =\s*revision === workspaceOccurrenceRevision\s*&& signature === state\.workspaceOccurrenceSignature;\s*if \(ownsCurrentRequest\) state\.workspaceOccurrenceLoading = false;\s*const desiredSignature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);[\s\S]*&& !state\.workspaceOccurrenceLoading[\s\S]*state\.workspaceOccurrenceSignature !== desiredSignature[\s\S]*state\.workspaceOccurrenceSignature = "";\s*ensureWorkspaceOccurrenceView\(\);/);
+  const clearOccurrence =
+    appSource.match(/function clearWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    clearOccurrence,
+    /workspaceOccurrenceRevision\+\+;[\s\S]*state\.workspaceOccurrenceSignature = "";[\s\S]*state\.workspaceOccurrenceLoading = false;[\s\S]*state\.workspaceOccurrences = null;/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
@@ -5938,7 +5979,7 @@ test("workspace UI routes replacements and restore notices through bounded paths
     /onSelect: openDefaultWorkspace,\s+onActivate: action =>\s+observeAction\(\s+\(\) => activateWorkspacePackageOccurrence\(action\)/);
   assert.match(
     appSource,
-    /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*revision === workspaceOccurrenceRevision[\s\S]*\(superseded[\s\S]*\|\| revision !== workspaceOccurrenceRevision[\s\S]*\|\| signature !== state\.workspaceOccurrenceSignature\)/);
+    /const revision = workspaceOccurrenceRevision;[\s\S]*superseded = view\.superseded;[\s\S]*const ownsCurrentRequest =\s*revision === workspaceOccurrenceRevision\s*&& signature === state\.workspaceOccurrenceSignature;[\s\S]*const desiredSignature = JSON\.stringify\(workspaceOccurrenceRequest\(\)\);[\s\S]*!state\.workspaceOccurrenceLoading[\s\S]*state\.workspaceOccurrenceSignature !== desiredSignature/);
   assert.match(
     appSource,
     /if \(!workspaceOccurrenceViewIsVisible\(\)\s*&& \(state\.workspaceOccurrenceSignature\s*\|\| state\.workspaceOccurrences\)\) \{\s*clearWorkspaceOccurrenceView\(\)/);
