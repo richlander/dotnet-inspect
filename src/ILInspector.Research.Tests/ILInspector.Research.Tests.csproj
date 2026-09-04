@@ -22,8 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Research.TargetFixtures\ILInspector.Research.TargetFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ResearchTargetCorrespondenceFixtures.V1\ResearchTargetCorrespondenceFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ResearchTargetCorrespondenceFixtures.V2\ResearchTargetCorrespondenceFixtures.V2.csproj" ReferenceOutputAssembly="false" />

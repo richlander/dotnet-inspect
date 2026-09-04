@@ -31,7 +31,7 @@
          SliceCorpus() scans. They are corpus inputs, not references in code;
          LastMemberOfAType_ExtractsThroughItsOwnClosingBraceOnly names a member
          of DiffAsmFixtures.Target directly. -->
-    <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
   </ItemGroup>
 
