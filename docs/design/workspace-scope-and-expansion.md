@@ -613,11 +613,13 @@ WorkspaceScopeOperation
   | ExpandDependencies
 ```
 
-Package **Open**, resolved package-set **Open**, demo restoration, imported
-definitions, and saved definitions lower to `ReplaceScope`. Workspace-editor
-**Add package** and resolved **Add package set** lower to `AddRoots`.
-Source-selection and restoration owners resolve their inputs before this owner
-receives exact Root requests.
+Package **Open**, resolved package-set **Open**, and an explicitly scope-only
+demo or definition action that resets rather than restores Navigation, view,
+query, and history state lower to `ReplaceScope`. Workspace-editor **Add
+package** and resolved **Add package set** lower to `AddRoots`.
+Source-selection owners resolve their inputs before this owner receives exact
+Root requests. Canonical restoration inputs do not lower to `ReplaceScope`;
+they remain blocked on the #5525 participant described below.
 
 ```text
 WorkspaceScopeReplacement
@@ -626,9 +628,11 @@ WorkspaceScopeReplacement
 ```
 
 An ordinary package Open supplies an empty expansion-scope sequence and is
-therefore closed. A demo, imported definition, or saved definition may supply
-its own complete typed expansion policy. The previous Workspace's expansion
-scopes are never inherited by omission.
+therefore closed. An explicitly scope-only demo or definition action may
+supply its own complete typed expansion policy. The previous Workspace's
+expansion scopes are never inherited by omission. Canonical restoration will
+supply the same complete sequences through its future uncommitted Scope
+participant rather than this publishing operation.
 
 Package-set Browser adoption is not enabled by this transfer alone.
 [Static Ecosystem Packs](ecosystem-packs.md) may expose an **Add curated
@@ -682,21 +686,26 @@ consumes that field as its requested active/replacement occurrence input and
 decides whether and how to focus it.
 
 `Busy`, `RevisionMismatch`, and `EvidenceMismatch` are exact `Rejected`
-reasons. Submission validation is complete and side-effect-free before
-mutation-authority admission. In deterministic order it validates:
+reasons. Adjacent runtime availability has absolute precedence because no
+current authoritative snapshot exists when that runtime is absent, closing, or
+closed. Every submission first consumes that gate-observing status and returns
+`Unavailable` without adjacent work when the runtime is unavailable.
+
+For an accepting runtime, submission validation is complete and
+side-effect-free before mutation-authority admission. In deterministic order
+it validates:
 
 1. the operation union arm, required envelope fields, finite non-expired
    deadline, operation identity, and finite limits;
-2. runtime state and exact Workspace identity, returning `Unavailable` rather
-   than a success-shaped snapshot when the adjacent runtime is absent, closing,
-   or closed;
+2. the exact Workspace identity;
 3. the current base revision;
 4. the complete operation-specific request, typed values, structural limits,
    and evidence correspondence.
 
-The first failure is returned. A pre-admission expired deadline returns typed
-`Rejected(DeadlineExpired)`. Deadline expiry or caller cancellation after
-admission returns `Cancelled` only when observed before the parent
+The first failure is returned. For an accepting runtime, a pre-admission
+expired deadline returns typed `Rejected(DeadlineExpired)`. Deadline expiry or
+caller cancellation after admission returns `Cancelled` only when observed
+before the parent
 publication's final recheck; it releases preparation and leaves the prior
 revision current. Once the parent's non-yielding commit begins, publication
 wins and the preconstructed Scope result is `Committed`. A stale, foreign,
@@ -1180,7 +1189,7 @@ The implementation must demonstrate:
 | Four eligible dependencies realize and one fails | One atomic revision appends the three successful Roots and records the failure plus those new Roots as an unevaluated frontier |
 | Eligible expansion candidates exceed remaining Root capacity | Producer order selects the candidates attempted; every later candidate is visible as `CapacityDeclined` |
 | Open an unrelated package after a prefix scope was registered | One `ReplaceScope` atomically installs the new Root with an empty expansion-scope set and a closed initial observation; the old prefix cannot authorize acquisition |
-| Restore Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the restored revision |
+| Scope-only Open supplies Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the replacement revision |
 | Open one fully pinned exact Root already present | `ReplaceScope` retains its exact occurrence without source or artifact preparation |
 | All eligible dependencies are already admitted and two are outside the scopes | A closure-only observation is complete for the exact current Ready Root coverage and retains the two declined boundaries |
 | A closure-only publication is retried with an equivalent new participant | The prior Scope publication base is stale even though membership revision is unchanged; no second logical or physical publication occurs |
