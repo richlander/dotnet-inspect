@@ -87,10 +87,14 @@ methods are present but `NoApplicableInput`; only the explicit endpoint arm is
 `CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
 `CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
 `CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
 `CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
 `CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
 `PresentEndpoint_RejectsNullAndNilEvidence` in
-`CSharpMemberEndpointComparisonTests`.
+`CSharpMemberEndpointComparisonTests`. The one-sided addition gate proves the
+product value of the explicit absent arm: Decompiler emits every canonical C#
+line from the present method as an added Finding while the pair-dependent
+`CSharpBodyDiffResult` remains absent.
 
 This adapter is the C# native-producer prerequisite consumed by the Research
 producer session under

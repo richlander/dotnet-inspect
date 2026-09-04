@@ -108,6 +108,39 @@ public class CSharpMemberEndpointComparisonTests
     }
 
     [Fact]
+    public void CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff()
+    {
+        using var source = MetadataSource.OpenWithoutSymbols(
+            FixtureCatalog.DiffPair.NewAssemblyPath());
+        var method = FindMethod(
+            source,
+            "DiffFixtureSample.DiffSample",
+            "ConstantValue");
+        var oldSubject = Subject("old");
+        var newSubject = Subject("new");
+
+        var result = CSharpBodyDiff.CompareMemberEndpoints(
+            new CSharpMemberDiffEndpoint.SubjectAbsent(
+                oldSubject,
+                "Exact subject is absent."),
+            Present(newSubject, source, method));
+
+        var comparison = Assert.IsType<FindingComparison<CSharpCanonicalLine>.Complete>(
+            result.Findings.Value);
+        Assert.Equal(FindingInspectionState.SubjectAbsent, comparison.Transition.Old);
+        Assert.Equal(FindingInspectionState.Complete, comparison.Transition.New);
+        Assert.Empty(comparison.OldAtoms);
+        Assert.NotEmpty(comparison.NewAtoms);
+        Assert.Equal(comparison.NewAtoms.Length, comparison.Pairs.Length);
+        Assert.All(
+            comparison.Pairs,
+            pair => Assert.IsType<PairFinding<CSharpCanonicalLine>.Added>(pair.Value));
+        Assert.Same(oldSubject, result.Old);
+        Assert.Same(newSubject, result.New);
+        Assert.Null(result.BodyDiff);
+    }
+
+    [Fact]
     public void CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff()
     {
         var oldSubject = Subject("old");

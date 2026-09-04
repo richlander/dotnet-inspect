@@ -166,12 +166,14 @@ The C# adoption is gated by
 `CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
 `CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
 `CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
 `CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
 `CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
 `PresentEndpoint_RejectsNullAndNilEvidence` in
 `CSharpMemberEndpointComparisonTests`. Together they verify the same explicit
 endpoint, topology-retention, pair-suppression, native-result, and null
-rejection obligations for the Decompiler owner. Legacy assembly-wide and
+rejection obligations for the Decompiler owner, including added canonical C#
+Findings for a one-sided present method. Legacy assembly-wide and
 `CompareMembers` paths retain their existing compatibility behavior until
 their consumers migrate; they are not the typed endpoint path.
 
