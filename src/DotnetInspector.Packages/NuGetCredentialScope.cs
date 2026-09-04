@@ -87,14 +87,15 @@ public static class NuGetCredentialScope
     }
 
     /// <summary>
-    /// Reduces a URL to the spelling-independent form <see cref="IsSameEndpoint"/> compares, so
-    /// two URLs name the same endpoint exactly when their canonical forms are equal.
+    /// Reduces a URL to the spelling-independent legacy endpoint form
+    /// <see cref="IsSameEndpoint"/> compares.
     /// </summary>
     /// <remarks>
-    /// Callers that need an endpoint <em>identity</em> rather than a pairwise comparison — a
-    /// dictionary key or a cache path segment — must derive it from this method. A second
-    /// canonicalizer would be free to drift from this one, and the two failure directions are not
-    /// symmetric: folding a distinction this method preserves lets one feed answer for another.
+    /// This projection remains the producer-keyed persistent-cache identity.
+    /// It is not the package owner's configured-authority identity:
+    /// <c>ConfiguredPackageAuthorityKey</c> deliberately preserves raw path
+    /// distinctions that <see cref="Uri"/> canonicalizes so credential
+    /// authority cannot be inferred from cache provenance.
     /// </remarks>
     /// <param name="url">An absolute URL.</param>
     /// <returns>The canonical form of <paramref name="url"/>.</returns>
@@ -117,7 +118,7 @@ public static class NuGetCredentialScope
         return $"{origin}{path}{NormalizeEscapes(url.Query)}{NormalizeEscapes(url.Fragment)}";
     }
 
-    private static string NormalizeEscapes(string value)
+    internal static string NormalizeEscapes(string value)
     {
         if (!value.Contains('%', StringComparison.Ordinal))
         {

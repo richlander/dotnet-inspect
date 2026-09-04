@@ -6,11 +6,13 @@ import {
 } from "./data.ts";
 import type {
   BrowserPackageDependencies,
+} from "./facades/inspect-web-package.d.ts";
+import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
   BrowserPerformanceMember,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "./metadata-viewer.ts";
 import type {
   AppMemberSurface,
