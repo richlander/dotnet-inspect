@@ -728,10 +728,11 @@ retain an explicit missing-decode capability reason and decline before
 `CanSpell` boolean supplies neither the missing identities nor typed failure
 evidence.
 
-For each occurrence resolved to the source candidate, tools check that the
-exact source `TypeDef`, including its containing declaration chain, is present
-and nameable in the artifact's declaration plan. A same-named external
-definition cannot satisfy this obligation. The tools-owned
+For each occurrence resolved to the source candidate that is not covered by a
+`CompilerSynthesizedDefinition` obligation, tools check that the exact source
+`TypeDef`, including its containing declaration chain, is present and nameable
+in the artifact's declaration plan. A same-named external definition cannot
+satisfy this obligation. The tools-owned
 `LocalDeclarationReceipt` records that obligation's discharge; resolution alone
 does not prove it. A source-local definition need not be externally accessible,
 but it must be nameable from the occurrence's generated context. An undischarged
@@ -906,12 +907,12 @@ artifact production, produces one closed `CompileClosureOutcome`:
 - `Complete` maps every requirement to an intrinsic,
   `LocalDeclarationReceipt`, exact `CompileReferenceDescriptor`, or retained
   compiler-synthesized binding obligation;
-- `Unspellable` retains every authoritative Metadata accessibility rejection;
+- `Unspellable` retains authoritative Metadata `Inaccessible` outcomes;
 - `Missing` retains every requirement for which no provider exists;
 - `Ambiguous` retains every requirement with multiple non-corresponding
   providers;
-- `Incomplete` retains decode, resolution, safety-bound, unsupported-scope, and
-  missing adjacent-owner evidence.
+- `Incomplete` retains decode, resolution, rejected accessibility, safety-bound,
+  unsupported-scope, and missing adjacent-owner evidence.
 
 `Complete` means the candidate is statically ready to cross
 `ProductAttemptCommit` under its mapped providers. It is not rendered-artifact
@@ -1126,11 +1127,12 @@ when opcode and C# comparers independently return equality.
 planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
-  discovery or selection, declaration planning, closure, local requirements,
-  signature-decode or required terminal-accessibility capability,
-  retained-content digest capability, artifact-manifest capability, product-body
-  occurrence capability, or required generated-correspondence capability. It
-  carries the typed reasons and selected legacy policy, when permitted.
+  discovery or selection, declaration planning, closure, tools-owned local
+  declaration obligations, signature-decode or required terminal-accessibility
+  capability, retained-content digest capability, artifact-manifest capability,
+  product-body occurrence capability, or required generated-correspondence
+  capability. It carries the typed reasons and selected legacy policy, when
+  permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
