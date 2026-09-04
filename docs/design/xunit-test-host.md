@@ -173,6 +173,12 @@ the suite's focused README preserve the unfiltered vendored-assembler sweep.
 These paths reuse the pinned outcome-level host gate without weakening the
 round-trip oracle or moving broad sweep work into PR CI.
 
+`ILInspector.JsExportSurface.Tests` is the fifth adopter. Its required focused
+CI commands use MTP method and class filters plus the MTP xUnit report
+extension. Existing report checks remain the stronger evidence that every
+named method or class contributed execution; MTP supplies only aggregate
+non-vacuity.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong
