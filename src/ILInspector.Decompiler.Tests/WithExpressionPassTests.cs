@@ -114,6 +114,23 @@ public class WithExpressionPassTests
     }
 
     [Fact]
+    public void DirectCloneOnOpenReceiver_DoesNotRaise()
+    {
+        var function = FunctionWithClone(
+            compilerGenerated: true,
+            directClone: true);
+
+        new WithExpressionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<WithExpression>());
+        Assert.Single(function.Descendants.OfType<StoreProperty>());
+        Assert.Single(
+            function.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "<Clone>$");
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SameNamedNonGeneratedClone_DoesNotRaise()
     {
         var function = FunctionWithClone(compilerGenerated: false);
@@ -228,7 +245,8 @@ public class WithExpressionPassTests
         bool copyBeforeSecondMember = false,
         bool extraUseAfterCopy = false,
         bool unrelatedCopyBeforeSecondMember = false,
-        bool directSetter = false)
+        bool directSetter = false,
+        bool directClone = false)
     {
         var clone = new MethodRef(Point, "<Clone>$", Point, [], HasThis: true)
         {
@@ -251,7 +269,7 @@ public class WithExpressionPassTests
             block.Add(new StoreStackSlot(slot, new LoadArgument(0, "point", Point)));
         block.Add(new StoreStackSlot(
             slot,
-            new Call(clone, isVirtual: true, [receiverUsesTargetSlot
+            new Call(clone, isVirtual: !directClone, [receiverUsesTargetSlot
                 ? new LoadStackSlot(slot, Point)
                 : new LoadArgument(0, "point", Point)])));
         block.Add(new StoreProperty(Setter("X"), new LoadStackSlot(slot, Point), [], new LoadArgument(1, "dx", Int32))

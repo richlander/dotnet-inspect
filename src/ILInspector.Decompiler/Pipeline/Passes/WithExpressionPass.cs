@@ -5,6 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>receiver with { X = value, ... }</c>. The supported shape is a synthesized
 /// record clone threaded through a stack-slot dup chain, followed by member
 /// stores on those slots and exactly one downstream load of the mutated clone.
+/// Clone identity and dispatch remain attached to the raised node.
 /// </summary>
 public sealed class WithExpressionPass : IIrPass
 {
@@ -29,7 +30,9 @@ public sealed class WithExpressionPass : IIrPass
         IReadOnlyList<IrNode> Consumed,
         IrExpression Receiver,
         IReadOnlyList<InitializerEntry> Entries,
-        LoadStackSlot Use);
+        LoadStackSlot Use,
+        MethodRef CloneMethod,
+        bool CloneIsVirtual);
 
     static Plan? TryBuild(IrFunction function, StoreStackSlot seed, Call clone)
     {
@@ -93,19 +96,32 @@ public sealed class WithExpressionPass : IIrPass
             if (!consumedSet.Contains(statements[i]))
                 return null;
 
-        return new Plan(consumed, clone.Arguments[0], entries, outsideUses[0]);
+        return new Plan(
+            consumed,
+            clone.Arguments[0],
+            entries,
+            outsideUses[0],
+            clone.Callee,
+            clone.IsVirtual);
     }
 
     static bool IsRecordCloneCall(Call clone)
     {
-        if (!GeneratedCodeIdentity.IsRecordCloneMethod(clone.Callee) || clone.Arguments is not [var receiver])
+        if (!GeneratedCodeIdentity.IsRecordCloneMethod(clone.Callee)
+            || clone.ConstrainedTo is not null
+            || clone.Arguments is not [var receiver])
             return false;
 
         var receiverType = receiver.ResultType;
         return receiverType is not null
             && receiverType.Equals(clone.Callee.DeclaringType)
-            && receiverType.Equals(clone.Callee.ReturnType);
+            && receiverType.Equals(clone.Callee.ReturnType)
+            && (clone.IsVirtual || HasExactRuntimeType(receiver, receiverType));
     }
+
+    static bool HasExactRuntimeType(IrExpression receiver, TypeRef receiverType)
+        => receiver is NewObject creation
+            && creation.Constructor.DeclaringType.Equals(receiverType);
 
     /// <summary>
     /// One member store on the threaded clone, or <c>null</c> when it cannot be
@@ -159,7 +175,11 @@ public sealed class WithExpressionPass : IIrPass
         foreach (var entry in plan.Entries)
             entry.Arguments[0].Detach();
 
-        var withExpression = new WithExpression(plan.Receiver, plan.Entries);
+        var withExpression = new WithExpression(
+            plan.Receiver,
+            plan.Entries,
+            plan.CloneMethod,
+            plan.CloneIsVirtual);
         withExpression.InheritSourceOffset(plan.Receiver);
         plan.Use.ReplaceWith(withExpression);
     }

@@ -817,11 +817,6 @@ internal sealed class ClassicInverseAccountant
                 call.Arguments.Count == 1
                 && call.Arguments[0] is LoadLocalAddress awaiter
                 && _shell.AwaiterLocals.Contains(awaiter.Index),
-            Call { Callee.Name: "<Clone>$" } =>
-                _candidate.Recipe == "classic-sequential-await-void"
-                && _candidate.Statements.Any(statement =>
-                    statement.Descendants.Prepend(statement)
-                        .Any(candidate => candidate is WithExpression)),
             ArrayLength =>
                 _candidate.Recipe == "classic-await-foreach-array",
             _ => false,
@@ -1515,7 +1510,8 @@ internal sealed class ClassicInverseAccountant
                 initializer.ConsumedMethods.Any(static method => method is not null)
                 || initializer.ConsumedFields.Any(static field => field is not null),
             WithExpression with =>
-                with.ConsumedMethods.Any(static method => method is not null)
+                with.ConsumedCloneMethod is not null
+                || with.ConsumedMethods.Any(static method => method is not null)
                 || with.ConsumedFields.Any(static field => field is not null),
             InitializerBlock block =>
                 block.ConsumedMethods.Any(static method => method is not null)
@@ -1863,6 +1859,14 @@ internal sealed class ClassicInverseAccountant
                 break;
             case WithExpression with:
                 visit(with.Receiver);
+                if (effects is not null
+                    && with.ConsumedCloneMethod is { } clone)
+                {
+                    string effect = ClassicInverseConsumedMembers.Effect(
+                        clone,
+                        with.ConsumedCloneIsVirtual);
+                    effects.Add(qualify?.Invoke(effect) ?? effect);
+                }
                 entries = with.Entries;
                 break;
             case InitializerBlock block:

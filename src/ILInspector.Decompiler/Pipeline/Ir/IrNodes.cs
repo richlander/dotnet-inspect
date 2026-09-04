@@ -2975,18 +2975,29 @@ public sealed class ObjectInitializerExpression : IrExpression
 /// A raised C# record nondestructive mutation expression:
 /// <c>receiver with { X = value, ... }</c>. Produced from the compiler's
 /// clone-then-member-set lowering when the synthesized record clone and the
-/// single non-escaping mutation target are proven.
+/// single non-escaping mutation target are proven. The consumed clone member
+/// and dispatch remain attached as semantic evidence.
 /// </summary>
 [Inverse.InverseOf(
     Inverse.Forward.RoslynBoundWithExpression,
     naming: Inverse.NameProvenance.Inherited,
     forwardName: "BoundWithExpression (receiver with { X = value })",
-    precondition: "result is the receiver's record type; raised only when the compiler-synthesized clone call and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value",
+    precondition: "result is the receiver's record type; raised only when the compiler-synthesized clone call, its faithful dispatch, and the single non-escaping mutation target are proven; every entry names a member and carries exactly one value",
     witness: "WithExpressionPassTests, corpus compile-back")]
 public sealed class WithExpression : IrExpression
 {
-    public WithExpression(IrExpression receiver, IEnumerable<InitializerEntry> entries)
+    public WithExpression(
+        IrExpression receiver,
+        IEnumerable<InitializerEntry> entries,
+        MethodRef? consumedCloneMethod = null,
+        bool consumedCloneIsVirtual = false)
     {
+        if (consumedCloneMethod is null && consumedCloneIsVirtual)
+        {
+            throw new ArgumentException(
+                "Clone dispatch requires a consumed clone method.",
+                nameof(consumedCloneIsVirtual));
+        }
         AddChild(receiver);
         var members = ImmutableArray.CreateBuilder<string>();
         var consumedMethods = ImmutableArray.CreateBuilder<MethodRef?>();
@@ -3009,12 +3020,16 @@ public sealed class WithExpression : IrExpression
         ConsumedMethods = consumedMethods.ToImmutable();
         ConsumedFields = consumedFields.ToImmutable();
         ConsumedMethodsAreVirtual = consumedMethodsAreVirtual.ToImmutable();
+        ConsumedCloneMethod = consumedCloneMethod;
+        ConsumedCloneIsVirtual = consumedCloneIsVirtual;
     }
 
     public IrExpression Receiver => (IrExpression)Children[0];
     public ImmutableArray<string> Members { get; }
     public ImmutableArray<MethodRef?> ConsumedMethods { get; }
     public ImmutableArray<FieldRef?> ConsumedFields { get; }
+    public MethodRef? ConsumedCloneMethod { get; }
+    public bool ConsumedCloneIsVirtual { get; }
 
     /// <summary>
     /// Whether each entry's consumed setter dispatched virtually, parallel to

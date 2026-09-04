@@ -454,9 +454,15 @@ begins, for example. Every variable text component is length-prefixed and every
 variable-length sequence count-prefixed, and every dimension `TypeRef` equality
 compares is written, so equal identity text implies equal compared facts.
 
-The same exactness governs the three places a recipe may retire or rewrite an
+The same exactness governs the four places a recipe may retire or rewrite an
 effect rather than realize it one-to-one:
 
+- **an awaiter bind.** `operand.GetAwaiter()` is protocol only when it is the
+  exact `callvirt` instance, parameterless member declared by the
+  operand type, returns the proven suspension awaiter type, and has the same
+  typed member and call-site identity in the raw and planning spaces. A
+  same-named static helper or direct call returning that awaiter is not a
+  source-faithful spelling of the admitted `await` and stays in the ledger.
 - **an awaited result.** `awaiter.GetResult()` is the input spelling of
   `await` only when it is the exact instance, parameterless member of the type
   that suspension's local, its `GetAwaiter` return, and its `<>u__N` cache field
@@ -469,13 +475,19 @@ effect rather than realize it one-to-one:
   identity. The compiler's `<>7__wrap` names label three different storage
   locations and authorize nothing beyond selecting a candidate hoist, so the
   element-access effect is retired only for a read of that exact array at that
-  exact index.
+  exact index. The recipe also proves the entry and advance edges reach the
+  bound test, its taken edge enters the body, its fall-through exits, and no
+  other predecessor enters either arm. That exact CFG identity must agree in
+  the raw import and derived planning view.
 - **a consumed initializer member.** A setter, `Add`, or getter a prerequisite
   pass folded into an initializer, `with`, or nested-initializer entry keeps its
   call-site dispatch alongside its typed identity. `with` syntax specifically
-  re-emits a virtual setter call, so a direct store has no faithful `with` raise
-  and is left lowered. Initializers retain the compiler's actual dispatch fact;
-  this slice does not redefine their separate raising contract.
+  re-emits the consumed record clone and a virtual setter call. The clone's
+  typed identity and dispatch are retained; direct clone dispatch is accepted
+  only for an exact freshly constructed receiver, while a direct clone on an
+  open receiver and a direct setter have no faithful `with` raise and stay
+  lowered. Initializers retain the compiler's actual dispatch fact; this slice
+  does not redefine their separate raising contract.
 
 The realization relation preserves:
 
@@ -568,6 +580,10 @@ yield a partial proof. Metadata relationship-budget exhaustion is an
 owner-issued rejection and never enters this core. Unsupported but healthy
 lowering shapes are `Decline`. The distinction is preserved so callers can
 route failure without pretending the inverse made a semantic judgment.
+Before recursive cloning or prerequisite planning, the core iteratively admits
+both imported trees against its charged node and depth limits; excessive depth
+is therefore `Failed(BudgetExhausted)` rather than an uncatchable stack
+overflow.
 
 ## Validation status and implementation gates
 
@@ -602,9 +618,13 @@ Release gates:
 | `ClassicInverseProofWorkStaysProportionalToItsChargedBudget` | Proof work stops being linear in the body, charges stop being load-bearing, or exhaustion stops being `Failed(BudgetExhausted)`. |
 | `ClassicInverseTypedIdentityIsCompleteAndPrefixFree` | The typed identity encoding drops a dimension `TypeRef` equality compares, or two distinct members collide through separator-joined attacker-controlled text. |
 | `ClassicInverseLoopElementBindsItsExactStorage` | A loop recipe reads its element from a machine field other than the hoisted collection it proved, or at an index other than the loop index its own bound test proved, or the element-access effect is suppressed for any other array read. |
+| `ClassicInverseLoopBindsItsExactControlFlow` | Raw and planning loop CFG identities differ, the loop entry or advance does not reach the bound test, the bound test does not branch to the body and fall through to the exit, or another predecessor enters either arm. |
+| `ClassicInverseAwaitBindsItsExactGetAwaiterMember` | A same-named helper, direct dispatch, or a raw/planning member or call-site mismatch is erased as the `GetAwaiter` protocol for an emitted `await`. |
 | `ClassicInverseAwaitResultBindsItsExactAwaiterMember` | A call normalizes to `await` without being the exact instance, parameterless `GetResult` member of the type its suspension's local, `GetAwaiter` bind, and cache field all carry. |
+| `ClassicInverseWithCloneBindsItsExactDispatch` | A record clone's typed identity or dispatch is erased, or direct clone dispatch on an open receiver raises into a `with` expression that restores virtual dispatch. |
 | `ClassicInverseWithSetterBindsItsExactDispatch` | A direct setter store raises into a `with` expression that re-emits virtual dispatch, or a consumed initializer member's effect drops its call-site dispatch. |
 | `ClassicInverseConsumedMemberAccountingChargesEveryLookup` | Consumed-member resolution stops charging for the elements it indexes or the questions it answers, or raw-effect accounting buys a planning-tree rescan per call. |
+| `ClassicInversePlanningDepthExhaustionRemainsVisible` | An imported tree can reach recursive clone or prerequisite planning beyond the admitted depth, or excessive depth produces anything other than `Failed(BudgetExhausted)`. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close

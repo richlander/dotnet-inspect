@@ -17,6 +17,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class ClassicInverseCore
 {
+    /// <summary>
+    /// Maximum imported-tree depth admitted before recursive cloning and
+    /// prerequisite passes. The gate is deliberately below the native-stack
+    /// danger zone and is checked iteratively.
+    /// </summary>
+    internal const int MaxPlanningDepth = 256;
+
     internal static ClassicInverseDecision Decide(ClassicInverseRequest request)
         => Decide(request, new ClassicInverseBudget());
 
@@ -37,27 +44,19 @@ internal static class ClassicInverseCore
                 "authenticated bodies contain only reference-assembly replacement IL");
         }
 
-        foreach (IrNode _ in
-            request.KickoffBody.Body.Descendants.Prepend(
-                request.KickoffBody.Body))
+        if (AdmitPlanningBody(
+                request.KickoffBody.Body,
+                "kickoff",
+                budget) is { } kickoffFailure)
         {
-            if (!budget.Charge())
-            {
-                return ClassicInverseDecision.FailWith(
-                    ClassicInverseFailureKind.BudgetExhausted,
-                    "kickoff planning-view derivation exhausted the planning budget");
-            }
+            return kickoffFailure;
         }
-        foreach (IrNode _ in
-            request.ExecutionBody.Body.Descendants.Prepend(
-                request.ExecutionBody.Body))
+        if (AdmitPlanningBody(
+                request.ExecutionBody.Body,
+                "execution",
+                budget) is { } executionFailure)
         {
-            if (!budget.Charge())
-            {
-                return ClassicInverseDecision.FailWith(
-                    ClassicInverseFailureKind.BudgetExhausted,
-                    "execution planning-view derivation exhausted the planning budget");
-            }
+            return executionFailure;
         }
 
         ClassicInversePlanningView planning =
@@ -75,7 +74,7 @@ internal static class ClassicInverseCore
         }
 
         List<ClassicInverseCandidate> candidates =
-            ClassicInverseRecipes.Match(planning, shell, budget);
+            ClassicInverseRecipes.Match(request, planning, shell, budget);
         if (budget.Exhausted)
         {
             return ClassicInverseDecision.FailWith(
@@ -110,6 +109,34 @@ internal static class ClassicInverseCore
             candidates[0],
             shell,
             budget);
+    }
+
+    static ClassicInverseDecision? AdmitPlanningBody(
+        IrNode root,
+        string body,
+        ClassicInverseBudget budget)
+    {
+        var pending = new Stack<(IrNode Node, int Depth)>();
+        pending.Push((root, 0));
+        while (pending.TryPop(out (IrNode Node, int Depth) item))
+        {
+            if (!budget.Charge())
+            {
+                return ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    $"{body} planning-view derivation exhausted the planning budget");
+            }
+            if (item.Depth > MaxPlanningDepth)
+            {
+                return ClassicInverseDecision.FailWith(
+                    ClassicInverseFailureKind.BudgetExhausted,
+                    $"{body} planning-view depth exceeds {MaxPlanningDepth}");
+            }
+
+            for (int i = item.Node.Children.Count - 1; i >= 0; i--)
+                pending.Push((item.Node.Children[i], item.Depth + 1));
+        }
+        return null;
     }
 
     /// <summary>

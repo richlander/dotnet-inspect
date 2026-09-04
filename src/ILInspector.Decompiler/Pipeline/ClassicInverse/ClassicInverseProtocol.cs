@@ -135,17 +135,21 @@ internal static class ClassicInverseProtocol
                 return ClassicInverseProtocolRule.Owned(
                     ClassicInverseLoweringProof.AwaiterClear);
 
-            // stloc awaiter <- callvirt GetAwaiter(<user operand>).
-            case StoreLocal { Value: Call { Callee.Name: "GetAwaiter" } getAwaiter } bind
-                when shell.AwaiterLocals.Contains(bind.Index)
-                    && getAwaiter.Arguments.Count == 1:
-                return ClassicInverseProtocolRule.Frame("awaiter-bind", 0);
+            // stloc awaiter <- callvirt GetAwaiter(<user operand>), proven
+            // against the exact typed member in both raw and planning spaces.
+            case StoreLocal bind when shell.Protocol.Proves(
+                bind,
+                ClassicInverseLoweringProof.AwaiterBind):
+                return ClassicInverseProtocolRule.Frame(
+                    ClassicInverseLoweringProof.AwaiterBind,
+                    0);
 
-            case Call { Callee.Name: "GetAwaiter" } call
-                when call.Arguments.Count == 1
-                    && call.Parent is StoreLocal parentStore
-                    && shell.AwaiterLocals.Contains(parentStore.Index):
-                return ClassicInverseProtocolRule.Frame("get-awaiter", 0);
+            case Call call when shell.Protocol.Proves(
+                call,
+                ClassicInverseLoweringProof.GetAwaiterCall):
+                return ClassicInverseProtocolRule.Frame(
+                    ClassicInverseLoweringProof.GetAwaiterCall,
+                    0);
 
             case ExpressionStatement { Expression: Call builderCall }
                 when IsProvenCompletionCallback(builderCall, shell, candidate):

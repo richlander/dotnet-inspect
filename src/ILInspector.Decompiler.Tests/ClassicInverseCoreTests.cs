@@ -610,6 +610,45 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInversePlanningDepthExhaustionRemainsVisible()
+    {
+        using RequestScope scope = OpenMutatedRequest(
+            "AwaitValue",
+            execution =>
+            {
+                LoadField original = Assert.Single(
+                    execution.Body.Descendants.OfType<LoadField>(),
+                    load => load.Field.Name == "b");
+                IrExpression nested = (IrExpression)original.Clone();
+                TypeRef intType = TypeRef.CoreLib("System", "Int32");
+                for (int depth = 0; depth < 12_000; depth++)
+                {
+                    var zero = new Pipeline.Constant(0, intType);
+                    zero.SetSourceOffset(100_000 + (depth * 2));
+                    var add = new Binary(
+                        BinaryKind.Add,
+                        isChecked: false,
+                        isUnsigned: false,
+                        nested,
+                        zero);
+                    add.SetSourceOffset(100_001 + (depth * 2));
+                    nested = add;
+                }
+                original.ReplaceWith(nested);
+            });
+
+        var failure = Assert.IsType<ClassicInverseDecision.Failed>(
+            ClassicInverseCore.Decide(scope.Request));
+        Assert.Equal(
+            ClassicInverseFailureKind.BudgetExhausted,
+            failure.Failure.Kind);
+        Assert.Contains(
+            "planning-view depth",
+            failure.Failure.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClassicInverseCompletionCallbacksAreProvenExactlyOnce()
     {
         using RequestScope scope = OpenRequest("TwoSequentialAwaits");
@@ -1429,6 +1468,79 @@ public sealed class ClassicInverseCoreTests
             suppressionDecline.Reason);
     }
 
+    [Fact]
+    public void ClassicInverseLoopBindsItsExactControlFlow()
+    {
+        using RequestScope accepted = OpenRequest("AwaitInLoop");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(accepted.Request));
+
+        int originalTarget = -1;
+        using RequestScope retargeted = OpenMutatedRequest(
+            "AwaitInLoop",
+            execution =>
+            {
+                ConditionalBranch bound = Assert.Single(
+                    execution.Body.Descendants.OfType<ConditionalBranch>(),
+                    branch => branch.Condition is Comparison
+                    {
+                        Kind: ComparisonKind.LessThan,
+                    }
+                        && branch.Condition.Descendants.Any(
+                            node => node is ArrayLength));
+                StoreField advance = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreField>(),
+                    store => store.Value is Binary
+                    {
+                        Kind: BinaryKind.Add,
+                        Right: Pipeline.Constant { Value: 1 },
+                    });
+                Block advanceBlock = Assert.IsType<Block>(advance.Parent);
+                originalTarget = bound.TargetOffset;
+                var replacement = new ConditionalBranch(
+                    (IrExpression)bound.Condition.Clone(),
+                    advanceBlock.StartOffset,
+                    bound.Origin);
+                replacement.SetSourceOffset(bound.SourceOffset);
+                bound.ReplaceWith(replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(retargeted.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.NoRecipeMatched,
+            decline.Reason);
+
+        Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                retargeted.Request.RunPasses);
+        ClassicInverseRequest healedPlanning = CopyRequest(
+            retargeted.Request,
+            runPasses: (body, passes) =>
+            {
+                ConditionalBranch? bound = body.Body.Descendants
+                    .OfType<ConditionalBranch>()
+                    .SingleOrDefault(branch => branch.Condition is Comparison
+                    {
+                        Kind: ComparisonKind.LessThan,
+                    }
+                        && branch.Condition.Descendants.Any(
+                            node => node is ArrayLength));
+                if (bound is not null)
+                {
+                    var replacement = new ConditionalBranch(
+                        (IrExpression)bound.Condition.Clone(),
+                        originalTarget,
+                        bound.Origin);
+                    replacement.SetSourceOffset(bound.SourceOffset);
+                    bound.ReplaceWith(replacement);
+                }
+                originalRunner(body, passes);
+            });
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(healedPlanning));
+    }
+
     /// <summary>
     /// Points the compiler's loop element read at another valid state-machine
     /// field of the right type: the accumulator instead of the loop index, or
@@ -1536,6 +1648,60 @@ public sealed class ClassicInverseCoreTests
             lookalikeDecline.Reason);
     }
 
+    [Fact]
+    public void ClassicInverseAwaitBindsItsExactGetAwaiterMember()
+    {
+        using RequestScope accepted = OpenRequest("AwaitValue");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(accepted.Request));
+
+        using RequestScope helper = OpenMutatedRequest(
+            "AwaitValue",
+            execution =>
+            {
+                Call getAwaiter = Assert.Single(
+                    execution.Body.Descendants.OfType<Call>(),
+                    call => call.Callee.Name == "GetAwaiter");
+                IrExpression receiver = getAwaiter.Arguments.Single();
+                var replacement = new Call(
+                    new MethodRef(
+                        TypeRef.Definition(
+                            "Planted",
+                            "ILInspector.Probes",
+                            "AwaitProbe"),
+                        "GetAwaiter",
+                        getAwaiter.Callee.ReturnType,
+                        [Assert.IsType<TypeRef>(receiver.ResultType)],
+                        HasThis: false),
+                    isVirtual: false,
+                    [(IrExpression)receiver.Clone()]);
+                replacement.SetSourceOffset(getAwaiter.SourceOffset);
+                getAwaiter.ReplaceWith(replacement);
+            });
+
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(helper.Request));
+
+        using RequestScope direct = OpenMutatedRequest(
+            "AwaitValue",
+            execution =>
+            {
+                Call getAwaiter = Assert.Single(
+                    execution.Body.Descendants.OfType<Call>(),
+                    call => call.Callee.Name == "GetAwaiter");
+                Assert.True(getAwaiter.IsVirtual);
+                var replacement = new Call(
+                    getAwaiter.Callee,
+                    isVirtual: false,
+                    getAwaiter.Arguments.Select(
+                        argument => (IrExpression)argument.Clone()));
+                replacement.SetSourceOffset(getAwaiter.SourceOffset);
+                getAwaiter.ReplaceWith(replacement);
+            });
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(direct.Request));
+    }
+
     static void RebindAwaiterGetResult(
         IrFunction execution,
         Func<MethodRef, MethodRef> rebind)
@@ -1586,6 +1752,24 @@ public sealed class ClassicInverseCoreTests
         Assert.Contains(
             planning.ExecutionBody.Body.Descendants,
             node => node is StoreProperty { IsVirtual: false });
+    }
+
+    [Fact]
+    public void ClassicInverseWithCloneBindsItsExactDispatch()
+    {
+        using RequestScope accepted =
+            OpenRequest("SequentialWithRealizedWithExpression");
+        Call clone = Assert.Single(
+            accepted.Request.ExecutionBody.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "<Clone>$");
+        ClassicInversePlan plan = Reconstruct(accepted.Request);
+        Assert.Contains(
+            plan.SemanticRealizations.SelectMany(
+                receipt => receipt.SourceEffects),
+            effect => effect
+                == ClassicInverseConsumedMembers.Effect(
+                    clone.Callee,
+                    clone.IsVirtual));
     }
 
     /// <summary>
@@ -1640,16 +1824,24 @@ public sealed class ClassicInverseCoreTests
                     InitializerBlock block => block.Entries.Count,
                     _ => 0,
                 });
+            int clones = planningRoot.Descendants.Prepend(planningRoot)
+                .Count(node => node is WithExpression
+                {
+                    ConsumedCloneMethod: not null,
+                });
             Assert.True(entries > 0);
 
-            // Construction charges exactly once per node and once per entry.
+            // Construction charges exactly once per node, entry, and consumed
+            // clone.
             var indexBudget = new ClassicInverseBudget();
             ClassicInverseConsumedMembers index = Assert.IsType<
                 ClassicInverseConsumedMembers>(
                     ClassicInverseConsumedMembers.Build(
                         planningRoot,
                         indexBudget));
-            Assert.Equal(planningNodes + entries, indexBudget.Consumed);
+            Assert.Equal(
+                planningNodes + entries + clones,
+                indexBudget.Consumed);
 
             // Every question charges one unit, whether or not it is a hit.
             var lookupBudget = new ClassicInverseBudget();
@@ -1668,7 +1860,8 @@ public sealed class ClassicInverseCoreTests
             // to answer at all rather than answering from a partial scan.
             Assert.Null(ClassicInverseConsumedMembers.Build(
                 planningRoot,
-                new ClassicInverseBudget(planningNodes + entries - 1)));
+                new ClassicInverseBudget(
+                    planningNodes + entries + clones - 1)));
 
             // Through the product path the same shortfall stays a visible
             // failure, never a decline or a partial proof, and total planning
@@ -1762,7 +1955,7 @@ public sealed class ClassicInverseCoreTests
                 request.ExecutionBody,
                 budget);
         ClassicInverseCandidate candidate = Assert.Single(
-            ClassicInverseRecipes.Match(planning, shell, budget));
+            ClassicInverseRecipes.Match(request, planning, shell, budget));
         return (planning, candidate, shell);
     }
 

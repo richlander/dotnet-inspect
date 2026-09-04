@@ -175,7 +175,12 @@ internal static class ClassicInverseRealizationRules
             || getAwaiter.Arguments.Count != 1
             || !ReferenceEquals(getAwaiter.Arguments[0], claim.Source)
             || getAwaiter.Parent is not StoreLocal bind
-            || !context.Shell.AwaiterLocals.Contains(bind.Index))
+            || !context.Shell.Protocol.Proves(
+                bind,
+                ClassicInverseLoweringProof.AwaiterBind)
+            || !context.Shell.Protocol.Proves(
+                getAwaiter,
+                ClassicInverseLoweringProof.GetAwaiterCall))
         {
             failure = "the claimed operand is not the compiler's GetAwaiter receiver";
             return false;
@@ -511,7 +516,13 @@ internal static class ClassicInverseRealizationRules
             } getAwaiter
             || getAwaiter.Arguments.Count != 1
             || !ReferenceEquals(getAwaiter.Arguments[0], operand)
-            || bind.Index != awaiter.Index)
+            || bind.Index != awaiter.Index
+            || !shell.Protocol.Proves(
+                bind,
+                ClassicInverseLoweringProof.AwaiterBind)
+            || !shell.Protocol.Proves(
+                getAwaiter,
+                ClassicInverseLoweringProof.GetAwaiterCall))
         {
             return false;
         }

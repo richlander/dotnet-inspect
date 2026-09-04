@@ -121,6 +121,8 @@ public readonly record struct ConsumedMemberEvidence(
                 break;
             case WithExpression withExpression:
                 evidence.Add(new(RecordShellType: withExpression.ResultType));
+                if (withExpression.ConsumedCloneMethod is { } clone)
+                    evidence.Add(new(Method: clone, AllowTargetRoot: true));
                 AddFromInitializerEntries(withExpression.Entries, evidence);
                 break;
         }

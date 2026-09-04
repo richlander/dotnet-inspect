@@ -398,16 +398,24 @@ internal sealed record ClassicInverseObjectInitializerNode(
 
 internal sealed record ClassicInverseWithNode(
     ClassicInverseBodyNode Receiver,
+    MethodRef? ConsumedCloneMethod,
+    bool ConsumedCloneIsVirtual,
     ImmutableArray<ClassicInverseInitializerEntry> Entries)
     : ClassicInverseBodyNode
 {
     internal override IrNode Materialize()
         => new WithExpression(
             Expr(Receiver),
-            Entries.Select(ClassicInverseBodyCapture.MaterializeEntry));
+            Entries.Select(ClassicInverseBodyCapture.MaterializeEntry),
+            ConsumedCloneMethod,
+            ConsumedCloneIsVirtual);
 
     internal override string Signature =>
-        $"with({Receiver.Signature},"
+        $"with[{(ConsumedCloneMethod is null
+            ? ""
+            : MethodText(ConsumedCloneMethod))}:"
+        + $"{(ConsumedCloneIsVirtual ? "virt" : "direct")}]"
+        + $"({Receiver.Signature},"
         + $"{string.Join(",", Entries.Select(static e => e.Signature))})";
 }
 
@@ -654,7 +662,13 @@ internal static class ClassicInverseBodyCapture
                 var entries = TryCaptureEntries(with.Entries, budget);
                 return receiver is null || entries is null
                     ? null
-                    : new ClassicInverseWithNode(receiver, entries.Value);
+                    : new ClassicInverseWithNode(
+                        receiver,
+                        with.ConsumedCloneMethod is null
+                            ? null
+                            : Detach(with.ConsumedCloneMethod),
+                        with.ConsumedCloneIsVirtual,
+                        entries.Value);
             }
 
             default:

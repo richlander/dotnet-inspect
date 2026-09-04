@@ -19,6 +19,7 @@ namespace ILInspector.Decompiler.Pipeline;
 internal static class ClassicInverseRecipes
 {
     internal static List<ClassicInverseCandidate> Match(
+        ClassicInverseRequest request,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         ClassicInverseBudget budget)
@@ -48,7 +49,13 @@ internal static class ClassicInverseRecipes
         List<Call> getResults = GetResultCalls(execution, shell);
 
         Add(candidates, TryTryFinally(planning, shell, setResult, getResults));
-        Add(candidates, TryLoop(planning, shell, setResult, getResults));
+        Add(candidates, TryLoop(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
         Add(candidates, TryConditional(planning, shell, setResult, getResults));
         Add(candidates, TrySequentialVoid(planning, shell, setResult, getResults));
         Add(candidates, TrySingleAwaitVoid(planning, shell, setResult, getResults));
@@ -440,10 +447,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: await inside a foreach over an array --------------------
 
     static ClassicInverseCandidate? TryLoop(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal finalResult]
@@ -556,12 +565,53 @@ internal static class ClassicInverseRecipes
         if (seed is null || finalStore is null)
             return null;
 
+        List<StoreField> advances = [.. execution.Body.Descendants
+            .OfType<StoreField>()
+            .Where(advance => advance is
+            {
+                Value: Binary
+                {
+                    Kind: BinaryKind.Add,
+                    Left: LoadField advanceRead,
+                    Right: Constant { Value: 1 },
+                },
+                Instance: LoadArgument { Index: 0 },
+            }
+                && advance.Field == loopIndex
+                && advanceRead.Field == loopIndex
+                && advanceRead.Instance is LoadArgument { Index: 0 })];
+        if (advances is not [StoreField advance]
+            || EnclosingBlock(elementSpill) is not { } bodyBlock
+            || EnclosingBlock(advance) is not { } advanceBlock)
+        {
+            return null;
+        }
+
         List<Branch> entries = [.. execution.Body.Descendants
             .OfType<Branch>()
             .Where(branch =>
                 branch.TargetOffset == boundTestBlock.StartOffset)];
-        if (entries is not [Branch entry])
+        if (entries is not [Branch entry]
+            || entry.Parent is not Block entryBlock
+            || !TryGetForeachControlIdentity(
+                boundTestBlock,
+                boundTest,
+                entryBlock,
+                bodyBlock,
+                advanceBlock,
+                out string planningControl)
+            || !TryGetRawForeachControlIdentity(
+                rawExecution,
+                boundTest.SourceOffset,
+                entry.SourceOffset,
+                elementSpill.SourceOffset,
+                advance.SourceOffset,
+                budget,
+                out string rawControl)
+            || planningControl != rawControl)
+        {
             return null;
+        }
 
         var candidate = new ClassicInverseCandidate("classic-await-foreach-array")
         {
@@ -648,22 +698,6 @@ internal static class ClassicInverseRecipes
                     candidate.DeclareProtocol(index, "foreach-index-init");
                     break;
 
-                case StoreField
-                {
-                    Value: Binary
-                    {
-                        Kind: BinaryKind.Add,
-                        Left: LoadField advanceRead,
-                        Right: Constant { Value: 1 },
-                    },
-                } advance
-                    when advance.Field == loopIndex
-                        && advanceRead.Field == loopIndex
-                        && advance.Instance is LoadArgument { Index: 0 }
-                        && advanceRead.Instance is LoadArgument { Index: 0 }:
-                    candidate.DeclareProtocol(advance, "foreach-index-advance");
-                    break;
-
                 case StoreField { Value: Constant { Value: null } } release
                     when release.Field == hoistedCollection
                         && release.Instance is LoadArgument { Index: 0 }:
@@ -679,6 +713,7 @@ internal static class ClassicInverseRecipes
 
             }
         }
+        candidate.DeclareProtocol(advance, "foreach-index-advance");
         candidate.DeclareProtocol(boundTest, "foreach-bound-test");
         candidate.DeclareProtocol(entry, "foreach-entry");
 
@@ -692,6 +727,179 @@ internal static class ClassicInverseRecipes
         }
         candidate.DeclareControlRegion("foreach-body", loopRoots, body);
         return candidate;
+    }
+
+    /// <summary>
+    /// Proves the exact loop skeleton represented by the source-level
+    /// <c>foreach</c>: the entry and advance reach the bound test, whose taken
+    /// edge enters the body and whose fall-through exits the loop. Predecessor
+    /// closure prevents another edge from silently entering either arm.
+    /// </summary>
+    static bool TryGetForeachControlIdentity(
+        Block bound,
+        ConditionalBranch test,
+        Block entry,
+        Block body,
+        Block advance,
+        out string identity)
+    {
+        identity = "";
+        if (bound.Parent is not BlockContainer container
+            || !ReferenceEquals(entry.Parent, container)
+            || !ReferenceEquals(body.Parent, container)
+            || !ReferenceEquals(advance.Parent, container)
+            || bound.Children is not [.., var terminator]
+            || !ReferenceEquals(terminator, test))
+        {
+            return false;
+        }
+
+        IReadOnlyList<Block> blocks = container.Blocks;
+        int boundIndex = IndexOf(blocks, bound);
+        int entryIndex = IndexOf(blocks, entry);
+        int bodyIndex = IndexOf(blocks, body);
+        int advanceIndex = IndexOf(blocks, advance);
+        if (boundIndex < 0
+            || entryIndex < 0
+            || bodyIndex < 0
+            || advanceIndex < 0)
+        {
+            return false;
+        }
+
+        IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges =
+            Cfg.Build(blocks);
+        if (!HasOnlySuccessors(edges[entryIndex], boundIndex)
+            || !HasOnlySuccessors(edges[advanceIndex], boundIndex)
+            || edges[boundIndex].Successors.Count != 2
+            || !edges[boundIndex].Successors.Contains(bodyIndex))
+        {
+            return false;
+        }
+
+        int exitIndex = edges[boundIndex].Successors.SingleOrDefault(
+            successor => successor != bodyIndex,
+            -1);
+        if (exitIndex < 0
+            || test.TargetOffset != body.StartOffset
+            || !HasOnlyPredecessors(edges, bodyIndex, boundIndex)
+            || !HasOnlyPredecessors(edges, exitIndex, boundIndex)
+            || !HasOnlyPredecessors(
+                edges,
+                boundIndex,
+                entryIndex,
+                advanceIndex))
+        {
+            return false;
+        }
+
+        identity =
+            $"entry:{entry.StartOffset}->{bound.StartOffset};"
+            + $"advance:{advance.StartOffset}->{bound.StartOffset};"
+            + $"bound:{bound.StartOffset}/{test.SourceOffset}"
+            + $"->{body.StartOffset}|{blocks[exitIndex].StartOffset};"
+            + $"body:{body.StartOffset};"
+            + $"exit:{blocks[exitIndex].StartOffset}";
+        return true;
+
+        static int IndexOf(IReadOnlyList<Block> blocks, Block target)
+        {
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (ReferenceEquals(blocks[i], target))
+                    return i;
+            }
+            return -1;
+        }
+
+        static bool HasOnlySuccessors(
+            ILInspector.ControlFlow.BlockEdges block,
+            params int[] expected)
+            => !block.ExitsMethod
+                && !block.LeavesRegion
+                && block.ExternalTargets.Count == 0
+                && block.Successors.Count == expected.Length
+                && block.Successors.Order().SequenceEqual(expected.Order());
+
+        static bool HasOnlyPredecessors(
+            IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges,
+            int block,
+            params int[] expected)
+        {
+            int[] actual = [.. edges
+                .Select((edge, index) => (edge, index))
+                .Where(pair => pair.edge.Successors.Contains(block))
+                .Select(pair => pair.index)
+                .Order()];
+            return actual.SequenceEqual(expected.Order());
+        }
+    }
+
+    static bool TryGetRawForeachControlIdentity(
+        IrFunction raw,
+        int boundSourceOffset,
+        int entrySourceOffset,
+        int bodySourceOffset,
+        int advanceSourceOffset,
+        ClassicInverseBudget budget,
+        out string identity)
+    {
+        identity = "";
+        if (boundSourceOffset < 0
+            || entrySourceOffset < 0
+            || bodySourceOffset < 0
+            || advanceSourceOffset < 0)
+        {
+            return false;
+        }
+
+        var bounds = new List<ConditionalBranch>();
+        var entries = new List<Branch>();
+        var bodyAnchors = new List<StoreStackSlot>();
+        var advances = new List<StoreField>();
+        foreach (IrNode node in raw.Body.Descendants)
+        {
+            if (!budget.Charge())
+                return false;
+            switch (node)
+            {
+                case ConditionalBranch branch
+                    when branch.SourceOffset == boundSourceOffset:
+                    bounds.Add(branch);
+                    break;
+                case Branch branch
+                    when branch.SourceOffset == entrySourceOffset:
+                    entries.Add(branch);
+                    break;
+                case StoreStackSlot store
+                    when store.SourceOffset == bodySourceOffset:
+                    bodyAnchors.Add(store);
+                    break;
+                case StoreField store
+                    when store.SourceOffset == advanceSourceOffset:
+                    advances.Add(store);
+                    break;
+            }
+        }
+        if (bounds is not [ConditionalBranch bound]
+            || entries is not [Branch entry]
+            || bodyAnchors is not [StoreStackSlot bodyAnchor]
+            || advances is not [StoreField advance]
+            || bound.Parent is not Block boundBlock
+            || entry.Parent is not Block entryBlock
+            || bodyAnchor.Parent is not Block bodyBlock
+            || advance.Parent is not Block advanceBlock)
+        {
+            return false;
+        }
+
+        return TryGetForeachControlIdentity(
+            boundBlock,
+            bound,
+            entryBlock,
+            bodyBlock,
+            advanceBlock,
+            out identity);
     }
 
     /// <summary>

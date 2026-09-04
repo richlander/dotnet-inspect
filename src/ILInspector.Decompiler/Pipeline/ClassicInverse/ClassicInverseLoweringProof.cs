@@ -7,13 +7,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// over both the unmodified import snapshot and the derived planning view.
 /// <para>
 /// Nothing here is a shape allow list. Every completion callback, completion
-/// catch, state constant, dispatcher, and resume point is proven as one role in
-/// a single closed protocol: the callbacks are exactly one <c>SetResult</c> and
-/// one <c>SetException</c> with their exact typed signatures on the machine's
-/// own <c>&lt;&gt;t__builder</c> field type; the catch is exactly the compiler's
-/// <c>catch (Exception e)</c> whose handler variable is the value passed to
+/// catch, awaiter bind, state constant, dispatcher, and resume point is proven
+/// as one role in a single closed protocol: callbacks carry exact typed
+/// signatures on the machine's own <c>&lt;&gt;t__builder</c> field type;
+/// <c>GetAwaiter</c> binds carry exact typed member and call-site identity in
+/// both coordinate spaces; the catch is exactly the compiler's
+/// <c>catch (Exception e)</c> whose handler variable reaches
 /// <c>SetException</c>; and every suspension state constant is bound to the
-/// dispatcher test, resume block, awaiter local, and awaiter cache field that
+/// dispatcher, resume block, awaiter local, and awaiter cache field that
 /// consume it. A body that fails any part of the proof yields <em>no</em>
 /// protocol roles at all, so the accountant sees unaccounted scaffolding and
 /// declines rather than treating a name-matching node as protocol.
@@ -43,6 +44,8 @@ internal sealed class ClassicInverseLoweringProof
     internal const string AwaiterCacheStore = "awaiter-cache-store";
     internal const string AwaiterRestore = "awaiter-restore";
     internal const string AwaiterClear = "awaiter-clear";
+    internal const string AwaiterBind = "awaiter-bind";
+    internal const string GetAwaiterCall = "get-awaiter";
 
     const string BudgetFailure =
         "the lowering-protocol proof exhausted the planning budget";
@@ -134,6 +137,8 @@ internal sealed class ClassicInverseLoweringProof
             return "the raw import and planning view dispatch different resume states";
         if (!planning.Resumes.SequenceEqual(raw.Resumes))
             return "the raw import and planning view restore different awaiter transfers";
+        if (!planning.AwaiterBinds.SequenceEqual(raw.AwaiterBinds))
+            return "the raw import and planning view bind different GetAwaiter members";
         if (!planning.ResumeOffsets.SequenceEqual(raw.ResumeOffsets))
             return "the raw import and planning view resume at different state stores";
         if (!planning.CompletionOffsets.SequenceEqual(raw.CompletionOffsets))
@@ -152,6 +157,7 @@ internal sealed class ClassicInverseLoweringProof
         ImmutableArray<string> Suspensions,
         ImmutableArray<string> Dispatchers,
         ImmutableArray<string> Resumes,
+        ImmutableArray<AwaiterBindIdentity> AwaiterBinds,
         ImmutableArray<int> ResumeOffsets,
         ImmutableArray<int> CompletionOffsets,
         int GuardCount);
@@ -161,6 +167,15 @@ internal sealed class ClassicInverseLoweringProof
         int Offset,
         string Method,
         string BuilderField);
+
+    /// <summary>One awaiter's exact source member and call-site identity.</summary>
+    readonly record struct AwaiterBindIdentity(
+        int Offset,
+        int Local,
+        string Method,
+        bool IsVirtual,
+        string ConstrainedTo,
+        string ReceiverType);
 
     /// <summary>One suspension's proven awaiter transfer.</summary>
     readonly record struct AwaiterTransfer(int Local, string CacheField);
@@ -186,6 +201,60 @@ internal sealed class ClassicInverseLoweringProof
         {
             failure = BudgetFailure;
             return null;
+        }
+
+        var awaiterBinds = ImmutableArray.CreateBuilder<AwaiterBindIdentity>();
+        var boundAwaiterLocals = new HashSet<int>();
+        foreach (StoreLocal bind in index.AwaiterBinds)
+        {
+            if (!budget.Charge())
+            {
+                failure = BudgetFailure;
+                return null;
+            }
+            if (bind.Value is not Call getAwaiter
+                || !awaiterLocals.Contains(bind.Index)
+                || getAwaiter.Callee is not
+                {
+                    Name: "GetAwaiter",
+                    HasThis: true,
+                    ParameterTypes.IsDefaultOrEmpty: true,
+                }
+                || getAwaiter.Arguments is not [IrExpression receiver]
+                || !getAwaiter.IsVirtual
+                || getAwaiter.ConstrainedTo is not null
+                || receiver.ResultType is not { } receiverType
+                || !receiverType.Equals(getAwaiter.Callee.DeclaringType)
+                || !bind.Type.Equals(getAwaiter.Callee.ReturnType))
+            {
+                failure = "an awaiter bind does not callvirt the exact "
+                    + "instance GetAwaiter member of its operand type";
+                return null;
+            }
+
+            roles[bind] = AwaiterBind;
+            roles[getAwaiter] = GetAwaiterCall;
+            boundAwaiterLocals.Add(bind.Index);
+            awaiterBinds.Add(new(
+                getAwaiter.SourceOffset,
+                bind.Index,
+                ClassicInverseTypedIdentity.Method(getAwaiter.Callee),
+                getAwaiter.IsVirtual,
+                ClassicInverseTypedIdentity.Type(getAwaiter.ConstrainedTo),
+                ClassicInverseTypedIdentity.Type(receiverType)));
+        }
+        foreach (int local in awaiterLocals)
+        {
+            if (!budget.Charge())
+            {
+                failure = BudgetFailure;
+                return null;
+            }
+            if (!boundAwaiterLocals.Contains(local))
+            {
+                failure = "a proven awaiter slot has no exact GetAwaiter bind";
+                return null;
+            }
         }
 
         foreach (Call call in index.BuilderCalls)
@@ -320,6 +389,9 @@ internal sealed class ClassicInverseLoweringProof
             setException,
             setExceptionStatement,
             suspensionAwaiters,
+            [.. awaiterBinds
+                .OrderBy(static identity => identity.Offset)
+                .ThenBy(static identity => identity.Local)],
             exceptionLocal,
             roles,
             budget,
@@ -604,6 +676,7 @@ internal sealed class ClassicInverseLoweringProof
         Call setException,
         ExpressionStatement setExceptionStatement,
         List<(Call Await, int Local)> awaits,
+        ImmutableArray<AwaiterBindIdentity> awaiterBinds,
         int exceptionLocal,
         Dictionary<IrNode, string> roles,
         ClassicInverseBudget budget,
@@ -960,6 +1033,7 @@ internal sealed class ClassicInverseLoweringProof
             [.. suspensions.Order(StringComparer.Ordinal)],
             [.. dispatchers.Order(StringComparer.Ordinal)],
             [.. resumes.Order(StringComparer.Ordinal)],
+            awaiterBinds,
             [.. resumeOffsets.Order()],
             [.. completionOffsets.Order()],
             guardCount);
@@ -1178,6 +1252,8 @@ internal sealed class ClassicInverseLoweringProof
 
         internal List<StoreLocal> CaughtStores { get; } = [];
 
+        internal List<StoreLocal> AwaiterBinds { get; } = [];
+
         internal List<LoadLocal> StateReads { get; } = [];
 
         internal List<LoadStackSlot> SlotLoads { get; } = [];
@@ -1329,6 +1405,13 @@ internal sealed class ClassicInverseLoweringProof
 
                 case StoreLocal { Value: CaughtException } caught:
                     CaughtStores.Add(caught);
+                    return;
+
+                case StoreLocal
+                {
+                    Value: Call { Callee.Name: "GetAwaiter" },
+                } bind:
+                    AwaiterBinds.Add(bind);
                     return;
 
                 case InitObject { Address: LoadFieldAddress cleared } clear

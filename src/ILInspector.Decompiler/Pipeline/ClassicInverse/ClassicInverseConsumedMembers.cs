@@ -10,8 +10,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// consumed member or dropped it. Answering that by rescanning the planning
 /// tree per call buys work quadratic in the body at a linear charge, which the
 /// budget contract forbids. Building the index charges once for every planning
-/// node and every entry it touches, and each later question charges one unit,
-/// so the work a body can buy stays proportional to what it pays.
+/// node, initializer entry, and consumed record clone it touches, and each
+/// later question charges one unit, so the work a body can buy stays
+/// proportional to what it pays.
 /// </para>
 /// <para>
 /// A member is keyed by its canonical typed identity <em>and</em> its call-site
@@ -30,7 +31,7 @@ internal sealed class ClassicInverseConsumedMembers
 
     /// <summary>
     /// Indexes the planning body rooted at <paramref name="root"/>, charging
-    /// once for every node and once for every initializer entry it touches.
+    /// once for every node, initializer entry, and consumed clone it touches.
     /// Returns <c>null</c> when the budget runs out, so the caller reports a
     /// visible failure rather than an under-proven answer.
     /// </summary>
@@ -51,6 +52,17 @@ internal sealed class ClassicInverseConsumedMembers
                 InitializerBlock block => block.Entries,
                 _ => [],
             };
+            if (node is WithExpression
+                {
+                    ConsumedCloneMethod: { } clone,
+                } withExpression)
+            {
+                if (!budget.Charge())
+                    return null;
+                effects.Add(Effect(
+                    clone,
+                    withExpression.ConsumedCloneIsVirtual));
+            }
             foreach (InitializerEntry entry in entries)
             {
                 if (!budget.Charge())
