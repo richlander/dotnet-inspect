@@ -159,45 +159,6 @@ public static class MemberOptionsParser
             return true;
         }
 
-        string[] parsedMembers = [.. members];
-        var (_, shorthandIndex, memberDigest, genericArity, genericArityConflict, _) =
-            SharedParsers.ProcessMemberArguments(
-                parsedMembers,
-                inferDottedTypeFilter:
-                    string.IsNullOrEmpty(typeName),
-                suppliedTypeName: typeName);
-        var (memberFilter, _) = BuildMemberFilter(
-            parsedMembers,
-            ctor,
-            out _);
-        error = GetMemberSelectionError(
-            genericArity,
-            genericArityConflict,
-            memberFilter.Count);
-        if (error is not null)
-            return true;
-        bool hasDottedImpliedMember =
-            memberFilter.Count == 0
-            && !string.IsNullOrWhiteSpace(typeName)
-            && HasPotentialImpliedMember(typeName);
-        if ((index is not null || shorthandIndex is not null)
-            && (memberFilter.Count > 1
-                || (memberFilter.Count == 0
-                    && !hasDottedImpliedMember)))
-        {
-            error = new OptionError(
-                "--index/Name:N requires exactly one member name.");
-            return true;
-        }
-        if (!string.IsNullOrWhiteSpace(memberDigest)
-            && memberFilter.Count != 1
-            && !hasDottedImpliedMember)
-        {
-            error = new OptionError(
-                "Name~digest requires exactly one member name.");
-            return true;
-        }
-
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
             options,
@@ -225,37 +186,23 @@ public static class MemberOptionsParser
             selectDefault,
             [.. discoverSelectors],
             InspectionDiscoveryMode.Structural);
-        InspectionTargetRequirement baseRequirement =
-            memberFilter.Count == 0
-                ? InspectionTargetRequirement.Type
-                : InspectionTargetRequirement.MemberSet;
         SectionDemandClassification demand =
             ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
                 sectionIntent.DemandSelectors,
                 selectDefault,
-                baseRequirement);
-        bool exactMember =
-            index is not null
-            || shorthandIndex is not null
-            || !string.IsNullOrWhiteSpace(memberDigest)
-            || bodyKindQuery.HasFilter
-            || demand.RequiredTarget
-                == InspectionTargetRequirement.ExactMember;
-        int exactTargetCount =
-            memberFilter.Count == 0
-            && hasDottedImpliedMember
-                ? 1
-                : memberFilter.Count;
-        if (exactMember
-            && exactTargetCount != 1)
-        {
-            error = new OptionError(
-                bodyKindQuery.HasFilter
-                    ? "--where Kind=... requires one exact member name or selector."
-                    : "Exact-member section selection requires exactly one member name.");
+                InspectionTargetRequirement.MemberSet);
+        error = ValidateStructuralMemberSelection(
+            members,
+            typeName,
+            ctor,
+            index,
+            bodyKindQuery.HasFilter,
+            demand.RequiredTarget == InspectionTargetRequirement.ExactMember,
+            out HashSet<string> memberFilter,
+            out bool exactMember);
+        if (error is not null)
             return true;
-        }
         InspectionCatalogIdentity memberCatalog =
             memberFilter.Count == 0
                 ? InspectionCatalogIdentity.ApiMember
@@ -740,6 +687,60 @@ public static class MemberOptionsParser
         }
 
         return new Success(options, plan);
+    }
+
+    internal static OptionError? ValidateStructuralMemberSelection(
+        string[] members,
+        string? typeName,
+        bool ctor,
+        int? index,
+        bool hasBodyKindFilter,
+        bool requiresExactMember,
+        out HashSet<string> memberFilter,
+        out bool exactMember)
+    {
+        string[] parsedMembers = [.. members];
+        var (_, shorthandIndex, memberDigest, genericArity, genericArityConflict, _) =
+            SharedParsers.ProcessMemberArguments(
+                parsedMembers,
+                inferDottedTypeFilter: string.IsNullOrEmpty(typeName),
+                suppliedTypeName: typeName);
+        (memberFilter, _) = BuildMemberFilter(parsedMembers, ctor, out _);
+        exactMember = index is not null
+            || shorthandIndex is not null
+            || !string.IsNullOrWhiteSpace(memberDigest)
+            || hasBodyKindFilter
+            || requiresExactMember;
+
+        OptionError? error = GetMemberSelectorConflictError(members)
+            ?? GetMemberSelectionError(genericArity, genericArityConflict, memberFilter.Count);
+        if (error is not null)
+            return error;
+
+        bool hasDottedImpliedMember = memberFilter.Count == 0
+            && !string.IsNullOrWhiteSpace(typeName)
+            && HasPotentialImpliedMember(typeName);
+        if ((index is not null || shorthandIndex is not null)
+            && (memberFilter.Count > 1
+                || (memberFilter.Count == 0 && !hasDottedImpliedMember)))
+        {
+            return new OptionError("--index/Name:N requires exactly one member name.");
+        }
+        if (!string.IsNullOrWhiteSpace(memberDigest)
+            && memberFilter.Count != 1
+            && !hasDottedImpliedMember)
+        {
+            return new OptionError("Name~digest requires exactly one member name.");
+        }
+
+        int exactTargetCount = hasDottedImpliedMember ? 1 : memberFilter.Count;
+        if (exactMember && exactTargetCount != 1)
+        {
+            return new OptionError(hasBodyKindFilter
+                ? "--where Kind=... requires one exact member name or selector."
+                : "Exact-member section selection requires exactly one member name.");
+        }
+        return null;
     }
 
     private static (HashSet<string> Filter, int? Limit) BuildMemberFilter(string[] allMembers, bool ctorOnly, out bool clearShorthand)

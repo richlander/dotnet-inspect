@@ -87,6 +87,30 @@ public static class SharedParsers
             $"Unrecognized option '{option}'.");
     }
 
+    internal static OptionError? GetStructuralUnrecognizedOptionError(
+        IEnumerable<ParseResult> interpretations)
+    {
+        HashSet<string>? unrecognized = null;
+        foreach (ParseResult interpretation in interpretations)
+        {
+            IEnumerable<string> positionalOptions = interpretation.CommandResult.Children
+                .OfType<ArgumentResult>()
+                .SelectMany(argument => argument.Tokens)
+                .Select(token => token.Value)
+                .Concat(interpretation.UnmatchedTokens)
+                .Where(value => value.StartsWith('-'));
+            if (unrecognized is null)
+                unrecognized = new HashSet<string>(positionalOptions, StringComparer.Ordinal);
+            else
+                unrecognized.IntersectWith(positionalOptions);
+        }
+
+        string? option = unrecognized?.FirstOrDefault();
+        if (option is null)
+            return null;
+        return new OptionError($"Unrecognized option '{option}'.");
+    }
+
     public static int GetStructuralTypeArgumentIndex(
         SourceSelectionInputs inputs,
         bool hasProjectSource)

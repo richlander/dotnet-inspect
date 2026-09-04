@@ -88,7 +88,8 @@ public sealed record StructuralAlternativeSelection(
     StructuralRoute Route,
     bool CompleteCatalog,
     ImmutableArray<string> ResolvedSections,
-    ImmutableArray<SectionSelectorDiagnostic> UnresolvedSelectors);
+    ImmutableArray<SectionSelectorDiagnostic> UnresolvedSelectors,
+    OptionError? Error = null);
 
 public sealed record StructuralCatalogAlternatives(
     ImmutableArray<StructuralAlternativeSelection> Alternatives);
@@ -708,20 +709,24 @@ public static class StructuralViewRegistry
         bool tailCanBeMember =
             impliedMemberName is not null
             && !TypeMatcher.IsTypeGlobPattern(target);
+        OptionError? memberError = null;
         if (memberFilter.Count > 0
             || (!hasTypeMarker && tailCanBeMember))
         {
-            string impliedMember = memberFilter.FirstOrDefault()
-                ?? impliedMemberName!;
-            MemberTargetSelector selector =
-                MemberTargetSelector.Parse(impliedMember);
+            string[] members = memberFilter.Count > 0
+                ? memberSelectors
+                : [impliedMemberName!];
+            memberError = MemberOptionsParser.ValidateStructuralMemberSelection(
+                members,
+                target,
+                ctor: false,
+                index: null,
+                hasBodyKindFilter,
+                demand.RequiredTarget == InspectionTargetRequirement.ExactMember,
+                out _,
+                out bool exactMember);
             InspectionCatalogIdentity memberCatalog =
-                selector.OverloadIndex is not null
-                || !string.IsNullOrWhiteSpace(
-                    selector.DigestPrefix)
-                || hasBodyKindFilter
-                || demand.RequiredTarget
-                    == InspectionTargetRequirement.ExactMember
+                exactMember
                     ? InspectionCatalogIdentity.ApiMemberDetail
                     : InspectionCatalogIdentity.ApiMemberOverload;
             routes.Add(
@@ -737,7 +742,19 @@ public static class StructuralViewRegistry
                     InspectionCatalogIdentity.ApiMember));
         }
 
-        return CreateAlternatives(routes, request);
+        StructuralCatalogAlternatives alternatives = CreateAlternatives(routes, request);
+        return memberError is null
+            ? alternatives
+            : new StructuralCatalogAlternatives(
+                [.. alternatives.Alternatives.Select(alternative =>
+                    alternative.Route.View.Identity == StructuralViewIdentity.MemberTarget
+                        ? alternative with
+                        {
+                            CompleteCatalog = false,
+                            ResolvedSections = [],
+                            Error = memberError,
+                        }
+                        : alternative)]);
     }
 
     public static StructuralDiscoveryPlan CreateApiPlan(
@@ -1043,6 +1060,21 @@ public static class StructuralViewRegistry
         StructuralCatalogAlternatives alternatives,
         StructuralDiscoveryRequest request)
     {
+        if (alternatives.Alternatives.Any(alternative => alternative.Error is not null)
+            && !alternatives.Alternatives.Any(alternative =>
+                alternative.Error is null
+                && (alternative.CompleteCatalog || !alternative.ResolvedSections.IsEmpty)))
+        {
+            foreach (OptionError error in alternatives.Alternatives
+                .Select(alternative => alternative.Error)
+                .OfType<OptionError>()
+                .Distinct())
+            {
+                CommandError.Write(error);
+            }
+            return 1;
+        }
+
         if (request.Select is { Length: > 0 } selectors)
         {
             StructuralSchemaProjection[] projections =
@@ -1159,6 +1191,11 @@ public static class StructuralViewRegistry
         foreach (StructuralAlternativeSelection alternative in
                  alternatives.Alternatives)
         {
+            if (alternative.Error is { } error)
+            {
+                schema.AddSection($"[{alternative.Route.Label}] error: {error.Message}");
+                continue;
+            }
             StructuralSchemaProjection projection =
                 Project(alternative.Route);
             IReadOnlyCollection<string> sections =

@@ -182,6 +182,17 @@ public static class RouterCommandDefinition
                             tokens,
                             request,
                             sourceIdentityTypeTarget);
+                OptionError? optionError = SharedParsers.GetStructuralUnrecognizedOptionError(
+                    alternatives.Alternatives
+                        .Where(alternative => alternative.Error is null)
+                        .Select(alternative => alternative.Route.View.DestinationCommand)
+                        .Distinct(StringComparer.Ordinal)
+                        .Select(command => rootCommand.Parse([command, .. tokens])));
+                if (optionError is not null)
+                {
+                    CommandError.Write(optionError.Value);
+                    return 1;
+                }
                 RequestTelemetry.Breadcrumb(
                     "router-structural",
                     "alternatives: "

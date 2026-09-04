@@ -2983,6 +2983,85 @@ public sealed class InspectionPlanningTests
             result.Error);
     }
 
+    [Theory]
+    [InlineData("--bogus")]
+    [InlineData("--bogus=value")]
+    [InlineData("--bogus:value")]
+    public async Task AmbiguousCommandlessSchemaRejectsUnknownOptions(string option)
+    {
+        var result = await RunAppAsync(
+            "System.String", option, "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("Unrecognized option '--bogus", result.Error);
+    }
+
+    [Fact]
+    public async Task AmbiguousCommandlessSchemaPreservesCommandOwnedOptions()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type", "--shape", "-D", "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[type/type/ApiMember]", result.Output);
+    }
+
+    [Theory]
+    [InlineData("--tfm", "-example")]
+    [InlineData("--tfm=-example", null)]
+    public async Task AmbiguousCommandlessSchemaPreservesDashPrefixedOptionValues(
+        string option,
+        string? value)
+    {
+        string[] args =
+        [
+            "Missing.Type", option, .. value is null ? Array.Empty<string>() : [value],
+            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q",
+        ];
+        var result = await RunAppAsync(args);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[member/member-target/ApiMemberDetail] Signature", result.Output);
+    }
+
+    [Theory]
+    [InlineData("Methods,Classes")]
+    [InlineData("Methods,Cla*")]
+    public async Task CommandlessPartialSelectionRetainsListingDiscovery(string selection)
+    {
+        string[] args =
+        [
+            "System.Str", "--platform", "System.Private.CoreLib",
+            "-S", selection, "-D", SectionNames.Classes, "--table", "--tips", "q",
+        ];
+        var commandless = await RunAppAsync(args);
+        var explicitType = await RunAppAsync(["type", .. args]);
+
+        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(0, explicitType.Exit);
+        Assert.Equal(explicitType.Output, commandless.Output);
+        Assert.Contains("Members", commandless.Output);
+    }
+
+    [Fact]
+    public async Task CommandlessListingDiscoveryStillHonorsSelection()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type", "--platform", "Missing.Library",
+            "-S", SectionNames.Methods, "-D", SectionNames.Classes,
+            "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("not found", result.Error);
+        Assert.DoesNotContain("not found in any .NET", result.Error);
+        Assert.DoesNotContain("Resolving", result.Error);
+    }
+
     [Fact]
     public async Task PackageRelativeLibraryPrecedesCommandlessTypeFilter()
     {
@@ -3056,6 +3135,57 @@ public sealed class InspectionPlanningTests
             "[member/member-target/ApiMemberDetail] Signature",
             result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("Add", "Clear")]
+    [InlineData("Add:1", "Clear")]
+    [InlineData("Add~abcd", "Clear")]
+    [InlineData("Add<T>", "Clear")]
+    public async Task NestedGenericMemberAlternativesValidateAllSelectors(string first, string second)
+    {
+        var result = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform", "System.Collections.Immutable",
+            "-m", first, "-m", second, "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("exactly one member name", result.Error);
+    }
+
+    [Theory]
+    [InlineData("Add")]
+    [InlineData("Add:1")]
+    public async Task NestedGenericMemberAlternativesNormalizeRepeatedSelector(string second)
+    {
+        var result = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "--platform", "System.Collections.Immutable",
+            "-m", "Add", "-m", second, "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[member/member-target/ApiMemberDetail] Signature", result.Output);
+    }
+
+    [Fact]
+    public async Task InvalidMemberAlternativeDoesNotEraseValidPackageSchema()
+    {
+        var result = await RunAppAsync(
+            "Some.Container<T>.Nested",
+            "-m", "Add", "-m", "Clear", "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[package/package/Package] Signature", result.Output);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] error: Exact-member section selection requires exactly one member name.",
+            result.Output);
+        Assert.DoesNotContain("[member/member-target/ApiMemberDetail] Signature", result.Output);
     }
 
     [Theory]

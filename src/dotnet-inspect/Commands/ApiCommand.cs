@@ -132,47 +132,60 @@ public class ApiCommand
         if (discover is not { Length: > 0 })
             return false;
 
-        IReadOnlyList<string> discoverySections =
-            hasSelection
-                ? [.. selection.Sections ?? []]
-                : knownSections;
-        var discoverySet = new HashSet<string>(
-            discoverySections,
-            StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, string[]> discoveryCategories =
-            categories
-                .Select(pair => new KeyValuePair<string, string[]>(
-                    pair.Key,
-                    [.. pair.Value.Where(discoverySet.Contains)]))
-                .Where(pair => pair.Value.Length > 0)
-                .ToDictionary(
-                    pair => pair.Key,
-                    pair => pair.Value,
-                    StringComparer.OrdinalIgnoreCase);
-        SelectResult discovery = SelectResolver.ResolveSelectAsSections(
-            discover,
-            discoverySections,
-            infoSections: [],
-            discoveryCategories,
-            selectDefault: false);
-        if (!hasSelection
-            && IsTotalFailure(discovery)
+        SelectResult discovery = ResolveDiscovery(
+            selection,
+            knownSections,
+            categories);
+        if (IsTotalFailure(discovery)
             && allowListingPipeline)
         {
             var listingPipeline =
                 ApiTypeSectionDescriptors.CreatePipeline();
-            SelectResult listingDiscovery =
+            SelectResult listingSelection =
                 SelectResolver.ResolveSelectAsSections(
-                    discover,
+                    select,
                     listingPipeline.SelectableSectionNames,
-                    infoSections: [],
+                    listingPipeline.FixedOverviewSectionNames,
                     listingPipeline.GetCategoryMap(),
-                    selectDefault: false);
+                    selectDefault);
+            SelectResult listingDiscovery = ResolveDiscovery(
+                listingSelection,
+                listingPipeline.SelectableSectionNames,
+                listingPipeline.GetCategoryMap());
             if (!IsTotalFailure(listingDiscovery))
                 return false;
         }
         return IsTotalFailure(discovery)
             && SelectOutput.WriteUnresolved(discovery);
+
+        SelectResult ResolveDiscovery(
+            SelectResult candidateSelection,
+            IReadOnlyList<string> candidateSections,
+            IReadOnlyDictionary<string, string[]> candidateCategories)
+        {
+            IReadOnlyList<string> discoverySections = hasSelection
+                ? [.. candidateSelection.Sections ?? []]
+                : candidateSections;
+            var discoverySet = new HashSet<string>(
+                discoverySections,
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string[]> discoveryCategories =
+                candidateCategories
+                    .Select(pair => new KeyValuePair<string, string[]>(
+                        pair.Key,
+                        [.. pair.Value.Where(discoverySet.Contains)]))
+                    .Where(pair => pair.Value.Length > 0)
+                    .ToDictionary(
+                        pair => pair.Key,
+                        pair => pair.Value,
+                        StringComparer.OrdinalIgnoreCase);
+            return SelectResolver.ResolveSelectAsSections(
+                discover,
+                discoverySections,
+                infoSections: [],
+                discoveryCategories,
+                selectDefault: false);
+        }
 
         void AddCategories(
             IReadOnlyDictionary<string, string[]> source)
