@@ -601,6 +601,12 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void EcosystemCatalogIsFacadeOnly()
     {
+        // The compiled-reference gate is sound only when catalog IDs cannot be inlined.
+        Assert.DoesNotContain(
+            typeof(DotnetInspector.Ecosystems.ProductDemoIds)
+                .GetFields(BindingFlags.Public | BindingFlags.Static),
+            field => field.IsLiteral);
+
         string inspectWebRoot = Path.Combine(
             RepositoryRoot(),
             "prototypes",

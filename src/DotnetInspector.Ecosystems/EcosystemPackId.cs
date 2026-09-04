@@ -83,14 +83,28 @@ public static class EcosystemPackIds
 /// <summary>Stable scenario IDs for shipped product demos.</summary>
 public static class ProductDemoIds
 {
-    public const string StjSerializer = "stj-serializer";
-    public const string ExtensionsCallGraph = "extensions-callgraph";
-    public const string StjSerializeCallGraph = "stj-serialize-callgraph";
-    public const string ConfigBindCallGraph = "config-bind-callgraph";
-    public const string OptionsAddCallGraph = "options-add-callgraph";
-    public const string DiTryAddCallGraph = "di-tryadd-callgraph";
-    public const string HttpAddHttpClientCallGraph = "http-addhttpclient-callgraph";
-    public const string StjGetDecimalCallGraph = "stj-getdecimal-callgraph";
-    public const string AspirePostgresCallGraph = "aspire-postgres-callgraph";
-    public const string AspireRedisCallGraph = "aspire-redis-callgraph";
+    public static string StjSerializer { get; } = "stj-serializer";
+
+    public static string ExtensionsCallGraph { get; } = "extensions-callgraph";
+
+    public static string StjSerializeCallGraph { get; } =
+        "stj-serialize-callgraph";
+
+    public static string ConfigBindCallGraph { get; } = "config-bind-callgraph";
+
+    public static string OptionsAddCallGraph { get; } = "options-add-callgraph";
+
+    public static string DiTryAddCallGraph { get; } = "di-tryadd-callgraph";
+
+    public static string HttpAddHttpClientCallGraph { get; } =
+        "http-addhttpclient-callgraph";
+
+    public static string StjGetDecimalCallGraph { get; } =
+        "stj-getdecimal-callgraph";
+
+    public static string AspirePostgresCallGraph { get; } =
+        "aspire-postgres-callgraph";
+
+    public static string AspireRedisCallGraph { get; } =
+        "aspire-redis-callgraph";
 }

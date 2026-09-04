@@ -325,7 +325,11 @@ production project. For each project whose declared graph can reach the catalog
 facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
 `InspectWeb.Engine.CatalogExports` is the sole permitted project and compiled
 assembly reference. The compiled check rejects host source that consumes the
-catalog through the transitive host-to-catalog-facade project graph.
+catalog through the transitive host-to-catalog-facade project graph. Public
+demo identities are runtime-valued properties rather than compile-time
+constants, and the same gate rejects public literal fields before relying on
+the compiled reference: a supported source use therefore cannot erase the
+catalog dependency through constant inlining.
 `InspectWeb.Engine.Core`, the host and sibling export facades, and every other
 inspect-web production project reject both a declared edge and a compiled
 catalog reference. Test projects and the focused
@@ -791,7 +795,7 @@ ordinary non-friend consumer.
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
 | `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Public product-demo identities contain no literal fields that source access could inline without an assembly reference. Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and

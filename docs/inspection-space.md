@@ -1075,7 +1075,7 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Target product-resident home demos ship through the static application
+Product-resident home demos ship through the static application
 ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
 ecosystem grouping, display metadata, and global product order. Workspace
 Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
@@ -1085,8 +1085,9 @@ Grouped and flat discovery expose only immutable metadata; selecting one exact
 scenario ID dispatches only that source, whose binding requires exactly one
 matching scenario record. Selection retains the catalog descriptor beside the
 resolved scenario, and hosts use that descriptor as product display metadata.
-registry has been removed; `DotnetInspector.Ecosystems` is the sole shipping
-application inventory.
+The donor `DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry
+has been removed; `DotnetInspector.Ecosystems` is the sole shipping application
+inventory.
 
 Home demos are closed presets over the open query/section product: each source
 fixes inputs and names **existing product section(s)**
