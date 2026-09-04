@@ -383,6 +383,40 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void DependencyScan_MalformedRelationshipDoesNotShadowHealthyNeighbor()
+    {
+        // The malformed participant is listed first and declares the same
+        // public name as the target. Its type name enumerates cleanly, so it
+        // reaches the shared index; only the base-type relationship is
+        // malformed. If that relationship were decoded after publication, it
+        // would both abort the surrounding scan and shadow the healthy
+        // definition that should have answered.
+        Type target = typeof(MetadataAdmissionCleanupTests);
+        string malformed = WriteTempImage(
+            BuildMalformedRelationshipImage(target.Namespace!, target.Name));
+        string healthy = target.Assembly.Location;
+        try
+        {
+            TypeDependencyResult result =
+                TypeDependencyScanner.BuildDependencyTree(
+                    target.FullName!,
+                    [malformed, healthy]);
+
+            Assert.True(result.Found);
+            TypeDependencyRejection rejection = Assert.Single(
+                result.Rejections);
+            Assert.Equal(malformed, rejection.AssemblyPath);
+            Assert.Equal(
+                TypeDependencyRejectionKind.InvalidImage,
+                rejection.Kind);
+        }
+        finally
+        {
+            File.Delete(malformed);
+        }
+    }
+
+    [Fact]
     public void DependencyScan_InvalidImageDoesNotHideHealthyNeighbor()
     {
         string malformed = WriteTempImage(
@@ -1085,6 +1119,56 @@ public sealed class MetadataAdmissionCleanupTests
         ApiSurfaceStream,
         ApiSummaryPath,
         ApiSummaryStream,
+    }
+
+    /// <summary>
+    /// Builds an image whose sole public type names a base type in a TypeRef
+    /// row that does not exist. Enumerating type names succeeds; the failure
+    /// appears only when the relationship is decoded.
+    /// </summary>
+    internal static byte[] BuildMalformedRelationshipImage(
+        string typeNamespace,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedRelationship"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            default);
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedRelationship.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString(typeNamespace),
+            metadata.GetOrAddString(typeName),
+            MetadataTokens.TypeReferenceHandle(999),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static byte[] BuildManagedModule()

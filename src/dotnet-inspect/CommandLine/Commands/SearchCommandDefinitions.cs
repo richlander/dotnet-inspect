@@ -33,8 +33,16 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
-        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
-        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var extensionsOption = new Option<bool>("--extensions")
+        {
+            Description =
+                "Search current Microsoft.Extensions.* packages outside the shared frameworks"
+        };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore")
+        {
+            Description =
+                "Search current Microsoft.AspNetCore.* packages outside the shared frameworks"
+        };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -149,8 +157,16 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
-        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
-        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var extensionsOption = new Option<bool>("--extensions")
+        {
+            Description =
+                "Search current Microsoft.Extensions.* packages outside the shared frameworks"
+        };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore")
+        {
+            Description =
+                "Search current Microsoft.AspNetCore.* packages outside the shared frameworks"
+        };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -281,8 +297,16 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
-        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
-        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var extensionsOption = new Option<bool>("--extensions")
+        {
+            Description =
+                "Search current Microsoft.Extensions.* packages outside the shared frameworks"
+        };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore")
+        {
+            Description =
+                "Search current Microsoft.AspNetCore.* packages outside the shared frameworks"
+        };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -425,8 +449,16 @@ public static class SearchCommandDefinitions
         };
         var platformOption = CommandLineHelpers.CreatePlatformSearchOption();
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
-        var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
-        var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
+        var extensionsOption = new Option<bool>("--extensions")
+        {
+            Description =
+                "Search current Microsoft.Extensions.* packages outside the shared frameworks"
+        };
+        var aspnetcoreOption = new Option<bool>("--aspnetcore")
+        {
+            Description =
+                "Search current Microsoft.AspNetCore.* packages outside the shared frameworks"
+        };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",

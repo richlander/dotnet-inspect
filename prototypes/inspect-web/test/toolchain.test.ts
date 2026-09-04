@@ -373,6 +373,24 @@ test("no source directory reaches content through a symbolic link", () => {
 // checked?" instead of "is every file I remembered to think of checked?" -- `.mts` was
 // Sol's finding: `scripts/probe.mts` with a type error in it passed every gate, because
 // `tsconfig.node.json` included `scripts/**/*.ts` and nothing considered `.mts` at all.
+// The production facade set, in the order `eng/generate-inspect-web-engine-facade.sh`
+// generates it. Every gate below that names a generated artifact is spelled from this one
+// inventory, so a facade added, removed or renamed moves all of them together and none of
+// them silently keeps covering a file that no longer exists.
+const facadeModules = [
+  "inspect-web-host",
+  "inspect-web-package",
+  "inspect-web-metadata",
+  "inspect-web-analysis",
+  "inspect-web-source",
+  "inspect-web-call-graph",
+  "inspect-web-catalog",
+] as const;
+const generatedFacadeSources =
+  facadeModules.map(module => `engine/facades/${module}.ts`);
+const publishedFacadeModules =
+  facadeModules.map(module => `engine/wwwroot/${module}.js`);
+
 const typeScriptExtensions = typeScriptSourceExtensions;
 const javaScriptExtensions = javaScriptSourceExtensions;
 
@@ -422,7 +440,7 @@ test("the only JavaScript is the file the lint exemption names", () => {
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, ["engine/wwwroot/inspect-web-engine.js"],
+  assert.deepEqual(present, [...publishedFacadeModules].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
   assert.deepEqual(exempted, present,
@@ -917,7 +935,7 @@ test("no HTML document carries script the gates cannot read", () => {
 // code the lint had never seen.
 const compilerProjects = ["tsconfig.json", "test/tsconfig.json", "tsconfig.node.json"];
 const separatelyCompiledTypeScript = new Set([
-  "engine/inspect-web-engine.ts",
+  ...generatedFacadeSources,
   "multi-facade-canary/coordinator.ts",
   "multi-facade-canary/exercise.ts",
   "multi-facade-canary/facades/alpha.ts",
@@ -1020,7 +1038,7 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   );
 
   assert.deepEqual([...separatelyCompiledTypeScript], [
-    "engine/inspect-web-engine.ts",
+    ...generatedFacadeSources,
     "multi-facade-canary/coordinator.ts",
     "multi-facade-canary/exercise.ts",
     "multi-facade-canary/facades/alpha.ts",
@@ -1028,7 +1046,34 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   ]);
   assert.match(
     engineGenerationScript,
-    /ts_output_file="\$repo_root\/prototypes\/inspect-web\/engine\/inspect-web-engine\.ts"/);
+    /ts_output_directory="\$inspect_web\/engine\/facades"/);
+  assert.match(
+    engineGenerationScript,
+    /dts_output_directory="\$inspect_web\/src\/facades"/);
+  assert.match(
+    engineGenerationScript,
+    /js_output_directory="\$inspect_web\/engine\/wwwroot"/);
+  // The consumer map is the whole membership claim: its domain must be the exact set of
+  // canonical artifacts, and its range the exact set of public modules, in one place.
+  for (const module of facadeModules) {
+    assert.ok(engineGenerationScript.includes(`  "${module}"\n`),
+      `the generation script does not map ${module}`);
+  }
+  for (const artifact of [
+    "InspectWeb.Engine.ts",
+    "InspectWeb.Engine.PackageExports.ts",
+    "InspectWeb.Engine.MetadataExports.ts",
+    "InspectWeb.Engine.AnalysisExports.ts",
+    "InspectWeb.Engine.SourceExports.ts",
+    "InspectWeb.Engine.CallGraphExports.ts",
+    "InspectWeb.Engine.CatalogExports.ts",
+  ]) {
+    assert.ok(engineGenerationScript.includes(`  "${artifact}"\n`),
+      `the generation script does not root ${artifact}`);
+  }
+  assert.match(
+    engineGenerationScript,
+    /emitted_artifacts" != "\$expected_artifacts/);
   assert.match(
     engineGenerationScript,
     /context_type="InspectWeb\.Engine\.InspectWebJsExportContext"/);
@@ -1040,13 +1085,15 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /--assembly-search-path "\$source_assembly_directory"/);
   assert.match(
     engineGenerationScript,
-    /context_artifact_name="InspectWeb\.Engine\.ts"/);
-  assert.match(
-    engineGenerationScript,
     /generator_build_properties\+=\("-p:VersionPrefix=\$contract_version_prefix"\)/);
   assert.match(
     engineGenerationScript,
     /-p:VersionPrefix="\$version_prefix"[\s\S]*--contract[\s\S]*"\$version_prefix"/);
+  // `--contract` produces the complete declaration set into a directory, which is what the
+  // paired async deployment lanes compare against the checked-in declarations.
+  assert.match(
+    engineGenerationScript,
+    /--contract <assembly> <declaration-output-directory> <version-prefix>/);
   assert.match(
     engineGenerationScript,
     /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
@@ -1055,7 +1102,15 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
   assert.doesNotMatch(engineGenerationScript, /DOTNET_ROOT|sort -V/);
   assert.match(engineGenerationScript, /"newLine": "lf"/);
-  assert.match(engineGenerationScript, /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+  assert.match(
+    engineGenerationScript,
+    /"\$tsc" -p "\$scratch\/sources\/tsconfig\.json"/);
+  // The whole set is compiled by one program built from an exact file inventory, not from a
+  // directory glob that would admit an unowned source.
+  assert.match(
+    engineGenerationScript,
+    /printf '"%s\.ts"' "\$\{facade_modules\[\$index\]\}"/);
+  assert.doesNotMatch(engineGenerationScript, /"include": \["\*/);
 
   assert.match(
     multiFacadeGenerationScript,
@@ -1991,10 +2046,11 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const printed = printedOxlintConfig(root);
   const generatedTypeScriptFacadeScope = [
-    "engine/inspect-web-engine.ts",
+    ...generatedFacadeSources,
     "multi-facade-canary/facades/alpha.ts",
     "multi-facade-canary/facades/beta.ts",
   ].join(", ");
+  const publishedFacadeScope = publishedFacadeModules.join(", ");
 
   const relaxed = Object.entries(printed.rules)
     .filter(([, entry]) => severityOf(entry) === "allow")
@@ -2027,7 +2083,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
   // gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
-    ["engine/wwwroot/inspect-web-engine.js", [
+    [publishedFacadeScope, [
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
       "typescript/no-unsafe-call",
@@ -2126,7 +2182,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       env: { browser: false, node: true },
       globals: {},
     },
-    "engine/wwwroot/inspect-web-engine.js": {
+    [publishedFacadeScope]: {
       env: {},
       globals: {},
     },
@@ -2750,17 +2806,19 @@ test("the analysis host check matches locked native packages and lint wiring", (
     "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
-      + "multi-facade-canary/facades engine/inspect-web-engine.ts "
-      + "engine/wwwroot/inspect-web-engine.js vite.config.ts "
+      + "multi-facade-canary/facades engine/facades "
+      + `${publishedFacadeModules.join(" ")} vite.config.ts `
       + "playwright.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
 
 test("the lint gate includes all compiler-derived facade artifacts", () => {
-  assert.ok(
-    !(oxlintConfig.ignorePatterns ?? []).includes("src/inspect-web-engine.d.ts"),
-  );
+  for (const module of facadeModules) {
+    assert.ok(
+      !(oxlintConfig.ignorePatterns ?? []).includes(`src/facades/${module}.d.ts`),
+    );
+  }
   // Reading the script through an index signature makes its absence a real possibility
   // rather than a silent `undefined` handed to `assert.match`, which would fail with a
   // type error about the argument instead of naming the missing script.
@@ -2776,10 +2834,13 @@ test("the lint gate includes all compiler-derived facade artifacts", () => {
     /(?:^| )multi-facade-canary\/exercise\.ts(?: |$)/,
   );
   assert.match(lintScript, /(?:^| )multi-facade-canary\/facades(?: |$)/);
-  assert.match(
-    lintScript,
-    /(?:^| )engine\/wwwroot\/inspect-web-engine\.js(?: |$)/,
-  );
+  assert.match(lintScript, /(?:^| )engine\/facades(?: |$)/);
+  for (const module of publishedFacadeModules) {
+    assert.ok(
+      new RegExp(`(?:^| )${module.replaceAll(/[./]/g, String.raw`\$&`)}(?: |$)`)
+        .test(lintScript),
+      `the lint gate does not name ${module}`);
+  }
 });
 
 // The fixture below is mutated in place across the assertions, so it is typed rather than

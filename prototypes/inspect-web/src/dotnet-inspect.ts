@@ -123,6 +123,9 @@ import {
   type AppMemberSurface,
   type AppPackage,
   type AppTypeSurface,
+  type InspectedMemberSurface,
+  type InspectedPackageDocument,
+  type InspectedTypeSurface,
 } from "./package-acquisition.ts";
 import {
   createPackageInspectionCoordinator,
@@ -149,8 +152,8 @@ import {
   focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
-  renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type HomeShellBindingActions,
@@ -182,6 +185,8 @@ import {
 import {
   callGraphErrorForView,
   createCallGraphInspectionCoordinator,
+  type InspectedCallGraph,
+  type InspectedCallGraphTarget,
   type PlatformStackEntry,
 } from "./call-graph-inspection.ts";
 import { createDocumentInspectionCoordinator } from "./document-inspection.ts";
@@ -236,9 +241,12 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  focusRenderedElement,
+  renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
+  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -281,7 +289,6 @@ import {
   renderTypeNav,
   renderTypeSource,
   type MemberNavEntry,
-  typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
@@ -363,141 +370,180 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
 } from "./package-query-route.ts";
+import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
-  BrowserBuildIdentity,
-  BrowserCallGraph,
-  BrowserCallGraphTarget,
-  BrowserHomeDemoRunResult,
-  BrowserMemberSurface,
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageDependencyGroup,
-  BrowserPackageDocument,
-  BrowserPackageIntegrations,
-  BrowserPackageOpportunities,
   BrowserPackageSurface,
-  BrowserSource,
-  BrowserTypeMetadata,
-  BrowserTypeSurface,
-  BrowserWorkspaceShareState,
   BrowserWorkspacePackageOccurrenceActivation,
   BrowserWorkspacePackageOccurrenceView,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
+import type { BrowserTypeMetadata } from "./facades/inspect-web-metadata.d.ts";
+import type {
+  BrowserPackageIntegrations,
+  BrowserPackageOpportunities,
+} from "./facades/inspect-web-analysis.d.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type {
+  BrowserHomeDemoRunResult,
+  BrowserWorkspaceShareState,
+} from "./facades/inspect-web-catalog.d.ts";
 
-type EngineModule = typeof import("./inspect-web-engine.d.ts");
+// Each generated module publishes its own operations and its own wire declarations, so the
+// application binds every operation through the module that owns it. There is no aggregate
+// facade: a binding below names the facade it came from.
+type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
+type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
+type MetadataFacade = typeof import("./facades/inspect-web-metadata.d.ts");
+type AnalysisFacade = typeof import("./facades/inspect-web-analysis.d.ts");
+type SourceFacade = typeof import("./facades/inspect-web-source.d.ts");
+type CallGraphFacade = typeof import("./facades/inspect-web-call-graph.d.ts");
+type CatalogFacade = typeof import("./facades/inspect-web-catalog.d.ts");
+type EngineCoordinator = typeof import("./engine-facades.ts");
 
-let initializeRuntime: EngineModule["initializeRuntime"];
-let runEntryPoint: EngineModule["runEntryPoint"];
-let configureHost: EngineModule["configureHost"];
-let cancelPackageQuery: EngineModule["cancelPackageQuery"];
-let cancelSourceInspection: EngineModule["cancelSourceQuery"];
-let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
-let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
-let inspectVocabulary: EngineModule["listVocabulary"];
-let inspectListHomeDemos: EngineModule["listHomeDemos"];
-let inspectListPackageQueryFacets: EngineModule["listPackageQueryFacets"];
-let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
-let inspectRunPackageQuery: EngineModule["runPackageQuery"];
-let inspectRunHomeDemo: EngineModule["runHomeDemo"];
-let inspectLoadRuntimePack: EngineModule["loadRuntimePack"];
-let inspectLoadRuntimePackAssembly: EngineModule["loadRuntimePackAssembly"];
-let inspectMemberAnnotatedSource: EngineModule["queryMemberAnnotatedSource"];
-let inspectMemberCallGraph: EngineModule["queryMemberCallGraph"];
-let inspectMemberDocumentation: EngineModule["queryMemberDocumentation"];
-let inspectMemberFacts: EngineModule["queryMemberFacts"];
-let inspectMemberSource: EngineModule["queryMemberSource"];
-let inspectPackage: EngineModule["queryPackage"];
-let inspectPackageDependencies: EngineModule["queryPackageDependencies"];
-let inspectPackageDocument: EngineModule["getPackageDocument"];
-let inspectPackageHeapEntries: EngineModule["queryPackageHeapEntries"];
-let inspectPackageIntegrations: EngineModule["queryPackageIntegrations"];
-let inspectPackageMetadata: EngineModule["queryPackageMetadata"];
-let inspectPackageMetadataTable: EngineModule["queryPackageMetadataTable"];
-let inspectPackageOpportunities: EngineModule["queryPackageOpportunities"];
-let inspectPackagePerformance: EngineModule["queryPackagePerformance"];
-let inspectPackageVersions: EngineModule["queryPackageVersions"];
+let startEngine: EngineCoordinator["startEngine"];
+let inspectBuildIdentity: HostFacade["buildIdentity"];
+let cancelPackageQuery: PackageFacade["cancelPackageQuery"];
+let inspectPackageDocument: PackageFacade["getPackageDocument"];
+let inspectListPackageQueryFacets: PackageFacade["listPackageQueryFacets"];
+let inspectLoadRuntimePack: PackageFacade["loadRuntimePack"];
+let inspectLoadRuntimePackAssembly: PackageFacade["loadRuntimePackAssembly"];
+let matchPackageDependencyCoordinate:
+  PackageFacade["matchPackageDependencyCoordinate"];
+let inspectPackageCacheStats: PackageFacade["packageCacheStats"];
+let inspectMemberDocumentation: PackageFacade["queryMemberDocumentation"];
+let inspectPackage: PackageFacade["queryPackage"];
+let inspectPackageDependencies: PackageFacade["queryPackageDependencies"];
+let inspectPackageVersions: PackageFacade["queryPackageVersions"];
+let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
+let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
+let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
-  EngineModule["queryWorkspacePackageOccurrences"];
+  PackageFacade["queryWorkspacePackageOccurrences"];
 let inspectActivateWorkspacePackageOccurrence:
-  EngineModule["activateWorkspacePackageOccurrence"];
+  PackageFacade["activateWorkspacePackageOccurrence"];
 let inspectClearWorkspacePackageOccurrences:
-  EngineModule["clearWorkspacePackageOccurrences"];
-let inspectPlatformHeapEntries: EngineModule["queryPlatformHeapEntries"];
-let inspectPlatformIntegrations: EngineModule["queryPlatformIntegrations"];
-let inspectPlatformMetadata: EngineModule["queryPlatformMetadata"];
-let inspectPlatformMetadataTable: EngineModule["queryPlatformMetadataTable"];
-let inspectPlatformOpportunities: EngineModule["queryPlatformOpportunities"];
-let inspectPlatformPerformance: EngineModule["queryPlatformPerformance"];
-let inspectSearchTypes: EngineModule["searchTypes"];
-let inspectTypeMemberSource: EngineModule["queryTypeMemberSource"];
-let inspectTypeProjection: EngineModule["queryTypeProjection"];
-let inspectTypeSource: EngineModule["queryTypeSource"];
-let inspectBuildIdentity: EngineModule["buildIdentity"];
-let inspectDecodeWorkspaceShareState: EngineModule["decodeWorkspaceShareState"];
-let inspectEncodeWorkspaceShareState: EngineModule["encodeWorkspaceShareState"];
-let inspectPackageCacheStats: EngineModule["packageCacheStats"];
-let matchPackageDependencyCoordinate: EngineModule["matchPackageDependencyCoordinate"];
-let resolveDependencyVersion: EngineModule["resolvePackageDependencyVersion"];
+  PackageFacade["clearWorkspacePackageOccurrences"];
+let inspectGraphMemberSurface: MetadataFacade["queryGraphMemberSurface"];
+let inspectPackageHeapEntries: MetadataFacade["queryPackageHeapEntries"];
+let inspectPackageMetadata: MetadataFacade["queryPackageMetadata"];
+let inspectPackageMetadataTable: MetadataFacade["queryPackageMetadataTable"];
+let inspectPlatformHeapEntries: MetadataFacade["queryPlatformHeapEntries"];
+let inspectPlatformMetadata: MetadataFacade["queryPlatformMetadata"];
+let inspectPlatformMetadataTable: MetadataFacade["queryPlatformMetadataTable"];
+let inspectTypeProjection: MetadataFacade["queryTypeProjection"];
+let inspectMemberFacts: AnalysisFacade["queryMemberFacts"];
+let inspectPackageIntegrations: AnalysisFacade["queryPackageIntegrations"];
+let inspectPackageOpportunities: AnalysisFacade["queryPackageOpportunities"];
+let inspectPackagePerformance: AnalysisFacade["queryPackagePerformance"];
+let inspectPlatformIntegrations: AnalysisFacade["queryPlatformIntegrations"];
+let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
+let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
+let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
+let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
+let inspectMemberSource: SourceFacade["queryMemberSource"];
+let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
+let inspectTypeSource: SourceFacade["queryTypeSource"];
+let inspectExpandPlatformCallGraph: CallGraphFacade["expandPlatformCallGraph"];
+let inspectMemberCallGraph: CallGraphFacade["queryMemberCallGraph"];
+let inspectDecodeWorkspaceShareState: CatalogFacade["decodeWorkspaceShareState"];
+let inspectEncodeWorkspaceShareState: CatalogFacade["encodeWorkspaceShareState"];
+let inspectListHomeDemos: CatalogFacade["listHomeDemos"];
+let inspectVocabulary: CatalogFacade["listVocabulary"];
+let inspectResolveHomeDemo: CatalogFacade["resolveHomeDemo"];
+let inspectRunHomeDemo: CatalogFacade["runHomeDemo"];
 
+// The generated modules stay off the first-paint path, so they are imported once the home
+// view has painted. `engine-facades.ts` owns composition of the whole set; this function
+// owns nothing but binding, and each operation is bound from the module that publishes it.
 async function loadEngineModule() {
+  const [
+    hostFacade,
+    packageFacade,
+    metadataFacade,
+    analysisFacade,
+    sourceFacade,
+    callGraphFacade,
+    catalogFacade,
+    coordinator,
+  ] = await Promise.all([
+    import("/inspect-web-host.js"),
+    import("/inspect-web-package.js"),
+    import("/inspect-web-metadata.js"),
+    import("/inspect-web-analysis.js"),
+    import("/inspect-web-source.js"),
+    import("/inspect-web-call-graph.js"),
+    import("/inspect-web-catalog.js"),
+    import("./engine-facades.ts"),
+  ]);
+  ({ startEngine } = coordinator);
+  ({ buildIdentity: inspectBuildIdentity } = hostFacade);
   ({
-    buildIdentity: inspectBuildIdentity,
     cancelPackageQuery,
-    cancelSourceQuery: cancelSourceInspection,
-    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
-    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
-    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
     getPackageDocument: inspectPackageDocument,
-    initializeRuntime,
-    runEntryPoint,
-    configureHost,
-    listHomeDemos: inspectListHomeDemos,
     listPackageQueryFacets: inspectListPackageQueryFacets,
-    listVocabulary: inspectVocabulary,
-    resolveHomeDemo: inspectResolveHomeDemo,
-    runHomeDemo: inspectRunHomeDemo,
-    runPackageQuery: inspectRunPackageQuery,
     loadRuntimePack: inspectLoadRuntimePack,
     loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
     matchPackageDependencyCoordinate,
     packageCacheStats: inspectPackageCacheStats,
-    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
-    queryMemberCallGraph: inspectMemberCallGraph,
-    queryGraphMemberSurface: inspectGraphMemberSurface,
     queryMemberDocumentation: inspectMemberDocumentation,
-    queryMemberFacts: inspectMemberFacts,
-    queryMemberSource: inspectMemberSource,
     queryPackage: inspectPackage,
     queryPackageDependencies: inspectPackageDependencies,
-    queryPackageHeapEntries: inspectPackageHeapEntries,
-    queryPackageIntegrations: inspectPackageIntegrations,
-    queryPackageMetadata: inspectPackageMetadata,
-    queryPackageMetadataTable: inspectPackageMetadataTable,
-    queryPackageOpportunities: inspectPackageOpportunities,
-    queryPackagePerformance: inspectPackagePerformance,
     queryPackageVersions: inspectPackageVersions,
+    resolvePackageDependencyVersion: resolveDependencyVersion,
+    runPackageQuery: inspectRunPackageQuery,
+    searchTypes: inspectSearchTypes,
     queryWorkspacePackageOccurrences:
       inspectQueryWorkspacePackageOccurrences,
     activateWorkspacePackageOccurrence:
       inspectActivateWorkspacePackageOccurrence,
     clearWorkspacePackageOccurrences:
       inspectClearWorkspacePackageOccurrences,
+  } = packageFacade);
+  ({
+    queryGraphMemberSurface: inspectGraphMemberSurface,
+    queryPackageHeapEntries: inspectPackageHeapEntries,
+    queryPackageMetadata: inspectPackageMetadata,
+    queryPackageMetadataTable: inspectPackageMetadataTable,
     queryPlatformHeapEntries: inspectPlatformHeapEntries,
-    queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformMetadata: inspectPlatformMetadata,
     queryPlatformMetadataTable: inspectPlatformMetadataTable,
+    queryTypeProjection: inspectTypeProjection,
+  } = metadataFacade);
+  ({
+    queryMemberFacts: inspectMemberFacts,
+    queryPackageIntegrations: inspectPackageIntegrations,
+    queryPackageOpportunities: inspectPackageOpportunities,
+    queryPackagePerformance: inspectPackagePerformance,
+    queryPlatformIntegrations: inspectPlatformIntegrations,
     queryPlatformOpportunities: inspectPlatformOpportunities,
     queryPlatformPerformance: inspectPlatformPerformance,
+  } = analysisFacade);
+  ({
+    cancelSourceQuery: cancelSourceInspection,
+    queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
+    queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
-    queryTypeProjection: inspectTypeProjection,
     queryTypeSource: inspectTypeSource,
-    resolvePackageDependencyVersion: resolveDependencyVersion,
-    searchTypes: inspectSearchTypes,
-  } = await import("/inspect-web-engine.js"));
+  } = sourceFacade);
+  ({
+    expandPlatformCallGraph: inspectExpandPlatformCallGraph,
+    queryMemberCallGraph: inspectMemberCallGraph,
+  } = callGraphFacade);
+  ({
+    decodeWorkspaceShareState: inspectDecodeWorkspaceShareState,
+    encodeWorkspaceShareState: inspectEncodeWorkspaceShareState,
+    listHomeDemos: inspectListHomeDemos,
+    listVocabulary: inspectVocabulary,
+    resolveHomeDemo: inspectResolveHomeDemo,
+    runHomeDemo: inspectRunHomeDemo,
+  } = catalogFacade);
 }
 
 declare global {
@@ -851,7 +897,7 @@ interface StateOverrides {
   packagePerformance: PackagePerformance | null;
   packageMetadata: PackageMetadata | null;
   explorer: AppExplorerState | null;
-  memberCallGraph: BrowserCallGraph | null;
+  memberCallGraph: InspectedCallGraph | null;
   pendingGraphMemberDeepLink: PendingGraphMemberDeepLink | null;
   platformStack: PlatformStackEntry[];
   dotnetReleases: DotnetRelease[] | null;
@@ -870,7 +916,7 @@ interface StateOverrides {
   recentPackages: RecentPackage[];
   selectedBodyTarget: BodyTarget | null;
   graphSource: BrowserSource | null;
-  docViewer: BrowserPackageDocument | null;
+  docViewer: InspectedPackageDocument | null;
   docViewerMeta: DocViewerMeta | null;
   graphSourceRequest: { request: GraphSourceRequest; title: string } | null;
   styleTiers: StyleTier[] | null;
@@ -883,7 +929,7 @@ interface StateOverrides {
   packageQueryState: PackageQueryState;
   packageQueryFacets: QueryFacetTerm[];
   packageQueryPredecessorEntryId: string | null;
-  packageQueryReturnFocus: "home-search" | "package-search" | null;
+  packageQueryReturnFocus: PackageQueryReturnFocus | null;
 }
 
 type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides;
@@ -891,6 +937,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -903,7 +950,6 @@ type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   }
 );
 let failedWorkspaceUrlState: FailedWorkspaceUrlState | null = null;
-let lastCanonicalWorkspaceHref: string | null = null;
 let packageQueryWorkspaceFocusNavigationSeq: number | null = null;
 let packageQueryHandoffNavigationSeq: number | null = null;
 
@@ -1705,7 +1751,7 @@ function defaultVisibleTypeId(pkg: AppPackage | null | undefined) {
 // filter (e.g. one with zero public types) doesn't leave the type list empty while the pane
 // renders a type filteredTypes() would hide.
 function reconcileAccessibilityFilter(
-  type: BrowserTypeSurface | null | undefined,
+  type: InspectedTypeSurface | null | undefined,
 ) {
   if (!type) return;
   if (!state.accessibilityFilter.has(type.accessibilityId)) {
@@ -1735,7 +1781,7 @@ function typeMatchesFilterText(item: AppTypeSurface, needle: string) {
 // Owning-library key for a type: the assembly file name without a .dll suffix,
 // falling back to the package's primary assembly. Used to scope the type list to
 // one or more libraries within a multi-assembly package.
-function libraryKey(item: BrowserTypeSurface | null | undefined) {
+function libraryKey(item: InspectedTypeSurface | null | undefined) {
   const asm = (item && item.assembly) || (state.package && state.package.assembly) || "";
   return asm.replace(/\.dll$/i, "");
 }
@@ -2071,7 +2117,7 @@ function activatePackage(
   return changed;
 }
 
-function isDefaultAccessibility(type: BrowserTypeSurface) {
+function isDefaultAccessibility(type: InspectedTypeSurface) {
   return Boolean(state.package?.accessibility?.some(
     descriptor => descriptor.isDefault && descriptor.id === type.accessibilityId));
 }
@@ -2174,7 +2220,7 @@ function typeKinds() {
 
 
 function typeGroups() {
-  const groups = new Map<string, BrowserTypeSurface[]>();
+  const groups = new Map<string, InspectedTypeSurface[]>();
   for (const item of filteredTypes()) {
     let group = groups.get(item.namespace);
     if (!group) {
@@ -2772,11 +2818,13 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? document.activeElement
     : null;
   const scopeBarOwnsFocus = focusedElement
-    ?.closest("[data-scope-bar]") != null;
+    ?.closest("[data-scope-bar], [data-application-scope-strip]") != null;
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  packageQueryScopeBinding?.disconnect();
+  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -2875,6 +2923,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const metadataWorkingSurface =
+    activeScope === "type" && state.lens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2908,6 +2958,26 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          activeScope === "workspace" ? "workspace" : null,
+          true,
+          escapeHtml),
+        contextualActionsHtml: annotatedPageContext || sourcePageKind
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedPageContext
+                ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
+                : ""}
+              ${sourcePageKind
+                ? renderSourcePageActions({
+                    source: sourcePageSource,
+                    copyButtonId: sourcePageKind === "member"
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
+          : "",
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             ${renderInspectedSubjectIcon(pkg)}
@@ -2915,42 +2985,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${renderInspectedSubjectPath(subjectPath)}
             </div>
           </div>`,
-        titleNavigationHtml: `
-          <nav class="title-navigation" aria-label="Search and history">
-            <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
-            </div>
-            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
-              <span class="title-search-glyph" aria-hidden="true">⌕</span>
-              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
-              <span class="title-search-label title-search-label-compact">Search</span>
-            </button>
-          </nav>`,
+        subjectInspectorHtml: renderScopeBar(),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
       })}
-
-      <header class="subject-zone" aria-label="Subjects and inspectors">
-        <div class="subject-inspector-region">${renderScopeBar()}</div>
-        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
-          ${annotatedPageContext || sourcePageKind
-            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
-                ${annotatedPageContext
-                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
-                  : ""}
-                ${sourcePageKind
-                  ? renderSourcePageActions({
-                      source: sourcePageSource,
-                      copyButtonId: sourcePageKind === "member"
-                        ? "copy-source"
-                        : "copy-type-source",
-                      escapeHtml,
-                    })
-                  : ""}
-              </div>`
-            : ""}
-          ${renderApplicationMenuButton()}
-        </div>
-      </header>
 
       <div class="notice-stack">
         ${visibleQueryNotice()
@@ -2972,11 +3011,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="${activeScope === "workspace" ? "application-scope-workspace" : "active-subject-tab"}">
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4424,17 +4463,6 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: AppTypeSurface) {
-  return typeHeading({
-    item,
-    packageContext: currentPackage(),
-    escapeHtml,
-    typeDisplayName,
-    kindIcon,
-    highlight,
-  });
-}
-
 function renderGraphMemberPendingHtml(
   item: AppTypeSurface,
   title: string,
@@ -4496,7 +4524,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
-      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+      return renderTypeMetadataHtml(item);
     case "api":
       return renderApiLens(item);
     default:
@@ -4841,7 +4869,7 @@ function renderAnnotatedSourceRejection(error: TypeError) {
 function renderMemberFacts(
   type: AppTypeSurface,
   member: AppMemberGroup,
-  overload: BrowserMemberSurface,
+  overload: InspectedMemberSurface,
   overloadIndex: number,
 ) {
   if (state.memberFactsLoading) {
@@ -5406,6 +5434,16 @@ function bindTypePanelEvents() {
 
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      if (applicationScope === "query") {
+        openPackageQueryRoute("", {
+          preserveState: true,
+          returnFocus: "application-query",
+        });
+      } else if (scope() !== "workspace") {
+        selectWorkspaceApplicationScope();
+      }
+    },
     onMemberSectionSelect: section => {
       applyMemberSection(section);
     },
@@ -5814,7 +5852,7 @@ function handleTypeKeys(event: KeyboardEvent): boolean {
 
 function selectTypeByCursor(
   cursor: number,
-  items: readonly BrowserTypeSurface[],
+  items: readonly InspectedTypeSurface[],
   focusList: boolean,
 ) {
   const selected = items[cursor];
@@ -7102,16 +7140,14 @@ function syncUrl() {
       workspaceLocation.replace(
         buildStateUrl().toString(),
         history.state);
-      lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
     workspaceLocation.sync(snapshot, history.state);
-    lastCanonicalWorkspaceHref = location.href;
   } catch {
-    // Keep the last canonical URL while the active Browser state is not projectable.
+    // Keep the current URL while the active Browser state is not projectable.
   }
 }
 
@@ -7801,8 +7837,22 @@ function focusLevelOneHeading(): boolean {
 }
 
 function restorePackageQueryReturnFocus() {
-  if (!state.packageQueryReturnFocusPending
-    || state.packageQueryReturnFocus !== "package-search") return;
+  if (!state.packageQueryReturnFocusPending) return;
+  if (state.packageQueryReturnFocus === "application-query") {
+    afterCurrentNavigationFrame(() => {
+      const queryScope = document.querySelector<HTMLElement>(
+        '[data-application-scope="query"]');
+      if (focusRenderedElement(queryScope)) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      } else if (focusLevelOneHeading()) {
+        state.packageQueryReturnFocus = null;
+        state.packageQueryReturnFocusPending = false;
+      }
+    });
+    return;
+  }
+  if (state.packageQueryReturnFocus !== "package-search") return;
   afterCurrentNavigationFrame(() => {
     if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
@@ -7869,19 +7919,28 @@ function applyPackageQueryHistory(historyState: unknown) {
   state.packageQueryReturnFocusPending = false;
 }
 
-function openPackageQueryRoute(seed = "") {
+function openPackageQueryRoute(
+  seed = "",
+  options: {
+    preserveState?: boolean;
+    returnFocus?: PackageQueryReturnFocus;
+  } = {},
+) {
   if (!state.engineReady || state.loading || state.error) return;
   dismissModalsForRoutedNavigation();
   navigationSequence.begin();
   packageQueryController.cancel();
   packageQueryHandoffNavigationSeq = null;
-  resetPackageQueryState();
+  if (!options.preserveState) {
+    resetPackageQueryState();
+  }
   resetPackageQueryAnnouncements();
-  state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  if (!options.preserveState || seed) {
+    state.packageQueryPrefix = validPackageQueryPrefix(seed);
+  }
   state.packageQueryNavigationError = "";
-  const returnFocus: PackageQueryReturnFocus = state.home
-    ? "home-search"
-    : "package-search";
+  const returnFocus: PackageQueryReturnFocus = options.returnFocus
+    ?? (state.home ? "home-search" : "package-search");
   const predecessorEntryId = ensureCurrentHistoryEntryId();
   if (predecessorEntryId) {
     state.packageQueryOpenedFromApp = true;
@@ -7904,6 +7963,46 @@ function openPackageQueryRoute(seed = "") {
       : null);
   render();
   focusPackageQueryInput();
+}
+
+function selectWorkspaceApplicationScope(fromPackageQuery = false) {
+  const pkg = state.package;
+  if (!pkg) return;
+  const navigationSeq = navigationSequence.begin();
+  if (fromPackageQuery) {
+    packageQueryController.cancel();
+    packageQueryHandoffNavigationSeq = null;
+    state.packageQueryOpen = false;
+    state.credits = false;
+    state.home = false;
+  }
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  const successor = resolvePackageQueryWorkspaceSuccessor(
+    () => buildStateUrl(),
+    () => {
+      const fallback = buildPackageRootStateUrl(location.href, {
+        package: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        lens: state.packageLens,
+      });
+      fallback.hash = "workspace";
+      return fallback;
+    });
+  if (!successor.projected) {
+    appendQueryNotice(
+      `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+        || "workspace URL encoding failed."}`);
+  }
+  if (fromPackageQuery) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  workspaceLocation.push(successor.url.toString());
+  render();
 }
 
 function closePackageQueryRoute() {
@@ -8018,6 +8117,11 @@ async function openPackageQueryRow(
 }
 
 const packageQueryActions: PackageQueryBindingActions = {
+  onApplicationScopeSelect: applicationScope => {
+    if (applicationScope === "workspace") {
+      selectWorkspaceApplicationScope(true);
+    }
+  },
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
@@ -8037,18 +8141,6 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
-function packageQueryWorkspaceHref(): string {
-  const residentPackage = state.package;
-  if (!residentPackage) return "/";
-  return lastCanonicalWorkspaceHref
-    ?? buildPackageRootStateUrl(location.href, {
-      package: residentPackage.id,
-      version: residentPackage.version,
-      framework: residentPackage.activeFramework,
-      lens: state.packageLens,
-    }).toString();
-}
-
 function renderPackageQueryPage() {
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
@@ -8062,10 +8154,11 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceHref: packageQueryWorkspaceHref(),
+    workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryScopeBinding =
+    bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
@@ -8794,7 +8887,7 @@ async function renderMermaidCallGraph() {
 }
 
 function callGraphNodeBinding(
-  callGraph: BrowserCallGraph,
+  callGraph: InspectedCallGraph,
   nodeId: string,
 ): CallGraphNodeBinding | null {
   const target =
@@ -8807,7 +8900,7 @@ type CallGraphTargetDestination = "default" | "member" | "source";
 type GraphNavigationFailureSurface = "call-graph" | "annotated";
 
 function callGraphTargetBinding(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   destination: CallGraphTargetDestination = "default",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding | null {
@@ -9014,7 +9107,7 @@ function callGraphTargetBinding(
 }
 
 function blockedCallGraphNodeBinding(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ): CallGraphNodeBinding {
@@ -9042,7 +9135,7 @@ function blockedCallGraphNodeBinding(
 
 function loadedGraphTargetPackage(
   packages: readonly AppPackage[],
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
 ): AppPackage | null {
   const matches = packages.filter(pkg =>
     pkg.assemblies.some(assembly =>
@@ -9068,7 +9161,7 @@ function platformCrumbTrail() {
 }
 
 function resolveLoadedGraphTarget(
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   candidate: {
     status: "unique";
     pkg: AppPackage;
@@ -9110,7 +9203,7 @@ function findGraphMemberSelection(
 
 async function loadGraphMemberSurface(
   pkg: AppPackage,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   type: AppTypeSurface | null = null,
 ) {
   return inspectGraphMemberSurface(
@@ -9125,8 +9218,8 @@ async function loadGraphMemberSurface(
 }
 
 function singleProjectedGraphMember(
-  type: BrowserTypeSurface,
-): BrowserMemberSurface {
+  type: InspectedTypeSurface,
+): InspectedMemberSurface {
   const member = type.api[0];
   if (!member || type.api.length !== 1) {
     throw new Error(
@@ -9138,8 +9231,8 @@ function singleProjectedGraphMember(
 function stageGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
-  surface: BrowserMemberSurface,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
+  surface: InspectedMemberSurface,
 ) {
   let member: AppMemberSurface | undefined = (type.api ?? []).find(candidate =>
     candidate.stableSelector === surface.stableSelector
@@ -9172,7 +9265,7 @@ function stageGraphMemberSelection(
 function commitGraphMemberSelection(
   pkg: AppPackage,
   type: AppTypeSurface,
-  target: BrowserCallGraphTarget | GraphMemberShareIdentity,
+  target: InspectedCallGraphTarget | GraphMemberShareIdentity,
   staged: ReturnType<typeof stageGraphMemberSelection>,
 ) {
   retainGraphMemberProjection(pkg.types, staged.member);
@@ -9199,7 +9292,7 @@ function commitGraphMemberSelection(
 
 async function navigateToGraphMember(
   loaded: ReturnType<typeof resolveLoadedGraphTarget>,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source" = "overview",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9232,7 +9325,7 @@ async function navigateToGraphMember(
 
 async function navigateToUnprojectedGraphMember(
   pkg: AppPackage,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9251,7 +9344,7 @@ async function navigateToUnprojectedGraphMember(
 async function navigateToGraphMemberProjection(
   pkg: AppPackage,
   existingType: AppTypeSurface | null,
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9338,7 +9431,7 @@ async function navigateToGraphMemberProjection(
 }
 
 function showGraphMemberNavigationError(
-  target: BrowserCallGraphTarget,
+  target: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface,
 ) {
@@ -9442,7 +9535,7 @@ async function restorePendingGraphMember() {
 }
 
 async function drillPlatformNode(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   navigationIsCurrent: () => boolean = () => true,
 ) {
   if (!node.assembly || !node.memberName || !node.selectorKey) {
@@ -9488,7 +9581,7 @@ async function drillPlatformNode(
   });
 }
 
-async function startPlatformDrill(node: BrowserCallGraphTarget) {
+async function startPlatformDrill(node: InspectedCallGraphTarget) {
   invalidateGraphMemberNavigation();
   const owner = captureViewOperation(++state.memberCallGraphSeq);
   const navigationIsCurrent = () =>
@@ -9513,7 +9606,7 @@ function popPlatformDrill() {
 // surface can resolve the target; in-place descent preserves the target's full assembly
 // identity when that surface has no unique member match.
 async function navigateOrDrillPlatform(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   section: "overview" | "call-graph" = "call-graph",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9704,7 +9797,7 @@ async function navigateOrDrillPlatform(
 }
 
 async function showPlatformTargetError(
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
@@ -9778,7 +9871,7 @@ function navigateToRuntimeMember(
 // group, and overload in the resident runtime pack.
 function findRuntimeMemberSelection(
   pack: AppPackage,
-  node: BrowserCallGraphTarget,
+  node: InspectedCallGraphTarget,
   candidate: ReturnType<
     typeof resolveRuntimeGraphTargetCandidate<AppTypeSurface>
   > = resolveRuntimeGraphTargetCandidate(pack, node),
@@ -9814,8 +9907,10 @@ function closeGraphSource() {
 //
 // That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
 // no gate at all: the pinned version was never checked against any advisory feed. The gate is
-// now the lockfile pin plus CI's `npm audit --audit-level=info`, which fails the build when
-// any dependency in the lockfile has a known advisory at any severity.
+// now the lockfile pin plus Dependabot vulnerability alerts, which watch that lockfile against
+// the same advisory database and open a security update when one lands. That is monitoring
+// rather than a merge gate: an advisory is reported after the fact instead of failing a build,
+// because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
     import("marked"),
@@ -10940,9 +11035,7 @@ async function bootstrap() {
       if (!state.credits) render();
     };
     reportEngineStatus("Loading .NET WebAssembly…");
-    await initializeRuntime();
-    configureHost(window.location.origin);
-    await runEntryPoint();
+    await startEngine(window.location.origin);
     reportEngineStatus("Reading package assemblies…");
     state.buildIdentity = inspectBuildIdentity();
     const tEngine = performance.now();
