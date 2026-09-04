@@ -5,10 +5,11 @@ import type {
   BrowserWorkspaceShareState,
 } from "../src/inspect-web-engine.d.ts";
 import {
-  HOME_DEMO_PENDING_SLOT_COUNT,
   PLATFORM_RUNTIME_PACK,
-  homeDemoRowHtml,
+  homeDemosEntryHtml,
   isProductHomeDemoId,
+  isProductHomeDemosPath,
+  productHomeDemoCatalog,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
 } from "../src/product-home-demos.ts";
@@ -210,7 +211,7 @@ function requiredItem<T>(values: readonly T[], index: number, label: string): T 
 }
 
 test("isProductHomeDemoId uses the installed engine catalog", () => {
-  setProductHomeDemoCatalog([
+  const catalog = [
     { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
     { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
     { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
@@ -219,7 +220,9 @@ test("isProductHomeDemoId uses the installed engine catalog", () => {
     { id: "di-tryadd-callgraph", title: "DI TryAdd hub", summary: "Keyed/scoped Try* fan-in" },
     { id: "http-addhttpclient-callgraph", title: "AddHttpClient", summary: "HttpClient factory registration" },
     { id: "stj-getdecimal-callgraph", title: "JsonElement.GetDecimal", summary: "STJ number parse path" },
-  ]);
+  ];
+  setProductHomeDemoCatalog(catalog);
+  assert.deepEqual(productHomeDemoCatalog(), catalog);
   assert.equal(isProductHomeDemoId("stj-serializer"), true);
   assert.equal(isProductHomeDemoId("extensions-callgraph"), true);
   assert.equal(isProductHomeDemoId("stj-serialize-callgraph"), true);
@@ -234,6 +237,15 @@ test("isProductHomeDemoId uses the installed engine catalog", () => {
   assert.equal(isProductHomeDemoId("callgraph"), false);
   assert.equal(isProductHomeDemoId(""), false);
   assert.equal(isProductHomeDemoId(undefined), false);
+});
+
+test("product demo discovery owns one canonical application route", () => {
+  assert.equal(isProductHomeDemosPath("/demos"), true);
+  assert.equal(isProductHomeDemosPath("/demos/"), true);
+  assert.equal(isProductHomeDemosPath("/DEMOS"), false);
+  assert.equal(isProductHomeDemosPath("/demos//"), false);
+  assert.equal(isProductHomeDemosPath("/demo"), false);
+  assert.equal(isProductHomeDemosPath("/"), false);
 });
 
 test("stj-serializer deep link selects JsonSerializer on STJ 10.0.0", () => {
@@ -355,23 +367,29 @@ test("platform residual rejects pinned runtime coordinates", () => {
   );
 });
 
-test("home demo row keeps pending slots before the engine catalog installs", () => {
+test("home renders one Demos entry for the installed catalog", () => {
   setProductHomeDemoCatalog([]);
-  const pending = homeDemoRowHtml(true, value => value);
-  assert.equal(
-    (pending.match(/home-demo-pending/g) || []).length,
-    HOME_DEMO_PENDING_SLOT_COUNT,
-  );
+  const pending = homeDemosEntryHtml(true, "", value => value);
+  assert.match(pending, /id="home-demos"/);
+  assert.match(pending, /Loading catalog/);
   assert.match(pending, /disabled/);
-  assert.equal(homeDemoRowHtml(false, value => value), "");
 
   setProductHomeDemoCatalog([
     { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
+    { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
   ]);
-  const ready = homeDemoRowHtml(false, value => value);
-  assert.match(ready, /data-home-demo="stj-serializer"/);
-  assert.doesNotMatch(ready, /home-demo-pending/);
+  const ready = homeDemosEntryHtml(false, "", value => value);
+  assert.match(ready, /id="home-demos"/);
+  assert.match(ready, /2 available/);
+  assert.doesNotMatch(ready, /data-home-demo/);
   assert.doesNotMatch(ready, /disabled/);
-  const stillLoading = homeDemoRowHtml(true, value => value);
+  const stillLoading = homeDemosEntryHtml(true, "", value => value);
   assert.match(stillLoading, /disabled/);
+
+  const failed = homeDemosEntryHtml(
+    false,
+    "Product demos are unavailable",
+    value => value);
+  assert.match(failed, /Catalog unavailable/);
+  assert.match(failed, /disabled/);
 });

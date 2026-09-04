@@ -34,6 +34,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   stripAttribute: string;
   panelId?: string;
   subjectPanelId?: string;
+  availableScopes?: readonly WorkspaceScope[];
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
@@ -331,6 +332,7 @@ export function renderScopeBar<TId extends string>(
     stripAttribute,
     panelId,
     subjectPanelId = "subject-panel",
+    availableScopes,
     showMemberScope = scope === "member",
     emptyStripLabel = "",
     escapeHtml,
@@ -345,7 +347,8 @@ export function renderScopeBar<TId extends string>(
       : scope === "type"
         ? "Type"
         : "Member";
-  const subjects = subjectDefinitions(showMemberScope);
+  const subjects = subjectDefinitions(showMemberScope)
+    .filter(([id]) => availableScopes?.includes(id) ?? true);
   const subjectIds = subjects.map(([id]) => id).join(",");
   const inspectorIds = strip.map(([id]) => id).join(",");
   const inspectorAnchor = activeIndex >= 0

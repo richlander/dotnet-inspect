@@ -160,7 +160,9 @@ import {
   workbenchShellHtml,
 } from "./shell-controls.ts";
 import {
-  homeDemoRowHtml,
+  homeDemosEntryHtml,
+  isProductHomeDemosPath,
+  productHomeDemoCatalog,
   productHomeDemoLocationHref,
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
@@ -398,6 +400,7 @@ let inspectExpandPlatformCallGraph: EngineModule["expandPlatformCallGraph"];
 let inspectGraphMemberSurface: EngineModule["queryGraphMemberSurface"];
 let inspectVocabulary: EngineModule["listVocabulary"];
 let inspectListHomeDemos: EngineModule["listHomeDemos"];
+let productHomeDemoCatalogError = "";
 let inspectListPackageQueryFacets: EngineModule["listPackageQueryFacets"];
 let inspectResolveHomeDemo: EngineModule["resolveHomeDemo"];
 let inspectRunPackageQuery: EngineModule["runPackageQuery"];
@@ -1425,14 +1428,20 @@ const initialLocation = initialWorkspace.visible;
 // its workspace directly.
 state.credits = isCreditsPath(location.pathname);
 state.packageQueryOpen = isPackageQueryPath(location.pathname);
+const productHomeDemosOpen = isProductHomeDemosPath(location.pathname);
 if (state.packageQueryOpen) {
   applyPackageQueryHistory(history.state);
 }
 state.home = state.credits
   || (!state.packageQueryOpen
+    && !productHomeDemosOpen
     && !initialLocation.package
     && !initialWorkspace.hasWorkspaceState
     && !initialLocation.routeFailure);
+if (productHomeDemosOpen) {
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+}
 state.queryNotice = "";
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
@@ -2804,7 +2813,14 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   packageQueryLiveAnnouncer.reset();
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
   // view resets it so the next interstitial picks a fresh random bot (see interstitialBotSrc).
-  const showingInterstitial = state.loading || state.error || (!state.home && !state.package);
+  const workspaceCatalogVisible =
+    state.workspaceSubjectOpen
+    && isProductHomeDemosPath(location.pathname)
+    && state.engineReady;
+  const showingInterstitial =
+    state.loading
+    || state.error
+    || (!state.home && !state.package && !workspaceCatalogVisible);
   if (!showingInterstitial) loadingBotSrc = null;
   if (state.loading || state.error) {
     renderLoading();
@@ -2816,6 +2832,34 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     return;
   }
   if (!state.package) {
+    if (workspaceCatalogVisible) {
+      renderWorkspaceCatalogView();
+      if (state.settings) {
+        document.querySelector<HTMLElement>("#settings-title")
+          ?.focus({ preventScroll: true });
+      } else if (state.keyboardHelp) {
+        document.querySelector<HTMLElement>("#keyboard-help-title")
+          ?.focus({ preventScroll: true });
+      } else if (applicationMenuHadFocus) {
+        focusApplicationMenuButton(document);
+      }
+      if (scopeBarOwnsFocus) {
+        let restored = false;
+        if (scopeBarFocus) {
+          scopeBarBinding?.revealFocusTarget(scopeBarFocus);
+          restored = restoreScopeBarFocus(document, scopeBarFocus);
+        }
+        if (!restored) {
+          document.querySelector<HTMLElement>(".brand")
+            ?.focus({ preventScroll: true });
+        }
+        app.removeAttribute("tabindex");
+      }
+      restorePackageQueryReturnFocus();
+      restorePackageQueryWorkspaceFocus();
+      recordNav();
+      return;
+    }
     renderLoading();
     return;
   }
@@ -3021,7 +3065,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
-  if (options.synchronizeUrl !== false) syncUrl();
+  if (options.synchronizeUrl !== false
+      && !(scope() === "workspace"
+        && isProductHomeDemosPath(location.pathname))) {
+    syncUrl();
+  }
   maybeAutoLoadVisibleSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
@@ -3034,6 +3082,58 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && currentCallGraph()?.mermaid) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
   }
+}
+
+function renderWorkspaceCatalogView() {
+  document.title = "Demos — dotnet-inspect";
+  const subjectPath: readonly SubjectPathSegment[] = [{
+    kind: "workspace",
+    label: "Workspace",
+    copyable: false,
+  }];
+  app.innerHTML = `
+    <div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
+      ${workbenchShellHtml({
+        inspectedTargetHtml: `
+          <div class="inspected-target" aria-label="Inspected target">
+            <span class="subject-icon" aria-hidden="true">W</span>
+            <div class="subject-path" aria-label="Workspace" title="Workspace">
+              ${renderInspectedSubjectPath(subjectPath)}
+            </div>
+          </div>`,
+        subjectInspectorHtml: renderScopeBar(["workspace"]),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
+      })}
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+        ${renderWorkspaceNavPane()}
+        <section class="detail-pane">
+          <article id="inspector-panel" class="detail-scroll">
+            ${renderWorkspaceView()}
+          </article>
+        </section>
+      </main>
+      ${statusBarHtml({
+        buildIdentity: state.buildIdentity,
+        diagnostics: state.diag,
+        packageCache: state.packageCacheStats,
+        expanded: state.statusBarExpanded,
+      }, escapeHtml)}
+      ${state.spotlightOpen ? spotlight.modalHtml() : ""}
+    </div>
+    ${renderApplicationMenu(false)}
+    ${state.settings ? renderSettingsViewHtml() : ""}
+    ${state.keyboardHelp
+      ? renderKeyboardHelpDialog(keyboardHelpBindings)
+      : ""}`;
+  bindStatusBarEvents();
+  bindScopeBarEvents();
+  bindWorkspaceSubjectEvents();
+  bindSettingsPanelEvents();
+  workbenchShellBinding =
+    bindWorkbenchShell(document, workbenchShellActions);
+  if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
 
 function maybeAutoLoadVisibleSource() {
@@ -3122,7 +3222,7 @@ function inspectedSubjectPath(
   if (scope() === "workspace") {
     return [{
       kind: "workspace",
-      label: "Default Workspace",
+      label: "Workspace",
       copyable: false,
     }];
   }
@@ -3151,6 +3251,13 @@ function inspectedSubjectPath(
 }
 
 function currentInspectedSubjectPath(): readonly SubjectPathSegment[] {
+  if (scope() === "workspace") {
+    return [{
+      kind: "workspace",
+      label: "Workspace",
+      copyable: false,
+    }];
+  }
   return state.package
     ? inspectedSubjectPath(state.package, selectedType())
     : [];
@@ -3293,7 +3400,9 @@ function scopeBarInspectorDefinitions<TId extends string>(
   });
 }
 
-function renderScopeBar() {
+function renderScopeBar(
+  availableScopes?: readonly WorkspaceScope[],
+) {
   const sc = scope();
   const selected = selectedType();
   const showMemberScope =
@@ -3305,6 +3414,7 @@ function renderScopeBar() {
       activeStripId: null,
       stripAttribute: "data-workspace-lens",
       panelId: "inspector-panel",
+      ...(availableScopes ? { availableScopes } : {}),
       showMemberScope,
       escapeHtml,
     });
@@ -3399,10 +3509,12 @@ function renderPackageView() {
 }
 
 function renderWorkspaceView() {
-  ensureWorkspaceOccurrenceView();
+  if (state.packages.length > 0) ensureWorkspaceOccurrenceView();
   return renderWorkspaceViewPure({
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
+    demos: productHomeDemoCatalog(),
+    demoError: productHomeDemoCatalogError,
     loading: state.workspaceOccurrenceLoading,
     error: state.workspaceOccurrenceError,
     escapeHtml,
@@ -5694,6 +5806,7 @@ function bindWorkspaceSubjectEvents() {
       observeAction(
         () => activateWorkspacePackageOccurrence(action),
         "Opening the Workspace package"),
+    onDemo: runHomeDemo,
     onRetry: retryWorkspaceOccurrenceView,
   });
 }
@@ -7607,9 +7720,12 @@ function renderHomeView() {
           <p class="home-availability">Also available as a <a href="https://www.nuget.org/packages/dotnet-inspect" target="_blank" rel="noreferrer">CLI tool</a> and <a href="https://github.com/richlander/dotnet-skills" target="_blank" rel="noreferrer">agent skill</a>.</p>
           <p class="home-attribution">Built with .NET 11, WebAssembly, TypeScript 7, NuGet, and System.Reflection.Metadata. <a id="home-credits" href="/credits">Credits</a></p>
           <div class="home-demos">
-            <span class="home-demos-label">Or jump straight into a demo</span>
+            <span class="home-demos-label">Explore product demos</span>
             <div class="home-demo-row" aria-busy="${enginePending}">
-              ${homeDemoRowHtml(enginePending, escapeHtml)}
+              ${homeDemosEntryHtml(
+                enginePending,
+                productHomeDemoCatalogError,
+                escapeHtml)}
             </div>
           </div>
         </div>
@@ -7640,8 +7756,8 @@ function homeArtSvg() {
 }
 
 const homeShellActions: HomeShellBindingActions = {
-  onDemo: runHomeDemo,
   onDismissNotice: dismissQueryNotice,
+  onOpenDemos: openProductDemos,
   onOpenCredits: openCredits,
   onToggleTheme: toggleTheme,
 };
@@ -7671,11 +7787,32 @@ function bindHomeEvents() {
   });
 }
 
-// Home buttons use product demo ids from engine `listHomeDemos` / `resolveHomeDemo`
-// (`ProductInspectionDemos` / CLI `demo <id>`). STJ + platform restore via share
-// deep links built from the resolved projection; member-bound Call Graph demos
-// execute through one generated engine operation over the product-resolved
-// workspace and view.
+function openProductDemos(): void {
+  navigationSequence.begin();
+  state.loading = false;
+  clearNavigationError();
+  if (!clearWorkspaceRouteFailure()) {
+    render();
+    return;
+  }
+  state.home = false;
+  state.credits = false;
+  state.packageQueryOpen = false;
+  packageQueryController.cancel();
+  spotlight.reset();
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  workspaceLocation.push("/demos");
+  render();
+  afterCurrentNavigationFrame(() =>
+    focusWorkspace(document));
+}
+
+// Workspace demo actions use product ids from engine `listHomeDemos` /
+// `resolveHomeDemo` (`ProductInspectionDemos` / CLI `demo <id>`). Type views
+// restore via share deep links built from the resolved projection;
+// member-bound Call Graph demos execute through one generated engine operation
+// over the product-resolved workspace and view.
 function openDefaultWorkspace(): void {
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
@@ -10937,8 +11074,11 @@ async function bootstrap() {
     }
     try {
       setProductHomeDemoCatalog(inspectListHomeDemos().demos ?? []);
-    } catch {
+      productHomeDemoCatalogError = "";
+    } catch (error) {
       setProductHomeDemoCatalog([]);
+      productHomeDemoCatalogError =
+        `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
     try {
       state.packageQueryFacets =
@@ -10962,6 +11102,16 @@ async function bootstrap() {
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
       focusPackageQueryInput();
+      return;
+    }
+    if (isProductHomeDemosPath(location.pathname)) {
+      state.loading = false;
+      state.workspaceSubjectOpen = true;
+      state.atPackageRoot = true;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      afterCurrentNavigationFrame(() =>
+        focusWorkspace(document));
       return;
     }
     await restoreInitialWorkspace();
@@ -11031,6 +11181,10 @@ function refreshPackageStats() {
 function navigateInAppUrl(url: URL) {
   if (isCreditsPath(url.pathname)) {
     openCredits();
+    return;
+  }
+  if (isProductHomeDemosPath(url.pathname)) {
+    openProductDemos();
     return;
   }
   if (isPackageQueryPath(url.pathname)) {
@@ -11568,6 +11722,26 @@ window.addEventListener("popstate", () => {
     render();
     return;
   }
+  if (isProductHomeDemosPath(location.pathname)) {
+    clearNavigationError();
+    if (!clearWorkspaceRouteFailure()) {
+      render();
+      return;
+    }
+    state.queryNotice = "";
+    state.queryNoticeRetryAction = null;
+    state.credits = false;
+    state.home = false;
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.loading = !state.engineReady;
+    render();
+    if (state.engineReady) {
+      afterCurrentNavigationFrame(() =>
+        focusWorkspace(document));
+    }
+    return;
+  }
   if (leftPackageQueryForWorkspaceSuccessor) {
     packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
@@ -11578,9 +11752,13 @@ window.addEventListener("popstate", () => {
     state.queryNoticeRetryAction = null;
     state.credits = false;
     state.home =
-      !pendingLocation.package
+      !isProductHomeDemosPath(location.pathname)
+      && !pendingLocation.package
       && !pendingWorkspace.hasWorkspaceState
       && !pendingLocation.routeFailure;
+    state.workspaceSubjectOpen =
+      isProductHomeDemosPath(location.pathname);
+    state.atPackageRoot = state.workspaceSubjectOpen;
     state.loading = !state.home;
     if (state.home) clearNavigationError();
     render();

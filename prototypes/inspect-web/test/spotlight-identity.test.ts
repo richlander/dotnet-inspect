@@ -887,7 +887,7 @@ test("typed status bar owns its rendered toggle binding", () => {
     /function bindHomeEvents\(\) \{\s*bindStatusBarEvents\(\);/);
   assert.equal(
     appSource.match(/\bbindStatusBarEvents\(\)/g)?.length,
-    3);
+    4);
 });
 
 test("typed package controls own framework and version selection bindings", () => {
@@ -1173,7 +1173,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const homeBinding =
-    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Home buttons use product demo ids)/)?.[0]
+    appSource.match(/function bindHomeEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction openProductDemos)/)?.[0]
     ?? "";
   const loadingBinding =
     appSource.match(/function renderLoading\(\) \{[\s\S]*?\n}(?=\n\nasync function loadSelectedMemberDocumentation)/)?.[0]
@@ -1183,7 +1183,7 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /export function bindWorkbenchShell\([\s\S]*\[data-subject-copy\][\s\S]*#application-menu-button[\s\S]*#application-menu[\s\S]*\[data-application-action\][\s\S]*#dismiss-notice[\s\S]*#retry-notice[\s\S]*#dismiss-package-notice[\s\S]*#nav-back[\s\S]*#nav-forward[\s\S]*#open-search[\s\S]*export function focusWorkbenchSearch\([\s\S]*#open-search/);
   assert.match(
     shellControlsSource,
-    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*\[data-home-demo\]/);
+    /export function bindHomeShell\([\s\S]*#home-theme[\s\S]*#dismiss-notice[\s\S]*#home-credits[\s\S]*#home-demos/);
   assert.match(
     shellControlsSource,
     /export function bindLoadErrorShell\([\s\S]*#retry-load[\s\S]*#error-package-query[\s\S]*#error-package-input[\s\S]*#toggle-error-detail[\s\S]*\.load-error-detail/);
@@ -1213,17 +1213,17 @@ test("typed shell controls own workbench, home, and load-error bindings", () => 
     /onNavigateBack: navBack,[\s\S]*onNavigateForward: navForward,[\s\S]*onRetryNotice: \(\) => \{[\s\S]*state\.queryNoticeRetryAction;[\s\S]*if \(retryAction\) observeAction\(retryAction, "Retrying the inspection"\);[\s\S]*onSearch: \(\) => openSpotlight\(\)/);
   assert.match(
     homeActions,
-    /onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
+    /onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,\s*onOpenCredits: openCredits,\s*onToggleTheme: toggleTheme/);
   assert.match(
     loadErrorActions,
     /onOpenPackage: openPackageQuery,\s*onRetry: \(\) => \{\s*if \(state\.retryAction === retryUnavailable\) return;\s*observeAction\(\s*state\.retryAction \?\? bootstrap,\s*"Retrying the inspection"\);\s*\}/);
   assert.doesNotMatch(
     appSource,
-    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\[data-home-demo\]|\.load-error-detail)"\)/);
+    /\bquerySelector(?:All)?(?:<[^>]+>)?\("(?:#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help|home-theme|home-demos|home-credits|retry-load|error-package-query|error-package-input|toggle-error-detail)|\[data-subject-copy\]|\.load-error-detail)"\)/);
   assert.doesNotMatch(
     workspaceBinding,
     /#(?:share|dismiss-notice|retry-notice|dismiss-package-notice|nav-back|nav-forward|open-search|help)/);
-  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-credits)|\[data-home-demo\]/);
+  assert.doesNotMatch(homeBinding, /#(?:home-theme|dismiss-notice|home-demos|home-credits)/);
   assert.doesNotMatch(
     loadingBinding,
     /#(?:retry-load|error-package-query|error-package-input|toggle-error-detail)|"\.load-error-detail"/);
@@ -1597,8 +1597,10 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(parsedAppSource.errors, []);
   const rootEventBinder = functionDeclaration("bindEvents");
   const scopeEventBinder = functionDeclaration("bindScopeBarEvents");
-  const rootScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBarEvents");
-  assert.equal(rootScopeCall.arguments.length, 0);
+  const rootScopeCalls = callExpressionsNamed(appSyntax, "bindScopeBarEvents");
+  assert.equal(rootScopeCalls.length, 2);
+  for (const rootScopeCall of rootScopeCalls)
+    assert.equal(rootScopeCall.arguments.length, 0);
   const innerScopeCall = onlyCallExpressionNamed(appSyntax, "bindScopeBar");
   assert.equal(innerScopeCall.arguments.length, 3);
   assertIdentifierArgument(innerScopeCall, 0, "document", "bindScopeBar");
@@ -1744,13 +1746,13 @@ test("typed settings panel owns its rendered control bindings", () => {
         && node.name === "bindSettingsPanel").length,
     3);
   const eventBinderCalls = callExpressionsNamed(appSyntax, "bindSettingsPanelEvents");
-  assert.equal(eventBinderCalls.length, 2);
+  assert.equal(eventBinderCalls.length, 3);
   assert.equal(
     syntaxNodes(
       appSyntax,
       node => node.type === "Identifier"
         && node.name === "bindSettingsPanelEvents").length,
-    3);
+    4);
   const settingsBinders: readonly (readonly [
     DeclaredFunction,
     string,
@@ -2146,7 +2148,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false\) syncUrl\(\)/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false[\s\S]*\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("leaving package search clears its pending loading state", () => {
@@ -2600,6 +2602,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(
     history,
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*canonicalSnapshot,\s*null\)/);
+  assert.match(
+    history,
+    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\);\s*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
   assert.doesNotMatch(
     appSource,
     /preserveUrlThroughNextRender/);
@@ -2635,6 +2640,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
     sync,
     /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
   assert.match(
+    appSource,
+    /options\.synchronizeUrl !== false[\s\S]*scope\(\) === "workspace"[\s\S]*isProductHomeDemosPath\(location\.pathname\)[\s\S]*syncUrl\(\)/);
+  assert.match(
     stateUrl,
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
   assert.match(
@@ -2651,7 +2659,7 @@ test("initial workspace packet resolution waits for the engine phase", () => {
     /const initialWorkspace = workspaceLocation\.preflightCurrent\(\);\s*const initialLocation = initialWorkspace\.visible/);
   assert.match(
     appSource,
-    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
+    /state\.packageQueryOpen = isPackageQueryPath\(location\.pathname\);[\s\S]*const productHomeDemosOpen = isProductHomeDemosPath\(location\.pathname\);[\s\S]*state\.home = state\.credits\s*\|\| \(!state\.packageQueryOpen\s*&& !productHomeDemosOpen\s*&& !initialLocation\.package\s*&& !initialWorkspace\.hasWorkspaceState\s*&& !initialLocation\.routeFailure\)/);
   const restore = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
     ?? "";
@@ -2666,6 +2674,9 @@ test("initial workspace packet resolution waits for the engine phase", () => {
   assert.notEqual(initializeAt, -1);
   assert.notEqual(restoreAt, -1);
   assert.ok(initializeAt < restoreAt);
+  assert.match(
+    bootstrap,
+    /if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;/);
 });
 
 test("malformed package routes use the contained restore failure path", () => {
@@ -2710,7 +2721,7 @@ test("malformed package routes use the contained restore failure path", () => {
     /const workbenchShellActions: WorkbenchShellBindingActions = \{\s*onApplicationAction: dispatchApplicationAction,\s*onCopySubjectSegment: index => \{[\s\S]*onDismissNotice: dismissQueryNotice,/);
   assert.match(
     appSource,
-    /const homeShellActions: HomeShellBindingActions = \{\s*onDemo: runHomeDemo,\s*onDismissNotice: dismissQueryNotice,/);
+    /const homeShellActions: HomeShellBindingActions = \{\s*onDismissNotice: dismissQueryNotice,\s*onOpenDemos: openProductDemos,/);
   assert.equal(
     appSource.match(
       /<span class="query-notice-text">\${escapeHtml\(visibleQueryNotice\(\)\)}<\/span>/g,

@@ -8,6 +8,7 @@ import {
   workspaceOccurrenceActionsAreVisible,
 } from "../src/workspace-subject.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
+import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
 
 function escapeHtml(value: unknown) {
@@ -18,16 +19,17 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
-test("Workspace navigation always displays the Default Workspace", () => {
+test("Workspace navigation always displays the singular Workspace", () => {
   const html = renderWorkspaceSubject({
     packageCount: 2,
     selected: true,
     escapeHtml,
   });
 
-  assert.match(html, /WORKSPACES[\s\S]*1/);
+  assert.match(html, /WORKSPACE/);
   assert.match(html, /workspace-card active/);
-  assert.match(html, /Default Workspace[\s\S]*2 loaded coordinates/);
+  assert.match(html, /Workspace[\s\S]*2 loaded coordinates/);
+  assert.doesNotMatch(html, /Default Workspace|WORKSPACES/);
 });
 
 test("Workspace occurrence actions are visible only in the rendered Workspace view", () => {
@@ -85,12 +87,20 @@ test("Workspace details render product occurrences as opaque actions", () => {
       framework: "net10.0",
     }],
     packages,
+    demos: [{
+      id: "stj-serializer",
+      title: "System.Text.Json",
+      summary: "Browse a real package API",
+    }],
+    demoError: "",
     loading: false,
     error: "",
     escapeHtml,
   });
 
-  assert.match(html, /Workspace[\s\S]*Default Workspace/);
+  assert.match(html, /Demos[\s\S]*System\.Text\.Json[\s\S]*Browse a real package API/);
+  assert.match(html, /data-workspace-demo="stj-serializer"/);
+  assert.match(html, /aria-label="Open demo System\.Text\.Json"/);
   assert.match(
     html,
     /data-workspace-activate="opaque-action"[\s\S]*system\.text\.json/);
@@ -99,9 +109,15 @@ test("Workspace details render product occurrences as opaque actions", () => {
 });
 
 test("Workspace details distinguish loading, empty, and failure", () => {
-  const render = (loading: boolean, error = "") => renderWorkspaceView({
+  const render = (
+    loading: boolean,
+    error = "",
+    demoError = "",
+  ) => renderWorkspaceView({
     occurrences: [],
     packages: [],
+    demos: [],
+    demoError,
     loading,
     error,
     escapeHtml,
@@ -110,9 +126,17 @@ test("Workspace details distinguish loading, empty, and failure", () => {
   assert.match(render(true), /Reading Workspace package occurrences/);
   assert.match(render(false), /No packages are loaded/);
   assert.match(render(false, "Acquisition failed"), /Acquisition failed/);
+  assert.match(
+    render(false, "", "Product demos are unavailable"),
+    /Product demos are unavailable/);
 });
 
 test("Workspace selection and activation dispatch separate actions", () => {
+  setProductHomeDemoCatalog([{
+    id: "stj-serializer",
+    title: "System.Text.Json",
+    summary: "Browse a real package API",
+  }]);
   const listeners = new Map<string, EventListener>();
   const select = {
     addEventListener: (name: string, listener: EventListener) =>
@@ -123,6 +147,16 @@ test("Workspace selection and activation dispatch separate actions", () => {
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`activate:${name}`, listener),
   };
+  const demo = {
+    dataset: { workspaceDemo: "stj-serializer" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`demo:${name}`, listener),
+  };
+  const invalidDemo = {
+    dataset: { workspaceDemo: "not-a-demo" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`invalid-demo:${name}`, listener),
+  };
   const retry = {
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`retry:${name}`, listener),
@@ -130,7 +164,10 @@ test("Workspace selection and activation dispatch separate actions", () => {
   const root = {
     querySelector: (selector: string) =>
       selector === "[data-workspace-default]" ? select : retry,
-    querySelectorAll: () => [activate],
+    querySelectorAll: (selector: string) =>
+      selector === "[data-workspace-activate]"
+        ? [activate]
+        : [demo, invalidDemo],
   };
   const calls: string[] = [];
 
@@ -143,6 +180,9 @@ test("Workspace selection and activation dispatch separate actions", () => {
       onActivate: action => {
         calls.push(`activate:${action}`);
       },
+      onDemo: id => {
+        calls.push(`demo:${id}`);
+      },
       onRetry: () => {
         calls.push("retry");
       },
@@ -150,10 +190,13 @@ test("Workspace selection and activation dispatch separate actions", () => {
 
   listeners.get("select:click")?.(fakeDom.event());
   listeners.get("activate:click")?.(fakeDom.event());
+  listeners.get("demo:click")?.(fakeDom.event());
+  listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
     "select",
     "activate:opaque-action",
+    "demo:stj-serializer",
     "retry",
   ]);
 });
