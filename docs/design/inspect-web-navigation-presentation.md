@@ -313,17 +313,17 @@ sequence plus subject-policy version. The inspector strip's key is the active
 subject identity, ordered inspector identity sequence, and inspector-policy
 version. Width and focus movement do not replace either key.
 
-The subject tablist uses one tab stop and manual activation. Left and Right
-Arrow move focus through the complete installed subject order, sliding the
-window by the smallest amount needed when focus reaches a hidden item. Home and
-End move to the first and last subject. Focus movement does not select a
-subject until Enter or Space activates it. Every subject references the shared
-subject panel, which is labelled by the active subject. The inspector tablist
-retains the equivalent lens semantics below. Allocation-button activation
-changes only allocation and focus remains on the button. Each strip's leading
-and trailing highlights disclose hidden items but add no tab stop. Any sliding
-animation preserves the focused element and is omitted when reduced motion is
-requested.
+The subject tablist uses one tab stop and automatic keyboard activation. Left
+and Right Arrow move focus through the complete installed subject order and
+activate the destination, sliding the window by the smallest amount needed when
+focus reaches a hidden item. Home and End move to and activate the first and
+last subject. Enter or Space also activates the focused subject. Every subject
+references the shared subject panel, which is labelled by the active subject.
+The inspector tablist retains the manual lens semantics below.
+Allocation-button activation changes only allocation and focus remains on the
+button. Each strip's leading and trailing highlights disclose hidden items but
+add no tab stop. Any sliding animation preserves the focused element and is
+omitted when reduced motion is requested.
 
 When a window, mode, or allocation change excludes the sole roving-tab-stop
 holder while that tablist is unfocused, the adopter moves `tabindex="0"` without
@@ -798,6 +798,7 @@ add and pass these named Inspect Web tests:
 - `scope-bar.test.ts` and `workspace-titlebar.spec.ts`:
   `slideable subject strip composes reusable strips without losing navigation`
   cover the separate subject and inspector whole-strip mode policies,
+  automatic subject activation with destination focus restoration,
   contiguous windows and edge indicators, inspector-first width allocation,
   stable Pareto-ladder construction, duplicate and dominated result removal,
   exact selected-window slack return, adjacent non-no-op allocation controls,
@@ -896,12 +897,13 @@ are proved by the gates in
    result. Confirm that focus remains on the allocation button. At each bound,
    confirm that the corresponding mounted button is `aria-disabled="true"` and
    activation has no effect.
-7. Rove focus to an inactive subject and inspector and replace the shell
-   asynchronously. Confirm that the focused typed tab remains the sole tab
-   stop in its tablist, each retained window still contains its focus, and
-   allocation bias survives while the subject and ordered inspector identity
-   sequence remain installed. Change that sequence without changing the
-   subject and confirm that allocation resets to inspector-first.
+7. Use Arrow navigation to focus and activate another subject, then rove focus
+   to an inactive inspector and replace the shell asynchronously. Confirm that
+   each focused typed tab remains the sole tab stop in its tablist, each
+   retained window still contains its focus, and allocation bias survives while
+   the subject and ordered inspector identity sequence remain installed.
+   Change that sequence without changing the subject and confirm that
+   allocation resets to inspector-first.
    Then move focus outside each tablist and change its window so the previous
    tab-stop holder is hidden. Confirm that focus and selection do not move and
    that the active visible tab, or otherwise the nearest visible item, becomes
