@@ -305,6 +305,59 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
+    public async Task InFlightProgressFailure_SignalsTokenAfterSettlementStarts()
+    {
+        var settlementWaiting = new ManualResetEventSlim();
+        var bodyResult = new TaskCompletionSource<BodyResult>();
+        CancellationToken testCancellation =
+            TestContext.Current.CancellationToken;
+        var bridge = new BrowserManagedOperationBridge(
+            new BrowserManagedOperationBridgeTestHooks
+            {
+                SettlementWaitingForCallouts = settlementWaiting.Set,
+            });
+        CancellationToken operationToken = default;
+        CancellationTokenRegistration tokenRegistration = default;
+        IBrowserManagedProgress<int>? reporter = null;
+        int tokenCallbacks = 0;
+
+        Task<Result> operation = Run(
+            bridge,
+            "settling-progress-failure",
+            (token, progress) =>
+            {
+                operationToken = token;
+                tokenRegistration = token.Register(() => tokenCallbacks++);
+                reporter = progress;
+                return bodyResult.Task;
+            },
+            _ =>
+            {
+                bodyResult.SetResult(Success(1));
+                Assert.True(
+                    settlementWaiting.Wait(
+                        TimeSpan.FromSeconds(5),
+                        testCancellation));
+                throw new CallbackFailure("settling-progress");
+            });
+        Assert.NotNull(reporter);
+
+        reporter.Report(1);
+
+        BrowserManagedOperationBoundaryException failure =
+            await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
+                () => operation);
+        tokenRegistration.Dispose();
+        Assert.Equal("progress-callback", failure.FailureKind);
+        Assert.Equal(
+            "settling-progress",
+            Assert.IsType<CallbackFailure>(failure.InnerException).Message);
+        Assert.True(operationToken.IsCancellationRequested);
+        Assert.Equal(1, tokenCallbacks);
+        Assert.Equal(0, bridge.ActiveCount);
+    }
+
+    [Fact]
     public void SettlementDrain_DoesNotContinueOnCalloutStack()
     {
         RunOnSingleThread(

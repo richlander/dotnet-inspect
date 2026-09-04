@@ -543,8 +543,8 @@ internal sealed class BrowserManagedOperationBridge
             lock (_sync)
             {
                 _progressCallbackFailure ??= exception;
-                if (_state is EntryState.Active
-                    && _cancellationReason is null)
+                if (_cancellationReason is null
+                    && _state is EntryState.Active or EntryState.Settling)
                 {
                     _cancellationReason =
                         BrowserManagedOperationCancelReason.FeatureObserverFailed;
