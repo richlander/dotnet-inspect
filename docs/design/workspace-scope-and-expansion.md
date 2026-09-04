@@ -171,8 +171,8 @@ The current Browser package list also weakens the contract in important ways:
 - a demo can arrive through either canonical restoration or a special engine
   operation;
 - dependency references do not have one explicit closed/open boundary; and
-- the visible Workspace still renders as `WORKSPACES 1` and
-  `Default Workspace`.
+- the visible Workspace previously rendered as `WORKSPACES 1` and
+  `Default Workspace`, implying a multi-Workspace manager.
 
 The missing product concept is not a Workspace manager. It is one authoritative
 logical scope over physical acquisition and binding resources that already have

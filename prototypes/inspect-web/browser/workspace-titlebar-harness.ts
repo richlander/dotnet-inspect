@@ -193,8 +193,10 @@ function workspaceDetailHtml(): string {
         framework: item.activeFramework,
       })),
     packages: coordinates,
-    loading: false,
-    error: "",
+      demos: [],
+      demoError: "",
+      loading: false,
+      error: "",
     escapeHtml,
   });
 }
@@ -731,7 +733,7 @@ function renderHarnessWorkspace() {
     throw new Error("The workspace packet harness is incomplete.");
   navigation.outerHTML = workspaceNavigationHtml();
   detail.innerHTML = workspaceDetailHtml();
-  const title = "Default Workspace";
+  const title = "Workspace";
   path.setAttribute("aria-label", title);
   path.title = title;
   pathSegment.textContent = title;
@@ -772,6 +774,7 @@ function bindHarnessWorkspace() {
       document.body.dataset.workspaceExecutionCount = String(count + 1);
       document.body.dataset.workspaceExecution = action;
     },
+    onDemo: () => {},
     onRetry: () => {},
   });
 }
