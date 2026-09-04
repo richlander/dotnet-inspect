@@ -44,6 +44,11 @@ determinism, and context status. The resulting artifact has a distinct digest
 and cannot produce an `Exact` receipt under the current contract; until then the
 causal control is unavailable.
 
+The focused [authored-source rebuild fidelity reporting
+contract](#authored-source-rebuild-fidelity) distinguishes current aggregate
+context reporting from the lane-specific evidence planned in
+[#5851](https://github.com/richlander/dotnet-inspect/issues/5851).
+
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
 membership: compile, read the compiler's missing-symbol diagnostics, add the
 named same-assembly roots, and repeat until the closure stops growing or hits a
@@ -785,14 +790,80 @@ unavailable while #4931 is absent. On closure root or iteration budget exits,
 while the decompiled body did not; it may still point at a harness closure
 budget limit rather than a semantic product-body bug.
 
-The same sidecar lane also produces a source-correspondence census for
-fixture-source coverage. The census projects source-probe rows into
-Finding-style evidence keyed by member stable selector when available, but it
-does not change the RTS status. Descriptor IDs remain the structural source
-reason (`source.correspondence.<reason>`), while a coarse category separates
-ignorable taste/options, not-yet-raised source sugar, structuring residue,
-semantic opcode deltas, invalid rows, and unclassified frontiers. Shared JSON
-uses source file names, not absolute local paths, in the finding projection.
+The same sidecar lane also produces a source-correspondence census. The fixture
+probe indexes checked-in source, while the live census uses each MethodDef's
+portable-PDB mapping to acquire the complete authored file from its recorded
+local path, caller-supplied Git clones, or SourceLink. PDB checksums authenticate
+the bytes, and the body slicer declines unsafe or ambiguous declaration
+boundaries. Acquisition remains typed as complete, absent, or failed beside the
+correspondence and RTS outcomes; a failed acquisition fails the census rather
+than becoming a success-shaped missing row.
+
+The PDB-acquired member enters a comparison-only source index. It does not enter
+the metadata-token map that authorizes authored-body controls for fault
+attribution, because a PDB mapping does not prove complete-source identity. The
+Release gates
+`Harness_SourceCorrespondenceCensusPopulatesPdbSource` and
+`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` respectively prove live
+population and that this index cannot refine an RTS verdict.
+`SourceCorrespondenceAcquisition_PreservesAbsentAndFailedOutcomes` preserves
+the typed member-source states,
+`SourceCorrespondencePdbAcquisition_DistinguishesAbsenceFromFailure` proves
+that a definitive PDB miss remains absent while an operational source failure
+fails acquisition, and
+`SourceAcquisitionFailure_FailsOnlyTheLiveCensusLane` proves that acquisition
+failure and RTS-invalid correspondence remain independent exit decisions.
+`SourceCorrespondencePdbAcquisition_OversizedResponseIsFailure` and
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` cover the
+download-limit and cache-permission boundaries, while
+`AcquirePdbAsync_InvalidSymbolPackageCandidateRecordsFailure` and
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` distinguish
+a rejected same-name PDB from a symbol package that genuinely contains no
+candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
+the existing authored-rebuild command on the same typed failure contract, while
+`AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult` keeps a
+failure-free PDB miss non-failing.
+`SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
+identity-less adjacent PDB from entering this lane, while
+`AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating` keeps
+the same failure inside the corpus-harvest boundary, and
+`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a
+typed result when embedded-PDB opening fails, and
+`SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` preserves
+failure when a present SourceLink map cannot be decoded into usable mappings.
+`SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure` preserves
+the same failure when the requested document's conformant key is rejected in a
+partially usable map, while
+`SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` keeps a resolved
+SourceLink URL's HTTP 404 as definitive document absence.
+`MetadataSourceFindingsTests.SourceDocumentComparison_ReportsResolutionStatusChanges`
+keeps a document's SourceLink resolution state in comparison evidence, while
+`AuthoredRebuildFidelityTests.SourceCorrespondenceAcquisition_UsesCanonicalDocumentPath`
+projects the canonical PDB document path rather than a provider URL whose query
+may contain provider-specific routing data.
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` separates
+valid sibling Portable PDB identities from malformed symbol-package candidates,
+and `AcquirePdbAsync_RejectedDownloadIsNotPublished` plus
+`AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
+`AcquirePdbAsync_InvalidCachedPdbRecordsFailure`, and
+`AcquirePdbAsync_UnretainedDownloadRecordsFailure` prevent cache state from
+erasing an integrity failure or blaming a successful remote provider for a
+local store failure.
+The compiler-backed
+`SourceCorrespondencePdbAcquisition_MapsCompiledMultiplicationAssignment`
+guards C# assignment-operator correlation against hand-written metadata-name
+drift.
+
+The census projects source-probe rows into Finding-style evidence keyed by
+member stable selector when available, but it does not change the RTS status.
+Descriptor IDs remain the structural source reason
+(`source.correspondence.<reason>`), while a coarse category separates ignorable
+taste/options, not-yet-raised source sugar, structuring residue, semantic opcode
+deltas, invalid rows, and unclassified frontiers. Shared JSON uses source file
+names, not absolute local paths, in the finding projection. Stored
+higher-is-better correspondence metrics count only rows with an authored body;
+bodyless declarations remain a separate context metric. The Release gate
+`SourceCorrespondenceReport_TracksBodylessRowsAsContext` enforces that split.
 
 The existing corpus sensor gates on `Exact`, `OpcodeDiff`, `OperandDiff`,
 `NotFull`, `FidelityUnavailable`, `RecompileFail`, and `ContextFail`.
@@ -829,6 +900,191 @@ Examples:
     layer : product artifact
     reason: requested type artifact did not include required generic constraint
 ```
+
+### Authored-source rebuild fidelity
+
+**Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
+**Tracker:** [#5851](https://github.com/richlander/dotnet-inspect/issues/5851),
+Slice 3 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
+The strengthened contract below is **planned and unverified**; its adoption
+gates are specified below, not claimed to exist.
+
+#### Existing lane and design basis
+
+`--authored-rebuild-fidelity` already compiles an acquired authored body in the
+final RTS artifact/reference context and retains an independent decompiler
+result. This slice extends that lane rather than introducing a new oracle.
+The present context assessment compares recorded options to RTS defaults even
+though the authored compilation applies some PDB-recorded options. Its reference
+comparison uses filenames; `Recorded` can coexist with missing compiler,
+generator, and project evidence. That is not a reconstruction of the original
+build context.
+
+The exact claim is: **for one shipped target, report independent authored and
+decompiled IL comparisons with the recorded-versus-effective context of each
+actual attempt; unknown context and known drift never rewrite a verdict.**
+
+The conventional baseline is the [Reproducible Builds
+definition](https://reproducible-builds.org/docs/definition/): reproducing an
+artifact requires the specified source, environment, and instructions, and a
+bit-for-bit comparison. This harness deliberately answers a narrower question:
+one selected body's normalized IL comparison under a retained artifact policy.
+It does not certify a reproducible package or assembly. The existing
+`ImplementationDiff` IL-body mechanism is the analogous local implementation:
+reuse its scoped comparison rather than inventing a second equivalence test.
+
+The adjacent owners remain unchanged: [source Finding
+producers](source-finding-producers.md) describe PDB evidence and its limits;
+[assembly round-trip testing](csharp-member-recompilation.md) owns compilation
+artifacts, closure, and receipts; [implementation diff](implementation-diff.md)
+owns IL comparison. This section consumes their results, not their internals.
+
+#### Three operands, two independent observations
+
+**C** is the pinned shipped assembly and selected MethodDef. **A** is the
+PDB-selected authored body, with its acquisition and checksum result. **B** is
+the product-decompiled artifact for that same target. The observations are
+compiled A versus C and compiled B versus C, not an A-versus-B verdict.
+
+Each observation retains the target association, its own attempt and source
+artifact identity, effective compilation context, and comparison mechanism and
+scope. Consume the existing owner-issued identities; method display names,
+enumeration positions, and equal-looking source are not join keys. Missing
+owner evidence stays unavailable rather than being manufactured by the harness.
+Replacing an attempt must not attach the preceding attempt's context or diff.
+
+Authored `Exact` means only that the retained product IL comparison reported
+exactness at its stated normalization. It is not whole-binary identity,
+semantic equivalence, source provenance, or a receipt-bearing RTS `Exact`.
+Keep the existing authored outcomes, including source absence/failure,
+compilation failure, and unavailable context/comparison, distinct from the
+decompiler status. A failure in one lane must not suppress a result already
+obtained in the other.
+
+Checksum agreement establishes correspondence with PDB-declared bytes.
+Determinism records the shipped artifact's deterministic-build signal. Neither
+proves that the harness recovered the original build inputs, and neither
+authorizes causal attribution. The replacement-artifact and admission
+prerequisites already defined above, including #4931, continue to govern
+authored controls. Reporting context cannot bypass them or issue a receipt.
+
+#### Lane-specific context evidence
+
+For each dimension below, retain the original recorded evidence, what A
+actually used, and what B actually used. Assess A-to-recorded and B-to-recorded
+separately; do not compare both against assumed RTS defaults.
+
+| Dimension | Minimum interpretation boundary |
+| --- | --- |
+| Compiler | Report the available original compiler identity and the compiler actually invoked by each lane. Missing original identity is unknown, not agreement. |
+| Parse and compilation options | Compare recorded values with effective values, including language version, defines, optimization, unsafe, checked arithmetic, and nullable context when available. Preserve unhandled recorded options as unknown rather than silently treating them as applied. |
+| References | Use the retained closure and available recorded identity evidence, including MVID and reference properties where supplied. Filename equality alone cannot establish agreement. State which identity fields were compared; this is not proof of original reference-byte equality. |
+| Generators | Distinguish recorded generator inputs/outputs from what the attempt actually supplied. A PDB-selected body does not recover the original generator invocation. |
+| Project context | Disclose the body-in-RTS-artifact policy and available original build context. Source checksum agreement does not recover project files, SDK/MSBuild settings, or other compilation inputs. |
+
+Each dimension carries individual facts assessed as `Agree`, `Different`,
+`Unknown`, or `Failed`, with the evidence coverage and reason. `Agree` is
+limited to the comparable facts named in that row. A known mismatch is
+`Different`; absence or unsupported comparison is `Unknown`; an inspection
+error is `Failed`. Unknown original inputs must not be guessed from effective
+inputs. Where a dimension contains mixed evidence, retain it all: for example,
+an agreeing optimization setting and an unknown compiler option.
+
+Keep the existing aggregate vocabulary as a summary for each lane:
+`Failed` if any assessed fact failed; otherwise `Drift` if any differed;
+otherwise `Incomplete` if any required dimension or fact is unknown;
+otherwise `Recorded`. This precedence never discards subordinate evidence.
+Even `Recorded` means agreement only within the disclosed evidence coverage,
+not complete reproduction of the original build.
+
+Derive effective values from the actual compilation attempt, including applied
+defaults and fallback settings. If an option cannot be interpreted and a
+compilation still runs, report that limit and the actual setting; do not call
+the original option applied. A context assessment failure alone does not
+rewrite a successfully observed IL result. If the failure prevents compilation
+or comparison, preserve the corresponding authored failure and reason instead
+of inventing an IL result.
+
+#### Reporting and boundary examples
+
+The typed harness result is the reporting source. Extend the existing bounded
+text report; this is a deliberate harness-local projection, not a new
+multi-format product renderer. No new CLI/Wasm command or serializer is
+introduced. Summaries count the lanes independently. Every selected example
+shows both outcomes, acquisition/checksum and determinism, both context
+summaries, and the material differing/unknown/failed facts. A favorable authored
+outcome cannot by itself filter out a failing decompiler example. Keep the
+example limit explicit; it limits presentation, not retained evidence.
+
+Illustrative mockup, not current command output, for the existing invocation:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --authored-rebuild-fidelity --cap 1 ./fixture.dll
+```
+
+```text
+Fixture::get_Value
+  shipped    : fixture.dll / MethodDef 0x06000001
+  decompiled : OperandDiff
+  authored   : Exact (normalized IL-body comparison only)
+  checksum   : Exact
+  deterministic: true
+  A context  : Incomplete
+  B context  : Drift
+  optimization: recorded=debug; A=debug (Agree); B=release (Different)
+  generators : original inputs unknown
+  project    : original build unknown; attempts use the RTS artifact policy
+```
+
+The pathological case is deterministic, checksum-matching source whose A
+comparison is exact despite unknown original generator/project context. That
+must not become build reproduction or decompiler exoneration. The neighboring
+case changes only A's observation to `IlDifferent`; B's `OperandDiff`, the
+checksum, and the context evidence remain unchanged, and neither comparison
+establishes the cause. Likewise, A failing to compile cannot erase an exact B
+result. Two references with the same filename but differing recorded/effective
+MVIDs are a context difference, not agreement.
+
+#### Adoption and evidence
+
+The production host is the existing DecompilerHarness mode. The complete
+focused adoption path has **two steps**, tracked in #5851 under #2673:
+
+1. Land this documentation-only contract and its examples.
+2. Adopt lane-specific evidence in the existing typed result, assessor, and
+   bounded report together; replace the old unqualified context projection in
+   that same slice, with focused Release gates and a pinned real-source demo.
+
+There is no alternative harness architecture to retain or retire. This extends
+test infrastructure, not shared product substrate; existing product CLI and
+browser/Wasm acquisition consumers and contracts remain unchanged. Step 2 must
+exercise product-owned artifact construction, not introduce tools-side shell
+repair. If an adjacent prerequisite prevents that, record the blocker rather
+than broadening this issue.
+
+Existing tests in `AuthoredRebuildFidelityTests` cover narrower behavior:
+`BuildContextAssessment_KeepsDeterminismSeparateFromRecordedContext`,
+`BuildContextAssessment_ReportsContextDriftIndependently`, and
+`AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff`. They are not evidence for
+the new per-lane contract. The following are proposed outcome gates, all
+**unverified** until implemented and run by
+`src/ILInspector.Decompiler.Tests` in Release:
+
+| Proposed gate | Required observation |
+| --- | --- |
+| Applied-options witness | A applies recorded debug options while B uses release; the report assesses each actual attempt correctly. |
+| Incomplete-context witness | Exact normalized A plus deterministic/checksum agreement still discloses unknown compiler/generator/project facts. |
+| Reference-identity neighbors | Same filename/different MVID reports drift; unavailable identity reports unknown; comparable matching fields report only their scoped agreement. |
+| Independent-outcome matrix | A exact/different/failed/unavailable with differing B outcomes preserves both results; replacing an attempt cannot retain stale context. |
+| Failed-inspection witness | A recorded-context inspection error stays failed evidence, distinguishable from absence and from the independently obtained B result. |
+| Bounded-report witness | An exact A does not hide a failed B; each emitted example contains both lane contexts and counts remain independent of the example cap. |
+
+Use compiled fixtures for option/reference boundaries and run the actual
+harness report over retained results. A pinned package/source/PDB demo in
+step 2 supplies real-input evidence without turning live network availability
+into a contract gate. This design adds no state machine or concurrency
+protocol requiring a new formal model.
 
 ## Migration plan
 

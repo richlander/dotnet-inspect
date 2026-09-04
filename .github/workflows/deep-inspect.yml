@@ -388,7 +388,7 @@ jobs:
             --max-examples 3
 
       - name: Build classic state-machine corpus fixture
-        run: dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+        run: dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 
       - name: Run classic state-machine corpus sensor
         shell: bash

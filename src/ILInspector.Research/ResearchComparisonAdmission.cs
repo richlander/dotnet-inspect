@@ -209,6 +209,8 @@ public sealed class ResearchAdmittedPopulation
 {
     readonly FrozenDictionary<ResearchComparisonInputOccurrence, ResearchAdmittedInput>
         _byOccurrence;
+    readonly FrozenDictionary<ResearchComparisonInputId, ResearchAdmittedInput>
+        _byId;
 
     internal ResearchAdmittedPopulation(
         ResearchComparisonProfile profile,
@@ -225,6 +227,11 @@ public sealed class ResearchAdmittedPopulation
         // caller-reachable state can alter an admitted association.
         _byOccurrence = byOccurrence.ToFrozenDictionary(
             ReferenceEqualityComparer.Instance);
+        _byId = Inputs.ToFrozenDictionary(
+            static input => input.Id,
+            static input => input,
+            (IEqualityComparer<ResearchComparisonInputId>)
+                ReferenceEqualityComparer.Instance);
     }
 
     /// <summary>The profile this population was admitted for.</summary>
@@ -265,6 +272,31 @@ public sealed class ResearchAdmittedPopulation
             : throw new ArgumentException(
                 "The occurrence was not admitted by this population.",
                 nameof(occurrence));
+
+    /// <summary>
+    /// The admitted input carrying one exact owner-issued input identity.
+    /// Association is by reference identity.
+    /// </summary>
+    public bool TryGetInput(
+        ResearchComparisonInputId id,
+        [MaybeNullWhen(false)] out ResearchAdmittedInput input)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return _byId.TryGetValue(id, out input);
+    }
+
+    /// <summary>
+    /// The admitted input carrying one exact owner-issued input identity.
+    /// </summary>
+    /// <exception cref="ArgumentException">
+    /// The identity does not belong to this population.
+    /// </exception>
+    public ResearchAdmittedInput GetInput(ResearchComparisonInputId id)
+        => TryGetInput(id, out ResearchAdmittedInput? input)
+            ? input
+            : throw new ArgumentException(
+                "The input identity does not belong to this population.",
+                nameof(id));
 }
 
 /// <summary>
