@@ -114,6 +114,37 @@ internal static class ArrayKindSignatureFixture
             metadata);
     }
 
+    public static byte[] BuildShapeCorrespondenceImage()
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(8, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle valueTuple = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("ValueTuple`2"));
+        byte[] stringType = [0x0e];
+
+        return BuildImage(
+            [
+                new("M", Sz(Int32), Void, IsGeneric: false),
+                new("M", MdArray(Int32, rank: 1), Void, IsGeneric: false),
+                new("M", MdArray(Int32, rank: 2), Void, IsGeneric: false),
+                new("M", Sz(MdArray(Int32, rank: 2)), Void, IsGeneric: false),
+                new("M", MdArray(Sz(Int32), rank: 2), Void, IsGeneric: false),
+                new("M", Sz(MethodGeneric0), Void, IsGeneric: true),
+                new("M", MdArray(MethodGeneric0, rank: 2), Void, IsGeneric: true),
+                new("M", GenericInstance(true, valueTuple, Int32, stringType), Void, IsGeneric: false),
+                new("M", GenericInstance(true, valueTuple, stringType, Int32), Void, IsGeneric: false),
+            ],
+            metadata);
+    }
+
     static TypeReferenceHandle AddListReference(MetadataBuilder metadata)
     {
         AssemblyReferenceHandle systemCollections =
