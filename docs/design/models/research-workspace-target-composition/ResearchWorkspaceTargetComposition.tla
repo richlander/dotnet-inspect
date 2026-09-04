@@ -126,6 +126,7 @@ VARIABLES
     terminalSealedSelected,
     terminalAdmittedOpposite,
     terminalSealedOpposite,
+    duplicateSealedSelected,
     foreignSealedSelected,
     terminalCandidate,
     rootAttemptKind,
@@ -155,9 +156,10 @@ bindingVars == <<liveBinding, bindingAdvanced>>
 inputVars ==
     <<rootSealed, terminalAdmittedSelected, terminalSealedSelected,
       terminalAdmittedOpposite, terminalSealedOpposite,
-      foreignSealedSelected, terminalCandidate, rootAttemptKind,
-      terminalAttemptKind, rootDomainHealth, terminalDomainHealth,
-      requestKind, capturedBinding, receiptMap, attemptMap, censusMap>>
+      duplicateSealedSelected, foreignSealedSelected, terminalCandidate,
+      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
+      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
+      attemptMap, censusMap>>
 
 outputVars ==
     <<compositionPhase, effectiveQueryInput, effectiveResearchAttempt,
@@ -169,12 +171,12 @@ vars ==
       terminalAssembly, liveBinding, bindingAdvanced, rootSealed,
       terminalAdmittedSelected, terminalSealedSelected,
       terminalAdmittedOpposite, terminalSealedOpposite,
-      foreignSealedSelected, terminalCandidate, rootAttemptKind,
-      terminalAttemptKind, rootDomainHealth, terminalDomainHealth,
-      requestKind, capturedBinding, receiptMap, attemptMap, censusMap,
-      compositionPhase, effectiveQueryInput, effectiveResearchAttempt,
-      effectiveCensus, retainedRootAttempt, retainedHops,
-      retainedBinding>>
+      duplicateSealedSelected, foreignSealedSelected, terminalCandidate,
+      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
+      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
+      attemptMap, censusMap, compositionPhase, effectiveQueryInput,
+      effectiveResearchAttempt, effectiveCensus, retainedRootAttempt,
+      retainedHops, retainedBinding>>
 
 Forwarding ==
     INSTANCE TypeForwardingResolution WITH
@@ -369,6 +371,9 @@ ReconstructedResearchInput ==
 ChosenResearchInput ==
     IF CompositionMutationMode = "ReconstructReceipt"
        THEN ReconstructedResearchInput
+       ELSE IF /\ CompositionMutationMode = "UseFacade"
+               /\ Len(hops) > 0
+            THEN receiptMap[QueryTerminalSelectedId]
        ELSE LegitimateResearchInput
 
 ChosenAttemptKind ==
@@ -450,14 +455,11 @@ AttemptReady ==
             {"ReconstructReceipt", "SubstituteCensus"}
        /\ ChosenCensus.health = "Healthy"
        /\ ChosenResearchAttempt.kind = "Resolved"
-    \/ /\ CompositionMutationMode = "UseFacade"
-       /\ Len(hops) > 0
-       /\ ExactCensusReady
-       /\ ChosenCensus.health = "Healthy"
 
 PopulationReady ==
     /\ rootSealed
     /\ terminalAdmittedSelected = terminalSealedSelected
+    /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
 
 CiInputConstraint ==
@@ -466,11 +468,15 @@ CiInputConstraint ==
     /\ terminalSealedSelected
     /\ terminalAdmittedOpposite
     /\ terminalSealedOpposite
+    /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ rootAttemptKind \in
         {"Resolved", "DeclaringTypeForwarded"}
     /\ terminalAttemptKind = "Resolved"
-    /\ rootDomainHealth = "Healthy"
+    /\ rootDomainHealth =
+        IF rootAttemptKind = "DeclaringTypeForwarded"
+           THEN "Blocked"
+           ELSE "Healthy"
     /\ terminalDomainHealth = "Healthy"
     /\ requestKind = "Carried"
 
@@ -482,11 +488,14 @@ Init ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ duplicateSealedSelected \in BOOLEAN
     /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
     /\ terminalAttemptKind \in AttemptKinds
     /\ rootDomainHealth \in DomainHealthKinds
+    /\ (rootAttemptKind = "DeclaringTypeForwarded" =>
+        rootDomainHealth = "Blocked")
     /\ terminalDomainHealth \in DomainHealthKinds
     /\ requestKind \in RequestKinds
     /\ capturedBinding = InitialBinding
@@ -628,6 +637,7 @@ TypeOK ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ duplicateSealedSelected \in BOOLEAN
     /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
@@ -793,23 +803,32 @@ ResearchCompletionHasSelectedEndpoint ==
         /\ effectiveCensus # NoOutcome
         /\ effectiveResearchAttempt.kind = "Resolved"
 
-StableScenarioInputs(rootKind, terminalHealth, targetRequestKind) ==
+StableScenarioInputs(
+        rootKind,
+        rootHealth,
+        terminalHealth,
+        targetRequestKind) ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
     /\ terminalAdmittedOpposite
     /\ terminalSealedOpposite
+    /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ terminalCandidate = Target
     /\ rootAttemptKind = rootKind
     /\ terminalAttemptKind = "Resolved"
-    /\ rootDomainHealth = "Healthy"
+    /\ rootDomainHealth = rootHealth
     /\ terminalDomainHealth = terminalHealth
     /\ requestKind = targetRequestKind
     /\ liveBinding = InitialBinding
 
 DirectCompletionInputConstraint ==
-    /\ StableScenarioInputs("Resolved", "Healthy", "Carried")
+    /\ StableScenarioInputs(
+        "Resolved",
+        "Healthy",
+        "Healthy",
+        "Carried")
     /\ current = Facade
     /\ path = <<Facade>>
     /\ Len(hops) = 0
@@ -829,6 +848,7 @@ ForwardedResolvedRouteConstraint ==
 ForwardedCompletionInputConstraint ==
     /\ StableScenarioInputs(
         "DeclaringTypeForwarded",
+        "Blocked",
         "Healthy",
         "Carried")
     /\ ForwardedResolvedRouteConstraint
@@ -837,12 +857,14 @@ BlockedTerminalCensusInputConstraint ==
     /\ StableScenarioInputs(
         "DeclaringTypeForwarded",
         "Blocked",
+        "Blocked",
         "Carried")
     /\ ForwardedResolvedRouteConstraint
 
 ExactAddressInputConstraint ==
     /\ StableScenarioInputs(
         "DeclaringTypeForwarded",
+        "Blocked",
         "Healthy",
         "ExactAddress")
     /\ ForwardedResolvedRouteConstraint
@@ -851,6 +873,7 @@ MissingTerminalPopulationInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ ~terminalSealedSelected
+    /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ liveBinding = InitialBinding
 
@@ -858,7 +881,16 @@ ForeignPopulationInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
+    /\ ~duplicateSealedSelected
     /\ foreignSealedSelected
+    /\ liveBinding = InitialBinding
+
+DuplicatePopulationInputConstraint ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ duplicateSealedSelected
+    /\ ~foreignSealedSelected
     /\ liveBinding = InitialBinding
 
 DirectScenarioCompletesWithRoot ==
@@ -880,6 +912,9 @@ MissingTerminalPopulationBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 ForeignPopulationBecomesRejected ==
+    <> (compositionPhase = "Rejected")
+
+DuplicatePopulationBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 CompositionConverges ==

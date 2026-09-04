@@ -360,8 +360,10 @@ The model rechecks the imported forwarding safety properties and checks that:
 - every resolution reaches either a composed or unavailable terminal result.
 
 Exact-outcome configurations require direct and forwarded completion, blocked
-census unavailability, exact-address rejection, and rejection of both a
-missing group participant input and an extra foreign input. The two-sided
+census unavailability, exact-address rejection, and rejection of a missing
+group participant input, a duplicated participant occurrence, and an extra
+foreign input. The forwarded-completion scenario retains the facade's blocked
+census while selecting the distinct healthy terminal census. The two-sided
 divergent-domain handoff remains outside this side-local model and unverified.
 
 Focused mutations substitute the facade, cross the comparison side, reconstruct
@@ -438,6 +440,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath`
 - `WorkspaceResearchTarget_UnboundTerminalIsUnavailable`
 - `WorkspaceResearchTarget_MissingTerminalPopulationMemberIsRejected`
+- `WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected`
 - `WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute`
 - `WorkspaceResearchTarget_ReferenceOnlyTerminalIsUnavailable`
 - `WorkspaceResearchTarget_BlockedTerminalDomainIsUnavailable`

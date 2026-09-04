@@ -20,6 +20,7 @@ docs/design/models/research-workspace-target-composition/BrokenRootRelabel.cfg=1
 docs/design/models/research-workspace-target-composition/BrokenTerminalCorrespondence.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenUnavailableInvocation.cfg=12
 docs/design/models/research-workspace-target-composition/DirectCompletion.cfg=0
+docs/design/models/research-workspace-target-composition/DuplicatePopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ExactAddressRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ForeignPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ForwardedCompletion.cfg=0
