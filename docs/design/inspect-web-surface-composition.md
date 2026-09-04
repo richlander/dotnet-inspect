@@ -112,9 +112,9 @@ terminal-deficit states inside the remaining page boundary.
 
 The application-scope strip uses a distinct quiet treatment and may be removed
 at constrained widths only after focus has left it. Query remains reachable
-through Search and Workspace through the active surface's existing hierarchy
-or return action. On `/query`, the visible heading and route-specific Back
-action continue to orient the surface if the strip yields.
+through Spotlight's global keyboard entry and Workspace through hierarchical
+drill-out or a return action. On `/query`, the visible heading and
+route-specific Back action continue to orient the surface if the strip yields.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel

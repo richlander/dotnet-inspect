@@ -1600,18 +1600,16 @@ test("application scopes yield before inspection identity without dropping focus
 
   const query = page.locator("[data-application-scope='query']");
   await query.focus();
-  await page.setViewportSize({ width: 900, height: 900 });
-  await expect(query).toBeVisible();
-  await expect(query).toBeFocused();
-
-  await page.keyboard.press("Tab");
-  await expect(
-    page.locator(".slide-strip-subject [data-subject-tab]:focus"),
-  ).toHaveCount(1);
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await expect(page.locator(".brand")).toBeFocused();
   await expect(page.locator(".titlebar > .application-scope-region"))
     .toBeHidden();
-  await expect(page.locator(".slide-strip-subject")).toBeVisible();
-  await expect(page.locator(".slide-strip-inspector")).toBeVisible();
+  await expect(
+    page.locator(".slide-strip-subject [data-subject-tab]:not([hidden])"),
+  ).toHaveCount(3);
+  await expect(
+    page.locator(".slide-strip-inspector [data-inspector-tab]:not([hidden])"),
+  ).toHaveCount(5);
 });
 
 test("a trailing application scope transfers focus before terminal clipping", async ({
@@ -1629,7 +1627,7 @@ test("a trailing application scope transfers focus before terminal clipping", as
     .toBeHidden();
 });
 
-test("application scope rerenders transfer focus before responsive yielding", async ({
+test("application scope rerenders preserve focus until responsive yielding", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1200, height: 900 });
@@ -1637,12 +1635,13 @@ test("application scope rerenders transfer focus before responsive yielding", as
 
   const query = page.locator("[data-application-scope='query']");
   await query.focus();
-  await page.setViewportSize({ width: 900, height: 900 });
   await expect(query).toBeVisible();
   await expect(query).toBeFocused();
 
   await page.evaluate(() => window.rerenderApplicationScopeProbe());
 
+  await expect(page.locator("[data-application-scope='query']")).toBeFocused();
+  await page.setViewportSize({ width: 900, height: 900 });
   await expect(page.locator(".titlebar > .application-scope-region"))
     .toBeHidden();
   await expect(page.locator(".brand")).toBeFocused();

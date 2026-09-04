@@ -2779,13 +2779,17 @@ kbd {
   .titlebar {
     --shell-row-gaps: 24px;
   }
+  .titlebar > .application-scope-region {
+    --application-scope-yield: 1;
+  }
   .titlebar > .application-scope-region:not(:focus-within) { display: none; }
 }
 
 @media (max-width: 560px) {
-  .query-page-bar .application-scope-region:not(:focus-within) {
-    display: none;
+  .query-page-bar .application-scope-region {
+    --application-scope-yield: 1;
   }
+  .query-page-bar .application-scope-region:not(:focus-within) { display: none; }
 }
 
 /* Light mode: code surfaces are light, so re-tint the syntax tokens and copy

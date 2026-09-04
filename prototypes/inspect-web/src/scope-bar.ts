@@ -310,16 +310,28 @@ export function bindApplicationScopeBar(
     ? new ResizeObserver(() => {
         const focused = region.querySelector<HTMLElement>(
           "[data-application-scope]:focus");
-        if (!focused || fullyRenderedWithin(focused, region)) return;
+        if (!focused) return;
+        if (!applicationScopeMustYield(region)
+          && fullyRenderedWithin(focused, region)) return;
         actions.onFocusedControlUnavailable?.();
       })
     : null;
-  if (region) observer?.observe(region);
+  if (region) {
+    observer?.observe(region);
+    observer?.observe(region.ownerDocument.documentElement);
+  }
   return {
     disconnect() {
       observer?.disconnect();
     },
   };
+}
+
+function applicationScopeMustYield(region: HTMLElement): boolean {
+  return region.ownerDocument.defaultView
+    ?.getComputedStyle(region)
+    .getPropertyValue("--application-scope-yield")
+    .trim() === "1";
 }
 
 function fullyRenderedWithin(
