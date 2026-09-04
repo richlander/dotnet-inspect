@@ -411,6 +411,14 @@ replacement resources against unproven capacity. An abandoned caller does not
 abandon this outcome. A runtime restart is the recovery boundary for such a
 terminal cleanup failure, not an in-place cache reset.
 
+**Bounded model evidence.** The
+[Browser scope retirement model](../../docs/models/browser-scope-retirement/README.md)
+checks the post-binding registry's charged lifetime, protected return-to-query
+use, stale-publication exclusion, and failed-cleanup quarantine, with targeted
+broken-policy controls and required reachability witnesses. It abstracts
+authoritative factory and cleanup outcomes; it does not establish production
+conformance, binding issuance, archive accounting, or lower-owner cleanup.
+
 **Adoption evidence: unverified.** The implementation must add Release Browser
 engine gates for joined requests and independent cancellation, non-joining
 content/selection identities, use protected across async return, four-entry
