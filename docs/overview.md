@@ -100,6 +100,9 @@ substrates, and inspection producers that will extend that space.
   and nuspec parsing. It owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
+  Its [package metadata persistence](design/package-metadata-persistence.md)
+  contract defines when one authority-scoped, time-bounded metadata observation
+  may replace a fresh metadata operation.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -293,6 +296,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Package Set Registry](design/package-set-registry.md): stable product-owned
   package-set identities, labels, purposes, order, static discovery, exact
   lookup, and immutable ordered package-coordinate membership.
+- [Static Ecosystem Packs](design/ecosystem-packs.md): the proposed
+  front-end-only application catalog, private source contribution shape, and
+  static shipped-pack manifest that compose package-set identity, typed
+  package-prefix requests, and opaque Integration-owned semantic-scanner
+  bindings without making reusable infrastructure depend on the catalog.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
