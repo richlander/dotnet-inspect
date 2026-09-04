@@ -999,15 +999,24 @@ generation. The preparation carries owner-issued identities for:
   binding policy before composition begins.
 
 The participant plan, role projection, and delegate map are already complete.
-The workspace cannot append a late participant, change a role, or replace one
-delegate after issuing the preparation. Binding composition consumes the
-complete candidate-domain and finalization contracts from
+For this sealed context, every planned participant registration has one
+delegated-policy route before preparation, and discovery may use only those
+planned registrations as binding origins. If the workspace cannot supply a
+configured route map for which discovery-time route addition is impossible, it
+rejects realization. This requirement constrains the prepared policy state,
+not whether its policy type can learn routes in other, open-ended contexts.
+The workspace cannot append a late participant, learn a late origin route,
+change a role, or replace one delegate after issuing the preparation. Binding
+composition consumes the complete candidate-domain and finalization contracts
+from
 [complete identity-eligible binding composition](type-forwarding-resolution.md#complete-identity-eligible-binding-composition).
 The delegated-policy map names the delegates and routes used to build that
 composite. Their individual versions and refresh remain internal to the
 composite owner. The workspace captures and later compares only the
 composite's distinct outer token; delegate drift reaches the workspace when the
 composite publishes a refreshed state and outer token.
+This is the complete-route-map option anticipated by the adjacent
+[composite policy contract](type-forwarding-resolution.md#atomic-selectionversion-snapshots).
 This section does not reconstruct selections from evidence order or define
 selection, ambiguity, miss, or precedence semantics.
 
@@ -1089,11 +1098,15 @@ rejection or any other replacement failure remains `NotRealized` with no
 current generation and no automatic retry.
 
 For a started, admitted replacement whose composite token remains stable, fair
-preparation, adoption, construction, and publication eventually settle. Under
-continuing churn, each demand makes at most one attempt: another token change
-returns typed `PolicyVersionMismatch`, and only a later authorized demand may
-try again. The workspace performs no unbounded retry loop and makes no
-convergence or elapsed-time guarantee.
+preparation, adoption, construction, and publication eventually settle. Each
+demand makes at most one attempt. A token change returns typed
+`PolicyVersionMismatch`, and only a later authorized demand may try again with
+a new generation identity, preparation identity, and then-current token. The
+workspace never automatically retries a failed private generation. The
+complete participant and route plan removes discovery-time route growth from
+this context, so an observed change is external policy drift rather than
+expected realization progress. The workspace makes no convergence or
+elapsed-time guarantee under continuing churn.
 
 The workspace may observe drift at realization and current-access boundaries;
 this contract does not require a background watcher, prescribe notification or
@@ -1290,6 +1303,11 @@ These properties remain unverified until the named Release gates land:
   omitted, or foreign role-projection evidence is rejected;
 - `ExplicitAssemblyContext_PolicyAdoptionRequiresExactDelegateMap` proves a
   changed, omitted, or foreign delegated-policy map is rejected;
+- `ExplicitAssemblyContext_DiscoveryUsesCompleteRouteMap` proves every
+  discovery binding origin belongs to the exact participant plan and already
+  has its delegated-policy route before preparation, including a multi-hop
+  forwarding fixture that completes without an observed composite-token
+  advance;
 - `ExplicitAssemblyContext_PolicyAdoptionRequiresCapturedVersion` proves both a
   receipt carrying another captured version and a composite outer token that
   advanced before publication fail without publishing;
@@ -2030,6 +2048,48 @@ implementation assembly-context groups only for Roots whose selection status is
 package-root container. A workspace containing only Root-capable coordinates
 has no assembly groups. A mixed workspace retains all Roots at the host
 boundary while creating groups for selected coordinates only.
+
+`InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` is the
+artifact-backed realization for one acquisition-issued `PackageRootBinding`.
+It requires an asynchronous workspace and uses the binding's package
+coordinate, content-generation identity, and selection identity as the exact
+join currency. The complete distinct union of selected surface and
+implementation assets enters one `ArtifactSetSession`; an asset selected into
+both roles contributes only once. The existing
+`MaxAggregateRetainedImageBytes` option is the one caller-supplied retained-byte
+limit for the whole realization. The artifact generation receives half; the
+resulting role groups receive the remainder. A distinct surface and
+implementation group divide the role-group share again. This partition bounds
+the source snapshots retained by the artifact session plus the independent
+snapshots retained by Metadata groups rather than applying the same limit to
+both copies.
+
+Publication is all-or-nothing. Every selected asset must materialize within the
+per-entry and aggregate limits before a role group is created. A published
+valid assembly retains its artifact registration, decoded identity, and
+non-empty MVID. A selected malformed, native, module, or empty-MVID asset
+remains a participant through the compatibility rejection carrier defined by
+the assembly-inspection-query owner. The artifact session and its query lease
+transfer to the exact distinct role groups, and workspace close releases them
+only after those groups report quiescence. Failure before transfer attempts
+group, query-lease, and artifact-session cleanup without replacing the primary
+failure. Disposing the returned role realization releases its groups but not
+the artifact session; the asynchronous workspace remains the session owner
+until close. Callers serialize this realization with other workspace group
+admissions because exact ownership transfer cannot be evaluated while a group
+admission is incomplete.
+
+`ArtifactBackedPackageRealization_PreservesMixedParticipantsAndExactLifetime`
+gates one valid and one malformed selected asset, one source entry open per
+distinct asset, exact package binding identities in artifact provenance,
+visible available/rejected query outcomes, and artifact release after an
+active group operation completes.
+`ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup`
+gates aggregate retained-byte rejection and absence of a partial group.
+The synchronous stream-backed realization remains available for current
+callers. CLI and browser/Wasm adoption are separate slices in
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
+adds no host retention, cache, eviction, or presentation behavior.
 
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed
