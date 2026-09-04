@@ -148,6 +148,8 @@ internal static class BrowserPackageWorkspace
         new(StringComparer.Ordinal);
     static readonly Dictionary<string, Task> PendingPackageEvictions =
         new(StringComparer.Ordinal);
+    static readonly Dictionary<string, Task> PendingScopeClosures =
+        new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
@@ -191,13 +193,20 @@ internal static class BrowserPackageWorkspace
         public string ProducerKey => Content.ProducerKey;
     }
 
+    /// <summary>
+    /// One registry slot. A slot stays occupied — and keeps counting against the workspace limit
+    /// and against package eviction — from admission until its scope's disposal settles.
+    /// <see cref="Closing"/> marks the interval in which the scope has been withdrawn from reuse,
+    /// leasing, and removal but its retained artifact session has not finished closing.
+    /// </summary>
     sealed record ScopeEntry(
         IAsyncDisposable Scope,
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
         int ActiveLeases,
         bool RemovalRequested,
-        Action<IAsyncDisposable>? OnDisposed);
+        Action<IAsyncDisposable>? OnDisposed,
+        bool Closing = false);
 
     public static BrowserPackageCacheSnapshot Stats() =>
         new(
@@ -481,7 +490,7 @@ internal static class BrowserPackageWorkspace
         string key,
         IReadOnlyList<BrowserPackageCoordinate> coordinates)
     {
-        if (!Scopes.TryGetValue(key, out ScopeEntry? entry))
+        if (!Scopes.TryGetValue(key, out ScopeEntry? entry) || entry.Closing)
             return null;
         if (entry.Scope is not BrowserInspectionScope retained)
         {
@@ -523,8 +532,11 @@ internal static class BrowserPackageWorkspace
     }
 
     /// <summary>
-    /// Admits one built scope into the bounded registry, awaiting the disposal of any scope it
-    /// evicts so the evicted workspace's retained bytes are released before this one is counted.
+    /// Admits one built scope into the bounded registry. A slot counts as occupied until the
+    /// scope holding it has finished closing, so admission never overshoots the workspace limit
+    /// by publishing into a slot whose artifact session is still releasing its retained bytes.
+    /// The capacity decision and the publication are made in this method with no suspension
+    /// between them; every await that could invalidate the decision re-evaluates it.
     /// </summary>
     internal static async ValueTask<T> RegisterScopeAsync<T>(
         string key,
@@ -538,55 +550,85 @@ internal static class BrowserPackageWorkspace
         ArgumentNullException.ThrowIfNull(packageKeys);
         try
         {
-            RetainPackageKeys(packageKeys);
+            return await AdmitScopeAsync(key, scope, packageKeys, onDisposed)
+                .ConfigureAwait(false);
         }
-        catch
+        catch (Exception admissionFailure)
         {
-            await scope.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await scope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(admissionFailure, cleanupFailure);
+            }
+
             throw;
         }
+    }
+
+    static async ValueTask<T> AdmitScopeAsync<T>(
+        string key,
+        T scope,
+        ImmutableHashSet<string> packageKeys,
+        Action<T>? onDisposed)
+        where T : class, IAsyncDisposable
+    {
+        RetainPackageKeys(packageKeys);
+
+        while (Scopes.TryGetValue(key, out ScopeEntry? closing) && closing.Closing)
+            await AwaitScopeClosureAsync(key).ConfigureAwait(false);
 
         if (Scopes.TryGetValue(key, out ScopeEntry? retained))
         {
-            await scope.DisposeAsync().ConfigureAwait(false);
             if (retained.Scope is not T typed)
             {
                 throw new InvalidOperationException(
                     "The browser scope registry key names a different scope kind.");
             }
 
-            Scopes[key] = retained with { LastAccess = ++_clock };
-            if (retained.RemovalRequested)
+            await scope.DisposeAsync().ConfigureAwait(false);
+            Scopes[key] = retained with
             {
-                Scopes[key] = Scopes[key] with
-                {
-                    RemovalRequested = false,
-                };
-            }
+                LastAccess = ++_clock,
+                RemovalRequested = false,
+            };
             TouchPackages(retained.PackageKeys);
             return typed;
         }
 
         while (Scopes.Count >= MaxOpenScopes)
         {
-            string? oldest = Scopes
-                .Where(candidate => candidate.Value.ActiveLeases == 0)
+            string? evictable = Scopes
+                .Where(candidate =>
+                    !candidate.Value.Closing && candidate.Value.ActiveLeases == 0)
                 .OrderBy(candidate => candidate.Value.LastAccess)
                 .Select(candidate => candidate.Key)
                 .FirstOrDefault();
-            if (oldest is null)
+            if (evictable is not null)
             {
-                await scope.DisposeAsync().ConfigureAwait(false);
-                throw new InvalidOperationException(
-                    "The browser workspace limit cannot evict an active inspection.");
+                await CloseRegisteredScopeAsync(evictable, Scopes[evictable])
+                    .ConfigureAwait(false);
+                continue;
             }
-            await DisposeRegisteredScopeAsync(oldest, Scopes[oldest])
-                .ConfigureAwait(false);
+
+            string? settling = Scopes
+                .Where(candidate => candidate.Value.Closing)
+                .Select(candidate => candidate.Key)
+                .FirstOrDefault();
+            if (settling is not null)
+            {
+                await AwaitScopeClosureAsync(settling).ConfigureAwait(false);
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                "The browser workspace limit cannot evict an active inspection.");
         }
 
         if (Scopes.ContainsKey(key))
         {
-            await scope.DisposeAsync().ConfigureAwait(false);
             throw new InvalidOperationException(
                 "The browser scope registry admitted another workspace for this coordinate set "
                 + "while capacity was being released.");
@@ -607,14 +649,14 @@ internal static class BrowserPackageWorkspace
     internal static bool IsScopeRetained(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        return Scopes.Values.Any(entry => ReferenceEquals(entry.Scope, scope));
+        return Scopes.Values.Any(entry =>
+            !entry.Closing && ReferenceEquals(entry.Scope, scope));
     }
 
     internal static void TouchScope(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        KeyValuePair<string, ScopeEntry> registered = Scopes
-            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        KeyValuePair<string, ScopeEntry> registered = FindOpenScope(scope);
         if (registered.Value is null)
         {
             throw new InvalidOperationException(
@@ -631,10 +673,16 @@ internal static class BrowserPackageWorkspace
     internal static ValueTask RemoveScopeAsync(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        KeyValuePair<string, ScopeEntry> registered = Scopes
-            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        KeyValuePair<string, ScopeEntry> registered = FindOpenScope(scope);
         if (registered.Value is null)
-            return ValueTask.CompletedTask;
+        {
+            KeyValuePair<string, ScopeEntry> closing = Scopes
+                .SingleOrDefault(candidate =>
+                    ReferenceEquals(candidate.Value.Scope, scope));
+            return closing.Value is null
+                ? ValueTask.CompletedTask
+                : new ValueTask(AwaitScopeClosureAsync(closing.Key));
+        }
         if (registered.Value.ActiveLeases != 0)
         {
             Scopes[registered.Key] = registered.Value with
@@ -644,7 +692,8 @@ internal static class BrowserPackageWorkspace
             return ValueTask.CompletedTask;
         }
 
-        return DisposeRegisteredScopeAsync(registered.Key, registered.Value);
+        return new ValueTask(
+            CloseRegisteredScopeAsync(registered.Key, registered.Value));
     }
 
     /// <summary>
@@ -655,8 +704,7 @@ internal static class BrowserPackageWorkspace
         where TScope : class, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
-        KeyValuePair<string, ScopeEntry> registered = Scopes
-            .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
+        KeyValuePair<string, ScopeEntry> registered = FindOpenScope(scope);
         if (registered.Value is null)
         {
             throw new InvalidOperationException(
@@ -675,12 +723,19 @@ internal static class BrowserPackageWorkspace
             () => ReleaseScopeLeaseAsync(registered.Key, scope));
     }
 
+    /// <summary>
+    /// Releases one scope lease and, when it was the last lease on a scope whose removal was
+    /// deferred, closes that scope. The package leases this lease holds are released once the
+    /// close settles — including when it fails — so a failed disposal stays visible without
+    /// stranding the archives it pinned.
+    /// </summary>
     static async ValueTask ReleaseScopeLeaseAsync(
         string scopeKey,
         IAsyncDisposable scope)
     {
         if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
             || !ReferenceEquals(entry.Scope, scope)
+            || entry.Closing
             || entry.ActiveLeases <= 0)
         {
             throw new InvalidOperationException(
@@ -688,21 +743,21 @@ internal static class BrowserPackageWorkspace
         }
 
         int activeLeases = entry.ActiveLeases - 1;
-        if (activeLeases == 0 && entry.RemovalRequested)
+        ScopeEntry released = entry with { ActiveLeases = activeLeases };
+        Scopes[scopeKey] = released;
+        try
         {
-            Scopes[scopeKey] = entry with { ActiveLeases = activeLeases };
-            await DisposeRegisteredScopeAsync(scopeKey, entry)
-                .ConfigureAwait(false);
-        }
-        else
-        {
-            Scopes[scopeKey] = entry with
+            if (activeLeases == 0 && released.RemovalRequested)
             {
-                ActiveLeases = activeLeases,
-            };
+                await CloseRegisteredScopeAsync(scopeKey, released)
+                    .ConfigureAwait(false);
+            }
         }
-        foreach (string packageKey in entry.PackageKeys)
-            ReleasePackageLease(packageKey);
+        finally
+        {
+            foreach (string packageKey in entry.PackageKeys)
+                ReleasePackageLease(packageKey);
+        }
     }
 
     /// <summary>Opens — or reuses — the workspace for one exact package coordinate.</summary>
@@ -1299,6 +1354,18 @@ internal static class BrowserPackageWorkspace
     }
 
     /// <summary>
+    /// Reports whether the bounded cache currently has room for one more transfer of the given
+    /// size. Callers that publish into the cache re-evaluate this after every suspension: the
+    /// decision is only sound at the instant the entry is added.
+    /// </summary>
+    static bool HasCacheRoom(long additionalBytes, int additionalEntries) =>
+        Cache.Count + Reservations.Count + additionalEntries <= MaxCachedPackages
+        && Cache.Values.Sum(entry => entry.Bytes.LongLength)
+            + Reservations.Values.Sum(reservation => reservation.ReservedBytes)
+            + additionalBytes
+            <= MaxCachedPackageBytes;
+
+    /// <summary>
     /// Frees bounded cache capacity by evicting least-recently-used unleased packages, awaiting
     /// each eviction so the retained bytes are actually released before the caller's reservation
     /// is admitted.
@@ -1307,11 +1374,7 @@ internal static class BrowserPackageWorkspace
         long additionalBytes,
         int additionalEntries)
     {
-        while (Cache.Count + Reservations.Count + additionalEntries > MaxCachedPackages
-            || Cache.Values.Sum(entry => entry.Bytes.LongLength)
-                + Reservations.Values.Sum(reservation => reservation.ReservedBytes)
-                + additionalBytes
-                > MaxCachedPackageBytes)
+        while (!HasCacheRoom(additionalBytes, additionalEntries))
         {
             string? oldest = Cache
                 .Where(entry => !Leases.ContainsKey(entry.Key))
@@ -1330,7 +1393,8 @@ internal static class BrowserPackageWorkspace
 
     /// <summary>
     /// Disposes every scope that retains one package and then drops its archive. A concurrent
-    /// evictor of the same package joins the in-flight eviction instead of racing it, and a
+    /// evictor of the same package joins the in-flight eviction instead of racing it, a dependent
+    /// scope that another removal path is already closing is awaited rather than ignored, and a
     /// dependent scope that acquired an active lease during the awaited disposal keeps its
     /// archive: that package is leased again, so the next candidate is chosen instead.
     /// </summary>
@@ -1373,30 +1437,104 @@ internal static class BrowserPackageWorkspace
                     entry.Value.PackageKeys.Contains(packageKey));
             if (dependent.Value is null)
                 break;
+            if (dependent.Value.Closing)
+            {
+                await AwaitScopeClosureAsync(dependent.Key).ConfigureAwait(false);
+                continue;
+            }
             if (dependent.Value.ActiveLeases != 0)
                 return;
 
-            await DisposeRegisteredScopeAsync(dependent.Key, dependent.Value)
+            await CloseRegisteredScopeAsync(dependent.Key, dependent.Value)
                 .ConfigureAwait(false);
         }
 
         Cache.Remove(packageKey);
     }
 
-    static async ValueTask DisposeRegisteredScopeAsync(
+    /// <summary>
+    /// Withdraws one registered scope and closes it, keeping its registry slot and its package
+    /// dependency visible until the disposal settles. Every removal path — scope-count
+    /// replacement, explicit removal, lease release, and package eviction — goes through here, so
+    /// a competing path joins the same closure instead of observing a slot or archive that a
+    /// still-retained artifact session has not released.
+    /// </summary>
+    static Task CloseRegisteredScopeAsync(
         string scopeKey,
         ScopeEntry entry)
     {
-        Scopes.Remove(scopeKey);
+        if (PendingScopeClosures.TryGetValue(scopeKey, out Task? pending))
+            return pending;
+        if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? current)
+            || !ReferenceEquals(current.Scope, entry.Scope))
+        {
+            return Task.CompletedTask;
+        }
+
+        Scopes[scopeKey] = current with { Closing = true };
+        Task closure = CloseRegisteredScopeCoreAsync(scopeKey, current);
+        if (!closure.IsCompleted)
+        {
+            PendingScopeClosures[scopeKey] = closure;
+            _ = closure.ContinueWith(
+                completed =>
+                {
+                    if (PendingScopeClosures.TryGetValue(
+                            scopeKey,
+                            out Task? registered)
+                        && ReferenceEquals(registered, completed))
+                    {
+                        PendingScopeClosures.Remove(scopeKey);
+                    }
+
+                    _ = completed.Exception;
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        return closure;
+    }
+
+    static async Task CloseRegisteredScopeCoreAsync(
+        string scopeKey,
+        ScopeEntry entry)
+    {
         try
         {
-            entry.OnDisposed?.Invoke(entry.Scope);
+            try
+            {
+                entry.OnDisposed?.Invoke(entry.Scope);
+            }
+            finally
+            {
+                await entry.Scope.DisposeAsync().ConfigureAwait(false);
+            }
         }
         finally
         {
-            await entry.Scope.DisposeAsync().ConfigureAwait(false);
+            if (Scopes.TryGetValue(scopeKey, out ScopeEntry? current)
+                && ReferenceEquals(current.Scope, entry.Scope))
+            {
+                Scopes.Remove(scopeKey);
+            }
         }
     }
+
+    /// <summary>
+    /// Joins the in-flight closure for one registry slot, if any. A failed close still frees the
+    /// slot, and its failure stays visible to every path that waited on it.
+    /// </summary>
+    static Task AwaitScopeClosureAsync(string scopeKey) =>
+        PendingScopeClosures.TryGetValue(scopeKey, out Task? pending)
+            ? pending
+            : Task.CompletedTask;
+
+    static KeyValuePair<string, ScopeEntry> FindOpenScope(IAsyncDisposable scope) =>
+        Scopes.SingleOrDefault(candidate =>
+            !candidate.Value.Closing
+            && ReferenceEquals(candidate.Value.Scope, scope));
 
     internal static async ValueTask<PackageDownloadReservation>
         ReservePackageDownloadAsync(
@@ -1411,8 +1549,12 @@ internal static class BrowserPackageWorkspace
         if (Reservations.ContainsKey(packageKey))
             throw new InvalidOperationException("The package download is already reserved.");
 
-        await MakeCacheRoomAsync(declaredLength, additionalEntries: 1)
-            .ConfigureAwait(false);
+        while (!HasCacheRoom(declaredLength, additionalEntries: 1))
+        {
+            await MakeCacheRoomAsync(declaredLength, additionalEntries: 1)
+                .ConfigureAwait(false);
+        }
+
         if (Reservations.ContainsKey(packageKey))
             throw new InvalidOperationException("The package download is already reserved.");
 
@@ -1422,6 +1564,9 @@ internal static class BrowserPackageWorkspace
         Reservations.Add(packageKey, reservation);
         return reservation;
     }
+
+    internal static IReadOnlyCollection<string> ResidentPackageKeys() =>
+        [.. Cache.Keys];
 
     static void LeasePackage(string packageKey)
     {
@@ -1485,10 +1630,14 @@ internal static class BrowserPackageWorkspace
         ArgumentNullException.ThrowIfNull(package);
         string key = PackageKey(package.PackageId, package.Version);
         Cache.Remove(key);
-        await MakeCacheRoomAsync(
-                package.RetainedBytes.LongLength,
-                additionalEntries: 1)
-            .ConfigureAwait(false);
+        while (!HasCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1))
+        {
+            await MakeCacheRoomAsync(
+                    package.RetainedBytes.LongLength,
+                    additionalEntries: 1)
+                .ConfigureAwait(false);
+        }
+
         Cache[key] = new CacheEntry(
             package.RetainedBytes,
             package.Content,
@@ -1515,7 +1664,7 @@ internal static class BrowserPackageWorkspace
     internal static string PackageKey(string packageId, string version) =>
         $"{packageId.ToLowerInvariant()}@{version.ToLowerInvariant()}";
 
-    static string PackageScopeKey(
+    internal static string PackageScopeKey(
         IReadOnlyList<BrowserPackageCoordinate> coordinates) =>
         CompositeKey(
             [

@@ -6303,7 +6303,17 @@ public sealed class BrowserEngineBoundaryTests
             $"Artifact.SingleFlight.{Guid.NewGuid():N}",
             Package(image, "lib/net11.0/Artifact.SingleFlight.dll"),
             TestContext.Current.CancellationToken);
-        int before = BrowserPackageWorkspace.Stats().Workspaces;
+        string scopeKey = BrowserPackageWorkspace.PackageScopeKey([coordinate]);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            scopeKey,
+            closing,
+            [BrowserPackageWorkspace.PackageKey(coordinate.PackageId, coordinate.Version)]);
+        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+        await closing.DisposeStarted.Task;
+        Assert.False(removal.IsCompleted);
 
         Task<BrowserInspectionScope> firstOpen =
             BrowserPackageWorkspace.OpenScopeAsync(
@@ -6314,16 +6324,207 @@ public sealed class BrowserEngineBoundaryTests
                 [coordinate],
                 TestContext.Current.CancellationToken);
 
-        BrowserInspectionScope[] opened =
-            await Task.WhenAll(firstOpen, secondOpen);
+        Assert.False(firstOpen.IsCompleted);
+        Assert.False(secondOpen.IsCompleted);
 
-        Assert.Same(opened[0], opened[1]);
-        Assert.True(opened[0].ArtifactBacked);
-        Assert.True(BrowserPackageWorkspace.IsScopeRetained(opened[0]));
-        Assert.InRange(
-            BrowserPackageWorkspace.Stats().Workspaces,
-            Math.Min(before, 1),
-            before + 1);
+        release.SetResult();
+        await removal;
+        BrowserInspectionScope first = await firstOpen;
+        BrowserInspectionScope second = await secondOpen;
+
+        Assert.Same(first, second);
+        Assert.True(first.ArtifactBacked);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(first));
+        Assert.True(closing.Disposed);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ClosingScopeKeepsItsRegistrySlotUntilDisposalSettles()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Closing.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            packageId,
+            Package(image, "lib/net11.0/Artifact.Closing.dll"),
+            TestContext.Current.CancellationToken);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"closing-{Guid.NewGuid():N}",
+            closing,
+            [BrowserPackageWorkspace.PackageKey(packageId, coordinate.Version)]);
+        int occupied = BrowserPackageWorkspace.Stats().Workspaces;
+
+        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+        await closing.DisposeStarted.Task;
+
+        Assert.False(removal.IsCompleted);
+        Assert.Equal(occupied, BrowserPackageWorkspace.Stats().Workspaces);
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(closing));
+        Assert.Throws<InvalidOperationException>(
+            () => BrowserPackageWorkspace.LeaseScope(closing));
+
+        release.SetResult();
+        await removal;
+
+        Assert.Equal(occupied - 1, BrowserPackageWorkspace.Stats().Workspaces);
+        Assert.True(closing.Disposed);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_PackageEvictionAwaitsScopeClosedByAnotherPath()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Racing.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            packageId,
+            Package(image, "lib/net11.0/Artifact.Racing.dll", 60 * MiB),
+            TestContext.Current.CancellationToken);
+        string packageKey =
+            BrowserPackageWorkspace.PackageKey(packageId, coordinate.Version);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"racing-{Guid.NewGuid():N}",
+            closing,
+            [packageKey]);
+
+        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+        await closing.DisposeStarted.Task;
+        Assert.False(removal.IsCompleted);
+
+        Task<BrowserPackageWorkspace.PackageDownloadReservation> pressure =
+            BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"artifact.racing.pressure.{Guid.NewGuid():N}@1.0.0",
+                120L * MiB).AsTask();
+
+        Assert.False(pressure.IsCompleted);
+        Assert.Contains(
+            packageKey,
+            BrowserPackageWorkspace.ResidentPackageKeys());
+
+        release.SetResult();
+        using (await pressure)
+        {
+            await removal;
+            Assert.True(closing.Disposed);
+            Assert.DoesNotContain(
+                packageKey,
+                BrowserPackageWorkspace.ResidentPackageKeys());
+        }
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ConcurrentReservationsStayWithinTheByteBudget()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Budget.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            packageId,
+            Package(image, "lib/net11.0/Artifact.Budget.dll", 60 * MiB),
+            TestContext.Current.CancellationToken);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"budget-{Guid.NewGuid():N}",
+            closing,
+            [BrowserPackageWorkspace.PackageKey(packageId, coordinate.Version)]);
+        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+        await closing.DisposeStarted.Task;
+
+        Task<BrowserPackageWorkspace.PackageDownloadReservation> first =
+            BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"artifact.budget.a.{Guid.NewGuid():N}@1.0.0",
+                70L * MiB).AsTask();
+        Task<BrowserPackageWorkspace.PackageDownloadReservation> second =
+            BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"artifact.budget.b.{Guid.NewGuid():N}@1.0.0",
+                70L * MiB).AsTask();
+
+        Assert.False(first.IsCompleted);
+        Assert.False(second.IsCompleted);
+
+        release.SetResult();
+        await removal;
+
+        BrowserPackageWorkspace.PackageDownloadReservation? admittedFirst =
+            await TryReserve(first);
+        BrowserPackageWorkspace.PackageDownloadReservation? admittedSecond =
+            await TryReserve(second);
+        try
+        {
+            Assert.True(
+                BrowserPackageWorkspace.Stats().ResidentBytes <= 128L * MiB,
+                "Concurrent reservations overshot the browser package-cache byte budget.");
+            Assert.True(admittedFirst is not null || admittedSecond is not null);
+            Assert.True(admittedFirst is null || admittedSecond is null);
+        }
+        finally
+        {
+            admittedFirst?.Dispose();
+            admittedSecond?.Dispose();
+        }
+
+        static async Task<BrowserPackageWorkspace.PackageDownloadReservation?> TryReserve(
+            Task<BrowserPackageWorkspace.PackageDownloadReservation> reservation)
+        {
+            try
+            {
+                return await reservation;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_FailedScopeCloseReleasesItsPackageLeases()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.CloseFailure.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            packageId,
+            Package(image, "lib/net11.0/Artifact.CloseFailure.dll", 60 * MiB),
+            TestContext.Current.CancellationToken);
+        string packageKey =
+            BrowserPackageWorkspace.PackageKey(packageId, coordinate.Version);
+        var failing = new FailingScope();
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"close-failure-{Guid.NewGuid():N}",
+            failing,
+            [packageKey]);
+        BrowserScopeLease<FailingScope> lease =
+            BrowserPackageWorkspace.LeaseScope(failing);
+        await BrowserPackageWorkspace.RemoveScopeAsync(failing);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(failing));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await lease.DisposeAsync());
+
+        Assert.Contains(
+            "The gated browser scope failed to close.",
+            failure.Message,
+            StringComparison.Ordinal);
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(failing));
+
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"artifact.closefailure.pressure.{Guid.NewGuid():N}@1.0.0",
+            120L * MiB))
+        {
+            Assert.DoesNotContain(
+                packageKey,
+                BrowserPackageWorkspace.ResidentPackageKeys());
+        }
     }
 
     [Fact]
@@ -7033,6 +7234,34 @@ public sealed class BrowserEngineBoundaryTests
                     Content = new StringContent(json ?? ""),
                 });
         }
+    }
+
+    /// <summary>
+    /// A registry-owned scope whose disposal suspends until the test releases it, so a competing
+    /// registry operation observes the interval in which the scope has been withdrawn but its
+    /// retained bytes have not been released.
+    /// </summary>
+    sealed class GatedScope(TaskCompletionSource release) : IAsyncDisposable
+    {
+        internal TaskCompletionSource DisposeStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal bool Disposed { get; private set; }
+
+        public async ValueTask DisposeAsync()
+        {
+            DisposeStarted.TrySetResult();
+            await release.Task;
+            Disposed = true;
+        }
+    }
+
+    sealed class FailingScope : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() =>
+            ValueTask.FromException(
+                new InvalidOperationException(
+                    "The gated browser scope failed to close."));
     }
 
     sealed class StallingGalleryRegistrationHandler : HttpMessageHandler

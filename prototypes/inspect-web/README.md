@@ -132,30 +132,50 @@ reach the same open group rather than reacquiring every image.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
 Opening, evicting, removing, and releasing the last lease on a scope are
-awaited operations: a scope leaves the registry before its disposal is
-awaited, an archive leaves cache accounting only after every dependent scope's
-disposal has settled, and a scope's package leases are released only after
-that disposal completes. Nothing counts the room as free while a retained
-artifact session is still closing, and no cleanup runs unobserved in the
-background. Opening one exact coordinate set is single-flighted, so concurrent
-callers join one realization and observe one retained scope; each caller keeps
-its own cancellation, and a cancelled caller receives no scope. A completion
-that raced an eviction or a replacing download cannot republish that content:
-the exact archive identity is revalidated after every suspension and a stale
-coordinate fails visibly.
+awaited operations, and **a registry slot belongs to its scope until that
+scope's disposal settles**. A withdrawn scope stops being reusable, leasable,
+and removable immediately, but its slot keeps counting against the four-scope
+limit and keeps holding its package dependency until the close finishes, so
+admission cannot publish into a slot a retained artifact session has not
+released and package eviction cannot drop an archive another removal path is
+still closing. Every removal path — scope-count replacement, explicit removal,
+last-lease release, and package eviction — publishes one joinable closure, so
+competing paths observe the same settle instead of racing it. A capacity
+decision is only sound at the instant the entry is published, so every caller
+that publishes into the bounded cache re-evaluates its room after each
+suspension. A close that fails still frees its slot and releases the package
+leases it pinned, and the failure stays visible to every path that waited on
+it. Nothing counts the room as free while a retained artifact session is still
+closing, and no cleanup runs unobserved in the background. Opening one exact
+coordinate set is single-flighted, so concurrent callers join one realization
+and observe one retained scope; each caller keeps its own cancellation, and a
+cancelled caller receives no scope. A completion that raced an eviction or a
+replacing download cannot republish that content: the exact archive identity is
+revalidated after every suspension and a stale coordinate fails visibly.
+`BrowserWorkspace_ClosingScopeKeepsItsRegistrySlotUntilDisposalSettles`,
+`BrowserWorkspace_PackageEvictionAwaitsScopeClosedByAnotherPath`,
+`BrowserWorkspace_ConcurrentReservationsStayWithinTheByteBudget`,
+`BrowserWorkspace_FailedScopeCloseReleasesItsPackageLeases`,
 `BrowserWorkspace_ConcurrentScopeOpensShareOneRealization`,
 `BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable`,
 `BrowserWorkspace_ArtifactScopeDisposalClosesItsSession`,
 `BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`, and
 `BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal` gate those
 lifetimes.
-A scope carries a 64 MB aggregate retained-image budget. Two distinct
-compile/implementation groups receive 32 MB each; a shared or reference-only
-single group receives the full 64 MB. Before decoding any identity, the host
-rejects a role whose declared expanded assembly total exceeds its group budget
-or whose selected set exceeds 256 assemblies. Product realization enforces
-those Browser-supplied values, keeping identity decoding itself inside the same
-bound rather than relying on the later retained-snapshot check.
+The host supplies one 64 MB aggregate retained-image budget and a 256-assembly
+ceiling per role, and the realization it selects decides how that aggregate is
+divided. The **artifact-backed** realization used for a single-root package
+scope splits the aggregate in half: 32 MB bounds the retained artifact bytes
+and the remaining 32 MB is the role budget, which two distinct
+compile/implementation groups then split at 16 MB each while a shared or
+reference-only single group takes the whole 32 MB. The **composite**
+realization used for a multi-package scope retains no artifact bytes, so its
+two distinct groups receive 32 MB each and a single group receives the full
+64 MB. Before decoding any identity, the host rejects a role whose declared
+expanded assembly total exceeds its group budget or whose selected set exceeds
+256 assemblies. Product realization enforces those Browser-supplied values,
+keeping identity decoding itself inside the same bound rather than relying on
+the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
 
@@ -344,9 +364,11 @@ Integrations, call graphs, and whole-assembly performance analysis.
 Opportunities use the compile group because they classify the package's
 reference-preferred public surface. Packages without `ref/` assets share one
 group for both roles. When both roles exist and differ, they split the scope's
-64 MB retained image budget rather than doubling it. A reference-only package
-has one group and uses the full budget; performance analysis falls back to that
-surface group when no implementation participant exists.
+role budget rather than doubling it — half the 64 MB aggregate for an
+artifact-backed single-root scope, the whole aggregate for a composite scope. A
+reference-only package has one group and uses that role budget undivided;
+performance analysis falls back to that surface group when no implementation
+participant exists.
 
 ## Supported
 
