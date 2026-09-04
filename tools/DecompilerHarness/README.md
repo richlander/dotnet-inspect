@@ -320,6 +320,13 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+The current context assessment is an aggregate comparison of recorded options
+and reference names against RTS context, not proof of a reproduced build.
+The planned [lane-specific rebuild-context
+contract](../../docs/design/fact-planned-compile-back-harness.md#authored-source-rebuild-fidelity)
+tracks separate recorded-versus-effective evidence for each compilation;
+that expanded reporting is not implemented yet.
+
 ### Authored-source correspondence corpus (offline benchmark)
 
 `--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
