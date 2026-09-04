@@ -294,19 +294,58 @@ internal static class CliRowSelectionArgumentAdapter
             }
         }
 
+        if (MatchesCanonicalValueOption(
+                token,
+                "--top"))
+        {
+            kind = CliRowSelectionOccurrenceKind.Top;
+            return true;
+        }
+
+        if (MatchesCanonicalValueOption(
+                token,
+                "--order-by"))
+        {
+            kind = CliRowSelectionOccurrenceKind.OrderBy;
+            return true;
+        }
+
         kind = default;
         return false;
     }
+
+    private static bool MatchesCanonicalValueOption(
+        string token,
+        string alias) =>
+        token.Equals(
+            alias,
+            StringComparison.Ordinal)
+        || token.Length > alias.Length
+        && token.StartsWith(
+            alias,
+            StringComparison.Ordinal)
+        && token[alias.Length] is '=' or ':';
 
     internal static bool IsDeclared(
         ParseResult parseResult,
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionOccurrenceKind kind)
     {
-        Option option =
-            BoundOptions(bindings)
-                .Single(bound => bound.Kind == kind)
-                .Option;
+        Option? option = null;
+        foreach (BoundOption bound in BoundOptions(bindings))
+        {
+            if (bound.Kind == kind)
+            {
+                option = bound.Option;
+                break;
+            }
+        }
+
+        if (option is null)
+        {
+            return false;
+        }
+
         for (CommandResult? command = parseResult.CommandResult;
             command is not null;
             command = command.Parent as CommandResult)

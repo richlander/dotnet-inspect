@@ -614,6 +614,39 @@ public sealed class CliRowSelectionRouterPreflightTests
         Assert.Equal([1], reordered.DeferredPositions);
     }
 
+    [Fact]
+    public void CandidateBindingsMayOmitTopGrammar()
+    {
+        CandidateFixture windowOnly =
+            new(
+                "window-only",
+                omitTopOrderBindings: true);
+
+        CliRowSelectionRouteEnvelopeResult noRequest =
+            Evaluate(
+                ["Target"],
+                windowOnly);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.NoRequest,
+            noRequest.Outcome);
+
+        CliRowSelectionRouteEnvelopeResult unsupported =
+            Evaluate(
+                [
+                    "Target",
+                    "--top",
+                    "2"
+                ],
+                windowOnly);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .UnsupportedCapability,
+            unsupported.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Top,
+            unsupported.RequestKind);
+    }
+
     private static CliRowSelectionRouteEnvelopeResult Evaluate(
         string[] arguments,
         params CandidateFixture[] candidates) =>
@@ -659,16 +692,21 @@ public sealed class CliRowSelectionRouterPreflightTests
             string? childName = null,
             RowDeclarations childDeclarations =
                 RowDeclarations.None,
-            string? extraOptionName = null)
+            string? extraOptionName = null,
+            bool omitTopOrderBindings = false)
         {
             Option<string[]> limit =
                 RowValueOption("-n");
             Option<string[]> rows =
                 RowValueOption("--rows");
-            Option<string[]> top =
-                RowValueOption("--top");
-            Option<string[]> orderBy =
-                RowValueOption("--order-by");
+            Option<string[]>? top =
+                omitTopOrderBindings
+                    ? null
+                    : RowValueOption("--top");
+            Option<string[]>? orderBy =
+                omitTopOrderBindings
+                    ? null
+                    : RowValueOption("--order-by");
             Option<bool> head =
                 ModifierOption("--head");
             Option<bool> tail =
@@ -696,16 +734,22 @@ public sealed class CliRowSelectionRouterPreflightTests
                 declarations,
                 RowDeclarations.Rows,
                 rows);
-            Add(
-                command,
-                declarations,
-                RowDeclarations.Top,
-                top);
-            Add(
-                command,
-                declarations,
-                RowDeclarations.OrderBy,
-                orderBy);
+            if (top is not null)
+            {
+                Add(
+                    command,
+                    declarations,
+                    RowDeclarations.Top,
+                    top);
+            }
+            if (orderBy is not null)
+            {
+                Add(
+                    command,
+                    declarations,
+                    RowDeclarations.OrderBy,
+                    orderBy);
+            }
             Add(
                 command,
                 declarations,
@@ -756,12 +800,18 @@ public sealed class CliRowSelectionRouterPreflightTests
                 if ((childDeclarations
                         & RowDeclarations.Top) != 0)
                 {
-                    top.Recursive = true;
+                    if (top is not null)
+                    {
+                        top.Recursive = true;
+                    }
                 }
                 if ((childDeclarations
                         & RowDeclarations.OrderBy) != 0)
                 {
-                    orderBy.Recursive = true;
+                    if (orderBy is not null)
+                    {
+                        orderBy.Recursive = true;
+                    }
                 }
                 if ((childDeclarations
                         & RowDeclarations.Head) != 0)
