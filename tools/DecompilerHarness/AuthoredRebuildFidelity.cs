@@ -1121,6 +1121,8 @@ static class AuthoredRebuildFidelity
             throw new IOException(
                 storeFailure switch
                 {
+                    PortablePdbStoreFailureKind.ReadFailed =>
+                        "The PDB store could not read cached Portable PDB content.",
                     PortablePdbStoreFailureKind.InvalidCachedContent =>
                         "The PDB store returned malformed or mismatched cached content.",
                     PortablePdbStoreFailureKind.PublicationNotRetained =>

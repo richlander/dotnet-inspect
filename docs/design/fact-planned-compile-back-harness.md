@@ -828,6 +828,11 @@ the same failure when the requested document's conformant key is rejected in a
 partially usable map, while
 `SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` keeps a resolved
 SourceLink URL's HTTP 404 as definitive document absence.
+`MetadataSourceFindingsTests.SourceDocumentComparison_ReportsResolutionStatusChanges`
+keeps a document's SourceLink resolution state in comparison evidence, while
+`AuthoredRebuildFidelityTests.SourceCorrespondenceAcquisition_UsesCanonicalDocumentPath`
+projects the canonical PDB document path rather than a provider URL whose query
+may contain provider-specific routing data.
 `AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` separates
 valid sibling Portable PDB identities from malformed symbol-package candidates,
 and `AcquirePdbAsync_RejectedDownloadIsNotPublished` plus

@@ -10,6 +10,12 @@ public partial class SymbolPackageDownloader
         bool WindowsPdbDetected,
         PortablePdbStoreFailureKind? StoreFailure = null);
 
+    private readonly record struct StoredPdbProbe(
+        bool Portable,
+        bool Windows,
+        bool Rejected,
+        PortablePdbStoreFailureKind? StoreFailure = null);
+
     private PdbProbeResult Acquired(
         string cacheKey,
         string symbolServer,
@@ -46,7 +52,7 @@ public partial class SymbolPackageDownloader
         return (matches, false, !matches);
     }
 
-    private async Task<(bool Portable, bool Windows, bool Rejected)> ClassifyStoredPdbAsync(
+    private async Task<StoredPdbProbe> ClassifyStoredPdbAsync(
         string cacheKey,
         Guid expectedGuid,
         uint? expectedStamp,
@@ -57,27 +63,100 @@ public partial class SymbolPackageDownloader
         Stream? stream;
         try
         {
-            stream = await _pdbStore.TryOpenAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+            stream =
+                await _pdbStore.TryOpenAsync(
+                    cacheKey,
+                    cancellationToken).ConfigureAwait(false);
         }
         catch (ArgumentException)
         {
             // An untrusted assembly/PDB name can produce a key the store rejects;
             // that simply means nothing is (or can be) cached under it.
-            return (false, false, false);
+            return new StoredPdbProbe(false, false, false);
+        }
+        catch (PathTooLongException)
+        {
+            return new StoredPdbProbe(false, false, false);
+        }
+        catch (IOException)
+        {
+            return new StoredPdbProbe(
+                false,
+                false,
+                false,
+                PortablePdbStoreFailureKind.ReadFailed);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new StoredPdbProbe(
+                false,
+                false,
+                false,
+                PortablePdbStoreFailureKind.ReadFailed);
         }
 
-        if (stream == null)
-            return (false, false, false);
+        if (stream is null)
+            return new StoredPdbProbe(false, false, false);
 
-        await using (stream.ConfigureAwait(false))
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            return ClassifyPdb(
-                stream,
-                expectedGuid,
-                expectedStamp,
-                expectedPortable,
-                log);
+            await using (stream.ConfigureAwait(false))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var classified = ClassifyPdb(
+                    stream,
+                    expectedGuid,
+                    expectedStamp,
+                    expectedPortable,
+                    log);
+                return new StoredPdbProbe(
+                    classified.Portable,
+                    classified.Windows,
+                    classified.Rejected);
+            }
+        }
+        catch (IOException)
+        {
+            return new StoredPdbProbe(
+                false,
+                false,
+                false,
+                PortablePdbStoreFailureKind.ReadFailed);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new StoredPdbProbe(
+                false,
+                false,
+                false,
+                PortablePdbStoreFailureKind.ReadFailed);
+        }
+    }
+
+    private async Task<PortablePdbStoreFailureKind?> PublishPdbAsync(
+        string cacheKey,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _pdbStore.PutAsync(
+                cacheKey,
+                content,
+                cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (IOException)
+        {
+            return PortablePdbStoreFailureKind.PublicationNotRetained;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return PortablePdbStoreFailureKind.PublicationNotRetained;
+        }
+        catch (ArgumentException)
+        {
+            return PortablePdbStoreFailureKind.PublicationNotRetained;
         }
     }
 

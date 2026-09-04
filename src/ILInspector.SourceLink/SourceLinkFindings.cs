@@ -398,6 +398,7 @@ public static class SourceLinkFindings
         => oldDocument.CanonicalPath == newDocument.CanonicalPath
             && oldDocument.OriginalPath == newDocument.OriginalPath
             && oldDocument.Storage == newDocument.Storage
+            && oldDocument.ResolutionStatus == newDocument.ResolutionStatus
             && oldDocument.ResolvedUrl == newDocument.ResolvedUrl
             && oldDocument.ChecksumAlgorithm == newDocument.ChecksumAlgorithm
             && oldDocument.Checksum == newDocument.Checksum;

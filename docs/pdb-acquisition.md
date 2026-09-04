@@ -315,15 +315,31 @@ gate the descriptor API shape and compatibility overload. Store read/write
 failures remain visible rather than being reported as symbol unavailability;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` and
 `PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible` gate
-the write and post-acquisition read paths. Local-path projection occurs before
-the caller-owned PDB stream is opened, so a projection failure cannot leak that
-stream;
+the write and post-acquisition read paths. A cache read failure is carried
+across providers, cleared by a later successful acquisition, and returned as a
+typed store failure only if no provider succeeds.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_CachedReadFailureContinuesToNextProvider`
+and
+`SymbolPackageDownloaderTests.AcquirePdbAsync_CachedReadFailureRecordsFinalStoreFailure`
+gate those outcomes.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`
+and
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreWriteFailureIsVisible`
+apply the same fallback and typed-boundary contract to publication failures.
+Local-path projection occurs before the caller-owned PDB stream is opened, so a
+projection failure cannot leak that stream;
 `PdbAcquisitionServiceTests.PathlessParticipant_LocalPathFailurePrecedesOwnedStreamOpen`
 gates that ownership boundary. Cached and downloaded Portable PDBs
 are parsed and identity-checked before an acquired result is returned, so an
 invalid entry cannot suppress later providers;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`
 gates the fallback.
+
+Library inspection treats symbols as optional enrichment: a typed PDB-store
+failure remains visible in Signals without suppressing metadata or other
+library sections. It does not catch unrelated acquisition failures.
+`CommandExecutionTests.LibraryCommand_InvalidCachedPdbPreservesLibraryInspection`
+gates that command boundary.
 
 ## Error handling
 
@@ -356,6 +372,9 @@ remote feed. The Release gates
 `AcquirePdbAsync_RejectedDownloadIsNotPublished`,
 `AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
 `AcquirePdbAsync_InvalidCachedPdbRecordsFailure`,
+`AcquirePdbAsync_CachedReadFailureContinuesToNextProvider`,
+`AcquirePdbAsync_CachedReadFailureRecordsFinalStoreFailure`,
+`AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`,
 `AcquirePdbAsync_UnretainedDownloadRecordsFailure`,
 `AcquirePdbAsync_ReadbackStoreFailureIsVisible`,
 `AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`, and

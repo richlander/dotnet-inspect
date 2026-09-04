@@ -15,6 +15,9 @@ public record PdbDownloadResult(
 /// <summary>Why the PDB store could not provide verified content.</summary>
 public enum PortablePdbStoreFailureKind
 {
+    /// <summary>The store could not read a cached or newly published entry.</summary>
+    ReadFailed,
+
     /// <summary>A cached entry was malformed or did not match the requested identity.</summary>
     InvalidCachedContent,
 

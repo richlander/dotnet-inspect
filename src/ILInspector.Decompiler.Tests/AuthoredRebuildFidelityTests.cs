@@ -516,6 +516,40 @@ public sealed class AuthoredRebuildFidelityTests
         Assert.Contains("source fetch failed", failedAttempt.Detail, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SourceCorrespondenceAcquisition_UsesCanonicalDocumentPath()
+    {
+        var target = new ReturnToSenderSourceProbe.ProbeTarget(
+            new ReturnToSender.RequestedTarget("Sample.Widget", "M", 0),
+            ExpectedFragments: [],
+            MetadataToken: 0x06000001,
+            ParameterCount: 0);
+        var document = new SourceDocumentObservation(
+            "src/Widget.cs",
+            "/_/src/Widget.cs",
+            DocumentRowId: 1,
+            SourceDocumentStorage.SourceLink,
+            "https://dev.azure.com/example/items?scopePath=/src/Widget.cs&versionDescriptor.version=abc",
+            "SHA256",
+            "01");
+        var inspection = new PdbMemberSourceInspection(
+            new FindingInspection<string>(
+                new FindingInspection<string>.Absent(
+                    FindingInspectionAbsenceKind.NoApplicableInput,
+                    "no source mapping")),
+            Text: null,
+            Mapping: null,
+            Document: document,
+            ChecksumVerification: null);
+
+        ReturnToSenderSourceProbe.SourceAcquisitionAttempt attempt =
+            ReturnToSenderSourceProbe.CreateSourceAcquisition(
+                target,
+                inspection);
+
+        Assert.Equal("src/Widget.cs", attempt.SourcePath);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, false, "No matching portable PDB")]
     [InlineData(HttpStatusCode.InternalServerError, true, "sources did not answer")]
@@ -614,7 +648,7 @@ public sealed class AuthoredRebuildFidelityTests
                 SourceAcquisitionOutcome.Failed,
                 result.SourceAcquisition);
             Assert.Contains(
-                "not writable",
+                "PDB store did not retain",
                 result.SourceAcquisitionDetail,
                 StringComparison.OrdinalIgnoreCase);
         }

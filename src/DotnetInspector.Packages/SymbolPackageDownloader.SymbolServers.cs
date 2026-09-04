@@ -43,10 +43,12 @@ public partial class SymbolPackageDownloader
         }
         if (cached.Windows)
             windowsPdbDetected = true;
-        PortablePdbStoreFailureKind? storeFailure = cached.Rejected
-            ? PortablePdbStoreFailureKind.InvalidCachedContent
-            : null;
-        if (storeFailure is not null)
+        PortablePdbStoreFailureKind? storeFailure = cached.StoreFailure;
+        if (cached.Rejected)
+            storeFailure ??= PortablePdbStoreFailureKind.InvalidCachedContent;
+        if (cached.StoreFailure is not null)
+            log?.Invoke("The PDB store could not read the cached MSDL entry");
+        else if (cached.Rejected)
             log?.Invoke("Cached PDB from MSDL is invalid or mismatched");
 
         if (cacheOnly)
@@ -118,10 +120,21 @@ public partial class SymbolPackageDownloader
                         pdbBytes,
                         writable: false);
                 storeOperation = true;
-                await _pdbStore.PutAsync(
-                    cacheKey,
-                    storeContent,
-                    cancellationToken).ConfigureAwait(false);
+                PortablePdbStoreFailureKind? publicationFailure =
+                    await PublishPdbAsync(
+                        cacheKey,
+                        storeContent,
+                        cancellationToken).ConfigureAwait(false);
+                if (publicationFailure is not null)
+                {
+                    storeOperation = false;
+                    log?.Invoke(
+                        "The PDB store could not publish the verified MSDL response");
+                    return new PdbProbeResult(
+                        null,
+                        windowsPdbDetected,
+                        publicationFailure);
+                }
                 var stored =
                     await ClassifyStoredPdbAsync(
                         cacheKey,
@@ -145,7 +158,8 @@ public partial class SymbolPackageDownloader
                 return new PdbProbeResult(
                     null,
                     windowsPdbDetected,
-                    PortablePdbStoreFailureKind.PublicationNotRetained);
+                    stored.StoreFailure
+                        ?? PortablePdbStoreFailureKind.PublicationNotRetained);
             }
             if (headerCheck.Windows)
             {
@@ -223,6 +237,11 @@ public partial class SymbolPackageDownloader
             }
             if (cached.Windows)
                 windowsPdbDetected = true;
+            if (cached.StoreFailure is not null)
+            {
+                storeFailure ??= cached.StoreFailure;
+                log?.Invoke($"The PDB store could not read the cached {serverHost} entry");
+            }
             if (cached.Rejected)
             {
                 storeFailure ??=
@@ -289,10 +308,19 @@ public partial class SymbolPackageDownloader
                             pdbBytes,
                             writable: false);
                     storeOperation = true;
-                    await _pdbStore.PutAsync(
-                        cacheKey,
-                        storeContent,
-                        cancellationToken).ConfigureAwait(false);
+                    PortablePdbStoreFailureKind? publicationFailure =
+                        await PublishPdbAsync(
+                            cacheKey,
+                            storeContent,
+                            cancellationToken).ConfigureAwait(false);
+                    if (publicationFailure is not null)
+                    {
+                        storeOperation = false;
+                        storeFailure ??= publicationFailure;
+                        log?.Invoke(
+                            "The PDB store could not publish the verified symbol-server response");
+                        continue;
+                    }
                     var stored =
                         await ClassifyStoredPdbAsync(
                             cacheKey,
@@ -313,7 +341,8 @@ public partial class SymbolPackageDownloader
                     }
 
                     storeFailure ??=
-                        PortablePdbStoreFailureKind.PublicationNotRetained;
+                        stored.StoreFailure
+                        ?? PortablePdbStoreFailureKind.PublicationNotRetained;
                     log?.Invoke(
                         "The PDB store did not retain the verified symbol-server response");
                     continue;

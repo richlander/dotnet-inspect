@@ -503,8 +503,7 @@ static partial class ReturnToSenderSourceProbe
         ArgumentNullException.ThrowIfNull(target);
         ArgumentNullException.ThrowIfNull(authored);
 
-        string? sourcePath = authored.Document?.ResolvedUrl
-            ?? authored.Document?.CanonicalPath
+        string? sourcePath = authored.Document?.CanonicalPath
             ?? authored.Mapping?.CanonicalPath;
 
         if (authored.Lines.Value is FindingInspection<string>.Absent absent)

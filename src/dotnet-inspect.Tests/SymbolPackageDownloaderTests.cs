@@ -966,15 +966,21 @@ public class SymbolPackageDownloaderTests : IDisposable
                 client,
                 new ThrowingPutPdbStore());
 
-        await Assert.ThrowsAsync<IOException>(
-            () => downloader.AcquirePdbAsync(
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
                 guid,
                 pdbAge: 1,
                 pdbFileName: "Failure.pdb",
                 isPortable: true,
                 isPlatformAssembly: true,
                 cancellationToken:
-                    TestContext.Current.CancellationToken));
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.PublicationNotRetained,
+            unavailable.StoreFailure);
     }
 
     [Fact]
@@ -1040,21 +1046,84 @@ public class SymbolPackageDownloaderTests : IDisposable
                 client,
                 new ThrowingReadbackPdbStore());
 
-        IOException exception =
-            await Assert.ThrowsAsync<IOException>(
-                () => downloader.AcquirePdbAsync(
-                    guid,
-                    pdbAge: 1,
-                    pdbFileName: "Failure.pdb",
-                    isPortable: true,
-                    isPlatformAssembly: true,
-                    cancellationToken:
-                        TestContext.Current.CancellationToken));
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Failure.pdb",
+                isPortable: true,
+                isPlatformAssembly: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
 
-        Assert.Contains(
-            "Injected read-back failure",
-            exception.Message,
-            StringComparison.Ordinal);
+        var unavailable =
+            Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.ReadFailed,
+            unavailable.StoreFailure);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_CachedReadFailureContinuesToNextProvider()
+    {
+        var guid =
+            Guid.Parse(
+                "71812222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var handler = new CountingHandler(request =>
+            request.RequestUri?.Host == "msdl.microsoft.com"
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(pdbBytes),
+                }
+                : new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new FirstProviderReadFailurePdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(result);
+        Assert.Equal("msdl.microsoft.com", acquired.Pdb.SymbolServer);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_CachedReadFailureRecordsFinalStoreFailure()
+    {
+        using var client =
+            new HttpClient(
+                new CountingHandler(
+                    _ => new HttpResponseMessage(HttpStatusCode.NotFound)));
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new FirstProviderReadFailurePdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                Guid.NewGuid(),
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var unavailable =
+            Assert.IsType<PortablePdbAcquisitionResult.Unavailable>(result);
+        Assert.Equal(
+            PortablePdbStoreFailureKind.ReadFailed,
+            unavailable.StoreFailure);
     }
 
     [Fact]
@@ -1095,6 +1164,41 @@ public class SymbolPackageDownloaderTests : IDisposable
             acquired.Pdb.SymbolServer);
         Assert.Null(acquired.StoreFailure);
         Assert.Empty(failures.Failures);
+    }
+
+    [Fact]
+    public async Task AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider()
+    {
+        var guid =
+            Guid.Parse(
+                "81812222-3333-4444-5555-666677778888");
+        var (pdbBytes, _) =
+            SnupkgPdbReaderTests.BuildPortablePdb(guid);
+        var handler = new CountingHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(pdbBytes),
+            });
+        using var client = new HttpClient(handler);
+        var downloader =
+            new SymbolPackageDownloader(
+                client,
+                new ThrowFirstPutPdbStore());
+
+        PortablePdbAcquisitionResult result =
+            await downloader.AcquirePdbAsync(
+                guid,
+                pdbAge: 1,
+                pdbFileName: "Provider.pdb",
+                isPortable: true,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        var acquired =
+            Assert.IsType<PortablePdbAcquisitionResult.Acquired>(result);
+        Assert.Equal(
+            "msdl.microsoft.com",
+            acquired.Pdb.SymbolServer);
     }
 
     [Fact]
@@ -1342,6 +1446,53 @@ public class SymbolPackageDownloaderTests : IDisposable
             => Interlocked.Increment(ref _putCount) == 1
                 ? ValueTask.CompletedTask
                 : _inner.PutAsync(key, content, cancellationToken);
+
+        public string? TryGetLocalPath(string key)
+            => _inner.TryGetLocalPath(key);
+    }
+
+    private sealed class ThrowFirstPutPdbStore : IPdbStore
+    {
+        private readonly InMemoryPdbStore _inner = new();
+        private int _putCount;
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+            => _inner.TryOpenAsync(key, cancellationToken);
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+            => Interlocked.Increment(ref _putCount) == 1
+                ? ValueTask.FromException(
+                    new IOException("Injected publication failure."))
+                : _inner.PutAsync(key, content, cancellationToken);
+
+        public string? TryGetLocalPath(string key)
+            => _inner.TryGetLocalPath(key);
+    }
+
+    private sealed class FirstProviderReadFailurePdbStore : IPdbStore
+    {
+        private readonly InMemoryPdbStore _inner = new();
+
+        public ValueTask<Stream?> TryOpenAsync(
+            string key,
+            CancellationToken cancellationToken = default)
+            => key.Contains(
+                "servers/symbols.nuget.org/",
+                StringComparison.Ordinal)
+                    ? ValueTask.FromException<Stream?>(
+                        new IOException("Injected cache read failure."))
+                    : _inner.TryOpenAsync(key, cancellationToken);
+
+        public ValueTask PutAsync(
+            string key,
+            Stream content,
+            CancellationToken cancellationToken = default)
+            => _inner.PutAsync(key, content, cancellationToken);
 
         public string? TryGetLocalPath(string key)
             => _inner.TryGetLocalPath(key);
