@@ -650,15 +650,19 @@ permit later settlement or acknowledgment to drain naturally but do not renew
 task-loop evidence. The host dispatches every Worker source event through one
 epoch-local FIFO, including decoded envelopes, structural decode failures, and
 browser `error` and `messageerror` events. An event received reentrantly during
-response, terminal, diagnostic, or quiescence callbacks joins the same queue
-behind every earlier arrival and cannot start a nested drain. Physical browser
-crash is the sole destruction override and does not wait behind the FIFO. This
-serialization preserves
-cross-operation multiplexing, prevents a same-record settlement or
+response, terminal, diagnostic, progress, or quiescence callbacks joins the
+same queue behind every earlier arrival and cannot start a nested drain.
+Data-derived decode facts are captured when the event arrives; phase-dependent
+startup versus post-readiness classification is selected when that FIFO item
+dispatches. Physical browser crash is the sole destruction override and does
+not wait behind the FIFO. This serialization preserves cross-operation
+multiplexing, prevents a same-record settlement or
 cancellation acknowledgment from being rejected against the record's
 pre-response phase, and prevents a later probe acknowledgment from overtaking
-an earlier command response. If hard termination revokes the source before
-dispatch, destruction supersedes the queued physical evidence. A matching
+an earlier command response. A reentrant restart or disposal request with
+earlier queued source events appends one cutoff marker: those earlier events
+dispatch first, then the cutoff revokes later queued source authority and hard
+terminates the epoch. A matching
 acknowledgment or other register retirement
 discharges every mark for that probe; it cannot accuse a response that arrives
 after the register has moved to a later probe. This proof uses local posting
@@ -944,14 +948,16 @@ a callback diagnostic. A detach failure does not block release when either
 destruction proof exists.
 
 If hard termination is requested reentrantly from a producer-sink callout,
-steps 1-3 remain immediate, but operation quiescence, record release, and realm
-release wait until the outermost epoch producer callout returns and the
-enclosing closure-publication transition completes. For unexpected closure,
-that transition includes publishing every committed operation outcome and the
-one runtime failure, so the old epoch's `realmReleased` callback cannot precede
-its runtime failure callback. The host counts producer callback lifetime around
-every sink invocation, including terminal, diagnostic, progress, cancellation,
-and quiescence publication.
+steps 1-3 remain immediate unless an ordinary current-source event has already
+arrived behind the event being dispatched. In that case restart or disposal
+appends the cutoff behind the earlier arrival. Operation quiescence, record
+release, and realm release wait until the outermost epoch producer callout
+returns and the enclosing closure-publication transition completes. For
+unexpected closure, that transition includes publishing every committed
+operation outcome and the one runtime failure, so the old epoch's
+`realmReleased` callback cannot precede its runtime failure callback. The host
+counts producer callback lifetime around every sink invocation, including
+terminal, diagnostic, progress, cancellation, and quiescence publication.
 
 No worker message or managed callback can be delivered through this host after
 revocation. Realm release claims that worker code and operation-scoped
@@ -1114,8 +1120,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   another differently typed kind remains live;
 - preparation, abandonment, activation, held starts, sequence-order readiness
   flush without warm-start overtaking, synchronous `Accepted` delivery from an
-  emitted held start during that flush, startup-budget completion at matching
-  readiness before synchronous flush work, held cancellation,
+  emitted held start during that flush, repeated response-driven yields
+  resuming every remaining held start in sequence, startup-budget completion at
+  matching readiness before synchronous flush work, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
   failure without posting `Start`, including cross-session preparation
@@ -1170,7 +1177,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   nested cross-operation response replay preserving FIFO order, a probe
   acknowledgment unable to overtake an earlier acceptance, and malformed data
   plus browser `error` and `messageerror` events unable to overtake an earlier
-  reentrant progress callback;
+  reentrant progress callback or be erased by a later reentrant restart or
+  disposal cutoff;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded

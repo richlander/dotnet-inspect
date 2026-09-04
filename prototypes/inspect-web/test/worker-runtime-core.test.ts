@@ -1369,6 +1369,56 @@ test("readiness flush accepts a synchronous response to an emitted held start", 
   await handle.quiesced;
 });
 
+test("readiness flush resumes held starts in order after every response yield", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "accepted",
+    synchronousAccepted: true,
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const page = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `yielded-flush-${id++}`;
+      })(),
+    },
+  });
+  const handles = Array.from({ length: 4 }, (_, index) => {
+    const operationSession = session(harness.adapter, page);
+    return started(
+      operationSession.session.start(`input-${index}`, harness.adapter),
+    );
+  });
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  const starts = harness.workers[0]!.receivedMessages.flatMap(message => {
+    if (typeof message !== "object" || message === null) return [];
+    return ownDataProperty(message, "kind") === "start"
+      ? [ownDataProperty(message, "operation")]
+      : [];
+  });
+  assert.deepEqual(starts, [
+    { operationId: "yielded-flush-1", operationSequence: 1 },
+    { operationId: "yielded-flush-2", operationSequence: 2 },
+    { operationId: "yielded-flush-3", operationSequence: 3 },
+    { operationId: "yielded-flush-4", operationSequence: 4 },
+  ]);
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.host.snapshot().heldOperations, 0);
+  assert.equal(harness.host.snapshot().activeOperations, 4);
+
+  settlement.resolve({ kind: "succeeded", value: "output" });
+  await harness.environment.flushAsync();
+  await Promise.all(handles.map(handle => handle.quiesced));
+});
+
 test("readiness-flush allowance mismatch drains through later settlement", async () => {
   const bootstrap = deferred<void>();
   const settlement = deferred<TestSettlement>();
@@ -3484,7 +3534,7 @@ test("operation response replay preserves FIFO across nested callbacks", async (
   await thirdHandle.quiesced;
 });
 
-for (const sourceFailure of [
+const sourceFailureScenarios = [
   {
     name: "malformed current-source data",
     kind: "protocol",
@@ -3506,7 +3556,9 @@ for (const sourceFailure of [
       worker.emitMessageError("worker messageerror");
     },
   },
-] as const) {
+] as const;
+
+for (const sourceFailure of sourceFailureScenarios) {
   test(`${sourceFailure.name} follows an earlier reentrant progress callback through the source-event FIFO`, async () => {
     const settlement = deferred<TestSettlement>();
     const order: string[] = [];
@@ -3571,6 +3623,73 @@ for (const sourceFailure of [
     assert.deepEqual(harness.releasedEpochs, [1]);
     assert.equal(quiesced, true);
   });
+}
+
+for (const sourceFailure of sourceFailureScenarios) {
+  for (const cutoff of [
+    {
+      name: "restart",
+      apply: (harness: TestHarness) => {
+        harness.host.restart();
+      },
+    },
+    {
+      name: "disposal",
+      apply: (harness: TestHarness) => {
+        harness.host.dispose();
+      },
+    },
+  ] as const) {
+    test(`${sourceFailure.name} precedes later reentrant ${cutoff.name}`, async () => {
+      const settlement = deferred<TestSettlement>();
+      let harness: TestHarness;
+      harness = createHarness({
+        invoke: () => settlement.promise,
+      });
+      await startReady(harness);
+      const identity = captureIdentity();
+      const sink: OperationProducerSink<string, string, string> = {
+        reportProgress: () => {
+          sourceFailure.send(harness.workers[0]!);
+          cutoff.apply(harness);
+          return undefined;
+        },
+        reportDurable: () => undefined,
+        reportUnexpectedTerminal: () => undefined,
+        reportUnexpectedFailure: () => undefined,
+        ...terminalCallbacks<string, string>(() => undefined),
+        reportQuiesced: () => undefined,
+      };
+      preparedBinding(
+        harness.adapter.prepare(identity, "input", sink),
+      ).activate();
+      await harness.environment.flushAsync();
+
+      harness.workers[0]!.emitRaw(workerEnvelope(1, {
+        kind: "progress",
+        operation: {
+          operationId: identity.id,
+          operationSequence: identity.sequence,
+        },
+        payload: "progress",
+      }));
+
+      assert.equal(harness.failures[0]?.kind, sourceFailure.kind);
+      assert.deepEqual(harness.host.snapshot().closure, {
+        kind: "unexpected-failure",
+        failure: {
+          kind: sourceFailure.kind,
+          diagnostic: {
+            code: sourceFailure.kind,
+            detail: harness.failures[0]?.diagnostic.detail,
+          },
+        },
+      });
+      assert.equal(harness.host.snapshot().phase, "closed");
+      assert.equal(harness.workers[0]!.terminateCount, 1);
+      assert.deepEqual(harness.releasedEpochs, [1]);
+    });
+  }
 }
 
 test("deferred control coverage dispatches after an older probe retires", async () => {

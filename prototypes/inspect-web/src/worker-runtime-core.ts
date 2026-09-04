@@ -272,12 +272,15 @@ type PendingWorkerSourceEvent =
     }
   | {
       readonly kind: "decode-failure";
-      readonly data: unknown;
       readonly failure: WorkerEnvelopeDecodeFailure;
+      readonly mismatchedReadyEcho: boolean;
     }
   | {
       readonly kind: "worker-message";
       readonly diagnostic: unknown;
+    }
+  | {
+      readonly kind: "restart-cutoff";
     };
 
 type WorkerPostResult =
@@ -976,6 +979,15 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   restart(): void {
     const epoch = this.#current;
     if (epoch === null || epoch.phase === "closed") return;
+    if (epoch.sourceEventDispatchActive
+      && epoch.pendingSourceEvents.length > 0) {
+      if (!epoch.pendingSourceEvents.some(
+        event => event.kind === "restart-cutoff",
+      )) {
+        epoch.pendingSourceEvents.push({ kind: "restart-cutoff" });
+      }
+      return;
+    }
     this.#commitClosure(epoch, {
       kind: "planned-restart",
       reason: "worker-restarted",
@@ -998,8 +1010,12 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (decoded.kind === "failure") {
       this.#enqueueSourceEvent(epoch, {
         kind: "decode-failure",
-        data,
         failure: decoded.failure,
+        mismatchedReadyEcho: hasMismatchedReadyEcho(
+          data,
+          epoch.token,
+          this.#options.idleHeartbeatIntervalMilliseconds,
+        ),
       });
       return;
     }
@@ -1017,22 +1033,19 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     this.#drainSourceEvents(epoch);
   }
 
-  #hasPendingSourceFailure(
-    epoch: MainEpoch<TDiagnostic>,
-  ): boolean {
-    return epoch.pendingSourceEvents.some(event => event.kind !== "envelope");
-  }
-
   #dispatchSourceEvent(
     epoch: MainEpoch<TDiagnostic>,
     event: PendingWorkerSourceEvent,
   ): void {
+    if (event.kind === "restart-cutoff") {
+      this.#commitClosure(epoch, {
+        kind: "planned-restart",
+        reason: "worker-restarted",
+      }, true);
+      return;
+    }
     if (event.kind === "decode-failure") {
-      if (epoch.phase === "starting" && hasMismatchedReadyEcho(
-        event.data,
-        epoch.token,
-        this.#options.idleHeartbeatIntervalMilliseconds,
-      )) {
+      if (epoch.phase === "starting" && event.mismatchedReadyEcho) {
         this.#fail(epoch, "startup", event.failure, true);
       } else {
         this.#protocolFailure(epoch, event.failure);
@@ -1071,8 +1084,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         && epoch.phase !== "closed"
         && this.#current === epoch) {
         const event = epoch.pendingSourceEvents.shift();
-        if (event !== undefined)
+        if (event !== undefined) {
           this.#dispatchSourceEvent(epoch, event);
+          if (epoch.phase === "flushing"
+            && epoch.pendingSourceEvents.length === 0) {
+            this.#continueReadinessFlush(epoch);
+          }
+        }
       }
     } finally {
       epoch.sourceEventDispatchActive = false;
@@ -1718,20 +1736,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         return;
       }
       epoch.phase = "flushing";
-      while (epoch.held.length > 0
-        && epoch.phase === "flushing"
-        && !this.#hasPendingSourceFailure(epoch)) {
-        const record = epoch.held.shift();
-        if (record !== undefined) this.#postStart(epoch, record);
-      }
-      if (epoch.phase !== "flushing"
-        || this.#hasPendingSourceFailure(epoch)) {
-        return;
-      }
-      epoch.phase = "ready";
-      epoch.lastTaskEvidenceOrigin = this.#options.clock.now();
-      epoch.watchdogStageOrigin = null;
-      epoch.hadUnboundedAllowance = this.#currentAllowance(epoch) === null;
+      this.#continueReadinessFlush(epoch);
       return;
     }
     if (envelope.kind === "startup-failed") {
@@ -1747,6 +1752,23 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     this.#fail(epoch, "protocol", envelope, true);
+  }
+
+  #continueReadinessFlush(
+    epoch: MainEpoch<TDiagnostic>,
+  ): void {
+    if (!epoch.sourceEventDispatchActive)
+      throw new Error("Readiness flush requires active source-event dispatch.");
+    while (epoch.held.length > 0 && epoch.phase === "flushing") {
+      const record = epoch.held.shift();
+      if (record !== undefined) this.#postStart(epoch, record);
+      if (epoch.pendingSourceEvents.length > 0) return;
+    }
+    if (epoch.phase !== "flushing") return;
+    epoch.phase = "ready";
+    epoch.lastTaskEvidenceOrigin = this.#options.clock.now();
+    epoch.watchdogStageOrigin = null;
+    epoch.hadUnboundedAllowance = this.#currentAllowance(epoch) === null;
   }
 
   #receiveReady(
