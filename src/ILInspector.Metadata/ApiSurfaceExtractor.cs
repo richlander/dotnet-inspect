@@ -4707,6 +4707,14 @@ public static class ApiSurfaceExtractor
                 provider,
                 context,
                 beforeRetainText);
+            if (!handle.IsNil)
+            {
+                accessor.IsReadOnly = AttributeReader.HasAttribute(
+                    reader,
+                    reader.GetMethodDefinition(handle).GetCustomAttributes(),
+                    KnownAttributeNames.IsReadOnlyAttribute,
+                    beforeDecodeWork);
+            }
         }
     }
 

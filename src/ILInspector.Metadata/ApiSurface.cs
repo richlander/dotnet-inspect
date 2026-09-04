@@ -673,6 +673,8 @@ public class ApiAccessor
     public string Kind { get; set; } = "";
     public string? Accessibility { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsReadOnly { get; set; }
 
     /// <summary>
     /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;

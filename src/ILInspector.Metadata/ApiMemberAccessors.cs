@@ -133,6 +133,8 @@ public static class ApiMemberAccessors
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
+            IsReadOnly = accessorEntry?.IsReadOnly == true
+                || owner.IsReadOnly,
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };

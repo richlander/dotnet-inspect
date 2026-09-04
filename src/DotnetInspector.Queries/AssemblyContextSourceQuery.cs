@@ -1071,6 +1071,7 @@ public static class AssemblyContextSourceQuery
             source = context.AllowAdjacentPdbReads
                 ? SourceLinkService.Open(
                     retained,
+                    readLimits,
                     context.Log,
                     context.SourceLinkCache)
                 : SourceLinkService.OpenEmbeddedPdbOnly(

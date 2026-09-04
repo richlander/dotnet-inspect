@@ -11296,6 +11296,38 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceDiff_ReadonlyAccessorPreservesPhysicalModifier()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            "ILInspector.Decompiler.Tests.TargetTypedNewFixtures+Box",
+            "Value:1",
+            "--library",
+            Path.Combine(
+                CommandErrorOwnershipTests.RepositoryRoot(),
+                "artifacts",
+                "bin",
+                "ILInspector.Decompiler.Tests",
+                "release",
+                "ILInspector.Decompiler.Tests.dll"),
+            "--all",
+            "-S",
+            "Source Diff",
+            "-v:d",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "+public readonly int get_Value()",
+            output);
+        Assert.DoesNotContain(
+            "+public int get_Value()",
+            output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
     {
         var (exit, output, error) = await RunAppAsync(

@@ -323,6 +323,24 @@ public sealed class SourceLinkService : IDisposable
         ISourceLinkIndexCache? cache = null)
         => new(PdbContext.Open(assembly, log), cache ?? DefaultCache, log);
 
+    public static SourceLinkService Open(
+        ResolvedAssemblyReference assembly,
+        SourceLinkReadLimits limits,
+        Action<string>? log = null,
+        ISourceLinkIndexCache? cache = null)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        return new(
+            PdbContext.Open(
+                assembly,
+                limits.MaxEmbeddedPdbBytes,
+                log,
+                limits.EmbeddedPdbBudget),
+            cache ?? DefaultCache,
+            log,
+            limits);
+    }
+
     public static SourceLinkService OpenPrefetched(
         string assemblyPath,
         Action<string>? log = null)

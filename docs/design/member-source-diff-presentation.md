@@ -279,6 +279,10 @@ artifact. This duplication is accepted because the artifacts have different
 contracts and the comparison result retains no borrowed decompiler IR that
 could safely substitute for them.
 
+The CLI's explicit adjacent-PDB capability does not weaken host-owned symbol
+resource limits. Embedded-PDB expansion remains bounded by the same configured
+limits whether adjacent discovery is enabled or disabled.
+
 The CLI preserves:
 
 - explicit Source Diff selection and current verbosity behavior;
@@ -390,6 +394,7 @@ Release CLI tests prove:
 - an explicit property's qualified interface identity comes from its
   MethodSemantics-associated PropertyDef, including interface or namespace
   segments that themselves begin with `get_` or `set_`;
+- projected accessors retain physical MethodDef modifiers such as `readonly`;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - co-selecting Source Diff with a decompiler-backed section preserves that
