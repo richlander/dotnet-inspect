@@ -2344,7 +2344,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded \|\| !catalogSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /async function loadPackageFromSpotlight[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*await loadPackage\([\s\S]*if \(loaded \|\| !workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
   assert.match(
     appSource,
     /async function openPlatformLibrary[\s\S]*const navigationGeneration = scopeOnly \? null : beginSpotlightNavigation\(\);\s*const focusGeneration = documentFocusGeneration;[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(navigationGeneration, focusGeneration\)/);
@@ -2951,8 +2951,14 @@ test("loaded-package Spotlight selection resets type-specific member filters", (
   const selection =
     appSource.match(/function pickSpotlightLoadedPackage\([\s\S]*?\n}\n\nasync function pickSpotlightMember/)?.[0]
     ?? "";
+  const application =
+    appSource.match(/function applyLoadedWorkspacePackage\([\s\S]*?\n}\n\nfunction removeWorkspacePackageByKey/)?.[0]
+    ?? "";
   assert.match(
     selection,
+    /applyLoadedWorkspacePackage\(target, workspaceDisposition\)/);
+  assert.match(
+    application,
     /state\.selectedTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
 });
 
@@ -3038,19 +3044,19 @@ test("home demos restore the complete parsed location", () => {
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(deep\)/);
 });
 
-test("catalog package acquisition failure restores warm and cold workspaces locally", () => {
+test("Workspace package acquisition failure restores every Workspace projection locally", () => {
   const spotlightPackageLoad =
     appSource.match(/async function loadPackageFromSpotlight\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     spotlightPackageLoad,
-    /const openedFromProductDemos =\s*isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
+    /const preserveWorkspace =\s*workspaceDisposition === "add" \|\| scope\(\) === "workspace";[\s\S]*const workspaceSnapshot = preserveWorkspace\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
   assert.match(
     spotlightPackageLoad,
-    /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => loadPackageFromSpotlight\([\s\S]*workspaceDisposition\),\s*workspaceDisposition === "add"\s*\? \(\) => restoreWorkspaceFocus\(document, \{ kind: "add" \}\)\s*: focusWorkbenchSearchOrHeading,/);
+    /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*workspaceSnapshot,\s*\(\) => loadPackageFromSpotlight\([\s\S]*workspaceDisposition\),\s*workspaceDisposition === "add"\s*\? \(\) => restoreWorkspaceFocus\(document, \{ kind: "add" \}\)\s*: focusWorkbenchSearchOrHeading,/);
   assert.match(
     spotlightPackageLoad,
-    /if \(loaded \|\| !catalogSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
+    /if \(loaded \|\| !workspaceSnapshot\)\s*focusTypeList\(navigationGeneration, focusGeneration\)/);
 
   const catalogFailure =
     appSource.match(/function failWorkspaceCatalogAction\([\s\S]*?\n}/)?.[0]
@@ -3203,7 +3209,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /@media \(max-width: 860px\) \{\s*body\.package-query-route \{ min-width: 0; \}/);
   assert.match(
     handoff,
-    /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*navigationSeq,[\s\S]*workspaceDisposition: packageQueryWorkspaceDisposition,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*packageQueryWorkspaceDisposition = "replace";\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /const retained = retainedPackageForSelection\(packageId, version\);[\s\S]*packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*if \(retained\) \{\s*applyLoadedWorkspacePackage\([\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\);[\s\S]*return;[\s\S]*await loadPackage\([\s\S]*navigationSeq,[\s\S]*workspaceDisposition: packageQueryWorkspaceDisposition,[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*packageQueryWorkspaceDisposition = "replace";\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     syncUrl,
     /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
@@ -6192,6 +6198,12 @@ test("Workspace package editing distinguishes Open, Add, Remove, and Clear", () 
   const clear =
     appSource.match(/function clearWorkspaceEditor\([\s\S]*?\n}\n\nfunction resetLocationFilters/)?.[0]
     ?? "";
+  const spotlightLoad =
+    appSource.match(/async function loadPackageFromSpotlight\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  const queryHandoff =
+    appSource.match(/async function openPackageQueryRow\([\s\S]*?\n}\n\nconst packageQueryActions/)?.[0]
+    ?? "";
 
   assert.match(
     appSource,
@@ -6204,7 +6216,13 @@ test("Workspace package editing distinguishes Open, Add, Remove, and Clear", () 
     /allowWorkspaceEviction: options\.workspaceDisposition !== "add",[\s\S]*if \(options\.workspaceDisposition === "replace"\)\s*replaceWorkspacePackagesWith\(packageModel\);/);
   assert.match(
     appSource,
-    /function retainPackageModel\([\s\S]*allowWorkspaceEviction = true,[\s\S]*if \(!allowWorkspaceEviction && retained\.evicted\.length > 0\) \{\s*throw new Error\([\s\S]*Remove one before adding another/);
+    /function retainPackageModel\([\s\S]*allowWorkspaceEviction = true,[\s\S]*if \(!allowWorkspaceEviction && retained\.evicted\.length > 0\) \{\s*throw new Error\(workspaceCapacityMessage\(\)\)/);
+  assert.match(
+    spotlightLoad,
+    /const retained = retainedPackageForSelection\(id, version, framework\);[\s\S]*if \(retained\) \{\s*pickSpotlightLoadedPackage\(retained, workspaceDisposition\);[\s\S]*workspaceDisposition === "add"[\s\S]*state\.packages\.length >= MAX_WORKSPACE_PACKAGES[\s\S]*spotlight\.reset\(\);[\s\S]*appendQueryNotice\(workspaceCapacityMessage\(\)\);[\s\S]*render\(\);[\s\S]*return;[\s\S]*const navigationGeneration = beginSpotlightNavigation\(\);[\s\S]*const loaded = await loadPackage/);
+  assert.match(
+    queryHandoff,
+    /const retained = retainedPackageForSelection\(packageId, version\);[\s\S]*!retained[\s\S]*packageQueryWorkspaceDisposition === "add"[\s\S]*state\.packages\.length >= MAX_WORKSPACE_PACKAGES[\s\S]*state\.packageQueryNavigationError = workspaceCapacityMessage\(\);[\s\S]*return;[\s\S]*if \(retained\) \{[\s\S]*applyLoadedWorkspacePackage\([\s\S]*return;[\s\S]*const loaded = await loadPackage/);
   assert.match(
     removal,
     /state\.packages\.find\(candidate =>\s*packageIdentityKey\(candidate\) === packageKey\)[\s\S]*removeWorkspacePackage\(\s*state\.packages,\s*state\.package,\s*packageKey\)[\s\S]*state\.packages = removed\.packages;[\s\S]*releasePackageModelCaches\(removed\.closed\);[\s\S]*resetWorkspaceSurfaceSelection\(\)/);

@@ -434,7 +434,10 @@ must succeed before the consumer discards every other Browser-retained
 coordinate. Workspace Add uses the same acquisition path with a retain
 disposition. Either failure preserves the complete prior Workspace and its
 address-bar projection. Selecting an already retained package applies the same
-Open-or-Add disposition without reacquisition.
+Open-or-Add disposition without reacquisition. A Package Query row names
+package ID and version rather than framework; when more than one retained
+framework matches, the active matching coordinate wins, then the first matching
+Workspace coordinate.
 
 Add opens Search in package scope. Dismissing Search returns focus to Add.
 If the package-scoped Search opens Query, Back returns focus to Add through

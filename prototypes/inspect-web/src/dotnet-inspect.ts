@@ -2210,6 +2210,26 @@ function packageIdentityEquals(
   return Boolean(left && right && packageIdentityKey(left) === packageIdentityKey(right));
 }
 
+function retainedPackageForSelection(
+  id: string,
+  version: string,
+  framework = "",
+): AppPackage | null {
+  const matches = state.packages.filter(candidate =>
+    !candidate.isRuntimePack
+    && candidate.id.toLowerCase() === id.toLowerCase()
+    && candidate.version.toLowerCase() === version.toLowerCase()
+    && (!framework
+      || candidate.activeFramework.toLowerCase() === framework.toLowerCase()));
+  return matches.find(candidate => packageIdentityEquals(candidate, state.package))
+    ?? matches[0]
+    ?? null;
+}
+
+function workspaceCapacityMessage(): string {
+  return `The Workspace already contains ${MAX_WORKSPACE_PACKAGES} packages. Remove one before adding another.`;
+}
+
 function retainPackageModel(
   packageModel: AppPackage,
   replacedPackage: AppPackage | null = null,
@@ -2222,8 +2242,7 @@ function retainPackageModel(
     packageModel,
     replacedPackage);
   if (!allowWorkspaceEviction && retained.evicted.length > 0) {
-    throw new Error(
-      `The Workspace already contains ${MAX_WORKSPACE_PACKAGES} packages. Remove one before adding another.`);
+    throw new Error(workspaceCapacityMessage());
   }
   state.packages = retained.packages;
   if (activeWasReplaced)
@@ -2283,6 +2302,23 @@ function resetWorkspaceSurfaceSelection() {
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetLocationFilters();
+  resetMemberSectionState();
+}
+
+function applyLoadedWorkspacePackage(
+  target: AppPackage,
+  workspaceDisposition: WorkspacePackageDisposition,
+) {
+  state.home = false;
+  if (workspaceDisposition === "replace")
+    replaceWorkspacePackagesWith(target);
+  activatePackage(target, { resetAccessibility: true });
+  state.atPackageRoot = true;
+  state.selectedTypeId = "";
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  resetMemberFilters();
   resetMemberSectionState();
 }
 
@@ -7184,24 +7220,38 @@ async function loadPackageFromSpotlight(
   framework = "",
   workspaceDisposition: WorkspacePackageDisposition = "replace",
 ) {
+  const retained = retainedPackageForSelection(id, version, framework);
+  if (retained) {
+    pickSpotlightLoadedPackage(retained, workspaceDisposition);
+    return;
+  }
+  if (workspaceDisposition === "add"
+    && state.packages.length >= MAX_WORKSPACE_PACKAGES) {
+    spotlight.reset();
+    appendQueryNotice(workspaceCapacityMessage());
+    render();
+    afterCurrentNavigationFrame(() =>
+      restoreWorkspaceFocus(document, { kind: "add" }));
+    return;
+  }
   const navigationGeneration = beginSpotlightNavigation();
   const focusGeneration = documentFocusGeneration;
-  const openedFromProductDemos =
-    isProductHomeDemosPath(location.pathname);
+  const preserveWorkspace =
+    workspaceDisposition === "add" || scope() === "workspace";
   spotlight.reset();
-  const catalogSnapshot = openedFromProductDemos
+  const workspaceSnapshot = preserveWorkspace
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null;
   const loaded = await loadPackage(
     id,
     version,
     framework,
-    catalogSnapshot
+    workspaceSnapshot
       ? {
           failureHandler: message =>
             failWorkspaceCatalogAction(
               message,
-              catalogSnapshot,
+              workspaceSnapshot,
               () => loadPackageFromSpotlight(
                 id,
                 version,
@@ -7214,7 +7264,7 @@ async function loadPackageFromSpotlight(
           workspaceDisposition,
         }
       : { workspaceDisposition });
-  if (loaded || !catalogSnapshot)
+  if (loaded || !workspaceSnapshot)
     focusTypeList(navigationGeneration, focusGeneration);
 }
 
@@ -7358,17 +7408,7 @@ function pickSpotlightLoadedPackage(pkg: {
       || item.activeFramework === pkg.activeFramework));
   if (!target) { closeSpotlight(); return; }
   const focusGeneration = beginSpotlightNavigation();
-  state.home = false;
-  if (workspaceDisposition === "replace")
-    replaceWorkspacePackagesWith(target);
-  activatePackage(target, { resetAccessibility: true });
-  state.atPackageRoot = true;
-  state.selectedTypeId = "";
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
-  resetMemberFilters();
-  resetMemberSectionState();
+  applyLoadedWorkspacePackage(target, workspaceDisposition);
   spotlight.reset();
   render();
   focusTypeList(focusGeneration);
@@ -8933,12 +8973,36 @@ async function openPackageQueryRow(
   packageId: string,
   version: string,
 ) {
+  const retained = retainedPackageForSelection(packageId, version);
+  if (!retained
+    && packageQueryWorkspaceDisposition === "add"
+    && state.packages.length >= MAX_WORKSPACE_PACKAGES) {
+    packageQueryAnnouncements.beginNavigationAttempt();
+    state.packageQueryNavigationError = workspaceCapacityMessage();
+    render();
+    afterCurrentNavigationFrame(() =>
+      document.querySelector<HTMLElement>(
+        `[data-query-row-open="${cssEscape(packageId)}"][data-query-row-version="${cssEscape(version)}"]`)
+        ?.focus());
+    return;
+  }
   packageQueryController.cancel();
   state.packageQueryOpen = false;
   const navigationSeq = navigationSequence.begin();
   packageQueryHandoffNavigationSeq = navigationSeq;
   state.packageQueryNavigationError = "";
   packageQueryAnnouncements.beginNavigationAttempt();
+  if (retained) {
+    applyLoadedWorkspacePackage(
+      retained,
+      packageQueryWorkspaceDisposition);
+    packageQueryHandoffNavigationSeq = null;
+    packageQueryWorkspaceDisposition = "replace";
+    workspaceLocation.push(buildStateUrl().toString());
+    render();
+    focusTypeList();
+    return;
+  }
   const loaded = await loadPackage(
     packageId,
     version,
