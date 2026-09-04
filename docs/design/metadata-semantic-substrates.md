@@ -60,7 +60,8 @@ composition owned by a consumer.
 Admission is necessary, not sufficient. It governs whether a *meaning* belongs
 in a substrate; a component publishing that meaning must additionally satisfy
 the publication contract below, which is where single-module scope,
-construction totality, bounds, and identity are stated. A component can hold an
+construction totality, bounds, identity, and per-meaning reachability are
+stated. A component can hold an
 admissible meaning and still not be a substrate — `TypeResolutionContext` is
 the clearest in-tree example, since it composes answers across assemblies,
 which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-alone).
@@ -120,34 +121,17 @@ which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-
 4. **Policy neutrality.** It publishes what the metadata asserts, not what a
    consumer should do about it. Rendering choices, fidelity trade-offs,
    severity, and recommendations belong to consumers.
-5. **Closed outcomes.** The published outcome type matches the domain in both
-   directions.
+5. **Closed outcomes.** Every reachable disposition of the meaning, including
+   failure, is expressible in the published outcome type without a consumer
+   inspecting strings or inferring meaning from absence.
 
-   *Expressibility.* Every reachable disposition, including failure, is
-   expressible without a consumer inspecting strings or inferring meaning from
-   absence.
-
-   *Reachability.* The unit is the **published meaning**, as it is throughout
-   the admission test. Every case of the outcome type used for a meaning is
-   reachable through at least one public surface publishing *that meaning*.
-   A surface whose codomain is narrower than the type it returns must either
-   return a narrower type or document the narrowing on that surface.
-
-   The unit matters, and neither neighbouring choice works. Quantifying over
-   the *component* is too weak: a component could publish two unrelated
-   families through one union type from two surfaces, document each surface's
-   subset, and satisfy both sentences — which is precisely the shared algebra
-   this requirement exists to forbid. Quantifying over each *argument* of a
-   parameterized surface is too strong: it has no fixed point, because any
-   function whose codomain narrows with its input would fail it, which
-   describes most parameterized APIs rather than a defect.
-
-   Per meaning, a shared result algebra spanning unrelated domains fails:
-   cases belonging to one meaning are unreachable from every surface
-   publishing the other, whether or not the two share a component.
-
-   The reachability half is a property of surfaces, so it is discharged when
-   the component is implemented rather than when a meaning is admitted.
+   This is assessable from a proposed result algebra, before any component
+   exists, which is what keeps the admission test decidable at admission time.
+   Its converse — that every case the algebra *declares* can actually occur —
+   is a property of public surfaces rather than of the meaning, so it is not
+   an admission condition. It is stated as **per-meaning reachability** in the
+   publication contract below and discharged when the component is
+   implemented.
 
 Requirement 3 is deliberately empirical. The inventory below records demand
 that exists, not demand a substrate might create.
@@ -178,8 +162,8 @@ Decompiler, and the substrate boundary is exactly what keeps it there.
 
 Substrates share **required distinctions**, not one shared generic result
 type. A single closed generic outcome across unrelated domains would force
-every substrate to carry cases it cannot reach, which requirement 5's
-reachability half forbids.
+every substrate to carry cases it cannot reach, which per-meaning
+reachability — stated at the end of this section — forbids.
 
 A substrate must distinguish, whenever the distinction is reachable in its
 domain:
@@ -215,6 +199,26 @@ Three rules make the distinctions usable:
   artifact.** `Malformed` asserts that the artifact is broken. A bad handle
   and an exhausted budget are facts about the request and about us; both have
   their own distinction above.
+
+**Per-meaning reachability.** Requirement 5 makes every reachable disposition
+expressible. The converse obligation belongs here, because it constrains
+surfaces rather than meanings: **every case of the outcome type used for a
+meaning must be reachable through at least one public surface publishing that
+meaning**, and a surface whose codomain is narrower than the type it returns
+must either return a narrower type or document the narrowing on that surface.
+
+The unit is the published meaning, as it is throughout the admission test, and
+neither neighbouring choice works. Quantifying over the *component* is too
+weak: one component could publish two unrelated families through a single
+union type from two surfaces, document each surface's subset, and satisfy both
+clauses — precisely the shared algebra this rule exists to forbid. Quantifying
+over each *argument* of a parameterized surface is too strong: it has no fixed
+point, because any function whose codomain narrows with its input would fail
+it, which describes most parameterized APIs rather than a defect.
+
+Per meaning, a result algebra shared across unrelated domains fails the first
+clause: cases belonging to one meaning are unreachable from every surface
+publishing the other, whether or not the two share a component.
 
 A substrate may model additional domain distinctions. It must not add a case
 whose only consumer meaning is presentational.
@@ -378,8 +382,9 @@ The precedents' reachability is **`unverified`**. Auditing it turned out to be
 an unbounded exercise in reading pre-existing code rather than a property this
 document can settle, and that audit is recorded in
 [#5754](https://github.com/richlander/dotnet-inspect/issues/5754), which owns
-it. What this document owns is the contract each new substrate must meet on
-admission.
+it. What this document owns is the contract each new substrate must meet: the
+admission test when its meaning is proposed, and the publication contract when
+the component is built.
 
 | Published meaning (component) | Reading consumer | Second demand, and its evidence |
 | --- | --- | --- |
@@ -525,8 +530,8 @@ non-conforming work:
 | Outcome collapses shared across all three components — a reachable disposition with no case, in the state-machine index, the memory-safety index, and TypeDef kind classification | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) |
 | Unbounded declaration-table construction: the whole-table paths take no work bound, so the construction rule is unmet rather than deviated from | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) |
 | Bare row coordinates published throughout the result graphs, so a retained result cannot be rebound to a reader safely — the identity rows, and the raw-handle inputs that are the same problem from the other side | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) |
-| `MetadataTypeNameFailure` shared across two unrelated domains, so two of its four mechanisms are unreachable from every declaration surface — the first sentence of requirement 5 | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
-| Entry points whose codomains are narrower than the types they return, with no type-level or documented record of the narrowing — the second sentence of requirement 5 | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
+| `MetadataTypeNameFailure` shared across two unrelated domains, so two of its four mechanisms are unreachable from every declaration surface — the first clause of per-meaning reachability | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
+| Entry points whose codomains are narrower than the types they return, with no type-level or documented record of the narrowing — the surface-narrowing clause of per-meaning reachability | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
 
 The gap is instructive in one respect worth keeping. Two of the three
 components already *declare* the case they fail to route to:
@@ -602,7 +607,7 @@ every normative routing clause it is subject to, not only these:
 
 - requirement 2's rule that conventional evidence is labelled conventional and
   never presented as structural;
-- both outcome-vocabulary rules;
+- all three outcome-vocabulary rules;
 - correct selection *among* the required distinctions — the two wrong
   `Malformed` routes recorded in **Known deviations** satisfy every
   declaration rule and still misroute;
@@ -621,7 +626,8 @@ still claims**, and the Markdown-only exemption covers only documentation that
 makes no measured behavior claim. This document therefore keeps its factual
 surface small, concentrated in the inventory's demand evidence, which is
 load-bearing for requirement 3. The precedents' conformance to requirement 5
-is `unverified` and is owned by the linked trackers, not asserted here. The
+and to per-meaning reachability is `unverified` and is owned by the linked
+trackers, not asserted here. The
 repository-wide routing posture is recorded under **Open questions**.
 
 ## Non-goals
