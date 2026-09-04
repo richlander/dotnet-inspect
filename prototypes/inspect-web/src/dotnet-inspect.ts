@@ -333,6 +333,7 @@ import {
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
+  reconcileStyleTaste,
   renderSettingsView,
   type StyleOption,
   type StyleTier,
@@ -11916,6 +11917,13 @@ async function bootstrap() {
       state.styleOptions = (
         sections.find(section => section.id === "csharp.style-choices")?.values
         || []).filter(isStyleOption);
+      const reconciledTaste = reconcileStyleTaste(
+        state.taste,
+        state.styleOptions);
+      if (reconciledTaste.length !== state.taste.length) {
+        state.taste = reconciledTaste;
+        localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
+      }
     } catch (error) {
       state.styleTiers = [];
       state.styleOptions = [];
