@@ -629,6 +629,76 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void EliminatedDuplicateLocal_DoesNotReserveSurvivingExactName()
+    {
+        var function = Function(
+            Void,
+            [],
+            [Int32, Int32],
+            Container(
+                new StoreLocal(1, Int32, new Constant(1, Int32)),
+                new Return(null)));
+        function.LocalNames = ["same", "same"];
+        function.MarkLocalEliminated(0);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("int same = 1;", result.Output);
+        Assert.DoesNotContain("V_1", result.Output);
+    }
+
+    [Fact]
+    public void RaisedLambdaUnreferencedDuplicateLocal_DoesNotReserveSurvivingExactName()
+    {
+        var lambda = new Lambda(
+            Action,
+            [],
+            [Int32, Int32],
+            ["same", "same"],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(1, Int32, new Constant(1, Int32)),
+                new Return(null)))
+        {
+            ReturnsVoid = true
+        };
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("int same = 1;", result.Output);
+        Assert.DoesNotContain("V_1", result.Output);
+    }
+
+    [Fact]
+    public void RaisedLambdaUnreferencedSynthesizedLocal_DoesNotReserveSurvivingName()
+    {
+        var lambda = new Lambda(
+            Action,
+            [],
+            [Int32, Int32],
+            [null, null],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreLocal(1, Int32, new Constant(1, Int32)),
+                new Return(null)))
+        {
+            ReturnsVoid = true,
+            SynthesizedLocalNames = ["same", "same"]
+        };
+        var function = Function(Action, [], [], Container(new Return(lambda)));
+
+        string output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("int same = 1;", output);
+        Assert.DoesNotContain("same_1", output);
+    }
+
+    [Fact]
     public void RetainedLocalConflictingWithFlattenedLocalFunction_DegradesToPartial()
     {
         var localFunction = new LocalFunctionStatement(

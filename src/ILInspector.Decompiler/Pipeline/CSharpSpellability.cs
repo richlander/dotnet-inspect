@@ -186,21 +186,21 @@ internal static class CSharpSpellability
         var reserved = reservedNames is null
             ? new HashSet<string>(StringComparer.Ordinal)
             : new HashSet<string>(reservedNames, StringComparer.Ordinal);
+        var retainedLocalSlots = ExactLocalNameAllocation.RetainedLocalSlots(
+            retainedScope ?? scope,
+            localCount,
+            eliminatedLocalSlots);
         var allocation = ExactLocalNameAllocation.Allocate(
             scope,
             localCount,
             localNames,
-            reserved);
+            reserved,
+            retainedLocalSlots);
         for (var index = 0; index < localNames.Length; index++)
         {
             string? name = localNames[index];
-            if (name is null || eliminatedLocalSlots?.Contains(index) == true)
+            if (name is null || !retainedLocalSlots.Contains(index))
                 continue;
-            if (retainedScope is not null
-                && !IrFunction.LocalSlotReferencesInScope(retainedScope, index).Any())
-            {
-                continue;
-            }
             if (!HasLosslessBodyIdentifierSpelling(name))
             {
                 return new NameIssue(

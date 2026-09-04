@@ -16,7 +16,7 @@ The importer separates three roles and makes the metadata lifetime explicit, bec
   [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
   owns that adoption boundary. Symbol absence changes naming and provenance,
   not the shape of the API, and does not by itself lower decompilation fidelity.
-  `IrImporterTests.OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames`
+  `RaisingPassTests.OpenWithoutSymbols_IgnoresPdb_RendersVSlotsNotSourceNames`
   gates the supported no-symbol path.
 
 ## Type identity

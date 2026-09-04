@@ -258,6 +258,123 @@ public sealed class MemberBodyProducerMemberRenderTests
         }
     }
 
+    [Theory]
+    [InlineData(
+        "index",
+        "index",
+        MemberBodyProductionStatus.Complete)]
+    [InlineData(
+        "getIndex",
+        "setIndex",
+        MemberBodyProductionStatus.Failed)]
+    public void ProduceMember_IndexerAccessorParameterNames_RequireSharedDeclaration(
+        string getterParameterName,
+        string setterParameterName,
+        MemberBodyProductionStatus expectedStatus)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-indexer-name-mismatch-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("IndexerNameMismatch");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "IndexerNameMismatchSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            typeBuilder.SetCustomAttribute(new CustomAttributeBuilder(
+                typeof(DefaultMemberAttribute).GetConstructor([typeof(string)])!,
+                ["Item"]));
+            var field = typeBuilder.DefineField(
+                "_last",
+                typeof(int),
+                FieldAttributes.Private);
+            var getter = typeBuilder.DefineMethod(
+                "get_Item",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(int),
+                [typeof(int)]);
+            getter.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                getterParameterName);
+            var getterIl = getter.GetILGenerator();
+            getterIl.Emit(OpCodes.Ldarg_1);
+            getterIl.Emit(OpCodes.Ret);
+            var setter = typeBuilder.DefineMethod(
+                "set_Item",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(int), typeof(int)]);
+            setter.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                setterParameterName);
+            setter.DefineParameter(2, ParameterAttributes.None, "value");
+            var setterIl = setter.GetILGenerator();
+            setterIl.Emit(OpCodes.Ldarg_0);
+            setterIl.Emit(OpCodes.Ldarg_1);
+            setterIl.Emit(OpCodes.Stfld, field);
+            setterIl.Emit(OpCodes.Ret);
+            var property = typeBuilder.DefineProperty(
+                "Item",
+                PropertyAttributes.None,
+                typeof(int),
+                [typeof(int)]);
+            property.SetGetMethod(getter);
+            property.SetSetMethod(setter);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(directory, "IndexerNameMismatch.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "IndexerNameMismatchSample");
+            var indexer = Assert.Single(
+                type.Members,
+                member => member.Name == "Item");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                indexer,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(expectedStatus, rendered.Status);
+            if (expectedStatus == MemberBodyProductionStatus.Failed)
+            {
+                Assert.Contains(
+                    "issue #5778",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains(
+                    $"this[int {getterParameterName}]",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    $"set => _last = {setterParameterName};",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void ProduceMember_PreservesFieldLikeEventDeclaration()
     {

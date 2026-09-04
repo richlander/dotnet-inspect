@@ -18,7 +18,8 @@ internal sealed record ExactLocalNameAllocation(
         IrNode scope,
         int localCount,
         ImmutableArray<string?> localNames,
-        IEnumerable<string> reservedNames)
+        IEnumerable<string> reservedNames,
+        IReadOnlySet<int> retainedLocalSlots)
     {
         var displayNames = new string?[localCount];
         var dispositions = new ExactLocalNameDisposition[localCount];
@@ -31,6 +32,8 @@ internal sealed record ExactLocalNameAllocation(
             index < localCount && index < localNames.Length;
             index++)
         {
+            if (!retainedLocalSlots.Contains(index))
+                continue;
             if (localNames[index] is not { } name)
                 continue;
             if (!CSharpNaming.IsUsableIdentifier(name))
@@ -65,6 +68,23 @@ internal sealed record ExactLocalNameAllocation(
         return new ExactLocalNameAllocation(
             [.. displayNames],
             [.. dispositions]);
+    }
+
+    public static HashSet<int> RetainedLocalSlots(
+        IrNode scope,
+        int localCount,
+        IReadOnlySet<int>? eliminatedLocalSlots = null)
+    {
+        var retained = new HashSet<int>();
+        for (var index = 0; index < localCount; index++)
+        {
+            if (eliminatedLocalSlots?.Contains(index) != true
+                && IrFunction.LocalSlotReferencesInScope(scope, index).Any())
+            {
+                retained.Add(index);
+            }
+        }
+        return retained;
     }
 
     public static HashSet<string> ReservedNames(

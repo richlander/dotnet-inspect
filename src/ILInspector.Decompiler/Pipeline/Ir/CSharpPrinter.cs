@@ -1432,7 +1432,10 @@ public sealed partial class CSharpPrinter
         if (includeLocals)
         {
             for (int i = 0; i < _function.Locals.Length; i++)
-                names.Add(LocalName(i));
+            {
+                if (RetainedLocalSlots().Contains(i))
+                    names.Add(LocalName(i));
+            }
         }
         return names;
     }
@@ -5990,6 +5993,14 @@ public sealed partial class CSharpPrinter
     HashSet<string>? _localScopeNames;
 
     string[]? _localDisplayNames;
+    HashSet<int>? _retainedLocalSlots;
+
+    IReadOnlySet<int> RetainedLocalSlots()
+        => _retainedLocalSlots ??=
+            ExactLocalNameAllocation.RetainedLocalSlots(
+                _function,
+                _function.Locals.Length,
+                _function.EliminatedLocalSlots);
 
     /// <summary>
     /// The display name for local slot <paramref name="index"/>: the PDB source
@@ -6010,11 +6021,15 @@ public sealed partial class CSharpPrinter
 
             var names = _function.LocalNames;
             var taken = CurrentReservedNames();
+            var retainedLocalSlots = RetainedLocalSlots();
+            for (var i = 0; i < count; i++)
+                assigned[i] = !retainedLocalSlots.Contains(i);
             var exact = ExactLocalNameAllocation.Allocate(
                 _function,
                 count,
                 names,
-                taken);
+                taken,
+                retainedLocalSlots);
             for (var i = 0; i < count; i++)
             {
                 if (exact.Dispositions[i]

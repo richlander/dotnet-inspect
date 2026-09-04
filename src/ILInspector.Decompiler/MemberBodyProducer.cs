@@ -1201,7 +1201,8 @@ public static class MemberBodyProducer
                                 ? AccessorRole.Setter
                                 : AccessorRole.Getter,
                             function: null,
-                            bodyParameterNames);
+                            bodyParameterNames,
+                            DeclarationParameterNames(member));
                         // The signature's leading token is the accessor's
                         // return type ('bool Iface.get_X()').
                         string accessorReturn = member.ReturnType
@@ -1748,6 +1749,7 @@ public static class MemberBodyProducer
         try
         {
             var reader = source.Reader;
+            var declarationParameterNames = DeclarationParameterNames(member);
             var typeHandle = reader.GetMethodDefinition(accessorHandle).GetDeclaringType();
             var getterHandle = ResolveAccessorHandle(
                 reader,
@@ -1782,6 +1784,7 @@ public static class MemberBodyProducer
                     "",
                     "",
                     AccessorRole.Getter,
+                    declarationParameterNames,
                     bodyNamespaces,
                     out _,
                     out bool requiresAsync,
@@ -1807,6 +1810,7 @@ public static class MemberBodyProducer
                     "",
                     "",
                     AccessorRole.Setter,
+                    declarationParameterNames,
                     bodyNamespaces,
                     out _,
                     out bool requiresAsync,
@@ -1857,6 +1861,7 @@ public static class MemberBodyProducer
             AccessorRole.Setter);
 
         var accessors = new List<(string Keyword, string Head, string? Body, bool RequiresUnsafeContext, bool RequiresAsyncContext, bool SingleReturnExpression)>();
+        var declarationParameterNames = DeclarationParameterNames(member);
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
@@ -1864,7 +1869,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "get",
                     declarationFormatter.FormatAccessorHead(type, member, "get"),
-                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", AccessorRole.Getter, bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", AccessorRole.Getter, declarationParameterNames, bodyNamespaces, out var getRequiresUnsafe, out var getRequiresAsync, out var getSingleReturn, printerOptions, failOnDiagnostic),
                     getRequiresUnsafe,
                     getRequiresAsync,
                     getSingleReturn));
@@ -1872,7 +1877,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "set",
                     declarationFormatter.FormatAccessorHead(type, member, "set"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var setRequiresUnsafe, out var setRequiresAsync, out var setSingleReturn, printerOptions, failOnDiagnostic),
                     setRequiresUnsafe,
                     setRequiresAsync,
                     setSingleReturn));
@@ -1880,7 +1885,7 @@ public static class MemberBodyProducer
                 accessors.Add((
                     "init",
                     declarationFormatter.FormatAccessorHead(type, member, "init"),
-                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
+                    DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", AccessorRole.Setter, declarationParameterNames, bodyNamespaces, out var initRequiresUnsafe, out var initRequiresAsync, out var initSingleReturn, printerOptions, failOnDiagnostic),
                     initRequiresUnsafe,
                     initRequiresAsync,
                     initSingleReturn));
@@ -1994,6 +1999,7 @@ public static class MemberBodyProducer
             type.FullName,
             $"add_{member.Name}",
             AccessorRole.Adder,
+            DeclarationParameterNames(member),
             bodyNamespaces,
             out bool adderRequiresUnsafe,
             out bool adderRequiresAsync,
@@ -2006,6 +2012,7 @@ public static class MemberBodyProducer
             type.FullName,
             $"remove_{member.Name}",
             AccessorRole.Remover,
+            DeclarationParameterNames(member),
             bodyNamespaces,
             out bool removerRequiresUnsafe,
             out bool removerRequiresAsync,
@@ -2274,6 +2281,7 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         AccessorRole role,
+        IReadOnlyList<string> declarationParameterNames,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
         out bool requiresAsyncContext, out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
@@ -2306,7 +2314,8 @@ public static class MemberBodyProducer
             function?.Name ?? accessorName,
             role,
             function,
-            parameterNames);
+            parameterNames,
+            declarationParameterNames);
         requiresAsyncContext = function is not null
             && function.RequiresAsyncMethodContext;
         return body;
@@ -2316,12 +2325,28 @@ public static class MemberBodyProducer
         string accessorName,
         AccessorRole role,
         Pipeline.IrFunction? function,
-        IReadOnlyList<string>? parameterNames)
+        IReadOnlyList<string>? parameterNames,
+        IReadOnlyList<string> declarationParameterNames)
     {
-        bool incompatibleImplicitValueBinder = role.HasImplicitValueBinder()
-            && function?.Signature.Parameters is [.., var valueParameter]
-            && valueParameter.DisplayName != "value";
+        var bodyParameters = function?.Signature.Parameters ?? [];
+        int implicitParameterCount = role.HasImplicitValueBinder() ? 1 : 0;
+        bool incompatibleImplicitValueBinder = function is not null
+            && role.HasImplicitValueBinder()
+            && (bodyParameters.IsEmpty
+                || bodyParameters[^1].DisplayName != "value");
+        int explicitParameterCount = Math.Max(
+            0,
+            bodyParameters.Length - implicitParameterCount);
+        bool incompatibleDeclarationParameters = function is not null
+            && (explicitParameterCount != declarationParameterNames.Count
+                || !bodyParameters
+                    .Take(explicitParameterCount)
+                    .Select(parameter => parameter.DisplayName)
+                    .SequenceEqual(
+                        declarationParameterNames,
+                        StringComparer.Ordinal));
         if (!incompatibleImplicitValueBinder
+            && !incompatibleDeclarationParameters
             && parameterNames is not { Count: > 0 })
         {
             return;
@@ -2331,6 +2356,12 @@ public static class MemberBodyProducer
             $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
                 + "which accessor declaration composition cannot yet coordinate (issue #5778).");
     }
+
+    static IReadOnlyList<string> DeclarationParameterNames(ApiMember member)
+        => member.SignatureModel?.Parameters
+            .Select(parameter => parameter.Name)
+            .ToArray()
+            ?? [];
 
     enum AccessorRole
     {
