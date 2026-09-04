@@ -2368,7 +2368,10 @@ function removeWorkspacePackageByKey(packageKey: string) {
 
   navigationSequence.begin();
   state.packages = removed.packages;
-  state.package = removed.active;
+  if (removed.active)
+    activatePackage(removed.active);
+  else
+    state.package = null;
   state.workspaceShareBasis = null;
   clearWorkspaceOccurrenceView();
   invalidateBrowserPackageCaches();
@@ -2533,8 +2536,7 @@ function activateWorkspacePackageOccurrence(action: string) {
   const result: BrowserWorkspacePackageOccurrenceActivation =
     inspectActivateWorkspacePackageOccurrence(action);
   if (!result.activated || !result.package) {
-    state.workspaceOccurrenceSignature = "";
-    ensureWorkspaceOccurrenceView();
+    retryWorkspaceOccurrenceView();
     showToast(
       result.superseded
         ? "That Workspace view was replaced. Package actions have been refreshed."

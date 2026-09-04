@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { parseSync, visitorKeys } from "oxc-parser";
 import type {
@@ -111,6 +114,7 @@ import {
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid
 } from "../src/graph-mermaid.ts";
+import { renderWorkspaceView } from "../src/workspace-subject.ts";
 
 const packageAt = (version: string, framework: string, types = 1) => ({
   id: "Example.Package",
@@ -301,6 +305,20 @@ function functionDeclaration(name: string): DeclaredFunction {
   // reporting; `assert.ok` on a predicate call would assert the boolean, not the value.
   if (!hasFunctionBody(declaration)) assert.fail(`${name} declaration must have a body`);
   return declaration;
+}
+
+function runAppFunctions(
+  names: readonly string[],
+  context: Record<string, unknown>,
+  invocation: string,
+): void {
+  const declarations = names.map(name => {
+    const node = functionDeclaration(name);
+    return appSource.slice(node.start, node.end);
+  });
+  runInNewContext(
+    stripTypeScriptTypes(`${declarations.join("\n")}\n${invocation}`),
+    context);
 }
 
 function onlyCallExpressionNamed(root: Node, name: string): CallExpression {
@@ -3152,6 +3170,75 @@ test("Workspace occurrence rerenders preserve catalog failure focus", () => {
     appSource.match(/async function queryWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(occurrenceQuery, /finally \{[\s\S]*render\(\);\s*}/);
+});
+
+test("rejected Workspace Inspect disables the rendered action before refresh completes", async () => {
+  const pkg = { ...packageAt("1.0.0", "net10.0"), isRuntimePack: false };
+  const occurrence = {
+    action: "expired",
+    package: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+  };
+  const occurrences = [occurrence];
+  const state = {
+    packages: [pkg],
+    engineReady: true,
+    workspaceOccurrenceSignature: "previous",
+    workspaceOccurrenceLoading: false,
+    workspaceOccurrenceError: "",
+    workspaceOccurrences: { occurrences },
+  };
+  type OccurrenceView = {
+    superseded: boolean;
+    occurrences: typeof occurrences;
+  };
+  let complete!: (view: OccurrenceView) => void;
+  const pending = new Promise<OccurrenceView>(resolve => {
+    complete = resolve;
+  });
+  let html = "";
+  const render = () => {
+    html = renderWorkspaceView({
+      occurrences: state.workspaceOccurrences.occurrences,
+      packages: state.packages,
+      demos: [],
+      demoError: "",
+      loading: state.workspaceOccurrenceLoading,
+      error: state.workspaceOccurrenceError,
+      escapeHtml: String,
+    });
+  };
+  render();
+  assert.match(html, /data-workspace-activate="expired"/);
+
+  runAppFunctions([
+    "activateWorkspacePackageOccurrence",
+    "retryWorkspaceOccurrenceView",
+    "ensureWorkspaceOccurrenceView",
+    "queryWorkspaceOccurrenceView",
+    "workspaceOccurrenceRequest",
+  ], {
+    state,
+    workspaceOccurrenceRevision: 0,
+    inspectActivateWorkspacePackageOccurrence: () => ({
+      activated: false, superseded: true,
+    }),
+    inspectQueryWorkspacePackageOccurrences: () => pending,
+    workspaceOccurrenceViewIsVisible: () => true,
+    showToast() {},
+    render,
+  }, 'activateWorkspacePackageOccurrence("expired");');
+
+  assert.equal(state.workspaceOccurrenceLoading, true);
+  assert.doesNotMatch(html, /data-workspace-activate=/);
+  assert.match(html, /disabled aria-label="Inspect/);
+  complete({
+    superseded: false,
+    occurrences: [{ ...occurrence, action: "current" }],
+  });
+  await setImmediate();
+  assert.match(html, /data-workspace-activate="current"/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
@@ -6435,6 +6522,41 @@ test("dependency group selection resets when package identity changes", () => {
   assert.match(
     loadPackage,
     /activatePackage\(packageModel, \{ resetAccessibility: true \}\);\s*if \(options\.workspaceDisposition === "replace"\)\s*replaceWorkspacePackagesWith\(packageModel\);/);
+});
+
+test("Workspace Remove resets the dependency group only when the active package changes", () => {
+  const first = { ...packageAt("1.0.0", "net10.0"), id: "First" };
+  const second = { ...packageAt("1.0.0", "net10.0"), id: "Second" };
+  for (const removed of [first, second]) {
+    const state = {
+      packages: [first, second],
+      package: first,
+      dependenciesGroupIndex: 1,
+      accessibilityFilter: new Set<string>(),
+    };
+    runAppFunctions([
+      "removeWorkspacePackageByKey",
+      "activatePackage",
+      "packageIdentityEquals",
+      "resetWorkspaceSurfaceSelection",
+    ], {
+      state,
+      packageIdentityKey,
+      removeWorkspacePackage,
+      removalKey: packageIdentityKey(removed),
+      navigationSequence: { begin() {} },
+      clearWorkspaceOccurrenceView() {},
+      invalidateBrowserPackageCaches() {},
+      releasePackageModelCaches() {},
+      resetLocationFilters() {},
+      resetMemberSectionState() {},
+      resetMemberFilters() {},
+      defaultAccessibilityFilter: () => new Set<string>(),
+      render() {},
+    }, "removeWorkspacePackageByKey(removalKey);");
+    assert.equal(state.package, removed === first ? second : first);
+    assert.equal(state.dependenciesGroupIndex, removed === first ? null : 1);
+  }
 });
 
 test("missing exact dependency groups never create graph edges", () => {
