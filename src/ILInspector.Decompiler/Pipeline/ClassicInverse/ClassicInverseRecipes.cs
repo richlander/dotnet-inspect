@@ -18,6 +18,335 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </summary>
 internal static class ClassicInverseRecipes
 {
+    internal sealed class RecipeIndex
+    {
+        readonly record struct IndexedNode(int Position, IrNode Node);
+
+        readonly List<IndexedNode> _nodes = [];
+        readonly List<int> _subtreeEnds = [];
+        readonly Dictionary<IrNode, int> _positions =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<IrNode, Block?> _enclosingBlocks =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<Call, IrExpression> _awaitedOperands =
+            new(ReferenceEqualityComparer.Instance);
+        readonly List<IndexedNode> _storeLocals = [];
+        readonly List<IndexedNode> _storeFields = [];
+        readonly List<IndexedNode> _expressionStatements = [];
+        readonly List<IndexedNode> _conditionalBranches = [];
+        readonly List<IndexedNode> _branches = [];
+        readonly List<IndexedNode> _storeStackSlots = [];
+        readonly List<IndexedNode> _loadStackSlots = [];
+        readonly List<IndexedNode> _tryFinallys = [];
+        readonly List<IndexedNode> _ifStatements = [];
+
+        RecipeIndex() { }
+
+        internal Call? SetResult { get; private set; }
+
+        internal List<Call> GetResults { get; private set; } = [];
+
+        internal bool HasTryFinally { get; private set; }
+
+        internal bool HasForeachHoist { get; private set; }
+
+        internal int NodeCount => _nodes.Count;
+
+        /// <summary>
+        /// Await operands discovered by the same charged snapshot. A consumer
+        /// must still charge its lookup; <see cref="AwaitedOperand"/> does so.
+        /// </summary>
+        internal IReadOnlyDictionary<Call, IrExpression> AwaitedOperands =>
+            _awaitedOperands;
+
+        /// <summary>
+        /// Captures the planning body once in preorder. Construction charges
+        /// once when a node is admitted and once when its subtree interval is
+        /// closed. A typed query charges its range lookup, every lower-bound
+        /// probe, and every indexed entry it inspects; direct containment,
+        /// enclosing-block, and await-operand questions charge one unit each.
+        /// </summary>
+        internal static RecipeIndex? Build(
+            IrFunction execution,
+            ClassicInverseShellFacts shell,
+            ClassicInverseBudget budget)
+        {
+            Call? setResult = null;
+            var getResults = new List<Call>();
+            bool hasTryFinally = false;
+            bool hasForeachHoist = false;
+            var open = new Stack<int>();
+            var awaiterBinds = new Dictionary<int, IrExpression>();
+            var index = new RecipeIndex();
+
+            foreach (IrNode node in execution.Body.Descendants.Prepend(execution.Body))
+            {
+                if (!budget.Charge())
+                    return null;
+
+                int position = index._nodes.Count;
+                while (open.Count > 0
+                    && !ReferenceEquals(
+                        node.Parent,
+                        index._nodes[open.Peek()].Node))
+                {
+                    if (!budget.Charge())
+                        return null;
+                    index._subtreeEnds[open.Pop()] = position;
+                }
+
+                index._positions[node] = position;
+                index._nodes.Add(new IndexedNode(position, node));
+                index._subtreeEnds.Add(-1);
+                Block? enclosing = node as Block;
+                if (enclosing is null && node.Parent is { } parent)
+                    index._enclosingBlocks.TryGetValue(parent, out enclosing);
+                index._enclosingBlocks[node] = enclosing;
+                index.AddTyped(position, node);
+                open.Push(position);
+
+                switch (node)
+                {
+                    case Call call:
+                        if (call.Callee.Name == "SetResult"
+                            && ClassicInverseNodeFacts.IsAsyncMethodBuilder(
+                                call.Callee.DeclaringType))
+                        {
+                            setResult = call;
+                        }
+                        if (ClassicInverseRealizationRules.IsAwaiterGetResult(
+                                call,
+                                shell))
+                        {
+                            getResults.Add(call);
+                            if (call.Arguments is [LoadLocalAddress address]
+                                && awaiterBinds.TryGetValue(
+                                    address.Index,
+                                    out IrExpression? awaitedOperand))
+                            {
+                                index._awaitedOperands[call] = awaitedOperand;
+                            }
+                        }
+                        break;
+
+                    case StoreLocal
+                    {
+                        Value: Call
+                        {
+                            Callee.Name: "GetAwaiter",
+                            Arguments: [IrExpression boundOperand],
+                        },
+                    } bind:
+                        awaiterBinds[bind.Index] = boundOperand;
+                        break;
+
+                    case TryFinally:
+                        hasTryFinally = true;
+                        break;
+
+                    case LoadField { Field.Name: var loadFieldName }
+                        when loadFieldName.StartsWith(
+                            "<>7__wrap",
+                            StringComparison.Ordinal):
+                    case StoreField { Field.Name: var storeFieldName }
+                        when storeFieldName.StartsWith(
+                            "<>7__wrap",
+                            StringComparison.Ordinal):
+                        hasForeachHoist = true;
+                        break;
+                }
+            }
+
+            while (open.Count > 0)
+            {
+                if (!budget.Charge())
+                    return null;
+                index._subtreeEnds[open.Pop()] = index._nodes.Count;
+            }
+
+            index.SetResult = setResult;
+            index.GetResults = getResults;
+            index.HasTryFinally = hasTryFinally;
+            index.HasForeachHoist = hasForeachHoist;
+            return index;
+        }
+
+        internal bool TryFind<T>(
+            IrNode root,
+            Func<T, bool> predicate,
+            ClassicInverseBudget budget,
+            out List<T> matches)
+            where T : IrNode
+        {
+            matches = [];
+            if (!TryRange(root, budget, out int start, out int end))
+                return false;
+
+            List<IndexedNode> entries = EntriesFor<T>();
+            int entryIndex = 0;
+            if (start != 0
+                && !TryLowerBound(entries, start, budget, out entryIndex))
+            {
+                return false;
+            }
+
+            for (; entryIndex < entries.Count; entryIndex++)
+            {
+                if (!budget.Charge())
+                {
+                    matches = [];
+                    return false;
+                }
+
+                IndexedNode entry = entries[entryIndex];
+                if (entry.Position >= end)
+                    break;
+                T node = (T)entry.Node;
+                bool matched = predicate(node);
+                if (budget.Exhausted)
+                {
+                    matches = [];
+                    return false;
+                }
+                if (matched)
+                    matches.Add(node);
+            }
+            return true;
+        }
+
+        internal bool Contains(
+            IrNode root,
+            IrNode target,
+            ClassicInverseBudget budget)
+        {
+            if (!budget.Charge())
+                return false;
+            return _positions.TryGetValue(root, out int rootPosition)
+                && _positions.TryGetValue(target, out int targetPosition)
+                && targetPosition >= rootPosition
+                && targetPosition < _subtreeEnds[rootPosition];
+        }
+
+        internal IrExpression? AwaitedOperand(
+            Call getResult,
+            ClassicInverseBudget budget)
+            => budget.Charge()
+                ? _awaitedOperands.GetValueOrDefault(getResult)
+                : null;
+
+        internal Block? EnclosingBlock(
+            IrNode node,
+            ClassicInverseBudget budget)
+            => budget.Charge()
+                ? _enclosingBlocks.GetValueOrDefault(node)
+                : null;
+
+        void AddTyped(int position, IrNode node)
+        {
+            var indexed = new IndexedNode(position, node);
+            switch (node)
+            {
+                case StoreLocal:
+                    _storeLocals.Add(indexed);
+                    break;
+                case StoreField:
+                    _storeFields.Add(indexed);
+                    break;
+                case ExpressionStatement:
+                    _expressionStatements.Add(indexed);
+                    break;
+                case ConditionalBranch:
+                    _conditionalBranches.Add(indexed);
+                    break;
+                case Branch:
+                    _branches.Add(indexed);
+                    break;
+                case StoreStackSlot:
+                    _storeStackSlots.Add(indexed);
+                    break;
+                case LoadStackSlot:
+                    _loadStackSlots.Add(indexed);
+                    break;
+                case TryFinally:
+                    _tryFinallys.Add(indexed);
+                    break;
+                case IfStatement:
+                    _ifStatements.Add(indexed);
+                    break;
+            }
+        }
+
+        List<IndexedNode> EntriesFor<T>()
+            where T : IrNode
+        {
+            Type type = typeof(T);
+            if (type == typeof(IrNode))
+                return _nodes;
+            if (type == typeof(StoreLocal))
+                return _storeLocals;
+            if (type == typeof(StoreField))
+                return _storeFields;
+            if (type == typeof(ExpressionStatement))
+                return _expressionStatements;
+            if (type == typeof(ConditionalBranch))
+                return _conditionalBranches;
+            if (type == typeof(Branch))
+                return _branches;
+            if (type == typeof(StoreStackSlot))
+                return _storeStackSlots;
+            if (type == typeof(LoadStackSlot))
+                return _loadStackSlots;
+            if (type == typeof(TryFinally))
+                return _tryFinallys;
+            if (type == typeof(IfStatement))
+                return _ifStatements;
+            throw new NotSupportedException(
+                $"Recipe index does not contain nodes of type {type.Name}.");
+        }
+
+        bool TryRange(
+            IrNode root,
+            ClassicInverseBudget budget,
+            out int start,
+            out int end)
+        {
+            start = -1;
+            end = -1;
+            if (!budget.Charge()
+                || !_positions.TryGetValue(root, out start))
+            {
+                return false;
+            }
+            end = _subtreeEnds[start];
+            return true;
+        }
+
+        static bool TryLowerBound(
+            IReadOnlyList<IndexedNode> entries,
+            int position,
+            ClassicInverseBudget budget,
+            out int result)
+        {
+            int low = 0;
+            int high = entries.Count;
+            while (low < high)
+            {
+                if (!budget.Charge())
+                {
+                    result = -1;
+                    return false;
+                }
+                int middle = low + ((high - low) / 2);
+                if (entries[middle].Position < position)
+                    low = middle + 1;
+                else
+                    high = middle;
+            }
+            result = low;
+            return true;
+        }
+    }
+
     internal static List<ClassicInverseCandidate> Match(
         ClassicInverseRequest request,
         ClassicInversePlanningView planning,
@@ -26,13 +355,11 @@ internal static class ClassicInverseRecipes
     {
         var candidates = new List<ClassicInverseCandidate>();
         IrFunction execution = planning.ExecutionBody;
-        foreach (IrNode _ in execution.Body.Descendants.Prepend(execution.Body))
-        {
-            if (!budget.Charge())
-                return candidates;
-        }
+        RecipeIndex? recipeIndex = RecipeIndex.Build(execution, shell, budget);
+        if (recipeIndex is null)
+            return candidates;
 
-        Call? setResult = FinalSetResult(execution);
+        Call? setResult = recipeIndex.SetResult;
         if (setResult is null)
             return candidates;
         TypeRef builder = ClassicInverseNodeFacts.Definition(
@@ -46,49 +373,64 @@ internal static class ClassicInverseRecipes
         {
             return candidates;
         }
-        List<Call> getResults = GetResultCalls(execution, shell);
 
         Add(candidates, TryTryFinally(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
         Add(candidates, TryLoop(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
         Add(candidates, TryConditional(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
         Add(candidates, TrySequentialVoid(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
         Add(candidates, TrySingleAwaitVoid(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
         Add(candidates, TrySingleAwaitReturn(
             request.ExecutionBody,
             planning,
             shell,
             setResult,
-            getResults,
+            recipeIndex.GetResults,
+            recipeIndex,
             budget));
         return candidates;
     }
@@ -99,73 +441,6 @@ internal static class ClassicInverseRecipes
     {
         if (candidate is not null)
             candidates.Add(candidate);
-    }
-
-    // ---- Shared shell queries ------------------------------------------
-
-    static Call? FinalSetResult(IrFunction execution)
-        => execution.Body.Descendants.OfType<Call>().LastOrDefault(
-            static call => call.Callee.Name == "SetResult"
-                && ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                    call.Callee.DeclaringType));
-
-    static List<Call> GetResultCalls(
-        IrFunction execution,
-        ClassicInverseShellFacts shell)
-        => [.. execution.Body.Descendants.OfType<Call>().Where(
-            call => ClassicInverseRealizationRules.IsAwaiterGetResult(call, shell))];
-
-    static bool HasTryFinally(IrFunction execution)
-        => execution.Body.Descendants.OfType<TryFinally>().Any();
-
-    static bool HasForeachHoist(IrFunction execution)
-        => execution.Body.Descendants.Any(static node => node switch
-        {
-            LoadField { Field.Name: var name } =>
-                name.StartsWith("<>7__wrap", StringComparison.Ordinal),
-            StoreField { Field.Name: var name } =>
-                name.StartsWith("<>7__wrap", StringComparison.Ordinal),
-            _ => false,
-        });
-
-    /// <summary>
-    /// The user expression the compiler passed to <c>GetAwaiter</c> for one
-    /// <c>GetResult</c> call. The cached-awaiter restore is skipped explicitly.
-    /// </summary>
-    static IrExpression? AwaitedOperand(IrFunction execution, Call getResult)
-    {
-        if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
-            return null;
-
-        List<IrNode> nodes = [.. execution.Body.Descendants];
-        int position = nodes.IndexOf(getResult);
-        if (position < 0)
-            return null;
-
-        StoreLocal? bind = null;
-        for (int i = 0; i < position; i++)
-        {
-            if (nodes[i] is StoreLocal { Value: Call { Callee.Name: "GetAwaiter" } call } store
-                && store.Index == awaiterAddress.Index
-                && call.Arguments.Count == 1)
-            {
-                bind = store;
-            }
-        }
-
-        return bind?.Value is Call { Arguments: [IrExpression operand] } ? operand : null;
-    }
-
-    static Block? EnclosingBlock(IrNode node)
-    {
-        IrNode? current = node;
-        while (current is not null)
-        {
-            if (current is Block block)
-                return block;
-            current = current.Parent;
-        }
-        return null;
     }
 
     static string SourceName(string fieldName)
@@ -192,21 +467,32 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1
-            || HasTryFinally(execution)
-            || HasForeachHoist(execution))
+            || recipeIndex.HasTryFinally
+            || recipeIndex.HasForeachHoist)
         {
             return null;
         }
 
-        StoreLocal? store = execution.Body.Descendants.OfType<StoreLocal>()
-            .LastOrDefault(candidate =>
-                candidate.Index == result.Index
-                && Contains(candidate.Value, getResults[0]));
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                candidate =>
+                    candidate.Index == result.Index
+                    && recipeIndex.Contains(
+                        candidate.Value,
+                        getResults[0],
+                        budget),
+                budget,
+                out List<StoreLocal> stores))
+        {
+            return null;
+        }
+        StoreLocal? store = stores.Count == 0 ? null : stores[^1];
         if (store is null
             || !ProvesCompletionTransfer(
                 rawExecution,
@@ -219,7 +505,12 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
         IrNode? value = rewriter.Rewrite(store.Value);
         if (value is not IrExpression expression)
             return null;
@@ -238,13 +529,14 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
             || getResults.Count != 1
-            || HasTryFinally(execution)
-            || HasForeachHoist(execution))
+            || recipeIndex.HasTryFinally
+            || recipeIndex.HasForeachHoist)
         {
             return null;
         }
@@ -258,7 +550,12 @@ internal static class ClassicInverseRecipes
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-void");
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
         IrNode? rewritten = rewriter.Rewrite(statement);
         if (rewritten is not ExpressionStatement output)
             return null;
@@ -277,48 +574,81 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
             || getResults.Count != 2
-            || HasTryFinally(execution)
-            || HasForeachHoist(execution))
+            || recipeIndex.HasTryFinally
+            || recipeIndex.HasForeachHoist)
         {
             return null;
         }
 
-        StoreLocal? firstResultStore = execution.Body.Descendants.OfType<StoreLocal>()
-            .FirstOrDefault(store => Contains(store.Value, getResults[0]));
-        if (firstResultStore is null)
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => recipeIndex.Contains(
+                    store.Value,
+                    getResults[0],
+                    budget),
+                budget,
+                out List<StoreLocal> firstResultStores)
+            || firstResultStores.Count == 0)
+            return null;
+        StoreLocal firstResultStore = firstResultStores[0];
+
+        if (!recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                store =>
+                    ClassicInverseNodeFacts.IsHoistedLocalField(store.Field.Name)
+                    && ClassicInverseNodeFacts.IsMachineField(
+                        store.Field,
+                        shell.Machine)
+                    && store.Instance is LoadArgument { Index: 0 }
+                    && store.Value is LoadLocal local
+                    && local.Index == firstResultStore.Index,
+                budget,
+                out List<StoreField> hoists)
+            || hoists.Count == 0)
+        {
+            return null;
+        }
+        StoreField hoist = hoists[0];
+        if (hoist.Field.Type is not { } firstType)
             return null;
 
-        StoreField? hoist = execution.Body.Descendants.OfType<StoreField>()
-            .FirstOrDefault(store =>
-                ClassicInverseNodeFacts.IsHoistedLocalField(store.Field.Name)
-                && ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine)
-                && store.Instance is LoadArgument { Index: 0 }
-                && store.Value is LoadLocal local
-                && local.Index == firstResultStore.Index);
-        if (hoist is null || hoist.Field.Type is not { } firstType)
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => recipeIndex.Contains(
+                    store.Value,
+                    getResults[1],
+                    budget),
+                budget,
+                out List<StoreLocal> secondStores)
+            || secondStores.Count == 0)
             return null;
+        StoreLocal secondStore = secondStores[0];
 
-        StoreLocal? secondStore = execution.Body.Descendants.OfType<StoreLocal>()
-            .FirstOrDefault(store => Contains(store.Value, getResults[1]));
-        if (secondStore is null)
+        if (!recipeIndex.TryFind<ExpressionStatement>(
+                execution.Body,
+                static statement =>
+                    statement.Expression is Call { Callee.Name: "KeepAlive" },
+                budget,
+                out List<ExpressionStatement> tails)
+            || tails.Count == 0)
+        {
             return null;
-
-        ExpressionStatement? tail = execution.Body.Descendants
-            .OfType<ExpressionStatement>()
-            .FirstOrDefault(static statement =>
-                statement.Expression is Call { Callee.Name: "KeepAlive" });
-        if (tail is null
-            || !ProvesCompletionTransfer(
+        }
+        ExpressionStatement tail = tails[0];
+        if (!ProvesCompletionTransfer(
                 rawExecution,
                 tail,
                 setResult,
                 budget))
+        {
             return null;
+        }
 
         var candidate = new ClassicInverseCandidate("classic-sequential-await-void");
         var locals = new ClassicInverseLocalTable();
@@ -331,11 +661,16 @@ internal static class ClassicInverseRecipes
 
         candidate.Locals = locals.Types;
         candidate.LocalNames = locals.Names;
-        candidate.MapHoistedLocal(hoist.Field.Name, firstIndex, firstType);
+        candidate.MapHoistedLocal(hoist.Field, firstIndex);
         candidate.MapLocal(firstResultStore.Index, firstIndex);
         candidate.MapLocal(secondStore.Index, secondIndex);
 
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
 
         IrNode? firstValue = rewriter.Rewrite(firstResultStore.Value);
         IrNode? secondValue = rewriter.Rewrite(secondStore.Value);
@@ -379,62 +714,85 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1
-            || HasTryFinally(execution)
-            || HasForeachHoist(execution))
+            || recipeIndex.HasTryFinally
+            || recipeIndex.HasForeachHoist)
         {
             return null;
         }
 
-        List<StoreLocal> temporaries = [.. execution.Body.Descendants
-            .OfType<StoreLocal>()
-            .Where(store => store.Index != result.Index)];
-        if (temporaries.Where(store => Contains(store.Value, getResults[0])).ToList()
-            is not [StoreLocal awaitStore])
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store =>
+                    store.Index != result.Index
+                    && recipeIndex.Contains(
+                        store.Value,
+                        getResults[0],
+                        budget),
+                budget,
+                out List<StoreLocal> awaitStores)
+            || awaitStores is not [StoreLocal awaitStore])
         {
             return null;
         }
-        if (temporaries.Where(store =>
-                store.Index == awaitStore.Index
-                && store.Value is Constant { Value: 0 }).ToList()
-            is not [StoreLocal zeroStore])
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => store.Index == awaitStore.Index
+                    && store.Value is Constant { Value: 0 },
+                budget,
+                out List<StoreLocal> zeroStores)
+            || zeroStores is not [StoreLocal zeroStore])
         {
             return null;
         }
         if (zeroStore.Parent is not Block zeroBlock)
             return null;
 
-        ConditionalBranch? zeroBranch = execution.Body.Descendants
-            .OfType<ConditionalBranch>()
-            .FirstOrDefault(branch =>
-                branch.TargetOffset == zeroBlock.StartOffset
-                && branch.Condition is LogicalNot);
-        if (zeroBranch is null)
+        if (!recipeIndex.TryFind<ConditionalBranch>(
+                execution.Body,
+                branch =>
+                    branch.TargetOffset == zeroBlock.StartOffset
+                    && branch.Condition is LogicalNot,
+                budget,
+                out List<ConditionalBranch> zeroBranches)
+            || zeroBranches.Count == 0)
             return null;
+        ConditionalBranch zeroBranch = zeroBranches[0];
 
-        List<StoreLocal> finalStores = [.. execution.Body.Descendants
-            .OfType<StoreLocal>()
-            .Where(store =>
-                store.Index == result.Index
-                && store.Value is LoadLocal load
-                && load.Index == awaitStore.Index)];
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store =>
+                    store.Index == result.Index
+                    && store.Value is LoadLocal load
+                    && load.Index == awaitStore.Index,
+                budget,
+                out List<StoreLocal> finalStores))
+        {
+            return null;
+        }
         if (finalStores is not [StoreLocal finalStore])
             return null;
 
         // The compiler's join branch after the awaited arm.
         if (finalStore.Parent is not Block finalBlock)
             return null;
-        List<Branch> joins = [.. execution.Body.Descendants.OfType<Branch>()];
-        List<Branch> conditionalJoins = [.. joins.Where(
-            branch => branch.TargetOffset == finalBlock.StartOffset)];
+        if (!recipeIndex.TryFind<Branch>(
+                execution.Body,
+                branch => branch.TargetOffset == finalBlock.StartOffset,
+                budget,
+                out List<Branch> conditionalJoins))
+        {
+            return null;
+        }
         if (conditionalJoins is not [Branch conditionalJoin]
             || zeroBranch.Parent is not Block conditionBlock
             || awaitStore.Parent is not Block awaitContinuation
-            || OperandBlock(planning, shell, getResults[0])
+            || OperandBlock(recipeIndex, getResults[0], budget)
                 is not Block awaitEntry
             || !TryGetConditionalControlIdentity(
                 conditionBlock,
@@ -470,7 +828,12 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
         rewriter.AttributeAwaitTo(getResults[0], awaitStore);
 
         IrNode? condition =
@@ -504,10 +867,13 @@ internal static class ClassicInverseRecipes
 
         candidate.DeclareProtocol(conditionalJoin, "conditional-join");
 
-        Block? thenBlock = EnclosingBlock(awaitStore);
-        Block? operandBlock = EnclosingBlock(getResults[0]) is { } resultBlock
-            ? OperandBlock(planning, shell, getResults[0])
+        Block? thenBlock = recipeIndex.EnclosingBlock(awaitStore, budget);
+        Block? operandBlock =
+            recipeIndex.EnclosingBlock(getResults[0], budget) is not null
+            ? OperandBlock(recipeIndex, getResults[0], budget)
             : null;
+        if (budget.Exhausted)
+            return null;
         var thenRoots = new List<IrNode>();
         if (thenBlock is not null)
             thenRoots.Add(thenBlock);
@@ -708,7 +1074,8 @@ internal static class ClassicInverseRecipes
         }
         foreach (int successor in block.Successors)
         {
-            if (!budget.Charge() || !expected.Contains(successor))
+            if (!budget.Charge()
+                || !ContainsExpected(expected, successor, budget))
                 return false;
         }
         return true;
@@ -738,8 +1105,32 @@ internal static class ClassicInverseRecipes
                     actual.Add(source);
             }
         }
-        return actual.Count == expected.Length
-            && actual.All(expected.Contains);
+        if (actual.Count != expected.Length)
+            return false;
+        foreach (int source in actual)
+        {
+            if (!budget.Charge()
+                || !ContainsExpected(expected, source, budget))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool ContainsExpected(
+        IReadOnlyList<int> expected,
+        int value,
+        ClassicInverseBudget budget)
+    {
+        for (int i = 0; i < expected.Count; i++)
+        {
+            if (!budget.Charge())
+                return false;
+            if (expected[i] == value)
+                return true;
+        }
+        return false;
     }
 
     static bool ProvesCompletionTransfer(
@@ -792,21 +1183,37 @@ internal static class ClassicInverseRecipes
             }
         }
 
-        return rawEndpoints is [Block rawEndpoint]
-            && rawSetResults is [Call { Parent.Parent: Block setResultBlock }]
-            && rawEndpoint.Children.LastOrDefault() is Leave success
+        if (rawEndpoints is not [Block rawEndpoint]
+            || rawSetResults is not
+                [Call { Parent.Parent: Block setResultBlock }])
+        {
+            return false;
+        }
+
+        int leavesToSetResult = 0;
+        foreach (Leave leave in rawLeaves)
+        {
+            if (!budget.Charge())
+                return false;
+            if (leave.TargetOffset == setResultBlock.StartOffset)
+                leavesToSetResult++;
+        }
+
+        return rawEndpoint.Children.LastOrDefault() is Leave success
             && success.TargetOffset == setResultBlock.StartOffset
-            && rawLeaves.Count(
-                leave => leave.TargetOffset == setResultBlock.StartOffset) == 1;
+            && leavesToSetResult == 1;
     }
 
     static Block? OperandBlock(
-        ClassicInversePlanningView planning,
-        ClassicInverseShellFacts shell,
-        Call getResult)
-        => AwaitedOperand(planning.ExecutionBody, getResult) is { } operand
-            ? EnclosingBlock(operand)
-            : null;
+        RecipeIndex recipeIndex,
+        Call getResult,
+        ClassicInverseBudget budget)
+    {
+        IrExpression? operand = recipeIndex.AwaitedOperand(getResult, budget);
+        if (operand is null)
+            return null;
+        return recipeIndex.EnclosingBlock(operand, budget);
+    }
 
     // ---- Recipe: await inside a foreach over an array --------------------
 
@@ -816,19 +1223,20 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal finalResult]
             || getResults is not [Call getResult]
-            || HasTryFinally(execution))
+            || recipeIndex.HasTryFinally)
         {
             return null;
         }
 
-        List<StoreField> collectionHoists = [.. execution.Body.Descendants
-            .OfType<StoreField>()
-            .Where(store =>
+        if (!recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                store =>
                 store.Field.Name == "<>7__wrap1"
                 && store.Instance is LoadArgument { Index: 0 }
                 && ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine)
@@ -839,7 +1247,12 @@ internal static class ClassicInverseRecipes
                     shell.Machine)
                 && collection.Field.Type is
                     { Kind: TypeRefKind.SzArray, ElementType: { } element }
-                && IsTaskLike(element))];
+                && IsTaskLike(element),
+                budget,
+                out List<StoreField> collectionHoists))
+        {
+            return null;
+        }
         if (collectionHoists is not
             [StoreField { Value: LoadField collectionField } collectionHoist]
             || collectionField.Field.Type.ElementType is not { } taskType)
@@ -851,9 +1264,9 @@ internal static class ClassicInverseRecipes
         // The loop index is whatever machine field the bound test compares
         // against this exact hoisted array's length — never a field recognized
         // by the compiler's '<>7__wrap' name family.
-        List<ConditionalBranch> boundTests = [.. execution.Body.Descendants
-            .OfType<ConditionalBranch>()
-            .Where(branch => branch.Condition is Comparison
+        if (!recipeIndex.TryFind<ConditionalBranch>(
+                execution.Body,
+                branch => branch.Condition is Comparison
             {
                 Kind: ComparisonKind.LessThan,
                 Left: LoadField { Instance: LoadArgument { Index: 0 } } index,
@@ -866,7 +1279,12 @@ internal static class ClassicInverseRecipes
                 && index.Field != hoistedCollection
                 && ClassicInverseNodeFacts.IsMachineField(
                     index.Field,
-                    shell.Machine))];
+                    shell.Machine),
+                budget,
+                out List<ConditionalBranch> boundTests))
+        {
+            return null;
+        }
         if (boundTests is not
             [ConditionalBranch
             {
@@ -878,18 +1296,29 @@ internal static class ClassicInverseRecipes
         }
         FieldRef loopIndex = boundIndex.Field;
 
-        if (execution.Body.Descendants.OfType<StoreLocal>()
-                .Where(store => Contains(store.Value, getResult)).ToList()
-            is not [StoreLocal resultStore])
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => recipeIndex.Contains(
+                    store.Value,
+                    getResult,
+                    budget),
+                budget,
+                out List<StoreLocal> resultStores)
+            || resultStores is not [StoreLocal resultStore])
         {
             return null;
         }
-        List<StoreLocal> accumulatorStores = [.. execution.Body.Descendants
-            .OfType<StoreLocal>()
-            .Where(store => store.Value is Binary { Kind: BinaryKind.Add } add
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => store.Value is Binary { Kind: BinaryKind.Add } add
                 && IsAccumulatorRead(add.Left, shell, hoistedCollection, loopIndex)
                 && add.Right is LoadLocal read
-                && read.Index == resultStore.Index)];
+                && read.Index == resultStore.Index,
+                budget,
+                out List<StoreLocal> accumulatorStores))
+        {
+            return null;
+        }
         if (accumulatorStores is not
             [StoreLocal
             {
@@ -903,65 +1332,96 @@ internal static class ClassicInverseRecipes
             hoistedCollection,
             loopIndex,
             loopAccumulator);
-        List<StoreField> accumulatorHoists = [.. execution.Body.Descendants
-            .OfType<StoreField>()
-            .Where(store => store.Field == loopAccumulator
+        if (!recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                store => store.Field == loopAccumulator
                 && store.Instance is LoadArgument { Index: 0 }
                 && store.Value is LoadLocal load
-                && load.Index == accumulatorStore.Index)];
-        List<StoreField> collectionReleases = [.. execution.Body.Descendants
-            .OfType<StoreField>()
-            .Where(store => store.Field == hoistedCollection
+                && load.Index == accumulatorStore.Index,
+                budget,
+                out List<StoreField> accumulatorHoists)
+            || !recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                store => store.Field == hoistedCollection
                 && store.Instance is LoadArgument { Index: 0 }
-                && store.Value is Constant { Value: null })];
-        int collectionWriteCount = execution.Body.Descendants.Count(
-            node => IsMachineFieldWrite(
-                node,
-                hoistedCollection,
-                shell.Machine));
-        int accumulatorWriteCount = execution.Body.Descendants.Count(
-            node => IsMachineFieldWrite(
-                node,
-                loopAccumulator,
-                shell.Machine));
+                && store.Value is Constant { Value: null },
+                budget,
+                out List<StoreField> collectionReleases)
+            || !recipeIndex.TryFind<IrNode>(
+                execution.Body,
+                node => IsMachineFieldWrite(
+                    node,
+                    hoistedCollection,
+                    shell.Machine),
+                budget,
+                out List<IrNode> collectionWrites)
+            || !recipeIndex.TryFind<IrNode>(
+                execution.Body,
+                node => IsMachineFieldWrite(
+                    node,
+                    loopAccumulator,
+                    shell.Machine),
+                budget,
+                out List<IrNode> accumulatorWrites))
+        {
+            return null;
+        }
         if (accumulatorHoists is not [StoreField accumulatorHoist]
             || collectionReleases is not [StoreField collectionRelease]
-            || collectionWriteCount != 2
-            || accumulatorWriteCount != 1)
+            || collectionWrites.Count != 2
+            || accumulatorWrites.Count != 1)
         {
             return null;
         }
 
-        IrExpression? operand = AwaitedOperand(execution, getResult);
-        List<LoadStackSlot> spilledElements = operand is null
-            ? []
-            : [.. operand.Descendants.Prepend(operand).OfType<LoadStackSlot>()];
+        IrExpression? operand = recipeIndex.AwaitedOperand(getResult, budget);
+        if (operand is null
+            || !recipeIndex.TryFind<LoadStackSlot>(
+                operand,
+                static _ => true,
+                budget,
+                out List<LoadStackSlot> spilledElements))
+        {
+            return null;
+        }
         if (spilledElements is not [LoadStackSlot spilledElement])
             return null;
-        if (execution.Body.Descendants.OfType<StoreStackSlot>()
-                .Where(store => store.Slot == spilledElement.Slot).ToList()
-            is not [StoreStackSlot elementSpill])
+        if (!recipeIndex.TryFind<StoreStackSlot>(
+                execution.Body,
+                store => store.Slot == spilledElement.Slot,
+                budget,
+                out List<StoreStackSlot> elementSpills)
+            || elementSpills is not [StoreStackSlot elementSpill])
         {
             return null;
         }
         if (!storage.IsElementLoad(elementSpill.Value, shell.Machine))
             return null;
 
-        StoreLocal? seed = execution.Body.Descendants.OfType<StoreLocal>()
-            .FirstOrDefault(store =>
-                store.Index == accumulatorStore.Index
-                && store.Value is Constant { Value: 0 });
-        StoreLocal? finalStore = execution.Body.Descendants.OfType<StoreLocal>()
-            .FirstOrDefault(store =>
-                store.Index == finalResult.Index
-                && store.Value is LoadLocal load
-                && load.Index == accumulatorStore.Index);
-        if (seed is null || finalStore is null)
+        if (!recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => store.Index == accumulatorStore.Index
+                    && store.Value is Constant { Value: 0 },
+                budget,
+                out List<StoreLocal> seeds)
+            || !recipeIndex.TryFind<StoreLocal>(
+                execution.Body,
+                store => store.Index == finalResult.Index
+                    && store.Value is LoadLocal load
+                    && load.Index == accumulatorStore.Index,
+                budget,
+                out List<StoreLocal> finalStores)
+            || seeds.Count == 0
+            || finalStores.Count == 0)
+        {
             return null;
+        }
+        StoreLocal seed = seeds[0];
+        StoreLocal finalStore = finalStores[0];
 
-        List<StoreField> advances = [.. execution.Body.Descendants
-            .OfType<StoreField>()
-            .Where(advance => advance is
+        if (!recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                advance => advance is
             {
                 Value: Binary
                 {
@@ -975,28 +1435,48 @@ internal static class ClassicInverseRecipes
             }
                 && advance.Field == loopIndex
                 && advanceRead.Field == loopIndex
-                && advanceRead.Instance is LoadArgument { Index: 0 })];
-        List<IrNode> indexWrites = [.. execution.Body.Descendants
-            .Where(node => IsMachineFieldWrite(
-                node,
-                loopIndex,
-                shell.Machine))];
-        List<StoreField> indexInitializers = [.. indexWrites
-            .OfType<StoreField>()
-            .Where(static store => store.Value is Constant { Value: 0 })];
+                && advanceRead.Instance is LoadArgument { Index: 0 },
+                budget,
+                out List<StoreField> advances)
+            || !recipeIndex.TryFind<IrNode>(
+                execution.Body,
+                node => IsMachineFieldWrite(
+                    node,
+                    loopIndex,
+                    shell.Machine),
+                budget,
+                out List<IrNode> indexWrites)
+            || !recipeIndex.TryFind<StoreField>(
+                execution.Body,
+                store => IsMachineFieldWrite(
+                        store,
+                        loopIndex,
+                        shell.Machine)
+                    && store.Value is Constant { Value: 0 },
+                budget,
+                out List<StoreField> indexInitializers))
+        {
+            return null;
+        }
         if (advances is not [StoreField advance]
             || indexInitializers is not [StoreField indexInitializer]
             || indexWrites.Count != 2
-            || EnclosingBlock(elementSpill) is not { } bodyBlock
-            || EnclosingBlock(advance) is not { } advanceBlock)
+            || recipeIndex.EnclosingBlock(elementSpill, budget)
+                is not { } bodyBlock
+            || recipeIndex.EnclosingBlock(advance, budget)
+                is not { } advanceBlock)
         {
             return null;
         }
 
-        List<Branch> entries = [.. execution.Body.Descendants
-            .OfType<Branch>()
-            .Where(branch =>
-                branch.TargetOffset == boundTestBlock.StartOffset)];
+        if (!recipeIndex.TryFind<Branch>(
+                execution.Body,
+                branch => branch.TargetOffset == boundTestBlock.StartOffset,
+                budget,
+                out List<Branch> entries))
+        {
+            return null;
+        }
         if (entries is not [Branch entry]
             || entry.Parent is not Block entryBlock
             || !ReferenceEquals(indexInitializer.Parent, entryBlock)
@@ -1062,11 +1542,16 @@ internal static class ClassicInverseRecipes
 
         candidate.Locals = locals.Types;
         candidate.LocalNames = locals.Names;
-        candidate.MapHoistedLocal(loopAccumulator.Name, sumIndex, sumType);
+        candidate.MapHoistedLocal(loopAccumulator, sumIndex);
         candidate.MapLocal(accumulatorStore.Index, sumIndex);
         candidate.MapLocal(finalResult.Index, sumIndex);
 
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
         IrNode? collectionOutput = rewriter.Rewrite(collectionField);
         if (collectionOutput is not IrExpression collectionExpression)
             return null;
@@ -1137,13 +1622,18 @@ internal static class ClassicInverseRecipes
         candidate.DeclareProtocol(entry, "foreach-entry");
 
         var loopRoots = new List<IrNode>();
-        if (EnclosingBlock(elementSpill) is { } spillBlock)
+        if (recipeIndex.EnclosingBlock(elementSpill, budget) is { } spillBlock)
             loopRoots.Add(spillBlock);
-        if (EnclosingBlock(resultStore) is { } resultBlock
-            && !loopRoots.Contains(resultBlock))
+        if (budget.Exhausted)
+            return null;
+        if (recipeIndex.EnclosingBlock(resultStore, budget) is { } resultBlock
+            && (loopRoots.Count == 0
+                || !ReferenceEquals(loopRoots[0], resultBlock)))
         {
             loopRoots.Add(resultBlock);
         }
+        if (budget.Exhausted)
+            return null;
         candidate.DeclareControlRegion("foreach-body", loopRoots, body);
         return candidate;
     }
@@ -1219,17 +1709,16 @@ internal static class ClassicInverseRecipes
             return false;
         if (!HasOnlySuccessors(edges[entryIndex], budget, boundIndex)
             || !HasOnlySuccessors(edges[advanceIndex], budget, boundIndex)
-            || edges[boundIndex].Successors.Count != 2
-            || !edges[boundIndex].Successors.Contains(bodyIndex))
+            || !TryLoopExit(
+                edges[boundIndex].Successors,
+                bodyIndex,
+                budget,
+                out int exitIndex))
         {
             return false;
         }
 
-        int exitIndex = edges[boundIndex].Successors.SingleOrDefault(
-            successor => successor != bodyIndex,
-            -1);
-        if (exitIndex < 0
-            || test.TargetOffset != body.StartOffset
+        if (test.TargetOffset != body.StartOffset
             || !ReferenceEquals(
                 collectionRelease.Parent,
                 blocks[exitIndex])
@@ -1288,6 +1777,35 @@ internal static class ClassicInverseRecipes
         return true;
     }
 
+    static bool TryLoopExit(
+        IReadOnlyList<int> successors,
+        int body,
+        ClassicInverseBudget budget,
+        out int exit)
+    {
+        exit = -1;
+        bool foundBody = false;
+        for (int i = 0; i < successors.Count; i++)
+        {
+            if (!budget.Charge())
+                return false;
+            int successor = successors[i];
+            if (successor == body)
+            {
+                if (foundBody)
+                    return false;
+                foundBody = true;
+            }
+            else
+            {
+                if (exit >= 0)
+                    return false;
+                exit = successor;
+            }
+        }
+        return foundBody && exit >= 0 && successors.Count == 2;
+    }
+
     static bool AllPathsReachTarget(
         IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges,
         int start,
@@ -1299,6 +1817,8 @@ internal static class ClassicInverseRecipes
         stack.Push((start, 0));
         while (stack.Count > 0)
         {
+            if (!budget.Charge())
+                return false;
             var (block, nextSuccessor) = stack.Pop();
             if (block == target)
                 continue;
@@ -1306,8 +1826,7 @@ internal static class ClassicInverseRecipes
             ILInspector.ControlFlow.BlockEdges edge = edges[block];
             if (nextSuccessor == 0)
             {
-                if (!budget.Charge()
-                    || state[block] == 1
+                if (state[block] == 1
                     || edge.ExitsMethod
                     || edge.LeavesRegion
                     || edge.ExternalTargets.Count != 0
@@ -1644,24 +2163,41 @@ internal static class ClassicInverseRecipes
         ClassicInverseShellFacts shell,
         Call setResult,
         List<Call> getResults,
+        RecipeIndex recipeIndex,
         ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
-            || getResults.Count != 1)
+            || getResults.Count != 1
+            || !recipeIndex.HasTryFinally)
         {
             return null;
         }
 
-        if (execution.Body.Descendants.OfType<TryFinally>().ToList()
-            is not [TryFinally tryFinally])
+        if (!recipeIndex.TryFind<TryFinally>(
+                execution.Body,
+                static _ => true,
+                budget,
+                out List<TryFinally> tryFinallys)
+            || tryFinallys is not [TryFinally tryFinally])
         {
             return null;
         }
 
-        StoreLocal? resultStore = tryFinally.TryBody.Descendants.OfType<StoreLocal>()
-            .LastOrDefault(store =>
-                store.Index == result.Index && Contains(store.Value, getResults[0]));
+        if (!recipeIndex.TryFind<StoreLocal>(
+                tryFinally.TryBody,
+                store => store.Index == result.Index
+                    && recipeIndex.Contains(
+                        store.Value,
+                        getResults[0],
+                        budget),
+                budget,
+                out List<StoreLocal> resultStores))
+        {
+            return null;
+        }
+        StoreLocal? resultStore =
+            resultStores.Count == 0 ? null : resultStores[^1];
         if (resultStore is null
             || !ProvesCompletionTransfer(
                 rawExecution,
@@ -1670,9 +2206,15 @@ internal static class ClassicInverseRecipes
                 budget))
             return null;
 
-        List<IfStatement> guards = [.. tryFinally.FinallyBody.Blocks
-            .SelectMany(static block => block.Children)
-            .OfType<IfStatement>()];
+        if (!recipeIndex.TryFind<IfStatement>(
+                tryFinally.FinallyBody,
+                guard => guard.Parent is Block block
+                    && ReferenceEquals(block.Parent, tryFinally.FinallyBody),
+                budget,
+                out List<IfStatement> guards))
+        {
+            return null;
+        }
         if (guards is not [IfStatement guard]
             || guard.Then.Children is not [ExpressionStatement guarded]
             || guard.HasElse)
@@ -1684,7 +2226,12 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
-        var rewriter = new ClassicInverseRewriter(planning, shell, candidate);
+        var rewriter = new ClassicInverseRewriter(
+            planning,
+            shell,
+            candidate,
+            budget,
+            recipeIndex.AwaitedOperands);
         IrNode? value = rewriter.Rewrite(resultStore.Value);
         IrNode? finallyStatement = rewriter.Rewrite(guarded);
         if (value is not IrExpression returned
@@ -1760,9 +2307,6 @@ internal static class ClassicInverseRecipes
         return container;
     }
 
-    static bool Contains(IrNode root, IrNode target)
-        => ReferenceEquals(root, target)
-            || root.Descendants.Any(node => ReferenceEquals(node, target));
 }
 
 /// <summary>Accumulates the output local table a recipe introduces.</summary>

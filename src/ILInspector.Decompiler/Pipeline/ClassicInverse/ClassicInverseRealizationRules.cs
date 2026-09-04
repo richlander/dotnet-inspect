@@ -383,13 +383,13 @@ internal static class ClassicInverseRealizationRules
                 when ClassicInverseNodeFacts.IsMachineField(
                     load.Field,
                     context.Shell.Machine):
-                return MatchMachineRead(load.Field.Name, output, context, out failure);
+                return MatchMachineRead(load.Field, output, context, out failure);
 
             case LoadFieldAddress { Instance: LoadArgument { Index: 0 } } load
                 when ClassicInverseNodeFacts.IsMachineField(
                     load.Field,
                     context.Shell.Machine):
-                return MatchMachineRead(load.Field.Name, output, context, out failure);
+                return MatchMachineRead(load.Field, output, context, out failure);
 
             case LoadLocal local:
             {
@@ -435,7 +435,7 @@ internal static class ClassicInverseRealizationRules
                     && output is StoreLocal hoistedStore:
             {
                 if (!context.Candidate.HoistedLocals.TryGetValue(
-                        store.Field.Name,
+                        MachineFieldId.Of(store.Field),
                         out int mapped)
                     || mapped != hoistedStore.Index)
                 {
@@ -478,28 +478,31 @@ internal static class ClassicInverseRealizationRules
     }
 
     static bool MatchMachineRead(
-        string field,
+        FieldRef field,
         IrNode output,
         Context context,
         out string failure)
     {
-        if (context.Candidate.HoistedLocals.TryGetValue(field, out int local)
+        MachineFieldId id = MachineFieldId.Of(field);
+        if (context.Candidate.HoistedLocals.TryGetValue(id, out int local)
             && output is LoadLocal loadLocal
-            && loadLocal.Index == local)
+            && loadLocal.Index == local
+            && Equals(field.Type, loadLocal.Type))
         {
             failure = "";
             return true;
         }
 
-        if (context.Candidate.ParameterFields.TryGetValue(field, out int argument)
+        if (context.Candidate.ParameterFields.TryGetValue(id, out int argument)
             && output is LoadArgument loadArgument
-            && loadArgument.Index == argument)
+            && loadArgument.Index == argument
+            && Equals(field.Type, loadArgument.Type))
         {
             failure = "";
             return true;
         }
 
-        failure = $"state-machine storage '{field}' has no declared realization";
+        failure = $"state-machine storage '{field.Name}' has no declared realization";
         return false;
     }
 

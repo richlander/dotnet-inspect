@@ -25,17 +25,45 @@ internal sealed class ClassicInverseRewriter
     readonly ClassicInversePlanningView _planning;
     readonly ClassicInverseShellFacts _shell;
     readonly ClassicInverseCandidate _candidate;
+    readonly ClassicInverseBudget _budget;
+    readonly IReadOnlyDictionary<Call, IrExpression> _awaitOperands;
     readonly Dictionary<Call, IrNode> _awaitClaimSources =
         new(ReferenceEqualityComparer.Instance);
 
     internal ClassicInverseRewriter(
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
-        ClassicInverseCandidate candidate)
+        ClassicInverseCandidate candidate,
+        ClassicInverseBudget budget,
+        IReadOnlyDictionary<Call, IrExpression> awaitOperands)
     {
         _planning = planning;
         _shell = shell;
         _candidate = candidate;
+        _budget = budget;
+        _awaitOperands = awaitOperands;
+        foreach (Block block in planning.KickoffBody.Body.Blocks)
+        {
+            if (!budget.Charge())
+                return;
+            foreach (IrNode statement in block.Children)
+            {
+                if (!budget.Charge())
+                    return;
+                if (statement is StoreField
+                    {
+                        Instance: LoadLocalAddress,
+                        Value: LoadArgument argument,
+                    } transfer
+                    && ClassicInverseNodeFacts.IsMachineField(
+                        transfer.Field,
+                        shell.Machine)
+                    && Equals(transfer.Field.Type, argument.Type))
+                {
+                    candidate.MapParameterField(transfer.Field, argument.Index);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -48,11 +76,15 @@ internal sealed class ClassicInverseRewriter
 
     internal IrNode? Rewrite(IrNode source)
     {
+        if (_budget.Exhausted)
+            return null;
         IrNode? output = RewriteCore(source);
         if (output is null)
             return null;
         foreach (IrNode node in output.Descendants.Prepend(output))
         {
+            if (!_budget.Charge())
+                return null;
             if (node is LoadElement load)
                 load.ResultIsDynamic = IrImporter.ArrayElementDynamicFact(load.Array);
         }
@@ -61,6 +93,8 @@ internal sealed class ClassicInverseRewriter
 
     IrNode? RewriteCore(IrNode source)
     {
+        if (!_budget.Charge())
+            return null;
         if (ClassicInverseRealizationRules.IsAwaiterGetResult(source, _shell))
             return RewriteAwait((Call)source);
 
@@ -68,11 +102,11 @@ internal sealed class ClassicInverseRewriter
         {
             case LoadField { Instance: LoadArgument { Index: 0 } } read
                 when ClassicInverseNodeFacts.IsMachineField(read.Field, _shell.Machine):
-                return MachineStorage(read.Field.Name);
+                return MachineStorage(read.Field);
 
             case LoadFieldAddress { Instance: LoadArgument { Index: 0 } } read
                 when ClassicInverseNodeFacts.IsMachineField(read.Field, _shell.Machine):
-                return MachineStorage(read.Field.Name);
+                return MachineStorage(read.Field);
 
             case LoadLocal local
                 when _candidate.LocalRemap.TryGetValue(local.Index, out int mapped):
@@ -91,6 +125,11 @@ internal sealed class ClassicInverseRewriter
                 return RewriteCore(convert.Operand);
         }
 
+        foreach (IrNode unused in source.Descendants)
+        {
+            if (!_budget.Charge())
+                return null;
+        }
         IrNode clone = source.Clone();
         for (int i = 0; i < source.Children.Count; i++)
         {
@@ -129,46 +168,35 @@ internal sealed class ClassicInverseRewriter
     }
 
     IrExpression? AwaitedOperand(Call getResult)
+        => _budget.Charge() ? _awaitOperands.GetValueOrDefault(getResult) : null;
+
+    IrNode? MachineStorage(FieldRef field)
     {
-        if (getResult.Arguments is not [LoadLocalAddress awaiterAddress])
-            return null;
-
-        List<IrNode> nodes = [.. _planning.ExecutionBody.Body.Descendants];
-        int position = nodes.IndexOf(getResult);
-        if (position < 0)
-            return null;
-
-        StoreLocal? bind = null;
-        for (int i = 0; i < position; i++)
+        MachineFieldId id = MachineFieldId.Of(field);
+        if (_candidate.HoistedLocals.TryGetValue(id, out int local))
         {
-            if (nodes[i] is StoreLocal { Value: Call { Callee.Name: "GetAwaiter" } call } store
-                && store.Index == awaiterAddress.Index
-                && call.Arguments.Count == 1)
-            {
-                bind = store;
-            }
-        }
-
-        return bind?.Value is Call { Arguments: [IrExpression operand] } ? operand : null;
-    }
-
-    IrNode? MachineStorage(string field)
-    {
-        if (_candidate.HoistedLocals.TryGetValue(field, out int local)
-            && _candidate.HoistedTypes.TryGetValue(field, out TypeRef? type))
-        {
-            return new LoadLocal(local, type);
+            return new LoadLocal(local, field.Type);
         }
 
         IrFunction kickoff = _planning.KickoffBody;
         int argumentBase = kickoff.Signature.HasThis ? 1 : 0;
-        for (int i = 0; i < kickoff.Signature.Parameters.Length; i++)
+        if (_candidate.ParameterFields.TryGetValue(id, out int argument))
         {
-            Parameter parameter = kickoff.Signature.Parameters[i];
-            if (parameter.Name != field)
-                continue;
+            if (argumentBase == 1 && argument == 0
+                && Equals(field.Type, kickoff.DeclaringType))
+            {
+                return new LoadArgument(0, "this", kickoff.DeclaringType);
+            }
+            int parameterIndex = argument - argumentBase;
+            if (parameterIndex < 0
+                || parameterIndex >= kickoff.Signature.Parameters.Length)
+                return null;
+
+            Parameter parameter = kickoff.Signature.Parameters[parameterIndex];
+            if (!Equals(parameter.Type, field.Type))
+                return null;
             return new LoadArgument(
-                argumentBase + i,
+                argument,
                 parameter.Name,
                 parameter.Type)
             {

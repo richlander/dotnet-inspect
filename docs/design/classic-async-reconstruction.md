@@ -329,6 +329,19 @@ keeps its planning correspondence and its semantic receipt, so a value a
 prerequisite pass drops is visible rather than silently exempt; the typed
 planning-to-output realization remains owned by the recipe lockstep.
 
+The kickoff shell is an ordered, reachable program, not an inventory of method
+names. Raw and planning kickoffs must agree on the admitted single entry block,
+statement order, multiplicity, typed storage and arguments, initial state,
+member identity, and dispatch. Accessor raising may change the representation
+of `get_Task`, not the call it denotes. A planning-only repair cannot license
+an unreachable shell or a different raw transfer.
+
+Machine-storage correspondence uses declaring type, field name, and field
+type together. Parameter bindings come from the proven kickoff transfers;
+an execution field cannot acquire a binding through a parameter's name or a
+similar display string. The realized argument or local retains the bound
+field's type.
+
 ### Proven lowering protocol
 
 Scaffolding is protocol only under one closed proof the core discharges over
@@ -353,6 +366,13 @@ independently recognizable shapes:
   `SetException` and excludes `SetResult`, and a handler-entry variable that is
   the local `SetException` receives; the planning view's structured clause must
   agree on type, variable, and the compiler's state/`SetException`/return arm;
+- **protected exception contexts** — every provenance-bearing planning node
+  keeps the raw offset's protected/handler membership, including awaited
+  operands, `GetAwaiter`, user work, and nested finally work. The admitted
+  shell has one completion catch and at most one user finally. Its structured
+  region identities agree with the import, and any retained flat regions keep
+  their exact extents. Checking only the callback or final result offset is
+  insufficient; repairing a detached planning view cannot repair the import;
 - **successful completion** — the exact terminal block for each accepted
   recipe must have no remaining planning successor, and its corresponding raw
   block must end in the sole `leave` to the exact `SetResult` block. A detached
@@ -399,6 +419,14 @@ per element it touches, including each step of an ancestor walk. No phase
 rescans the body per state, so an adversarial body cannot buy quadratic
 planning work at a linear charge. Exhaustion remains
 `Failed(BudgetExhausted)`: never a decline, never a partial proof.
+
+Recipe matching and rewriting share the same charged planning index. Snapshot
+construction charges admission and subtree-interval closure for each node.
+Typed range queries charge their lookup, search probes, and inspected entries;
+containment, enclosing-block, and await-operand lookups each charge once.
+Raw scans and CFG work charge every inspected node, block, edge, and path step.
+Output construction also charges its traversal and clone work. Exhaustion
+stops the operation immediately rather than finishing an uncharged scan.
 
 ## Proof-carrying plan
 
@@ -662,6 +690,17 @@ Release gates:
 | `ClassicInverseWithCloneBindsItsExactDispatch` | A record clone's typed identity or dispatch is erased, or direct clone dispatch on an open receiver raises into a `with` expression that restores virtual dispatch. |
 | `ClassicInverseWithSetterBindsItsExactDispatch` | A direct setter store raises into a `with` expression that re-emits virtual dispatch, or a consumed initializer member's effect drops its call-site dispatch. |
 | `ClassicInverseConsumedMemberAccountingChargesEveryLookup` | Consumed-member resolution stops charging for the elements it indexes or the questions it answers, or raw-effect accounting buys a planning-tree rescan per call. |
+| `ClassicInverseRawKickoffBindsExactParameterTransfers` | A raw kickoff parameter transfer has a different argument index than the planning view registered, or the raw/planning transfer counts differ, including when a planning runner repairs only its detached kickoff clone. |
+| `ClassicInverseRawKickoffRetainsItsOrderedShell` | A planning-only repair hides an early raw return, premature builder start, different initial state, or duplicated parameter transfer. |
+| `ClassicInverseRawFinallyBindsItsExactRegion` | A narrowed or shifted raw finally handler region still reconstructs because the recipe checked only the planning `TryFinally` structure, not the raw `HandlerRegion` ranges. |
+| `ClassicInverseCompletionCatchBindsItsExactProtectedExtent` | A narrowed raw completion catch `TryOffset`/`TryLength` still reconstructs because the lowering proof checked only handler offset/length, not the protected extent. |
+| `ClassicInverseCompletionCatchRejectsDetachedPlanningRepair` | Planning hides a raw completion catch that excludes the await operand and `GetAwaiter` while still covering its await callback. |
+| `ClassicInverseFinallyRejectsDetachedPlanningRepair` | Planning hides a raw finally protected range that excludes awaited work while still covering `GetResult` and the result store. |
+| `ClassicInverseStorageBindsExactTypedFieldIdentity` | A same-named machine field with a different type resolves to the original parameter's argument index through name-only mapping in the candidate, rewriter, or realization rules. |
+| `ClassicInverseCoherentAwaitCannotAliasAnotherTypedField` | An internally consistent alternate awaitable field and `GetAwaiter` member, accepted by the lowering proof, resolves to the original differently typed parameter. |
+| `ClassicInverseRecipeScanChargesEveryNodeVisit` | Recipe matching performs uncharged full-tree scans that the budget cannot observe, allowing quadratic work at a linear charge. |
+| `ClassicInverseRecipeIndexChargesSnapshotAndQueries` | Snapshot construction, typed range queries, containment, enclosing-block lookup, or await-operand lookup ceases to honor its charged-work contract. |
+| `ClassicInverseExpandedRecipeSnapshotIsLoadBearingEndToEnd` | An expanded planning body can complete its recipe snapshot with one less than its required budget, or exhaustion becomes an ordinary decline. |
 | `ClassicInversePlanningDepthExhaustionRemainsVisible` | An imported tree can reach recursive clone or prerequisite planning beyond the admitted depth, or excessive depth produces anything other than `Failed(BudgetExhausted)`. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 

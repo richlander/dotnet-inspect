@@ -3,6 +3,18 @@ using System.Collections.Immutable;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
+/// Semantic field identity, independent of display and property annotations.
+/// </summary>
+internal readonly record struct MachineFieldId(
+    TypeRef DeclaringType,
+    string Name,
+    TypeRef Type)
+{
+    internal static MachineFieldId Of(FieldRef field)
+        => new(field.DeclaringType, field.Name, field.Type);
+}
+
+/// <summary>
 /// One recipe's ephemeral proposal. It may hold IR references — it is never
 /// published — and is consumed by <see cref="ClassicInverseAccountant"/>, which
 /// either turns it into a detached plan or declines.
@@ -15,10 +27,9 @@ internal sealed class ClassicInverseCandidate
     readonly Dictionary<IrNode, ClassicInverseContainerDeclaration> _containers =
         new(ReferenceEqualityComparer.Instance);
     readonly List<ClassicInverseControlRegion> _controlRegions = [];
-    readonly Dictionary<string, int> _hoistedLocals = new(StringComparer.Ordinal);
-    readonly Dictionary<string, TypeRef> _hoistedTypes = new(StringComparer.Ordinal);
+    readonly Dictionary<MachineFieldId, int> _hoistedLocals = [];
     readonly Dictionary<int, int> _localRemap = [];
-    readonly Dictionary<string, int> _parameterFields = new(StringComparer.Ordinal);
+    readonly Dictionary<MachineFieldId, int> _parameterFields = [];
     readonly Dictionary<int, IrNode> _localValues = [];
 
     internal ClassicInverseCandidate(string recipe) => Recipe = recipe;
@@ -42,14 +53,14 @@ internal sealed class ClassicInverseCandidate
     internal IReadOnlyList<ClassicInverseControlRegion> ControlRegions =>
         _controlRegions;
 
-    /// <summary>Hoisted state-machine field name to the output local it became.</summary>
-    internal IReadOnlyDictionary<string, int> HoistedLocals => _hoistedLocals;
+    /// <summary>Hoisted state-machine field to the output local it became.</summary>
+    internal IReadOnlyDictionary<MachineFieldId, int> HoistedLocals => _hoistedLocals;
 
     /// <summary>Execution-body local slot to the output local it became.</summary>
     internal IReadOnlyDictionary<int, int> LocalRemap => _localRemap;
 
-    /// <summary>Kickoff parameter-transfer field name to its output argument index.</summary>
-    internal IReadOnlyDictionary<string, int> ParameterFields => _parameterFields;
+    /// <summary>Kickoff parameter-transfer field to its output argument index.</summary>
+    internal IReadOnlyDictionary<MachineFieldId, int> ParameterFields => _parameterFields;
 
     /// <summary>
     /// Execution-body local slots whose value is realized by one output node
@@ -79,18 +90,23 @@ internal sealed class ClassicInverseCandidate
 
     internal void Unsound() => Sound = false;
 
-    internal void MapParameterField(string field, int argumentIndex)
-        => _parameterFields[field] = argumentIndex;
-
-    internal void MapHoistedLocal(string field, int localIndex, TypeRef type)
+    internal void MapParameterField(FieldRef field, int argumentIndex)
     {
-        if (!_hoistedLocals.TryAdd(field, localIndex))
+        MachineFieldId id = MachineFieldId.Of(field);
+        if (_parameterFields.TryGetValue(id, out int existing)
+            && existing != argumentIndex)
+        {
             Sound = false;
-        _hoistedTypes[field] = type;
+            return;
+        }
+        _parameterFields[id] = argumentIndex;
     }
 
-    /// <summary>The output type of a hoisted state-machine local.</summary>
-    internal IReadOnlyDictionary<string, TypeRef> HoistedTypes => _hoistedTypes;
+    internal void MapHoistedLocal(FieldRef field, int localIndex)
+    {
+        if (!_hoistedLocals.TryAdd(MachineFieldId.Of(field), localIndex))
+            Sound = false;
+    }
 
     internal void MapLocal(int sourceIndex, int outputIndex)
     {

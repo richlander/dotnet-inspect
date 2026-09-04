@@ -55,6 +55,7 @@ internal sealed class ClassicInverseAccountant
     bool _consumedMembersIndexed;
 
     BlockContainer _output = null!;
+    FieldRef? _kickoffBuilderField;
     ClassicInverseDecision? _terminal;
 
     ClassicInverseAccountant(
@@ -196,7 +197,8 @@ internal sealed class ClassicInverseAccountant
     bool AccountKickoff()
     {
         IrFunction kickoff = _planning.KickoffBody;
-        if (kickoff.Body.Blocks is not [Block block])
+        if (kickoff.Body.Blocks is not [Block block]
+            || !kickoff.Regions.IsEmpty)
         {
             return DeclineFalse(
                 ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
@@ -234,6 +236,7 @@ internal sealed class ClassicInverseAccountant
             {
                 case ExpectBuilderCreate
                     when IsKickoffBuilderCreate(statement):
+                    _kickoffBuilderField = ((StoreField)statement).Field;
                     ClaimKickoffProtocol(statement, "kickoff-builder-create");
                     stage = ExpectStateOrTransfer;
                     continue;
@@ -293,7 +296,14 @@ internal sealed class ClassicInverseAccountant
         }
             && local.Index == _request.StateMachineLocal
             && ClassicInverseNodeFacts.IsMachineField(field, _shell.Machine)
-            && ClassicInverseNodeFacts.IsAsyncMethodBuilder(create.Callee.DeclaringType);
+            && ClassicInverseNodeFacts.IsAsyncMethodBuilder(create.Callee.DeclaringType)
+            && Equals(create.Callee.DeclaringType, field.Type)
+            && Equals(create.Callee.ReturnType, field.Type)
+            && !create.Callee.HasThis
+            && create.Callee.ParameterTypes.IsEmpty
+            && create.Children.Count == 0
+            && !create.IsVirtual
+            && create.ConstrainedTo is null;
 
     bool IsKickoffParameterTransfer(IrNode statement)
     {
@@ -303,24 +313,30 @@ internal sealed class ClassicInverseAccountant
                 Value: LoadArgument argument,
             } store
             || local.Index != _request.StateMachineLocal
-            || !ClassicInverseNodeFacts.IsMachineField(store.Field, _shell.Machine))
+            || !ClassicInverseNodeFacts.IsMachineField(store.Field, _shell.Machine)
+            || !Equals(store.Field.Type, argument.Type))
         {
             return false;
         }
 
         if (store.Field.Name == "<>4__this")
         {
-            _candidate.MapParameterField(store.Field.Name, argument.Index);
-            return argument.Index == 0;
+            _candidate.MapParameterField(store.Field, argument.Index);
+            return argument.Index == 0
+                && _planning.KickoffBody.Signature.HasThis
+                && Equals(argument.Type, _planning.KickoffBody.DeclaringType);
         }
 
-        if (!TryGetParameterIndex(store.Field.Name, out int index)
-            || index != argument.Index)
+        IrFunction kickoff = _planning.KickoffBody;
+        int parameterIndex = argument.Index - (kickoff.Signature.HasThis ? 1 : 0);
+        if ((uint)parameterIndex >= (uint)kickoff.Signature.Parameters.Length
+            || kickoff.Signature.Parameters[parameterIndex].Name != store.Field.Name
+            || !Equals(argument.Type, kickoff.Signature.Parameters[parameterIndex].Type))
         {
             return false;
         }
 
-        _candidate.MapParameterField(store.Field.Name, index);
+        _candidate.MapParameterField(store.Field, argument.Index);
         return true;
     }
 
@@ -432,7 +448,7 @@ internal sealed class ClassicInverseAccountant
             && hoist.Instance is LoadArgument { Index: 0 }
             && ClassicInverseNodeFacts.IsMachineField(hoist.Field, _shell.Machine)
             && _candidate.HoistedLocals.TryGetValue(
-                hoist.Field.Name,
+                MachineFieldId.Of(hoist.Field),
                 out int hoisted)
             && _candidate.LocalRemap.TryGetValue(read.Index, out int mapped)
             && mapped == hoisted;
@@ -449,9 +465,12 @@ internal sealed class ClassicInverseAccountant
                 _shell.Machine) => load.Field,
             _ => null,
         };
-        return field is not null
-            && (_candidate.ParameterFields.ContainsKey(field.Name)
-                || _candidate.HoistedLocals.ContainsKey(field.Name));
+        if (field is null)
+            return false;
+
+        MachineFieldId id = MachineFieldId.Of(field);
+        return _candidate.ParameterFields.ContainsKey(id)
+            || _candidate.HoistedLocals.ContainsKey(id);
     }
 
     bool HasRawSemanticOwner(IrNode node)
@@ -479,7 +498,8 @@ internal sealed class ClassicInverseAccountant
                 && ClassicInverseNodeFacts.IsMachineField(
                     hoisted.Field,
                     _shell.Machine)
-                && _candidate.HoistedLocals.ContainsKey(hoisted.Field.Name))
+                && _candidate.HoistedLocals.ContainsKey(
+                    MachineFieldId.Of(hoisted.Field)))
             {
                 return true;
             }
@@ -688,44 +708,79 @@ internal sealed class ClassicInverseAccountant
 
     bool ValidateRawKickoff()
     {
-        int createCount = 0;
-        int startCount = 0;
-        int taskCount = 0;
-        foreach (IrNode node in
-            _request.KickoffBody.Body.Descendants.Prepend(
-                _request.KickoffBody.Body))
+        if (_request.KickoffBody.Body.Blocks is not [Block raw]
+            || _planning.KickoffBody.Body.Blocks is not [Block planning]
+            || !_request.KickoffBody.Regions.IsEmpty
+            || raw.Children.Count != planning.Children.Count)
         {
-            if (ClassicInverseNodeFacts.IsUnknownEffectForm(node))
-            {
-                return DeclineFalse(
-                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
-                    $"raw kickoff contains an unknown effect form "
-                        + $"'{node.Describe()}'");
-            }
-
-            string? effect =
-                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
-            if (effect is null)
-                continue;
-            if (IsRawKickoffProtocolEffect(
-                    node,
-                    ref createCount,
-                    ref startCount,
-                    ref taskCount))
-            {
-                continue;
-            }
-
             return DeclineFalse(
                 ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
-                $"raw kickoff effect '{node.Describe()}' is not protocol");
+                "raw kickoff does not have the proven single-block shell");
         }
-        return createCount == 1 && startCount == 1 && taskCount == 1
-            || DeclineFalse(
-                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
-                "raw kickoff does not contain exactly one builder create, "
-                    + "start, and task acquisition");
+
+        for (int i = 0; i < raw.Children.Count; i++)
+        {
+            if (!SameKickoffTree(raw.Children[i], planning.Children[i]))
+            {
+                if (_terminal is not null)
+                    return false;
+                return DeclineFalse(
+                    ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                    "raw kickoff differs from the proven ordered protocol "
+                        + $"at statement {i}");
+            }
+        }
+        return true;
     }
+
+    bool SameKickoffTree(IrNode raw, IrNode planning)
+    {
+        if (!_budget.Charge())
+        {
+            _terminal ??= ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.BudgetExhausted,
+                "raw kickoff correspondence exhausted the planning budget");
+            return false;
+        }
+        bool same = (raw, planning) switch
+        {
+            (Call left, Call right) =>
+                SameKickoffCall(left.Callee, right.Callee)
+                && left.IsVirtual == right.IsVirtual
+                && Equals(left.ConstrainedTo, right.ConstrainedTo),
+            (Call left, LoadProperty right) =>
+                left.Callee.Name == "get_Task"
+                && SameKickoffCall(left.Callee, right.Accessor)
+                && left.IsVirtual == right.IsVirtual
+                && left.ConstrainedTo is null,
+            (LoadProperty left, LoadProperty right) =>
+                SameKickoffCall(left.Accessor, right.Accessor)
+                && left.IsVirtual == right.IsVirtual,
+            (StoreField left, StoreField right) =>
+                MachineFieldId.Of(left.Field) == MachineFieldId.Of(right.Field)
+                && left.IsVolatile == right.IsVolatile,
+            (LoadFieldAddress left, LoadFieldAddress right) =>
+                MachineFieldId.Of(left.Field) == MachineFieldId.Of(right.Field),
+            (Return, Return) or (ExpressionStatement, ExpressionStatement) => true,
+            (LoadLocalAddress, LoadLocalAddress) or (LoadArgument, LoadArgument)
+                or (Constant, Constant) => SemanticValueEquals(raw, planning),
+            _ => false,
+        };
+        if (!same || raw.Children.Count != planning.Children.Count)
+            return false;
+        for (int i = 0; i < raw.Children.Count; i++)
+        {
+            if (!SameKickoffTree(raw.Children[i], planning.Children[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool SameKickoffCall(MethodRef raw, MethodRef planning)
+        => ClassicInverseTypedIdentity.Method(raw)
+            == ClassicInverseTypedIdentity.Method(planning);
 
     bool VerifyRawSemanticClosure()
     {
@@ -863,52 +918,6 @@ internal sealed class ClassicInverseAccountant
                 "consumed-member indexing exhausted the planning budget");
         }
         return _consumedMembers;
-    }
-
-    bool IsRawKickoffProtocolEffect(
-        IrNode node,
-        ref int createCount,
-        ref int startCount,
-        ref int taskCount)
-    {
-        switch (node)
-        {
-            case Call call when
-                ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                    call.Callee.DeclaringType):
-                switch (call.Callee.Name)
-                {
-                    case "Create":
-                        createCount++;
-                        return true;
-                    case "Start":
-                        startCount++;
-                        return true;
-                    case "get_Task":
-                        taskCount++;
-                        return true;
-                    default:
-                        return false;
-                }
-            case LoadProperty property when
-                ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                    property.Accessor.DeclaringType)
-                && property.PropertyName == "Task":
-                taskCount++;
-                return true;
-            case LoadFieldAddress field:
-                return ClassicInverseNodeFacts.IsMachineField(
-                    field.Field,
-                    _shell.Machine);
-            case NewObject creation:
-                return ClassicInverseNodeFacts.Definition(
-                        creation.Constructor.DeclaringType)
-                    == ClassicInverseNodeFacts.Definition(_shell.Machine);
-            case InitObject { Address: LoadLocalAddress local }:
-                return local.Index == _request.StateMachineLocal;
-            default:
-                return false;
-        }
     }
 
     bool WalkRawExecution(IrNode node)
@@ -1114,7 +1123,8 @@ internal sealed class ClassicInverseAccountant
             Value: Constant { Value: -1 },
         }
             && local.Index == _request.StateMachineLocal
-            && ClassicInverseNodeFacts.IsMachineField(field, _shell.Machine);
+            && ClassicInverseNodeFacts.IsMachineField(field, _shell.Machine)
+            && MemberIdentity.IsCoreLibraryType(field.Type, "System", "Int32");
 
     bool IsKickoffStart(IrNode statement)
         => statement is ExpressionStatement
@@ -1122,51 +1132,52 @@ internal sealed class ClassicInverseAccountant
             Expression: Call { Callee.Name: "Start" } start,
         }
             && ClassicInverseNodeFacts.IsAsyncMethodBuilder(start.Callee.DeclaringType)
-            && start.Arguments.Count == 2
-            && ClassicInverseNodeFacts.IsBuilderAccessOnLocal(
-                start.Arguments[0],
-                _shell.Machine,
-                _request.StateMachineLocal)
-            && start.Arguments[1] is LoadLocalAddress machine
-            && machine.Index == _request.StateMachineLocal;
+            && Equals(start.Callee.DeclaringType, _kickoffBuilderField?.Type)
+            && start.Callee.HasThis
+            && MemberIdentity.IsCoreLibraryType(start.Callee.ReturnType, "System", "Void")
+            && start.Callee.ParameterTypes is
+                [TypeRef { Kind: TypeRefKind.ByRef, ElementType: { } machineType }]
+            && Equals(ClassicInverseNodeFacts.Definition(machineType), _shell.Machine)
+            && start.Children is [IrExpression receiver, LoadLocalAddress machine]
+            && IsKickoffBuilderReceiver(receiver)
+            && machine.Index == _request.StateMachineLocal
+            && Equals(ClassicInverseNodeFacts.Definition(machine.Type), _shell.Machine)
+            && !start.IsVirtual
+            && start.ConstrainedTo is null;
+
+    bool IsKickoffBuilderReceiver(IrExpression receiver)
+        => receiver is LoadFieldAddress
+        {
+            Field: var field,
+            Instance: LoadLocalAddress local,
+        }
+            && _kickoffBuilderField is { } builder
+            && MachineFieldId.Of(field) == MachineFieldId.Of(builder)
+            && local.Index == _request.StateMachineLocal;
+
+    bool IsKickoffTaskAccessor(MethodRef accessor)
+        => Equals(accessor.DeclaringType, _kickoffBuilderField?.Type)
+            && accessor.HasThis
+            && accessor.ParameterTypes.IsEmpty
+            && Equals(accessor.ReturnType, _planning.KickoffBody.Signature.ReturnType);
 
     bool IsKickoffReturnTask(IrNode statement)
         => statement is Return { Value: { } value }
             && value switch
             {
                 Call { Callee.Name: "get_Task" } task =>
-                    ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                        task.Callee.DeclaringType)
-                    && task.Arguments.Count == 1
-                    && ClassicInverseNodeFacts.IsBuilderAccessOnLocal(
-                        task.Arguments[0],
-                        _shell.Machine,
-                        _request.StateMachineLocal),
+                    IsKickoffTaskAccessor(task.Callee)
+                    && task.Children is [IrExpression receiver]
+                    && IsKickoffBuilderReceiver(receiver)
+                    && !task.IsVirtual
+                    && task.ConstrainedTo is null,
                 LoadProperty { PropertyName: "Task", Instance: { } receiver } property =>
-                    ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                        property.Accessor.DeclaringType)
-                    && ClassicInverseNodeFacts.IsBuilderAccessOnLocal(
-                        receiver,
-                        _shell.Machine,
-                        _request.StateMachineLocal),
+                    IsKickoffTaskAccessor(property.Accessor)
+                    && property.Children.Count == 1
+                    && IsKickoffBuilderReceiver(receiver)
+                    && !property.IsVirtual,
                 _ => false,
             };
-
-    bool TryGetParameterIndex(string fieldName, out int index)
-    {
-        IrFunction kickoff = _planning.KickoffBody;
-        int argumentBase = kickoff.Signature.HasThis ? 1 : 0;
-        for (int i = 0; i < kickoff.Signature.Parameters.Length; i++)
-        {
-            if (kickoff.Signature.Parameters[i].Name == fieldName)
-            {
-                index = argumentBase + i;
-                return true;
-            }
-        }
-        index = -1;
-        return false;
-    }
 
     bool AccountExecution()
         => Walk(_planning.ExecutionBody.Body);

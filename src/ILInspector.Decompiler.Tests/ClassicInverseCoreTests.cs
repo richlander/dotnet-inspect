@@ -8,7 +8,7 @@ using ILInspector.MetadataPrimitives;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Area", "Pass")]
-public sealed class ClassicInverseCoreTests
+public sealed partial class ClassicInverseCoreTests
 {
     const string FixtureType =
         "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
@@ -587,6 +587,45 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseRawKickoffBindsExactParameterTransfers()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        var rawKickoff = (IrFunction)scope.Request.KickoffBody.Clone();
+        SwapKickoffParameterTransfers(rawKickoff);
+
+        bool repairedPlanningKickoff = false;
+        Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                scope.Request.RunPasses);
+        ClassicInverseRequest request = ClassicInverseCore.Request(
+            rawKickoff,
+            scope.Request.StateMachineLocal,
+            scope.Request.KickoffSourceOffset,
+            scope.Request.ExecutionBody,
+            scope.Request.ExecutionImportOffsets,
+            SeedOf(scope.Request),
+            (body, passes) =>
+            {
+                if (body.Name == scope.Request.KickoffBody.Name)
+                {
+                    SwapKickoffParameterTransfers(body);
+                    repairedPlanningKickoff = true;
+                }
+                originalRunner(body, passes);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.True(repairedPlanningKickoff);
+    }
+
+    [Fact]
     public void ClassicInversePlanningFailuresRemainFailures()
     {
         using RequestScope scope = OpenRequest("TwoSequentialAwaits");
@@ -1010,6 +1049,40 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseRawFinallyBindsItsExactRegion()
+    {
+        using RequestScope scope = OpenRequest("AwaitInTryFinally");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        using RequestScope narrowed = OpenMutatedRequest(
+            "AwaitInTryFinally",
+            execution => NarrowRawHandlerTryOffset(
+                execution,
+                HandlerKind.Finally));
+
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(narrowed.Request));
+    }
+
+    [Fact]
+    public void ClassicInverseCompletionCatchBindsItsExactProtectedExtent()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        using RequestScope narrowed = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            execution => NarrowRawHandlerTryOffset(
+                execution,
+                HandlerKind.Catch));
+
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(narrowed.Request));
+    }
+
+    [Fact]
     public void ClassicInverseResumeStatesAreProvenAgainstTheirDispatch()
     {
         foreach (string methodName in new[]
@@ -1392,6 +1465,21 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseStorageBindsExactTypedFieldIdentity()
+    {
+        using RequestScope scope = OpenRequest("AwaitValue");
+        Assert.IsType<ClassicInverseDecision.Reconstruct>(
+            ClassicInverseCore.Decide(scope.Request));
+
+        using RequestScope mistyped = OpenMutatedRequest(
+            "AwaitValue",
+            RetypeExecutionFieldAAsProbeAwaitable);
+
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(mistyped.Request));
+    }
+
+    [Fact]
     public void ClassicInverseProofWorkStaysProportionalToItsChargedBudget()
     {
         // Every proof phase charges once per node it touches, so a rescan of
@@ -1416,7 +1504,7 @@ public sealed class ClassicInverseCoreTests
 
             int nodes = planning.ExecutionBody.Body.Descendants.Count() + 1
                 + scope.Request.ExecutionBody.Body.Descendants.Count() + 1;
-            Assert.InRange(budget.Consumed, nodes, 3 * nodes);
+            Assert.InRange(budget.Consumed, nodes, 4 * nodes);
 
             // The charges are load-bearing, not decoration: one unit short of
             // what the proof consumed, it exhausts instead of proving.
@@ -1658,6 +1746,125 @@ public sealed class ClassicInverseCoreTests
                 argument => (IrExpression)argument.Clone()));
         replacement.SetSourceOffset(setResult.SourceOffset);
         setResult.ReplaceWith(replacement);
+    }
+
+    static ClassicAsyncRequestSeed SeedOf(ClassicInverseRequest request)
+        => new(
+            request.DeclaredMethod!.Value,
+            request.ExecutionMethod!.Value,
+            request.Relationship!,
+            request.AcquisitionGuard!);
+
+    static void SwapKickoffParameterTransfers(IrFunction kickoff)
+    {
+        StoreField a = Assert.Single(
+            kickoff.Body.Descendants.OfType<StoreField>(),
+            store => store.Field.Name == "a"
+                && store.Value is LoadArgument);
+        StoreField b = Assert.Single(
+            kickoff.Body.Descendants.OfType<StoreField>(),
+            store => store.Field.Name == "b"
+                && store.Value is LoadArgument);
+        IrNode aArgument = a.Value.Clone();
+        IrNode bArgument = b.Value.Clone();
+        a.SetChild(a.HasInstance ? 1 : 0, bArgument);
+        b.SetChild(b.HasInstance ? 1 : 0, aArgument);
+    }
+
+    static void NarrowRawHandlerTryOffset(
+        IrFunction execution,
+        HandlerKind kind)
+    {
+        HandlerRegion[] regions = [.. execution.Regions];
+        int regionIndex = Array.FindIndex(
+            regions,
+            region => region.Kind == kind);
+        Assert.InRange(regionIndex, 0, regions.Length - 1);
+        Assert.Equal(
+            regionIndex,
+            Array.FindLastIndex(
+                regions,
+                region => region.Kind == kind));
+
+        HandlerRegion region = regions[regionIndex];
+        int nextBlockOffset = execution.Body.Blocks
+            .Select(block => block.StartOffset)
+            .Where(offset =>
+                offset > region.TryOffset
+                && offset < region.HandlerOffset)
+            .Order()
+            .First();
+        int delta = nextBlockOffset - region.TryOffset;
+        regions[regionIndex] = region with
+        {
+            TryOffset = nextBlockOffset,
+            TryLength = region.TryLength - delta,
+        };
+        execution.Regions = [.. regions];
+    }
+
+    static void RetypeExecutionFieldAAsProbeAwaitable(IrFunction execution)
+    {
+        LoadField reference = Assert.Single(
+            execution.Body.Descendants.OfType<LoadField>(),
+            load => load.Field.Name == "a");
+        TypeRef originalType = reference.Field.Type;
+        TypeRef probeType = TypeRef.Definition(
+            "ProbeAssembly",
+            "ProbeNamespace",
+            "ProbeAwaitable");
+
+        foreach (IrNode node in execution.Body.Descendants.ToList())
+        {
+            switch (node)
+            {
+                case LoadField load
+                    when load.Field.Name == "a"
+                        && load.Field.Type.Equals(originalType):
+                {
+                    var replacement = new LoadField(
+                        load.Field with { Type = probeType },
+                        (IrExpression?)load.Instance?.Clone())
+                    {
+                        IsVolatile = load.IsVolatile,
+                    };
+                    replacement.SetSourceOffset(load.SourceOffset);
+                    load.ReplaceWith(replacement);
+                    break;
+                }
+
+                case StoreField store
+                    when store.Field.Name == "a"
+                        && store.Field.Type.Equals(originalType):
+                {
+                    var replacement = new StoreField(
+                        store.Field with { Type = probeType },
+                        (IrExpression?)store.Instance?.Clone(),
+                        (IrExpression)store.Value.Clone())
+                    {
+                        IsVolatile = store.IsVolatile,
+                    };
+                    replacement.SetSourceOffset(store.SourceOffset);
+                    store.ReplaceWith(replacement);
+                    break;
+                }
+
+                case LoadFieldAddress address
+                    when address.Field.Name == "a"
+                        && address.Field.Type.Equals(originalType):
+                {
+                    var replacement = new LoadFieldAddress(
+                        address.Field with { Type = probeType },
+                        (IrExpression?)address.Instance?.Clone())
+                    {
+                        FieldRvaData = address.FieldRvaData,
+                    };
+                    replacement.SetSourceOffset(address.SourceOffset);
+                    address.ReplaceWith(replacement);
+                    break;
+                }
+            }
+        }
     }
 
     [Fact]
@@ -2574,7 +2781,7 @@ public sealed class ClassicInverseCoreTests
             Assert.InRange(
                 budget.Consumed,
                 rawNodes + planningNodes + entries,
-                8 * (rawNodes + planningNodes));
+                10 * (rawNodes + planningNodes));
 
             var failure = Assert.IsType<ClassicInverseDecision.Failed>(
                 ClassicInverseCore.Decide(
@@ -2589,6 +2796,31 @@ public sealed class ClassicInverseCoreTests
                     scope.Request,
                     new ClassicInverseBudget(budget.Consumed)));
         }
+    }
+
+    [Fact]
+    public void ClassicInverseRecipeScanChargesEveryNodeVisit()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInversePlanningView planning =
+            ClassicInversePlanningView.Derive(scope.Request);
+        ClassicInverseShellFacts shell = ClassicInverseShellFacts.Derive(
+            planning.ExecutionBody,
+            scope.Request.ExecutionBody,
+            new ClassicInverseBudget());
+        Assert.Null(shell.Protocol.Failure);
+
+        int planningNodes = planning.ExecutionBody.Body.Descendants.Count() + 1;
+        var budget = new ClassicInverseBudget();
+        ClassicInverseCandidate candidate = Assert.Single(
+            ClassicInverseRecipes.Match(
+                scope.Request,
+                planning,
+                shell,
+                budget));
+
+        Assert.Equal("classic-sequential-await-void", candidate.Recipe);
+        Assert.InRange(budget.Consumed, planningNodes, 8 * planningNodes);
     }
 
     [Fact]
