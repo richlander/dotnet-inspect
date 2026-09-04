@@ -5,7 +5,9 @@ question of package manifests and restored project graphs. It defines the
 normalized evidence, typed result, and equivalence relation. It does not own
 how a host locates or acquires either input.
 
-**Status:** target design; unimplemented.
+**Status:** implementation contract. The declaration, comparison, restored-
+graph, package-prefix admission, and failure core is implemented under #5533.
+Optional owner observations remain dependent on #5315.
 
 ## Owner
 
@@ -45,6 +47,10 @@ cross-input equivalence: package, nuspec, `.csproj`, direct-assets, and
 package-prefix inputs must not acquire separate comparison, identity,
 completion, or failure semantics in each host.
 
+Issue #5533 does not itself create a production-visible command. The first
+production user is the CLI adoption in #5534; #5533 remains incomplete as a
+delivered product experience until that consumer lands.
+
 The query preserves structured typed evidence rather than rendering it. The
 CLI consumer uses Markout as the default host-neutral lowering and projects
 JSON-family formats from the same typed information. The browser consumer
@@ -72,7 +78,7 @@ evidence that an owner is absent.
 typed admitted roots
   + declared dependency observations
   + optional restored-graph edges
-  + optional owner observations
+  + optional owner observations (after #5315)
   + acquisition completion and failures
         |
         v
@@ -84,7 +90,7 @@ immutable outcome
   - declared dependency evidence
   - additive restored-graph evidence
   - restored-graph availability and completion
-  - owner observations
+  - owner observations (after #5315)
   - typed failures
   - completion
 ```
@@ -108,6 +114,9 @@ The package adapter supplies:
   `PackageManifestFacts`;
 - source and acquisition provenance when available; and
 - the typed completion or failure that governed admission.
+
+One admitted `PackageProfileMatch` supplies the same package-manifest input
+with its `PackageSourceResultIdentity` retained as source provenance.
 
 Package archive and direct nuspec inputs produce the same dependency evidence
 when the archive-extracted and direct nuspec content produce the same
@@ -164,14 +173,21 @@ the package source and profile query.
 
 A truncated root set is usable bounded evidence, not an exhaustive package
 universe. The evidence query preserves that completion and never manufactures
-an exact prefix total.
+an exact prefix total. The normalized root-set summary retains the package
+source identity, inert prefix spelling, candidate/match/failure counts, and
+exact `PackageSearchTruncationReason`.
+
+Package-profile failures retain the owner-issued failure kind, source identity,
+and optional manifest-failure reason. Package ID, version, and diagnostic text
+are contained as `InertString` during adaptation rather than crossing the
+result boundary as raw producer text.
 
 ### Owner evidence
 
-Optional owner observations are supplied by their own typed input owner. This
-query does not call a metadata source or perform owner lookups. #5315 owns the
-separate bounded Package Owner Evidence Query needed to construct those
-observations by canonical package identity.
+The future #5315 adoption supplies optional owner observations through its own
+typed input owner. This query does not call a metadata source or perform owner
+lookups. #5315 owns the separate bounded Package Owner Evidence Query needed to
+construct those observations by canonical package identity.
 
 ## Common declared evidence
 
@@ -254,11 +270,21 @@ Declaration scope is one of:
 - **Unrecognized framework** — a retained owner-issued token that cannot be
   assigned NuGet framework semantics.
 
+An explicit manifest group whose target-framework attribute is present but
+empty has `Any framework` semantics, matching NuGet's universal dependency-
+group behavior. The empty authored spelling remains separate presentation
+evidence.
+
 This query owns construction of `DependencyFrameworkScopeIdentity` for its
 normalized rows. Exact identities use NuGet target-framework parsing semantics
 and canonical short-folder spelling that retains platform and
 platform-version identity. Alternate casing and long/short spellings therefore
 compare by framework semantics. Platform-qualified identities remain distinct.
+The package adapter recognizes the owner-issued universal tokens `any` and the
+empty explicit group before framework parsing. All other exact-framework
+construction reuses the restored-facts owner's
+`NuGetTargetFrameworkIdentity` admission boundary; the composition query does
+not repair a second framework identity from display text.
 Unrecognized tokens retain opaque identity and inert display evidence but are
 comparable only within one evidence family: matching opaque identities compare
 equal under same-owner parity, while no unrecognized identity is comparable
@@ -392,11 +418,11 @@ An owner observation is one of:
 Known, unknown, and failed are distinct. Neither unknown nor failed may be
 projected as an empty owner set.
 
-The result retains root-owner and dependency-owner observations independently.
-It does not apply an owner predicate or emit `first-party`/`third-party`
-labels. A later typed predicate may compare a requested owner identity with
-these observations; that later operation must preserve unknown and failed
-states.
+After #5315 adoption, the result retains root-owner and dependency-owner
+observations independently. It does not apply an owner predicate or emit
+`first-party`/`third-party` labels. A later typed predicate may compare a
+requested owner identity with these observations; that later operation must
+preserve unknown and failed states.
 
 An owner value contains canonical owner identity separately from its
 `InertString` display spelling. #5315 supplies an immutable mapping with at
@@ -420,11 +446,12 @@ unrecognized framework identities remain equal.
 
 ### Restored input determinism
 
-Identical restored facts and identical supplied owner observations produce the
-same evidence outcome regardless of locator provenance. #5314 separately owns
-and gates `.csproj` locator versus direct-assets equivalence. If the project
-has no existing assets file, its adapter supplies a typed upstream failure
-rather than permission to restore or evaluate the project.
+Identical restored facts produce the same evidence outcome regardless of
+locator provenance. After #5315 adoption, identical supplied owner observations
+preserve that result. #5314 separately owns and gates `.csproj` locator versus
+direct-assets equivalence. If the project has no existing assets file, its
+adapter supplies a typed upstream failure rather than permission to restore or
+evaluate the project.
 
 ### Package manifest and restored graph
 
@@ -470,6 +497,12 @@ independent of presentation labels, rendered row position, and duplicate
 occurrence count. A conflicting constraint has failure identity rather than
 successful row identity.
 
+Package root identity is semantic package coordinate, not a unique collection
+occurrence. The same coordinate admitted through package archive, direct
+nuspec, or package-source manifest therefore retains equal root identity and
+distinct provenance. A sink must retain the root collection occurrence and
+provenance rather than key rows only by semantic root identity.
+
 The outcome retains admitted-root, logical-group, and constituent source
 occurrence order as provenance and uses a deterministic order within each
 logical group:
@@ -493,6 +526,10 @@ Failure stays visible at the smallest truthful scope:
 
 - a rejected root does not become an empty root;
 - a malformed or invalid manifest retains `PackageManifestFailure`;
+- a package-profile search, acquisition, producer-contract, or manifest
+  failure retains typed source-scoped failure evidence;
+- a missing, unrestored, unavailable, or failed acquisition retains a typed
+  content-free root failure;
 - an unavailable restored-project selection does not become a project with no
   dependencies;
 - an invalid declaration becomes typed declaration failure rather than being
@@ -501,14 +538,19 @@ Failure stays visible at the smallest truthful scope:
   with that canonical identity; and
 - a root-set acquisition failure remains separate from enrichment failure.
 
+When a canonical package coordinate is independently known, a failed root
+retains it. A failure before package identity is established retains its inert
+source label and provenance instead; composition does not invent a coordinate.
+
 The outcome separately reports:
 
 - root-set completion;
 - admitted, rejected, and failed root counts;
+- package-prefix terminal source, counts, and truncation reason when present;
 - per-root declaration projection completion and its aggregate;
 - per-root restored-graph availability, completion, and failure, plus its
   aggregate; and
-- owner-enrichment completion.
+- owner-enrichment completion after #5315 adoption.
 
 One phase cannot upgrade another phase's completion. In particular, complete
 owner enrichment over a truncated package-prefix root set does not make the
@@ -720,18 +762,21 @@ Implementation must establish:
   framework identity at a sink; and
 - visible root, declaration, and enrichment failures.
 
-Until those Release gates exist, the implementation properties are
-`unverified`.
+The declaration, comparison, graph, package-profile, root-failure, and
+containment properties are gated in Release by
+`PackageDependencyEvidenceQueryTests`. Owner-enrichment behavior remains
+`unverified` until #5315 supplies its typed input and focused gates.
 
 ## Adoption sequence
 
 1. Lock this result and equivalence contract under #5312.
 2. Land typed self-attested direct nuspec identity in #5316.
 3. Land the focused Restored Project Dependency Facts Query tracked by #5314.
-4. Under #5533, implement the package/nuspec adapter over
-   `PackageManifestFacts` and `PackageDependencyGroupsQuery`.
-5. Under #5533, implement the restored-project adapter and the cross-input
-   equivalence fixture.
+4. Under #5533, implement the package/nuspec and package-prefix adapters over
+   `PackageManifestFacts`, `PackageProfileMatch`, and
+   `PackageDependencyGroupsQuery`.
+5. Under #5533, implement the restored-project adapter, typed root failures,
+   and the cross-input equivalence fixture.
 6. Land the focused Package Owner Evidence Query tracked by #5315, then admit
    its owner observations as optional input.
 7. Under #5534, add the L2 section, Markout and JSON-family projections, CLI

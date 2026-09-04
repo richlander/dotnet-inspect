@@ -1,6 +1,6 @@
 import type {
   BrowserTypeMetadata,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-metadata.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type {
   ExplorerState,

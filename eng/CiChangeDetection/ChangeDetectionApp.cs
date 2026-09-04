@@ -73,8 +73,8 @@ public static class ChangeDetectionApp
 
         Console.WriteLine(
             "CI aggregate fail-safe, legacy classifier parity, path canaries, "
-            + "provenance pin mutations, and change-planner construction "
-            + "passed.");
+            + "provenance pin mutations, change-planner construction, and "
+            + "workflow scope transport passed.");
         return 0;
     }
 

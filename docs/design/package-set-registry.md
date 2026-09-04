@@ -11,13 +11,12 @@ application inventory composition with
 [Static Ecosystem Packs](ecosystem-packs.md); end-to-end delivery is tracked by
 [#5728](https://github.com/richlander/dotnet-inspect/issues/5728).
 
-The current product keeps two package arrays in CLI-owned `ScopeConstants`.
-This design transfers ownership of named package-set identity, discovery, and
-membership to a host-neutral application registry. Reusable package contracts
-remain below it, while the shipped inventory lives in
+The product implements named package-set identity, discovery, and membership
+in a host-neutral application registry. Reusable package contracts remain
+below it, while the shipped inventory lives in
 `DotnetInspector.Ecosystems` beside other source-authored ecosystem data. The
-registry and its target gates are unimplemented; every asserted target
-property is unverified until the named Release gates land.
+initial Release gates cover registry construction, exact audited membership,
+CLI adaptation, non-friend use, friendship, and project layering.
 
 Related designs:
 
@@ -220,6 +219,26 @@ the registry does not perform cross-set normalization.
 Invalid product registrations fail registry construction. There is no
 success-shaped registry that silently drops an invalid set or member.
 
+Generic registry construction does not decide whether one package belongs in
+a shipped set. That is product policy evaluated before a source change is
+accepted. The initial manifests use the following authoring rule:
+
+- the package ID begins with the set's exact reserved prefix;
+- nuget.org reports a listed, stable major-10 release, verified ownership, and
+  `Microsoft` among the package owners;
+- the package is not deprecated and is not a .NET tool;
+- its current package archive contains at least one managed `lib/` or `ref/`
+  assembly; and
+- none of those assembly simple names is already supplied by the current
+  `Microsoft.NETCore.App` or `Microsoft.AspNetCore.App` shared frameworks.
+
+Every qualifying package is included. Member order is ordinal by package ID.
+This makes the sets complete additive snapshots for their stated prefixes,
+rather than hand-picked examples or alternate delivery of platform APIs.
+Updating either manifest requires rerunning the same audit against the then
+current stable product line and recording the result with the source change.
+The registry does not run this network and archive audit at runtime.
+
 ## Discovery and lookup
 
 Static discovery returns every descriptor in ascending `Order`. It performs no
@@ -249,28 +268,45 @@ The first registry issues two descriptors:
 
 | Identity | Title | Summary | Order |
 | --- | --- | --- | ---: |
-| `package-set.microsoft-extensions` | Microsoft.Extensions | Selected foundational Microsoft.Extensions packages for common application infrastructure. | 100 |
-| `package-set.aspnetcore` | ASP.NET Core | Selected foundational ASP.NET Core packages for common web application infrastructure. | 200 |
+| `package-set.microsoft-extensions` | Microsoft.Extensions | Current Microsoft.Extensions packages that add managed APIs beyond the shared frameworks. | 100 |
+| `package-set.aspnetcore` | ASP.NET Core | Current ASP.NET Core packages that add managed APIs beyond the shared frameworks. | 200 |
 
 Their stable purposes bound later membership changes:
 
-- `package-set.microsoft-extensions` selects first-party packages that define
-  foundational dependency injection, logging, configuration, options, hosting,
-  file-provider, HTTP, memory-caching, telemetry, and AI application
-  infrastructure.
-- `package-set.aspnetcore` selects first-party packages that define
-  foundational authentication, authorization, Razor component, MVC Core, and
-  SignalR web application capabilities.
+- `package-set.microsoft-extensions` contains every current package under the
+  `Microsoft.Extensions.` prefix that satisfies the additive package rule.
+- `package-set.aspnetcore` contains every current package under the
+  `Microsoft.AspNetCore.` prefix that satisfies the additive package rule.
 
 The private application table is the only package-membership inventory. This
-document does not duplicate its package coordinates. Initial adoption moves the
-existing `ScopeConstants.ExtensionsPackages` and
-`ScopeConstants.AspNetCorePackages` membership unchanged into
-`DotnetInspector.Ecosystems` by lifting each package ID to a versionless
+document does not duplicate its package coordinates. Initial adoption replaces
+the historical 16- and 5-package `ScopeConstants` arrays with audited
+44-package Microsoft.Extensions and 53-package ASP.NET Core snapshots in
+`DotnetInspector.Ecosystems`. Each package ID becomes a versionless
 `PackageCoordinate` with null framework and runtime identifier. The CLI
 projects each selected member back to `PackageId` before current scope
 resolution, so this slice does not widen `ScopeResolver` from its existing
 `string[]` currency or absorb #5602.
+
+The 2026-09-03 audit used the nuget.org Catalog from 2025-10-01 through catalog
+commit `2026-09-04T00:48:30.3297457Z`, exact Search and manifest reads, current
+package archives, and the installed 10.0.11 shared frameworks. It scanned
+1,361 Catalog pages and found 185 listed current package IDs: 96
+Microsoft.Extensions and 89 ASP.NET Core. Microsoft ownership and package-type
+checks excluded `Microsoft.Extensions.Logging.Log4Net.AspNetCore`, an
+unverified third-party package, and
+`Microsoft.Extensions.AI.Evaluation.Console`, a .NET tool, before archive
+inspection. The remaining 94 classified as 44 additive, 47
+shared-framework-only, and 3 without qualifying assemblies. The ASP.NET Core
+prefix contained one unverified third-party package,
+`Microsoft.AspNetCore.Mvc.Formatters.Xml.Extensions`; the remaining 88
+classified as 53 additive, 17 shared-framework-only, and 18 without qualifying
+assemblies. Search-by-prefix alone was not a completeness oracle: it reached
+the Gallery source-page boundary and missed three current Microsoft.Extensions
+IDs, all of which were shared-framework-only. The audit also found one
+deprecated package,
+`Microsoft.Extensions.ApiDescription.Client`; it had no qualifying assemblies
+and is excluded independently by both rules.
 
 An ecosystem source unit may supply both:
 
@@ -293,10 +329,9 @@ registration is an application policy change; complete-manifest validation and
 literal cross-reference gates prevent duplicate inventory or a shipped dangling
 pack reference.
 
-The purpose statements deliberately describe selected product sets rather than
-claiming exhaustive publisher-prefix coverage. Adding every matching NuGet
-package, deriving membership from live search, or sourcing membership from the
-NuGet Catalog would be different product behavior.
+The Catalog, Search metadata, and archives are authoring evidence, not a
+runtime provider. A reviewed source snapshot remains the sole shipped
+membership authority.
 
 ## Consumer composition
 
@@ -356,8 +391,8 @@ non-friend consumer:
 ```text
 Available package sets
 
-Microsoft.Extensions   16 packages
-ASP.NET Core            5 packages
+Microsoft.Extensions   44 packages
+ASP.NET Core           53 packages
 
 Selected: package-set.microsoft-extensions
 ```
@@ -370,8 +405,8 @@ A browser adoption mockup can later consume the same descriptors:
 ```text
 Add package set
 
-[Add] Microsoft.Extensions   16 packages
-[Add] ASP.NET Core            5 packages
+[Add] Microsoft.Extensions   44 packages
+[Add] ASP.NET Core           53 packages
 ```
 
 The neighboring case is exact lookup of `package-set.aspnetcore`; it must
@@ -386,25 +421,26 @@ The target Release suite is `PackageSetRegistryTests` in
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns the two initial descriptors in explicit order with their exact IDs, metadata, and literal expected 16- and 5-package sequences rather than expectations derived from the registry. |
+| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns the two initial descriptors in explicit order with their exact IDs, metadata, and literal expected 44- and 53-package sequences rather than expectations derived from the registry. |
 | `PackageSetRegistryTests.ExactLookupReturnsEnumeratedDescriptor` | Exact lookup and enumeration expose the same immutable descriptor and member order. |
 | `PackageSetRegistryTests.InvalidRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate or out-of-order manifest order, invalid, versioned, or target-specific coordinates, and within-set duplicate package IDs reject complete internal registry construction rather than publishing a shortened catalog. |
 | `PackageSetRegistryTests.DescriptorAndMembershipAreImmutableSnapshots` | Caller collection mutation and returned-collection use cannot change registry metadata, membership, or order. |
 | `PackageSetRegistryTests.InvalidTextDoesNotConstructAnIdentity` | Case variants, labels, CLI spellings, whitespace, and other non-canonical text fail the identity-construction boundary. |
 | `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use canonical typed initial IDs without parsing literals, and each resolves to the matching enumerated descriptor. |
 | `PackageSetRegistryTests.UnknownIdentityDoesNotAliasOrSelectADefault` | A well-formed unregistered identity returns typed unknown and does not resolve by neighboring identity, label, or default. |
-| `PackageSetRegistryTests.InitialManifestMatchesDonorMembership` | Literal expectations prove the application manifest contains the exact current 16- and 5-package ID sequences in their original order, each lifted to a versionless target-neutral coordinate. |
-| `SearchScopeResolutionTests.PackageSetFlagsPreserveCurrentResolvedScope` | `--extensions` and `--aspnetcore` project registry members back to the exact current ordered package-ID strings while retaining composition and deduplication behavior after the donor transfer. |
+| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the application manifest contains the exact audited 44- and 53-package ID sequences in ordinal order, each lifted to a versionless target-neutral coordinate; exclusion canaries pin known deprecated, legacy-only, and shared-framework-only IDs. |
+| `SearchScopeResolutionTests.PackageSetFlagsUseAuditedMembership` | `--extensions` and `--aspnetcore` project registry members back to the exact audited ordered package-ID strings while retaining composition and deduplication behavior after the transfer. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsDiscoveryAndLookup` | A non-friend consumer references only the supported public surface to enumerate, select, and inspect a package set without CLI, source, acquisition, or workspace types. |
 
 The implementation PR should also retain the current search-scope tests for
 composition, deduplication, and ordering when membership moves out of
 `ScopeConstants`. The literal registry manifest gate, not expectations read
-back from the registry, proves the membership moved unchanged. Deleting the
-donor arrays and wiring exact registry lookup are reviewed source changes; the
-CLI behavior gate proves the transfer preserves observable resolution. This
-design does not claim a repository-wide source scan proving that no dead copy
-of the literals exists.
+back from the registry, proves the audited membership shipped exactly. Deleting
+the donor arrays and wiring exact registry lookup are reviewed source changes;
+the CLI behavior gate proves the flags retain their ordering and composition
+contract while intentionally replacing ad hoc membership. This design does
+not claim a repository-wide source scan proving that no dead copy of the
+literals exists.
 
 The first slice creating `DotnetInspector.Ecosystems` also lands the
 front-end-only dependency, inspect-web project-graph, test-only friendship, and
@@ -420,9 +456,9 @@ pack rows.
 
 1. Lock this focused application-inventory composition amendment.
 2. Implement the private application registry, Release contract suite, and
-   non-friend consumer in `DotnetInspector.Ecosystems`; move the two
-   `ScopeConstants` inventories unchanged and adapt current CLI search-scope
-   resolution in the same bounded donor transfer.
+   non-friend consumer in `DotnetInspector.Ecosystems`; replace the two
+   `ScopeConstants` inventories with the audited manifests and adapt current
+   CLI search-scope resolution in the same bounded transfer.
 3. Add ecosystem-pack references through their focused application adoption.
 4. Have #5602 define the typed resolved-coordinate handoff for later generic
    source intent.
@@ -445,7 +481,7 @@ lands first, this implementation reuses that already-gated application shell.
 
 This design does not define:
 
-- an exhaustive package prefix, live query, or NuGet Catalog view;
+- a runtime exhaustive package prefix, live query, or NuGet Catalog view;
 - package recommendation, ranking, popularity, or compatibility;
 - source availability or whether every member can be realized;
 - exact-version package-set membership;
@@ -453,5 +489,4 @@ This design does not define:
 - dynamic registration, plugins, or user-defined package sets;
 - a reusable package-layer inventory or lookup service;
 - package-set persistence or transport;
-- a generic `--package-set` CLI option; or
-- compatibility aliases for the removed `--curated` option.
+- a generic `--package-set` CLI option.
