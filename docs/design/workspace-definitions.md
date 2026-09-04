@@ -734,11 +734,12 @@ admission, run plans, execution semantics, and failures.
 Workspace Definitions issues `ProductDemoSourceBinding`, one static
 noncapturing source paired with the exact scenario ID it must resolve. The
 public minting seam is
-`ProductDemoSourceBinding.Create(scenarioId, static createRecords)`. A static
-lambda or method group is the source-level noncapture boundary, and
-construction rejects a delegate with a non-null target before publication.
-The binding stores the source privately and exposes no delegate or factory
-property.
+`ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
+method group is admitted, and construction rejects a delegate with a non-null
+target before publication. Static lambdas are intentionally not the authoring
+form because the compiler may represent a noncapturing lambda with a cached
+target object. The binding stores the source privately and exposes no delegate
+or factory property.
 
 The application catalog stores that opaque owner-issued binding beside its
 application metadata. Listing is metadata-only and cannot invoke the source.
@@ -781,7 +782,8 @@ schema version 2 and the explicit legacy table below settle versioned migration
 and complete view composition. `ecosystem.platform` is application grouping,
 not workspace-coordinate inference: the current System.Text.Json demos retain
 their exact package pins even when the ecosystem catalog groups them as basic
-Platform demos.
+Platform demos. Platform-coordinate workspaces remain a product capability but
+are not admitted as home demos by this slice.
 
 A schema-version-2 home demo persists only `ViewState.Facet` and version-2
 query records. The resolved facet and query owners reach their ordinary
@@ -1902,8 +1904,9 @@ Implementation must add, at minimum:
   invokes its source exactly once, allocates only the records returned by that
   source, requires exactly one scenario record, resolves the declared scenario
   ID exactly, and keeps absent, duplicate, mismatched, record-reference, and
-  section-admission failures visible; a separate constructor case rejects a
-  capturing source before publication —
+  section-admission failures visible; constructor cases accept a static method
+  group and reject instance, capturing-lambda, and cached static-lambda targets
+  before publication —
   `ProductDemoSourceBindingTests` owns these Workspace Definitions properties;
   application inventory, grouping, catalog display metadata, and
   neighboring-source isolation remain ecosystem-catalog gates;

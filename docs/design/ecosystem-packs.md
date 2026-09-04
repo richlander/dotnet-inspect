@@ -396,14 +396,15 @@ Workspace Definitions retains:
 
 The pack registration stores one owner-issued binding and does not copy or
 reinterpret its records. Workspace Definitions exposes the public minting seam
-`ProductDemoSourceBinding.Create(scenarioId, static createRecords)`. The static
-lambda or method-group requirement is the source-level noncapture boundary;
-construction also rejects a delegate with a non-null target before publication.
-The binding stores the delegate privately and exposes no delegate or factory
-property. Its resolve operation requires the returned records to contain
-exactly one `ScenarioDefinition`, requires that record's ID to equal the
-binding scenario ID, constructs the registry, resolves that exact ID, and
-enforces the demo section contract.
+`ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
+method group is admitted; construction rejects a delegate with a non-null
+target before publication. Static lambdas are intentionally not the authoring
+form because the compiler may represent a noncapturing lambda with a cached
+target object. The binding stores the delegate privately and exposes no
+delegate or factory property. Its resolve operation requires the returned
+records to contain exactly one `ScenarioDefinition`, requires that record's ID
+to equal the binding scenario ID, constructs the registry, resolves that exact
+ID, and enforces the demo section contract.
 
 Complete ecosystem-manifest validation rejects duplicate scenario IDs,
 duplicate demo orders, empty title or summary, and a pack-local demo sequence
@@ -508,8 +509,7 @@ Integration concept IDs.
 The binding is statically rooted and noncapturing:
 
 ```text
-EcosystemIntegrationScannerBinding.Create(
-  static observations => AspireIntegrationScanner.Scan(observations))
+EcosystemIntegrationScannerBinding.Create(AspireIntegrationScanner.Scan)
 ```
 
 The concrete binding, context, invocation, and result types belong to the
