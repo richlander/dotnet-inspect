@@ -236,6 +236,7 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  focusRenderedElement,
   renderApplicationScopeBar,
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
@@ -7793,8 +7794,7 @@ function restorePackageQueryReturnFocus() {
     afterCurrentNavigationFrame(() => {
       const queryScope = document.querySelector<HTMLElement>(
         '[data-application-scope="query"]');
-      if (queryScope) {
-        queryScope.focus();
+      if (focusRenderedElement(queryScope)) {
         state.packageQueryReturnFocus = null;
         state.packageQueryReturnFocusPending = false;
       } else if (focusLevelOneHeading()) {
@@ -7920,7 +7920,7 @@ function openPackageQueryRoute(
 function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   if (!state.package) return;
   if (fromPackageQuery) {
-    navigationSequence.begin();
+    packageQueryWorkspaceFocusNavigationSeq = navigationSequence.begin();
     packageQueryController.cancel();
     packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = false;

@@ -152,6 +152,19 @@ export function captureScopeBarFocus(
     : null;
 }
 
+export function focusRenderedElement(
+  element: HTMLElement | null,
+  options?: FocusOptions,
+): boolean {
+  if (!element || element.hidden) return false;
+  const visible = typeof element.checkVisibility === "function"
+    ? element.checkVisibility()
+    : element.getClientRects().length > 0;
+  if (!visible) return false;
+  element.focus(options);
+  return true;
+}
+
 export function restoreScopeBarFocus(
   root: ParentNode,
   target: ScopeBarFocusTarget,
@@ -177,8 +190,7 @@ export function restoreScopeBarFocus(
   tabs.forEach(tab => {
     tab.tabIndex = tab === replacement ? 0 : -1;
   });
-  replacement.focus();
-  return true;
+  return focusRenderedElement(replacement);
 }
 
 function targetIdentity(target: ScopeBarFocusTarget): string {

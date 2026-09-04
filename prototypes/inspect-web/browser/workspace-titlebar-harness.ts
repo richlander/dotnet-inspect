@@ -51,6 +51,7 @@ declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
+    rerenderApplicationScopeProbe: () => void;
     rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
   }
@@ -642,6 +643,35 @@ window.renderPackageScopeProbe = () => {
   activeScope = "package";
   activePackageLens = "overview";
   renderHarnessScopeBar();
+};
+window.rerenderApplicationScopeProbe = () => {
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const focusTarget = focusedElement
+    ?.closest("[data-application-scope-strip]")
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  const region = document.querySelector<HTMLElement>(
+    ".titlebar > .application-scope-region");
+  if (!focusTarget || !region)
+    throw new Error("The application scope focus probe is unavailable.");
+  appRoot.tabIndex = -1;
+  appRoot.focus({ preventScroll: true });
+  scopeBarBinding?.disconnect();
+  region.outerHTML = `
+    <div class="application-scope-region">
+      ${renderApplicationScopeBar(
+        workspaceMode ? "workspace" : null,
+        true,
+        escapeHtml)}
+    </div>`;
+  bindHarnessScopeBar();
+  if (!restoreScopeBarFocus(document, focusTarget)) {
+    document.querySelector<HTMLElement>(".brand")
+      ?.focus({ preventScroll: true });
+  }
+  appRoot.removeAttribute("tabindex");
 };
 window.rerenderApplicationMenuProbe = () => {
   const applicationMenuHadFocus = applicationMenuOwnsFocus(document);

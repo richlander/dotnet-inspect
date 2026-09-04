@@ -28,6 +28,8 @@ test("scope-bar short labels are word initialisms", () => {
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   focused = false;
+  hidden = false;
+  rendered = true;
   tabIndex = 0;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -43,6 +45,10 @@ class FakeElement {
 
   focus() {
     this.focused = true;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   dispatch(type: string, values: Record<string, unknown> = {}) {
@@ -151,6 +157,22 @@ test("typed tab focus survives element replacement", () => {
   assert.equal(replacement.focused, true);
   assert.equal(replacement.tabIndex, 0);
   assert.equal(selected.tabIndex, -1);
+});
+
+test("typed tab focus rejects a CSS-hidden replacement", () => {
+  const original = new FakeElement({ applicationScope: "workspace" });
+  const target = captureScopeBarFocus(fakeDom.htmlElement(original));
+  assert.ok(target);
+
+  const replacement = new FakeElement({ applicationScope: "workspace" });
+  replacement.rendered = false;
+  const root = new FakeRoot();
+  root.add("[data-application-scope]", replacement);
+
+  assert.equal(
+    restoreScopeBarFocus(fakeDom.parentNode(root), target),
+    false);
+  assert.equal(replacement.focused, false);
 });
 
 test("package scope bindings dispatch only scope and package-lens controls", () => {

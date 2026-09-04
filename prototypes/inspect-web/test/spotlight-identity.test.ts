@@ -2933,7 +2933,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
   assert.match(
     appSource,
-    /state\.packageQueryReturnFocus === "application-query"[\s\S]*data-application-scope="query"/);
+    /state\.packageQueryReturnFocus === "application-query"[\s\S]*data-application-scope="query"[\s\S]*focusRenderedElement\(queryScope\)[\s\S]*else if \(focusLevelOneHeading\(\)\)/);
   assert.match(
     appSource,
     /function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
@@ -2982,7 +2982,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /function selectWorkspaceApplicationScope\(fromPackageQuery = false\)[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
+    /function selectWorkspaceApplicationScope\(fromPackageQuery = false\)[\s\S]*packageQueryWorkspaceFocusNavigationSeq = navigationSequence\.begin\(\);[\s\S]*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     appSource,
     /const focusWorkspaceAfterQuery = state\.packageQueryOpen;\s*if \(focusWorkspaceAfterQuery\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);

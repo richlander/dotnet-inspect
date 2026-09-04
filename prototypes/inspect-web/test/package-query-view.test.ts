@@ -102,7 +102,9 @@ test("the persistent application scopes distinguish Query from Workspace", () =>
   assert.match(
     html,
     /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)/);
-  assert.match(html, /class="brand" href="\/" aria-label="dotnet inspect home"/);
+  assert.match(
+    html,
+    /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
@@ -450,6 +452,8 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly id: string;
   focusCount = 0;
+  hidden = false;
+  rendered = true;
   scrollTop = 0;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
@@ -476,6 +480,10 @@ class FakeElement {
 
   focus() {
     this.focusCount++;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   setSelectionRange(start: number, end: number) {
@@ -527,6 +535,11 @@ test("query focus snapshots restore semantic controls after a full render", () =
       active: new FakeElement({ applicationScope: "workspace" }),
       selector: "[data-application-scope]",
       replacement: new FakeElement({ applicationScope: "workspace" }),
+    },
+    {
+      active: new FakeElement({}, "package-query-product"),
+      selector: "#package-query-product",
+      replacement: new FakeElement({}, "package-query-product"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
@@ -620,6 +633,26 @@ test("a vanished query control reports prefix fallback", () => {
     assert.equal(restoration, "fallback");
     assert.equal(prefix.focusCount, 1);
   }
+});
+
+test("a CSS-hidden application scope reports prefix fallback", () => {
+  const active = new FakeElement({ applicationScope: "workspace" });
+  const replacement = new FakeElement({ applicationScope: "workspace" });
+  replacement.rendered = false;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(active);
+  root.add("[data-application-scope]", replacement);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(replacement.focusCount, 0);
+  assert.equal(prefix.focusCount, 1);
 });
 
 test("an unfocused query render does not move focus into the prefix", () => {

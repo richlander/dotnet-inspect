@@ -1600,6 +1600,104 @@ test("application scopes yield before inspection identity without dropping focus
   await expect(page.locator(".slide-strip-inspector")).toBeVisible();
 });
 
+test("application scope rerenders transfer focus before responsive yielding", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const query = page.locator("[data-application-scope='query']");
+  await query.focus();
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(query).toBeVisible();
+  await expect(query).toBeFocused();
+
+  await page.evaluate(() => window.rerenderApplicationScopeProbe());
+
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
+  await expect(page.locator(".brand")).toBeFocused();
+});
+
+test("query rerenders preserve product focus and reject yielded scopes", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 700, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html");
+  await page.evaluate(async () => {
+    const { initialQueryState } = await import("../src/package-query.ts");
+    const { renderPackageQueryView } =
+      await import("../src/package-query-view.ts");
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("The query focus harness root is unavailable.");
+    app.innerHTML = renderPackageQueryView({
+      state: initialQueryState(),
+      availableFacets: [],
+      workspaceAvailable: true,
+      escapeHtml: value => String(value),
+    });
+  });
+
+  await page.locator("#package-query-product").focus();
+  const productResult = await page.evaluate(async () => {
+    const { initialQueryState } = await import("../src/package-query.ts");
+    const {
+      capturePackageQueryFocus,
+      renderPackageQueryView,
+      restorePackageQueryFocus,
+    } = await import("../src/package-query-view.ts");
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("The query focus harness root is unavailable.");
+    const snapshot = capturePackageQueryFocus(document);
+    app.innerHTML = renderPackageQueryView({
+      state: initialQueryState(),
+      availableFacets: [],
+      workspaceAvailable: true,
+      escapeHtml: value => String(value),
+    });
+    return {
+      restoration: restorePackageQueryFocus(document, snapshot),
+      activeId: document.activeElement?.id,
+    };
+  });
+  expect(productResult).toEqual({
+    restoration: "restored",
+    activeId: "package-query-product",
+  });
+
+  const workspace = page.locator("[data-application-scope='workspace']");
+  await workspace.focus();
+  await page.setViewportSize({ width: 500, height: 900 });
+  await expect(workspace).toBeVisible();
+  const yieldedResult = await page.evaluate(async () => {
+    const { initialQueryState } = await import("../src/package-query.ts");
+    const {
+      capturePackageQueryFocus,
+      renderPackageQueryView,
+      restorePackageQueryFocus,
+    } = await import("../src/package-query-view.ts");
+    const app = document.querySelector<HTMLElement>("#app");
+    if (!app) throw new Error("The query focus harness root is unavailable.");
+    const snapshot = capturePackageQueryFocus(document);
+    app.innerHTML = renderPackageQueryView({
+      state: initialQueryState(),
+      availableFacets: [],
+      workspaceAvailable: true,
+      escapeHtml: value => String(value),
+    });
+    return {
+      restoration: restorePackageQueryFocus(document, snapshot),
+      activeId: document.activeElement?.id,
+    };
+  });
+  expect(yieldedResult).toEqual({
+    restoration: "fallback",
+    activeId: "package-query-prefix",
+  });
+  await expect(page.locator(".query-page-bar .application-scope-region"))
+    .toBeHidden();
+});
+
 test("Workspace selection is observational and occurrence activation executes", async ({
   page,
 }) => {
