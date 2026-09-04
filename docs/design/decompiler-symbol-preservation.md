@@ -90,6 +90,14 @@ one arm, an enclosing reservation, or a flattened local-function declaration
 still collides and lowers fidelity when the exact local cannot be emitted.
 Printer-only receiver recomposition does not elide a slot carrying an exact PDB
 name; an unnamed receiver slot that is elided reserves no presentation name.
+The existing single-await-return recipe likewise retains an exact named
+await-result receiver when its adjacent store and return projection belong to
+the admitted completion path. It preserves the local's value and address uses
+under the reconstructed binding rather than discarding the name to recover the
+inlined form. Extra uses, escaped addresses, and unowned control remain decline
+boundaries. `SingleAwaitPreservesNamedResultReceiver`,
+`SingleAwaitUnownedNamedResultDeclines`, and
+`SingleAwaitNamedResultRejectsUnownedControl` gate this preservation boundary.
 Supported foreach-delegation iterators retain the exact iteration-variable name
 when it is also a struct receiver. Preserving that local must not make an
 already reconstructed foreach fail the iterator's reconstruction contract;
@@ -176,7 +184,7 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based (#5585) and uses the narrow identifier grammar tracked by #5616. | P5, P23 | `AnonymousObjectPassTests` gates ASCII positive output, not generated-type authentication or full Unicode admission. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported method returns and parameters, properties, and events. Composed field declarations remain a recoverable gap. | P6 | `TupleTypeViewTests` gates metadata decoding across all positions; method/property/event composition is manually probed. |
 | Iterator hoisted locals | Recover an ordinary source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. P28 records the keyword and full-Unicode spelling gap. | P7, P28 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
-| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding ordinary `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. Loop-role names such as `sum` and `task` are synthesized preferences, not recovered identity, and remain collision-resolved. P28 records the full-grammar generated-name gap. | P8, P28 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `PipelineImporterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs, while `LoopRoleNamesAreSynthesized` gates role provenance. `NestedScopeNameCollisionTests` gates synthesized-name collision handling. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
+| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding ordinary `alpha` from its hoisted field. It preserves `beta` from the matching PDB local and the named result receiver of an owned adjacent single-await-return continuation. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. Loop-role names such as `sum` and `task` are synthesized preferences, not recovered identity, and remain collision-resolved. P28 records the full-grammar generated-name gap. | P8, P28 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `PipelineImporterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` and `SingleAwaitPreservesNamedResultReceiver` gate the raised names with PDBs, while `LoopRoleNamesAreSynthesized` gates role provenance. `SingleAwaitUnnamedReceiverRemainsReconstructed` gates the unnamed neighbor; `SingleAwaitNamedResultAndNeighborCompileBack` gates compiler acceptance, not async execution-body equivalence. `NestedScopeNameCollisionTests` gates synthesized-name collision handling. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
 
 These guarantees are conditional on successful reconstruction. A method may
 carry a recoverable substring in a generated metadata name while the containing
@@ -427,12 +435,27 @@ inspect_member ILInspector.Decompiler.Tests.CfgSampleClass YieldRange "$CFG"
 
 Expected: the reconstructed loop consistently uses `i`.
 
-### P8: classic-async hoisted-local names
+### P8: classic-async hoisted-local and await-result names
 
 ```bash
 inspect_member \
   ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures \
   TwoSequentialNamedAwaits \
+  "$CLASSIC"
+
+inspect_member \
+  ILInspector.Decompiler.Fixtures.ClassicAsync.NamedAwaitResultSamples \
+  NamedReceiver \
+  "$CLASSIC"
+
+inspect_member \
+  ILInspector.Decompiler.Fixtures.ClassicAsync.NamedAwaitResultSamples \
+  NamedReceiverTransform \
+  "$CLASSIC"
+
+inspect_member \
+  ILInspector.Decompiler.Fixtures.ClassicAsync.NamedAwaitResultSamples \
+  UnnamedReceiver \
   "$CLASSIC"
 
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
@@ -454,6 +477,14 @@ role-derived `sum` and `task` as synthesized preferences rather than recovered
 identity. The generated-name collision gates verify that such preferences are
 renamed without lowering fidelity when an enclosing binder already owns the
 spelling.
+
+The named await-result cases retain `AwaitReply result = await
+task.ConfigureAwait(false);` and return `result.Response` or
+`result.Response.Trim()`. The unnamed neighboring case keeps the inlined
+`return (await task.ConfigureAwait(false)).Response;` instead of inventing a
+source local. `ClassicAsyncReconstructionHonestyTests` gates both forms and
+the unowned-use/control decline boundary; its bounded compile-back gate proves
+compiler acceptance, not equivalence of the generated async execution body.
 
 ### P9: deterministic no-symbol local names
 
