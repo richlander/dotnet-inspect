@@ -180,21 +180,38 @@ per image byte and quadrupling as both dimensions double. Separately, the
 definition scan re-renders a **loop-invariant** name once per candidate row —
 `Matches` materializes the reference's name for every candidate it compares — so
 `T` definitions and an `L`-character name cost `Θ(T × L)`, again for one
-argument. Measured at 1,801 bytes allocated per image byte: a 45 KB image
-allocates 81 MB. Both are transient work by this document's own division —
+argument. Measured in isolation at 717 bytes allocated per image byte: a 45 KB
+image allocates 32 MB. The two terms compound when the name is *unresolvable*,
+because the failed scan then also pays the index build — 1,801 bytes per image
+byte, 81 MB, on the same single-argument decode. Both are transient work by this
+document's own division —
 an internal lookup structure and a discarded comparison string, neither of them
 output. They are recorded as gaps 7
 ([#5757](https://github.com/richlander/dotnet-inspect/issues/5757)) and 8
 ([#5758](https://github.com/richlander/dotnet-inspect/issues/5758)), and unlike
 the output-representation term, both are **fixable** — keying the index on
-string handles costs nothing per shared namespace, and hoisting the rendering
-out of the loop costs nothing at all.
+string handles costs nothing per shared namespace, and the scan can discriminate
+candidates without consulting name content at all.
 
-That they are the same shape is the point. Each was found by measurement after
-the other had been recorded, so the contract states the rule over the class
-rather than the sites: **no type-name rendering inside a per-metadata-row loop
-on the resolution path.** The clause stays as written because it states the
-target; the gaps record the distance to it, and the class states what slice 2
+That they are the same shape is the point, but the shape is easy to state one
+notch too narrowly, and stating it as *rendering* is that mistake. Hoisting the
+rendering out of the loop drives the allocation to zero and leaves the cost
+exactly where it was: `MetadataStringComparer.Equals(definition.Name, name)`
+still compares `L` characters for every one of the `T` rows. Measured with the
+rendering hoisted — the repair an earlier draft of this section proposed —
+`(T,L)` = (500,1000)/(1000,2000)/(2000,4000) took 0.244/1.162/4.529 ms per scan
+while allocating 2,064/4,064/8,064 bytes: time quadruples as both dimensions
+double, allocation does not. **A gate that measures allocation reports that
+repair clean.**
+
+So the rule is stated over cost, not over allocation or over rendering:
+**no per-row operation on the resolution path may cost more than `O(1)` in the
+length of a name that is invariant across the loop.** Rendering violates it;
+so does content comparison; so would hashing the name per row. The repair is a
+discriminator that does not read name content per row — comparison on interned
+string-handle identity, or an index consulted once — and not merely moving the
+materialization outside the loop. The clause stays as written because it states
+the target; the gaps record the distance to it, and the class states what slice 2
 must not reintroduce.
 
 D1 is deliberately stated over aggregate cost rather than per-element
@@ -412,6 +429,18 @@ observer is tagged so its exceptions survive the catch; the resolver is not.
 Whether an exception is a statement about the blob is a fact about **where it was
 raised**, so each boundary that calls out to a caller must preserve that origin —
 the mechanism is the same one for both, and adding a boundary means tagging it.
+
+Resource exhaustion is the other half of the rule and needs a **different**
+mechanism, which is easy to miss because it shares the same `catch`. An
+`OutOfMemoryException` raised inside the decoder's own materialization crosses no
+caller boundary, so there is nothing to tag; its origin was never in doubt, and
+its type already says what it is. It reaches `null` only because the `catch` at
+`AttributeDecoder.cs:305` is unconditional (#5397). Both callbacks already
+propagate OOM at this head, so a slice-2 implementation can tag both boundaries,
+pass every provenance test, and still launder an internal exhaustion. The repair
+there is a narrowed catch or an exception filter, and its gate is a
+heap-constrained run, not an oracle comparison — SRM throws `OutOfMemoryException`
+in the same place, so "`null` wherever SRM throws" agrees with swallowing it.
 
 **D2 is outcome-shaped, and only that.** Its whole content is which of three
 outcomes a caller can observe: a complete value, `null`, or a propagated
@@ -935,7 +964,7 @@ encoding.
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly, including the shared-prefix cross-product. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; six open defects violate it. |
-| **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. **Also blind to caller-boundary provenance**: SRM observes a resolver callback's exception exactly as we do, so a `null`-wherever-SRM-throws oracle blesses reporting a caller's failure as a malformed blob (#5759). The gate needs an explicit axis for exceptions thrown *by* the observer and the resolver, which no oracle comparison can supply. | Lands with slice 2. |
+| **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. **Also blind to caller-boundary provenance**: SRM observes a resolver callback's exception exactly as we do, so a `null`-wherever-SRM-throws oracle blesses reporting a caller's failure as a malformed blob (#5759). The gate needs an explicit axis for exceptions thrown *by* the observer and the resolver, which no oracle comparison can supply. **And blind to resource exhaustion raised inside our own materialization** (#5397): SRM throws `OutOfMemoryException` there too, so the oracle agrees with swallowing it. That axis needs a heap-constrained host or an injected allocation seam, and it cannot be satisfied by the callback tests — both callbacks already propagate OOM at this head while the unconditional `catch` at `AttributeDecoder.cs:305` still converts an internal one to `null`. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
 | **Defaulted-width signal** (D2's "visibly" clause) | A slice-2 test asserting the per-argument signal is **set** for a defaulted width and **clear** for a resolved one, on the same decode path. Needed because the D2 differential is blind to the default and D3 carves the unresolvable case out, so no other gate can fail if the signal is never implemented. Tracked as #5742. | Does not exist. Lands with slice 2. |
 
@@ -960,14 +989,17 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
   which is why issue #5130 passes all four existing amplification regressions;
 - the number of *distinct* handles and names referenced;
 - the number of rows in the tables a failed resolution scans, **and the length
-  of the names rendered while scanning them** — two independent `Θ(rows × name
+  of the names read while scanning them** — two independent `Θ(rows × name
   length)` terms hide here, and varying either dimension alone reveals neither.
   The index build renders every definition's own name, so `P` definitions
-  sharing an `L`-character namespace cost `Θ(P × L)`; separately, the scan
-  re-renders the *reference's* `L`-character name once per candidate row, so a
-  single argument against `T` definitions costs `Θ(T × L)`. A gate that varies
-  only the definitions' names misses the second, and one that varies only the
-  reference's name misses the first;
+  sharing an `L`-character namespace cost `Θ(P × L)`; separately, the scan reads
+  the *reference's* `L`-character name once per candidate row, so a single
+  argument against `T` definitions costs `Θ(T × L)`. A gate that varies only the
+  definitions' names misses the second, and one that varies only the reference's
+  name misses the first. **This axis must be measured as work, not as bytes
+  allocated**: hoisting the rendering out of the loop zeroes the allocation and
+  leaves the per-row `O(L)` comparison, so an allocation-only gate passes a
+  repair that fixes nothing;
 - **the length of the metadata strings the values reference**, held against a
   fixed blob length, **and the shared-prefix cross-product** — `P` distinct
   types sharing one `L`-character namespace. These are the dimensions that
@@ -1100,7 +1132,7 @@ component.
 | 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
 | 6 | `TryDecode` swallows `OutOfMemoryException` through a bare catch, which is exactly the laundered exception D2 forbids. | D2 | #5397 |
 | 7 | Building the type-definition lookup index renders the fully-qualified name of every type definition, so `P` definitions sharing one `L`-character namespace cost `Θ(P × L)` transient work from `Θ(P + L)` of metadata — for one argument in one decode. Measured at 932 bytes allocated per image byte. Fixable by keying the index on string handles rather than rendered text. | D1 | #5757 |
-| 8 | The definition scan re-renders a **loop-invariant** name once per candidate row: `Matches` materializes the reference's name for every candidate, and the span overload materializes the leaf and namespace segments the same way. `T` definitions and an `L`-character name cost `Θ(T × L)` for one argument, from an image growing `Θ(T + L)`. Measured at 1,801 bytes allocated per image byte — a 45 KB image allocates 81 MB. Fixable by hoisting the rendering out of the loop or comparing against the handle. | D1 | #5758 |
+| 8 | The definition scan reads a **loop-invariant** name's content once per candidate row: `Matches` materializes the reference's name for every candidate, and the span overload materializes the leaf and namespace segments the same way. `T` definitions and an `L`-character name cost `Θ(T × L)` for one argument, from an image growing `Θ(T + L)`. Measured in isolation at 717 bytes allocated per image byte — a 45 KB image allocates 32 MB; 1,801 bytes per image byte and 81 MB when the name is *unresolvable*, because the failed scan then pays gap 7's index build on the same decode. Hoisting the rendering out of the loop is **not** the fix: it zeroes the allocation and leaves the `Θ(T × L)` comparison cost. Needs a discriminator that does not read name content per row. | D1 | #5758 |
 | 9 | A caller resolver's own `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a caller's failure is reported as an undecodable blob. The observer boundary is tagged to prevent exactly this; the resolver boundary is not. | D2 | #5759 |
 
 Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
@@ -1117,23 +1149,40 @@ Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-wa
 memo can address it.
 
 Gaps 7 and 8 are two instances of a second class, and naming the class matters
-more than either instance: **a type name is rendered inside a loop over metadata
-rows.** Both were found by measurement rather than by reading, both survive every
-one-dimensional check, and both turn `Θ(rows + length)` of metadata into
-`Θ(rows × length)` of work. The rule slice 2 must satisfy is therefore stated
-over the class, not the two sites: **no type-name rendering inside a
-per-metadata-row loop on the resolution path.** A site-by-site fix list would
+more than either instance: **a per-row operation on the resolution path costs
+`O(L)` in the length of a name that does not vary across the loop.** Both were
+found by measurement rather than by reading, and both survive every
+one-dimensional check, turning `Θ(rows + length)` of metadata into
+`Θ(rows × length)` of work.
+
+Stating that class as "no name *rendering* inside the loop" — as an earlier draft
+did — names the symptom instead of the cost. Hoisting the rendering out of the
+loop zeroes the allocation while `MetadataStringComparer.Equals` goes on
+comparing `L` characters per row, so the cost is unchanged and an
+allocation-based gate reports the repair clean. The rule slice 2 must satisfy is
+therefore **`O(1)` per row in any loop-invariant name length**, and the D1 gate
+must measure work rather than bytes allocated. A site-by-site fix list would
 leave the next instance undetected, which is how the second one arrived — gap 7
 was recorded, gap 8 sat one call away from it, and the gate that would have
 caught both did not exist.
 
-Gaps 5, 6, and 9 are a third class: **provenance is discarded before the `catch`
+Gaps 5 and 9 are a third class: **provenance is discarded before the `catch`
 runs**, leaving exception type as the only surviving evidence of where a failure
 came from. D2's rule divides exceptions by origin, so any boundary that loses
 origin makes the rule undecidable at the catch site. Two caller boundaries exist
 today — the observer and the resolver — and tagging only one of them is what
-produced gap 9. All three are D2 laundering defects in the same `catch`-shaped
-surface and should be fixed together, by the same tagging mechanism.
+produced gap 9. Both are fixed by the same mechanism, and adding a third caller
+callback means tagging it too.
+
+**Gap 6 is deliberately excluded from that class**, though it shares the
+`catch`-shaped surface. An `OutOfMemoryException` raised inside the decoder's
+*own* materialization has no caller boundary to tag; its provenance was never
+lost, because its type already identifies it. What swallows it is the
+unconditional `catch` at `AttributeDecoder.cs:305`, and the repair is a narrowed
+catch or an exception filter, not a sentinel. Grouping it with gaps 5 and 9
+would license a slice-2 implementation that tags both callbacks, passes every
+callback-provenance test, and still launders host resource exhaustion into
+`null`.
 
 ### Gaps closed by the inversion
 
