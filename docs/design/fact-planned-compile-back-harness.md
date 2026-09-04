@@ -818,7 +818,9 @@ the existing authored-rebuild command on the same typed failure contract, while
 `AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult` keeps a
 failure-free PDB miss non-failing.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` prevents an
-identity-less adjacent PDB from entering this lane, and
+identity-less adjacent PDB from entering this lane, while
+`AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating` keeps
+the same failure inside the corpus-harvest boundary, and
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` preserves a
 typed result when embedded-PDB opening fails, and
 `SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` preserves
