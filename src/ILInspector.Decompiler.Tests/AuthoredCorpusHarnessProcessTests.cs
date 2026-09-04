@@ -43,7 +43,7 @@ namespace ILInspector.Decompiler.Tests;
 /// an exit-code-only check read it as correct.</para>
 /// </summary>
 [Trait("Area", "Corpus")]
-public class AuthoredCorpusHarnessProcessTests
+public partial class AuthoredCorpusHarnessProcessTests
 {
     [Fact]
     public void HarnessBinary_CarriesKnownBuildSourceState()
