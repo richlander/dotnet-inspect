@@ -78,8 +78,10 @@ context.
 - Do not require stricter metadata, exception-region, local-signature, PDB, or PE
   comparison before the first useful round-trip measurements.
 - Do not add Metadata forwarding or accessibility semantics. Compile-back
-  consumes the signature-spellability aggregate owned by
-  [`type-forwarding-resolution.md`](type-forwarding-resolution.md).
+  consumes per-occurrence resolution evidence from
+  [`type-forwarding-resolution.md`](type-forwarding-resolution.md) and the
+  separate terminal-accessibility result tracked by
+  [#5302](https://github.com/richlander/dotnet-inspect/issues/5302).
 - Do not expand C# lexical-precedence policy. Issue
   [#4721](https://github.com/richlander/dotnet-inspect/issues/4721) owns that
   concern; this contract only refuses to equate equal spellings with equal
@@ -482,15 +484,15 @@ The owner consumes, but does not redefine:
 
 - the source artifact, selected-member anchor, and declaration plan from the C#
   artifact producer;
-- the signature-spellability aggregate, including its external definitions and
-  local requirements, from `ILInspector.Metadata`;
+- named signature occurrences, per-occurrence resolution outcomes, and required
+  terminal-accessibility evidence from `ILInspector.Metadata`;
 - `MethodInstructions` and `DecodedInstruction` from the shared instruction
   substrate;
 - guarded metadata name, signature, and resolution operations;
 - compiler diagnostics and rebuilt PE bytes from the tools compiler adapter;
 - C# and IL comparison results from their existing owners.
 
-Seven adjacent-owner prerequisites are now explicit:
+The adjacent-owner prerequisites are explicit:
 
 - [#4881](https://github.com/richlander/dotnet-inspect/issues/4881) is the
   `ILInspector.CSharp` design for an artifact-digest-bound participant manifest.
@@ -505,9 +507,16 @@ Seven adjacent-owner prerequisites are now explicit:
   compiler-generated definitions. Current per-side ordinal-normalized names do
   not identify counterpart definitions.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-  the landed `ILInspector.Metadata` signature-spellability aggregate. Current
-  `SignatureSpellabilityResult` collapses the result to `CanSpell` plus decode
-  status and cannot supply the closed evidence consumed here.
+  the bounded single-signature occurrence decode owned by
+  [`metadata-signature-decoding.md`](metadata-signature-decoding.md). That
+  surface remains planned; the current `SignatureSpellabilityResult` collapses
+  the result to `CanSpell` plus decode status and cannot supply the
+  per-occurrence evidence consumed here.
+- [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) owns terminal
+  accessibility independently of resolution. Until its owner-issued result is
+  available, tools cannot complete a signature requirement that needs external
+  accessibility evidence. Source-local declaration inclusion and nameability
+  are tools-owned obligations, not external-accessibility questions.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
   the artifact owner's on-demand digest over retained immutable content.
   Current artifact sessions expose `OpenRead`, while the owning design reserves
@@ -711,27 +720,44 @@ primary-only scan cannot cover an artifact that also renders companions or
 is a pre-commit policy refusal; after that policy's attempt commit, a missing or
 mismatched manifest is an artifact-production failure.
 
-Signature requirements come from the Metadata-owned immutable
-signature-spellability aggregate. Until
-[#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-that owner-issued surface, tools retain
-`SignatureSpellabilityAggregateUnavailable` and decline before
-`ProductAttemptCommit`; they do not infer a typed reason from the current
-`CanSpell` boolean. Once available, an accessible external definition becomes
-an exact selected-reference requirement. Metadata's authoritative
-`Inaccessible` outcome becomes `Unspellable` with the original
-terminal-definition and accessibility evidence; it cannot become an exact
-reference requirement. Unresolved or rejected aggregate outcomes retain their
-exact Metadata failure as `Incomplete`. Every `LocalRequirement` needs a
-`LocalDeclarationReceipt` proving that the exact source `TypeDef`, including its
-containing declaration chain, is present and nameable in the generated
-artifact. A same-named external definition cannot satisfy it.
+Signature requirements compose Metadata-owned named occurrences from
+[#4885](https://github.com/richlander/dotnet-inspect/issues/4885) with
+per-occurrence resolution outcomes under the frozen compile context. Tools
+retain an explicit missing-decode capability reason and decline before
+`ProductAttemptCommit` until that occurrence surface exists. The current
+`CanSpell` boolean supplies neither the missing identities nor typed failure
+evidence.
 
-Metadata's compatibility `CanSpell` projection may authorize this artifact only
-after tools have discharged all local requirements. Metadata retains the
-artifact-independent aggregate; tools own the artifact-specific receipt.
-Planning consumes the aggregate's closed evidence entries rather than treating
-`CanSpell: false` as one undifferentiated failure.
+For each occurrence resolved to the source candidate, tools check that the
+exact source `TypeDef`, including its containing declaration chain, is present
+and nameable in the artifact's declaration plan. A same-named external
+definition cannot satisfy this obligation. The tools-owned
+`LocalDeclarationReceipt` records that obligation's discharge; resolution alone
+does not prove it. A source-local definition need not be externally accessible,
+but it must be nameable from the occurrence's generated context. An undischarged
+obligation prevents complete closure and, if declaration planning cannot
+resolve it, produces pre-commit `Declined`. Rendered inclusion remains subject
+to the existing artifact-manifest coverage and rebuilt-binding requirements;
+the planner's receipt is not evidence that rendering occurred.
+
+For a resolved external occurrence participating in the emitted signature,
+tools consume the terminal-accessibility evidence tracked by
+[#5302](https://github.com/richlander/dotnet-inspect/issues/5302). An accessible
+terminal definition becomes an exact selected-reference requirement.
+Metadata's authoritative `Inaccessible` outcome becomes `Unspellable` with the
+original terminal-definition and accessibility evidence; it cannot become an
+exact reference requirement. Unresolved or rejected decode, resolution, or
+accessibility outcomes retain their exact Metadata failure as `Incomplete`.
+Missing required accessibility capability likewise prevents complete closure
+and produces pre-commit `Declined` with its own capability reason, not
+`Unspellable`. Occurrences not spelled by the artifact still retain their
+resolution outcomes; non-participation cannot erase a resolution failure.
+
+Tools compose these results into closure and artifact admission. Metadata does
+not authorize the artifact through a compatibility `CanSpell` projection or a
+local proof object. This consumer contract remains design-only and unverified
+until its named gates below are implemented; it neither recreates the removed
+aggregate protocol nor defines the adjacent Metadata operations.
 
 ### Declaration-reference census
 
@@ -1101,10 +1127,10 @@ planning transition:
 
 - `Declined` is the pre-`ProductAttemptCommit` policy refusal from reference
   discovery or selection, declaration planning, closure, local requirements,
-  Metadata aggregate capability, retained-content digest capability,
-  artifact-manifest capability, product-body occurrence capability, or required
-  generated-correspondence capability. It carries the typed reasons and selected
-  legacy policy, when permitted.
+  signature-decode or required terminal-accessibility capability,
+  retained-content digest capability, artifact-manifest capability, product-body
+  occurrence capability, or required generated-correspondence capability. It
+  carries the typed reasons and selected legacy policy, when permitted.
 - `Failed` when artifact production, compilation, rebuilt resolution, or
   binding fails after `ProductAttemptCommit`, including participant-manifest
   mismatch, a stalled post-commit diagnostic, and root/iteration budget
@@ -1112,11 +1138,11 @@ planning transition:
   receipt that exists.
 - `Admitted` only after the exact artifact and typed declaration plan exist, the
   frozen reference set is unambiguous, signature/declaration/generated-fragment/
-  body closure is `Complete`, every Metadata `LocalRequirement` has a
-  declaration receipt, artifact coverage exactly matches the producer manifest,
-  and the exact artifact-specific `CompileContextReceipt` is complete. It
-  carries artifact, compile-context digest, closure, coverage, compilation, and
-  rebuilt-binding receipts.
+  body closure is `Complete`, every tools-owned source-local declaration
+  obligation has a `LocalDeclarationReceipt`, artifact coverage exactly matches
+  the producer manifest, and the exact artifact-specific `CompileContextReceipt`
+  is complete. It carries artifact, compile-context digest, closure, coverage,
+  compilation, and rebuilt-binding receipts.
 
 The current `UsedProductWholeMember` boolean cannot represent these states. It
 may remain as a compatibility projection only if it means `Admission is
@@ -1190,7 +1216,9 @@ No layer converts failure or unavailability into an empty successful result.
 - [#4883](https://github.com/richlander/dotnet-inspect/issues/4883) defines
   compiler-generated cross-reader definition correspondence.
 - [#4885](https://github.com/richlander/dotnet-inspect/issues/4885) implements
-  the Metadata signature-spellability aggregate designed by #4809 and PR #4821.
+  the Metadata bounded single-signature occurrence decode.
+- [#5302](https://github.com/richlander/dotnet-inspect/issues/5302) defines the
+  separate Metadata terminal-accessibility result for external requirements.
 - [#4916](https://github.com/richlander/dotnet-inspect/issues/4916) implements
   owner-mediated retained-content digests.
 - [#4930](https://github.com/richlander/dotnet-inspect/issues/4930) defines
@@ -1349,9 +1377,15 @@ Issue #4810 adds these named gates:
    catch types participate without an instruction operand naming them.
 6. `CompileClosureDoesNotTurnIncompleteCensusIntoEmptySuccess` rejects one body
    token or signature and proves `Incomplete`.
-7. `CompileClosureDischargesMetadataLocalRequirementsByExactTypeDef` proves a
-   same-named external definition cannot satisfy a source-local requirement and
-   including the exact local declaration can.
+7. `CompileClosureDischargesLocalDeclarationsByExactTypeDef` uses a source-local
+   nested type. An omitted local declaration, missing containing declaration,
+   or declaration not nameable from the generated context prevents complete
+   closure and produces pre-commit `Declined` when planning cannot resolve it.
+   A same-named external definition cannot satisfy the obligation. Including the
+   exact source declaration and its containing chain in a nameable context
+   discharges the tools-owned receipt, including for a source-local type that
+   is not externally accessible. Resolution alone cannot issue the receipt;
+   rendered coverage and rebuilt binding remain separate gates.
 8. `CompileClosureIncludesDeclarationShapeRequirements` uses body-free compiled
    fixtures for base, interface, generic-constraint, explicit-interface, and
    emitted-attribute types. Each exact provider produces `Complete`; removing
@@ -1448,14 +1482,17 @@ Issue #4810 adds these named gates:
     lowers into multiple constructors requires the complete destination set;
     omitting or stubbing any receiver is also unavailable. No arm parses the
     generated expression.
-24. `CompileClosureConsumesMetadataSpellabilityOutcome` uses forwarded
-    signatures. Until #4885 lands, the missing aggregate capability produces
-    pre-commit `Declined`; the current `CanSpell` boolean cannot substitute.
-    With the owner-issued aggregate, an accessible terminal definition
-    contributes the exact external requirement. An inaccessible terminal
-    retains Metadata's definition and accessibility evidence as `Unspellable`,
-    produces pre-commit `Declined`, and cannot be converted into `Complete` by
-    direct-name lookup or permissive compiler binding.
+24. `CompileClosureComposesMetadataSignatureEvidence` uses forwarded signatures.
+    Missing #4885 decode capability or required #5302 accessibility capability
+    produces pre-commit `Declined` with the specific missing-capability reason;
+    neither `CanSpell` nor a missing result can substitute for the evidence.
+    With both owner results, an accessible external terminal contributes the
+    exact selected-reference requirement. An inaccessible terminal retains
+    Metadata's definition and accessibility evidence as `Unspellable`, produces
+    pre-commit `Declined`, and cannot become `Complete` through direct-name
+    lookup or permissive compiler binding. Unresolved or rejected occurrences
+    remain `Incomplete` with the exact Metadata reason, including a
+    non-participating occurrence whose resolution fails.
 25. `SuppliedBodyCannotIssueReceiptWithoutCompleteOccurrenceOwner` uses a
     replacement body with a source-only same-FQN dependency that is absent from
     emitted IL. Its isolated comparison-only artifact compiles and both C#/IL
