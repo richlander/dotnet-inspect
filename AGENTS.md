@@ -91,14 +91,15 @@ ask whether to find a new theme or take on ad-hoc work. Follow
 
 This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
-attach state to, so skip it entirely. Each window must identify its theme, PR,
-current state, and any decision it needs; its pane title reports current
-activity. Full mechanics live in
+attach state to, so skip it entirely. Each window name must identify its work
+item, domain, and purpose; its pane title reports current activity, while
+window options carry structured state. Full mechanics live in
 [Agent session state](docs/agent-session-state.md).
 
-- **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
-  always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a
-  `-blocked` or `-conflict` suffix.
+- **Name the window** `PR <number> | <Domain> | <Short description>`, or
+  `Issue <number> | <Domain> | <Short description>` before a PR exists. Keep
+  Domain to one or two words, omit machine and tmux coordinates, and always
+  target `"${TMUX_PANE:?}"`.
 - **Update the pane title** with concise current activity, always targeting
   `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
   fallback; replace it at the start of work, after every resume, and at

@@ -133,11 +133,12 @@ Selector rows are hidden by default in the type and member navigation panes.
 The recovered vertical space belongs to the type or member list, which is the
 primary content of each pane.
 
-Each member-filtering surface provides one compact `Filters` disclosure button.
-The button expands or collapses the text filter and complete selector region
+Each filtering surface provides one compact `Filters` disclosure button. The
+button expands or collapses the text filter and complete selector region
 together:
 
 - member text, kind, accessibility, and trait filters expand together; and
+- type text, namespace, kind, and accessibility filters expand together; and
 - collapsing the region never clears or changes a selection.
 
 The Type navigation pane does not retain a second library filter. The active
@@ -153,11 +154,14 @@ as a user preference across browser sessions.
 #### Collapsed summary
 
 Hidden controls must not create hidden state. A member-filter disclosure shows
-`All members` when no restriction is active. Otherwise its compact trailing
-summary names each active text, kind, accessibility, or trait restriction in
-control order. The summary elides visually when space is exhausted, while its
-accessible name retains the complete active restriction list. The disclosure
-does not acquire selector selected styling.
+`All members` when no restriction is active. A type-filter disclosure shows
+`All types` only when no text, namespace, kind, or accessibility restriction is
+active. When non-public types are available, the default public-access scope is
+an active restriction and remains visible in the collapsed summary. Otherwise
+the compact trailing summary names each active restriction in control order.
+The summary elides visually when space is exhausted, while its accessible name
+retains the complete active restriction list. The disclosure does not acquire
+selector selected styling.
 
 #### Disclosure semantics
 
@@ -167,12 +171,13 @@ does not acquire selector selected styling.
 - The summary is not a selector and does not expose `aria-pressed`.
 - Expanding the region does not move keyboard focus automatically. The user
   may continue to the first selector through ordinary tab order.
-- A keyboard command that focuses the member filter first opens the disclosure
-  and then places focus in the text input.
+- A keyboard command that focuses the type or member filter first opens its
+  disclosure and then places focus in the text input.
 - Collapsing the region returns focus to the summary when focus was
   inside the region.
 - A restored or deep-linked filter is summarized while collapsed; it does not
   force the selector region open.
+- Explicitly expanded controls remain available at narrow widths.
 - The collapsed summary supplements the live visible/total result count in the
   owning pane or working-surface header. It does not replace that count.
 
