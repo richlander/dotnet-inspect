@@ -410,8 +410,8 @@ The complete audit funnel was:
 | Exclude packages without the `aspire` owner | 4 | 134 |
 | Exclude stable versions outside the current major-13 line | 20 | 114 |
 | Exclude SDK, tool, RID-tool, and template package types | 10 | 104 |
-| Exclude current-line `Dependency` packages without `lib/` or `ref/` APIs | 8 | 96 |
-| Exclude extension, integration, adapter, runtime, and separate-subsystem APIs that satisfy neither mechanical role | 94 | 2 |
+| Exclude current-line `Dependency` packages without public `lib/` or `ref/` consumer APIs | 22 | 82 |
+| Exclude extension, integration, adapter, runtime, and separate-subsystem APIs that satisfy neither mechanical role | 80 | 2 |
 
 The two remaining packages satisfy the foundation and test-host roles and are
 included.
@@ -429,7 +429,7 @@ Archive and API inspection separated the likely core candidates:
 | --- | ---: | --- |
 | `Aspire.Hosting` | 379 types | Include: satisfies the foundation role by declaring both markers. |
 | `Aspire.Hosting.Testing` | 5 types | Include: satisfies the test-host namespace, dependency, and signature checks. |
-| `Aspire.Hosting.AppHost` | 4 types | Exclude: fails both roles; its owned types are MSBuild tasks and it only delivers the foundation transitively. |
+| `Aspire.Hosting.AppHost` | 0 `lib/` types; 4 `tools/` types | Exclude at the managed-consumer-API check: its public types are MSBuild tasks and it only delivers the foundation transitively. |
 | `Aspire.AppHost.Sdk` | No `lib/` or `ref/` assembly | Exclude at package-type and managed-API checks: SDK and tool payload. |
 | `Aspire.TypeSystem` | 32 types | Exclude: fails both roles as a separate polyglot type-system and code-generation surface. |
 
@@ -616,7 +616,7 @@ Aspire implementation adds or extends these Release gates:
 | Gate | Property |
 | --- | --- |
 | `PackageSetRegistryTests.AspireCoreManifestMatchesAuditedSnapshot` | Literal expectations prove exact ordinal membership of `Aspire.Hosting` and `Aspire.Hosting.Testing` as versionless target-neutral coordinates. |
-| `PackageSetRegistryTests.AspireCoreExcludesNonCoreCanaries` | The manifest excludes literal boundary canaries: `Aspire.ClickHouse.Driver`, `Aspire.Hosting.Dapr`, `Aspire.Hosting.AppHost`, `Aspire.AppHost.Sdk`, `Aspire.TypeSystem`, `Aspire.Hosting.Docker`, `Aspire.Hosting.Yarp`, `Aspire.Hosting.Python`, `Aspire.Hosting.Azure`, `Aspire.Hosting.Orchestration.linux-x64`, `Aspire.Cli`, and `Aspire.ProjectTemplates`. |
+| `PackageSetRegistryTests.AspireCoreExcludesNonCoreCanaries` | The manifest excludes literal boundary canaries: `Aspire.ClickHouse.Driver`, `Aspire.Hosting.Dapr`, `Aspire.Hosting.AppHost`, `Aspire.AppHost.Sdk`, `Aspire.Hosting.CodeGeneration.TypeScript`, `Aspire.Dashboard.Sdk.linux-x64`, `Aspire.TypeSystem`, `Aspire.Hosting.Docker`, `Aspire.Hosting.Yarp`, `Aspire.Hosting.Python`, `Aspire.Hosting.Azure`, `Aspire.Hosting.Orchestration.linux-x64`, `Aspire.Cli`, and `Aspire.ProjectTemplates`. |
 
 These gates prove the reviewed source snapshot and registry behavior. They do
 not make the network audit a runtime operation or prove prefix-query and
