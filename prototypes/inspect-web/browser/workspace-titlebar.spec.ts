@@ -116,6 +116,252 @@ test("the top shell row separates application scopes from inspection subjects", 
     "/assets/dotnet-inspect-bot.png");
 });
 
+test("the content frame clamps wide inventory and pushes at constrained widths", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const wideInventory = await box(page, "#content-navigation-pane");
+  const wideDetail = await box(page, ".detail-pane");
+  expect(wideInventory.width).toBeGreaterThanOrEqual(304);
+  expect(wideInventory.width).toBeLessThanOrEqual(360);
+  expect(wideInventory.x + wideInventory.width).toBeCloseTo(wideDetail.x, 0);
+
+  await page.setViewportSize({ width: 900, height: 700 });
+  const intermediateInventory = await box(page, "#content-navigation-pane");
+  expect(intermediateInventory.width).toBeCloseTo(304, 0);
+
+  await page.setViewportSize({ width: 600, height: 700 });
+  const href = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  const toggle = page.getByRole("button", { name: "Members" });
+  await expect(toggle).toBeVisible();
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+
+  await toggle.click();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeHidden();
+  await expect(page.locator("#type-list")).toBeFocused();
+  await expect(page.getByRole("button", {
+    name: "Show details",
+  })).toBeVisible();
+  expect(page.url()).toBe(href);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await page.locator("[data-harness-navigation-row]").click();
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(toggle).toBeFocused();
+  expect(page.url()).toBe(href);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await toggle.click();
+  await page.getByRole("button", {
+    name: "Show details",
+  }).click();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  expect(page.url()).toBe(href);
+  expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await toggle.click();
+  await page.getByRole("button", { name: "Show details" }).focus();
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect(page.locator("#type-list")).toBeFocused();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
+test("narrowing retains detail after focus leaves the content frame", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.locator(".docs-unavailable").click();
+  await expect(page.locator("body")).toBeFocused();
+  await page.evaluate(() => new Promise<void>(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+  await page.setViewportSize({ width: 600, height: 700 });
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
+test("immediate narrowing ignores stale navigation focus ownership", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.locator(".docs-unavailable").click();
+  await page.setViewportSize({ width: 600, height: 700 });
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
+test("immediate narrowing follows navigation through replacement rendering", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await expect(page.locator("body")).toBeFocused();
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeHidden();
+  await expect(page.locator("#type-list")).toBeFocused();
+});
+
+test("pointer departure cancels replacement focus authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await page.locator(".docs-unavailable").click();
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator("body")).toBeFocused();
+});
+
+test("pointer departure cancels queued replacement focus", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await page.locator(".docs-unavailable").click();
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("body")).toBeFocused();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
+test("focus departure cancels replacement focus authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => window.beginContentFrameReplacementProbe());
+  await page.locator(".docs-unavailable").evaluate(element => {
+    if (!(element instanceof HTMLElement))
+      throw new Error("The detail focus target is unavailable.");
+    element.tabIndex = -1;
+    element.focus();
+  });
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.evaluate(() => window.flushContentFrameReplacementProbe());
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator(".docs-unavailable")).toBeFocused();
+});
+
+test("failed replacement restoration expires its pane authority", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.evaluate(() => {
+    window.beginContentFrameReplacementProbe();
+    document.querySelector("#type-list")?.remove();
+    window.flushContentFrameReplacementProbe();
+  });
+  await page.setViewportSize({ width: 600, height: 700 });
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+  await expect(page.locator("body")).toBeFocused();
+});
+
+test("immediate widening ignores a departed narrow toggle", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.getByRole("button", { name: "Members" }).focus();
+  await page.locator(".docs-unavailable").click();
+  await expect(page.locator("body")).toBeFocused();
+  await page.setViewportSize({ width: 900, height: 700 });
+
+  await expect(page.locator("body")).toBeFocused();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
+test("keyboard entry focuses an empty Member inventory after replacement", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?empty-member-entry=1");
+
+  await page.getByRole("button", { name: "Types" }).click();
+  await expect(page.locator("#type-list")).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByText("No members match these filters.")).toBeVisible();
+  await expect(page.locator("#type-list")).toBeFocused();
+  await expect(page.locator(".detail-pane")).toBeHidden();
+});
+
+test("the narrow return control integrates with Metadata and Source frames", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?metadata=1");
+
+  const metadataHeader = await box(page, ".metadata-surface-head");
+  const metadataToggle = await box(page, "#content-navigation-toggle");
+  expect(metadataToggle.y).toBeGreaterThanOrEqual(metadataHeader.y);
+  expect(metadataToggle.y + metadataToggle.height)
+    .toBeLessThanOrEqual(metadataHeader.y + metadataHeader.height);
+  await expect(page.locator(".metadata-surface-head h1")).toHaveText("Metadata");
+
+  await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
+  const sourceNavigation = await box(page, ".content-navigation-bar");
+  const source = await box(page, ".source-result");
+  expect(source.y).toBeCloseTo(
+    sourceNavigation.y + sourceNavigation.height,
+    0);
+  await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
+});
+
+test("Member Overview begins twelve pixels below its quiet header", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const header = await box(page, ".member-surface-head");
+  const summary = await box(page, ".member-overview-intro > :first-child");
+  expect(summary.y - (header.y + header.height)).toBeCloseTo(12, 0);
+});
+
 test("the Application menu owns global actions and modal focus return", async ({
   page,
 }) => {
@@ -632,6 +878,7 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   const horizontalOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(horizontalOverflow).toBeLessThanOrEqual(0);
+  await page.getByRole("button", { name: "Members" }).click();
   const narrowNamespacePicker = await box(page, ".namespace-picker");
   const narrowTypeList = await box(page, ".type-list");
   expect(narrowNamespacePicker.y + narrowNamespacePicker.height)
@@ -1568,7 +1815,7 @@ test("the target row advertises the typed Package, Type, and Member path", async
   }
 });
 
-test("Workspace keeps the Default Workspace visible and menu fixed", async ({
+test("Workspace keeps the singular Workspace visible and menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -1726,6 +1973,27 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     .toBeHidden();
 });
 
+test("Workspace retains its full split height at constrained widths", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const intermediateNavigation = await box(page, ".workspace-nav");
+  expect(intermediateNavigation.width).toBeCloseTo(330, 0);
+
+  await page.setViewportSize({ width: 600, height: 700 });
+
+  await expect(page.locator(".detail-pane"))
+    .not.toHaveClass(/content-navigation-/);
+  const workspace = await box(page, ".workspace");
+  const detail = await box(page, ".detail-pane");
+  const inspector = await box(page, "#inspector-panel");
+  expect(detail.height).toBeCloseTo(workspace.height, 0);
+  expect(inspector.height).toBeCloseTo(detail.height, 0);
+  expect(detail.height).toBeGreaterThan(500);
+});
+
 test("Workspace selection is observational and occurrence activation executes", async ({
   page,
 }) => {
@@ -1738,9 +2006,9 @@ test("Workspace selection is observational and occurrence activation executes", 
 
   await expect(workspace).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator(".subject-path-segment"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-execution-count", "0");
   expect(page.url()).toBe(href);
