@@ -3182,6 +3182,10 @@ function renderWorkspaceCatalogView() {
   app.innerHTML = `
     <div class="workbench"${state.settings || state.keyboardHelp ? " inert" : ""}>
       ${workbenchShellHtml({
+        applicationScopeHtml: renderApplicationScopeBar(
+          "workspace",
+          true,
+          escapeHtml),
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             <span class="subject-icon" aria-hidden="true">W</span>

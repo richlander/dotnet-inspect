@@ -346,7 +346,7 @@ test("package scope marks only the package segment and the active package lens",
   assert.doesNotMatch(html, /class="[^"]*\blens active" data-package-lens="overview"/);
 });
 
-test("scope bar can expose only the currently available subject", () => {
+test("workspace-only availability leaves the separate subject ladder empty", () => {
   const html = renderScopeBar({
     scope: "workspace",
     strip: [],
@@ -356,10 +356,9 @@ test("scope bar can expose only the currently available subject", () => {
     escapeHtml,
   });
 
-  assert.match(
+  assert.doesNotMatch(
     html,
-    /data-scope="workspace"[^>]*role="tab" aria-selected="true"/);
-  assert.doesNotMatch(html, /data-scope="package"|data-scope="type"/);
+    /data-scope="workspace"|data-scope="package"|data-scope="type"/);
 });
 
 test("type scope marks the type segment and renders the fixed type lenses", () => {
