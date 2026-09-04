@@ -326,7 +326,7 @@ receive workspace capabilities or recompute the association chain.
 
 | Precedent | Behavior reused | Deliberate difference |
 | --- | --- | --- |
-| `AssemblyContextTypeResolutionQuery` | Resolves one structured type through retained members of one binding-consistent group and preserves the exact `TypeResolutionOutcome`. | This design joins that outcome to Research attempts; it does not change resolution. |
+| `AssemblyContextTypeResolutionQuery` | Resolves one structured type through retained members of one binding-consistent group and preserves the exact `TypeResolutionOutcome`. | This design consumes that outcome while the group is live and joins only its capability-free projection to Research attempts; it does not change resolution. |
 | `AssemblyContextAnalysisSource` | Converts binding selections to retained references only when the selected acquisition registration belongs to the same group. | Composition retains an inert endpoint receipt rather than an image resolver. |
 | [`match --similar` forwarding consumption in #5228](https://github.com/richlander/dotnet-inspect/pull/5228) | Uses the terminal physical image for image-local token work and refuses to reinterpret the token against the facade. | `match` owns CLI replay and discovery; this design owns a presentation-free Research-attempt association. |
 | Research target attempts from [#5189](https://github.com/richlander/dotnet-inspect/pull/5189) | Preserve complete input-local attempts and distinguish forwarded unavailability from absence. | This owner selects an already existing terminal attempt without changing the Research result. |
