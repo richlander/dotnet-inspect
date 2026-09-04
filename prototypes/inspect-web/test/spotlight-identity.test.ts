@@ -3216,7 +3216,17 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+  const streamPatch =
+    appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
+    ?? "";
+  assert.match(
+    streamPatch,
+    /patchPackageQueryStream\(\s*document,[\s\S]*packageQueryActions\)/);
+  assert.doesNotMatch(streamPatch, /app\.innerHTML/);
+  assert.match(
+    appSource,
+    /function schedulePackageQueryStreamRender\(\) \{\s*if \(packageQueryStreamRenderFrame !== null\) return;\s*packageQueryStreamRenderFrame = requestAnimationFrame\(/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";

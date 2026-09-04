@@ -5,6 +5,8 @@ import {
   bindPackageQueryView,
   capturePackageQueryFocus,
   capturePackageQueryScroll,
+  packageQueryNeedsMoreMatches,
+  patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
@@ -455,6 +457,9 @@ class FakeElement {
   hidden = false;
   rendered = true;
   scrollTop = 0;
+  scrollHeight = 0;
+  clientHeight = 0;
+  innerHTML = "";
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
   selectionRange: readonly [number, number] | null = null;
@@ -472,6 +477,13 @@ class FakeElement {
     const listeners = this.listeners.get(type) ?? [];
     listeners.push(listener);
     this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter(candidate => candidate !== listener));
   }
 
   dispatch(type: string) {
@@ -708,6 +720,7 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     onCancel: () => calls.push("cancel"),
     onFacetToggle: key => calls.push(`facet:${key}`),
     onPrefixInput: () => {},
+    onResultPressure: () => calls.push("pressure"),
     onRowOpen: (id, version) => calls.push(`open:${id}:${version}`),
     onRun: () => {},
   };
@@ -727,4 +740,84 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
     "facet:tfm-out-of-support",
     "cancel",
   ]);
+});
+
+test("query result pressure starts within 600 pixels of the current end", () => {
+  assert.equal(packageQueryNeedsMoreMatches({
+    scrollTop: 200,
+    clientHeight: 800,
+    scrollHeight: 1601,
+  }), false);
+  assert.equal(packageQueryNeedsMoreMatches({
+    scrollTop: 201,
+    clientHeight: 800,
+    scrollHeight: 1601,
+  }), true);
+});
+
+test("bindPackageQueryView reports near-end scroll pressure and disconnects it", () => {
+  const root = new FakeRoot();
+  const main = new FakeElement();
+  main.clientHeight = 800;
+  main.scrollHeight = 1800;
+  root.add(".query-main", main);
+  let pressure = 0;
+  const binding = bindPackageQueryView(fakeDom.parentNode(root), {
+    onApplicationScopeSelect: () => {},
+    onBack: () => {},
+    onCancel: () => {},
+    onFacetToggle: () => {},
+    onPrefixInput: () => {},
+    onResultPressure: () => { pressure++; },
+    onRowOpen: () => {},
+    onRun: () => {},
+  });
+
+  main.scrollTop = 401;
+  main.dispatch("scroll");
+  assert.equal(pressure, 1);
+
+  binding.disconnect();
+  main.dispatch("scroll");
+  assert.equal(pressure, 1);
+});
+
+test("patchPackageQueryStream updates only dynamic query regions", () => {
+  const root = new FakeRoot();
+  const failures = new FakeElement();
+  const cancel = new FakeElement();
+  const results = new FakeElement();
+  const main = new FakeElement();
+  main.clientHeight = 800;
+  main.scrollHeight = 1600;
+  main.scrollTop = 800;
+  root.add("#package-query-failure-region", failures);
+  root.add("#package-query-cancel-region", cancel);
+  root.add("#package-query-results", results);
+  root.add(".query-main", main);
+  const state: PackageQueryState = {
+    request: createQueryRequest("Contoso."),
+    outcome: appendRows(emptyOutcome(), [row("Contoso.One")]),
+  };
+  let pressure = 0;
+
+  const patched = patchPackageQueryStream(
+    fakeDom.parentNode(root),
+    { state, escapeHtml },
+    {
+      onApplicationScopeSelect: () => {},
+      onBack: () => {},
+      onCancel: () => {},
+      onFacetToggle: () => {},
+      onPrefixInput: () => {},
+      onResultPressure: () => { pressure++; },
+      onRowOpen: () => {},
+      onRun: () => {},
+    });
+
+  assert.equal(patched, true);
+  assert.match(results.innerHTML, /Contoso\.One/);
+  assert.match(cancel.innerHTML, /data-query-cancel="1"/);
+  assert.equal(failures.innerHTML, "");
+  assert.equal(pressure, 1);
 });

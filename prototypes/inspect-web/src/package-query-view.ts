@@ -9,7 +9,10 @@ import {
   focusRenderedElement,
   renderApplicationScopeBar,
   type ApplicationScope,
+  type ApplicationScopeBarBinding,
 } from "./scope-bar.ts";
+
+const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
 
 export interface PackageQueryBindingActions {
   onApplicationScopeSelect: (scope: ApplicationScope) => void;
@@ -17,6 +20,7 @@ export interface PackageQueryBindingActions {
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
   onPrefixInput: (prefix: string) => void;
+  onResultPressure: () => void;
   onRowOpen: (packageId: string, version: string) => void;
   onRun: (prefix: string) => void;
 }
@@ -179,7 +183,7 @@ export function restorePackageQueryScroll(
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
-) {
+): ApplicationScopeBarBinding {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
   const applicationBinding = bindApplicationScopeBar(root, {
@@ -200,17 +204,44 @@ export function bindPackageQueryView(
     const input = event.currentTarget;
     if (input instanceof HTMLInputElement) actions.onPrefixInput(input.value);
   });
-  root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
-    button.addEventListener("click", () => actions.onRowOpen(
-      button.dataset.queryRowOpen ?? "",
-      button.dataset.queryRowVersion ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-facet]").forEach(button =>
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
       prefixInput()?.value ?? "")));
+  bindPackageQueryStreamControls(root, actions);
+  const queryMain = root.querySelector<HTMLElement>(".query-main");
+  const reportResultPressure = () => {
+    if (queryMain && packageQueryNeedsMoreMatches(queryMain)) {
+      actions.onResultPressure();
+    }
+  };
+  queryMain?.addEventListener("scroll", reportResultPressure);
+  reportResultPressure();
+  return {
+    disconnect() {
+      applicationBinding.disconnect();
+      queryMain?.removeEventListener("scroll", reportResultPressure);
+    },
+  };
+}
+
+function bindPackageQueryStreamControls(
+  root: ParentNode,
+  actions: PackageQueryBindingActions,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-query-row-open]").forEach(button =>
+    button.addEventListener("click", () => actions.onRowOpen(
+      button.dataset.queryRowOpen ?? "",
+      button.dataset.queryRowVersion ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
     button.addEventListener("click", actions.onCancel));
-  return applicationBinding;
+}
+
+export function packageQueryNeedsMoreMatches(
+  main: Pick<HTMLElement, "clientHeight" | "scrollHeight" | "scrollTop">,
+): boolean {
+  return main.scrollHeight - main.scrollTop - main.clientHeight
+    <= PACKAGE_QUERY_PRESSURE_DISTANCE_PX;
 }
 
 function renderRow(
@@ -314,6 +345,14 @@ function renderCompletionFooter(
     </div>`;
 }
 
+function renderStreamingCancel(
+  state: PackageQueryState,
+): string {
+  return state.outcome.completion.kind === "streaming" && state.request
+    ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
+    : "";
+}
+
 function renderProgress(
   outcome: PackageQueryState["outcome"],
   escapeHtml: (value: unknown) => string,
@@ -404,6 +443,60 @@ export interface RenderPackageQueryOptions {
   escapeHtml: (value: unknown) => string;
 }
 
+function renderFailures(
+  state: PackageQueryState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  return state.outcome.failures.length
+    ? `
+      <section class="query-failures">
+        <strong>Some package source work failed</strong>
+        <ul>${state.outcome.failures
+          .map(failure => `<li>${escapeHtml(failure)}</li>`)
+          .join("")}</ul>
+      </section>`
+    : "";
+}
+
+function renderResults(
+  state: PackageQueryState,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const rows = state.outcome.rows
+    .map(row => renderRow(row, escapeHtml))
+    .join("");
+  return rows
+    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    : state.outcome.completion.kind === "streaming" && state.request
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
+      : renderEmptyState(state, escapeHtml);
+}
+
+export function patchPackageQueryStream(
+  root: ParentNode,
+  options: Pick<RenderPackageQueryOptions, "state" | "escapeHtml">,
+  actions: PackageQueryBindingActions,
+): boolean {
+  const failures = root.querySelector<HTMLElement>(
+    "#package-query-failure-region");
+  const cancel = root.querySelector<HTMLElement>(
+    "#package-query-cancel-region");
+  const results = root.querySelector<HTMLElement>(
+    "#package-query-results");
+  if (!failures || !cancel || !results) return false;
+
+  failures.innerHTML = renderFailures(options.state, options.escapeHtml);
+  cancel.innerHTML = renderStreamingCancel(options.state);
+  results.innerHTML = renderResults(options.state, options.escapeHtml);
+  bindPackageQueryStreamControls(root, actions);
+
+  const queryMain = root.querySelector<HTMLElement>(".query-main");
+  if (queryMain && packageQueryNeedsMoreMatches(queryMain)) {
+    actions.onResultPressure();
+  }
+  return true;
+}
+
 export function renderPackageQueryView(
   options: RenderPackageQueryOptions,
 ): string {
@@ -417,23 +510,8 @@ export function renderPackageQueryView(
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
   const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
-  const failures = state.outcome.failures.length
-    ? `
-      <section class="query-failures">
-        <strong>Some package source work failed</strong>
-        <ul>${state.outcome.failures
-          .map(failure => `<li>${escapeHtml(failure)}</li>`)
-          .join("")}</ul>
-      </section>`
-    : "";
-  const rows = state.outcome.rows
-    .map(row => renderRow(row, escapeHtml))
-    .join("");
-  const results = rows
-    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
-    : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
-      : renderEmptyState(state, escapeHtml);
+  const failures = renderFailures(state, escapeHtml);
+  const results = renderResults(state, escapeHtml);
 
   return `
     <div class="query-page">
@@ -459,14 +537,12 @@ export function renderPackageQueryView(
           <label for="package-query-prefix">Package ID prefix (<code>*</code> optional)</label>
           <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="System.*" required maxlength="100" />
           <button id="package-query-run" type="submit">Run query</button>
-          ${state.outcome.completion.kind === "streaming" && state.request
-            ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
-            : ""}
+          <span id="package-query-cancel-region">${renderStreamingCancel(state)}</span>
         </form>
         ${navigationError
           ? `<div class="query-navigation-error">${escapeHtml(navigationError)}</div>`
           : ""}
-        ${failures}
+        <div id="package-query-failure-region">${failures}</div>
         <div class="query-layout">
           <aside class="query-facet-rail" aria-label="Package query facets">
             <h2>Facets</h2>
@@ -474,7 +550,7 @@ export function renderPackageQueryView(
             <div class="query-facets">${facets}</div>
             <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
           </aside>
-          <section class="query-results" aria-label="Package query results">
+          <section id="package-query-results" class="query-results" aria-label="Package query results">
             ${results}
           </section>
         </div>

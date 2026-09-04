@@ -378,6 +378,7 @@ import {
   bindPackageQueryView,
   capturePackageQueryFocus,
   capturePackageQueryScroll,
+  patchPackageQueryStream,
   renderPackageQueryView,
   restorePackageQueryFocus,
   restorePackageQueryScroll,
@@ -442,6 +443,8 @@ let inspectPackage: PackageFacade["queryPackage"];
 let inspectPackageDependencies: PackageFacade["queryPackageDependencies"];
 let inspectPackageVersions: PackageFacade["queryPackageVersions"];
 let resolveDependencyVersion: PackageFacade["resolvePackageDependencyVersion"];
+let inspectRequestPackageQueryMatches:
+  PackageFacade["requestPackageQueryMatches"];
 let inspectRunPackageQuery: PackageFacade["runPackageQuery"];
 let inspectSearchTypes: PackageFacade["searchTypes"];
 let inspectQueryWorkspacePackageOccurrences:
@@ -517,6 +520,7 @@ async function loadEngineModule() {
     queryPackage: inspectPackage,
     queryPackageDependencies: inspectPackageDependencies,
     queryPackageVersions: inspectPackageVersions,
+    requestPackageQueryMatches: inspectRequestPackageQueryMatches,
     resolvePackageDependencyVersion: resolveDependencyVersion,
     runPackageQuery: inspectRunPackageQuery,
     searchTypes: inspectSearchTypes,
@@ -1097,12 +1101,15 @@ const packageQueryController = createPackageQueryController(
   state.packageQueryState,
   createBrowserPackageQueryDataSource({
     cancel: () => cancelPackageQuery(),
+    requestMatches: additionalMatchCredit =>
+      inspectRequestPackageQueryMatches(additionalMatchCredit),
     run: (
       prefix,
       facetIdsJson,
       maximumCandidates,
       maximumMatches,
       includePrerelease,
+      initialMatchCredit,
       eventSink,
     ) => inspectRunPackageQuery(
       prefix,
@@ -1110,10 +1117,16 @@ const packageQueryController = createPackageQueryController(
       maximumCandidates,
       maximumMatches,
       includePrerelease,
+      initialMatchCredit,
       eventSink),
   }),
-  () => {
-    if (state.packageQueryOpen) render();
+  updateKind => {
+    if (!state.packageQueryOpen) return;
+    if (updateKind === "reset") {
+      render();
+      return;
+    }
+    schedulePackageQueryStreamRender();
   },
 );
 const packageQueryAnnouncements = createPackageQueryAnnouncementTracker();
@@ -8817,6 +8830,7 @@ const packageQueryActions: PackageQueryBindingActions = {
       packageQueryController.cancel();
     }
   },
+  onResultPressure: () => packageQueryController.requestMore(),
   onRowOpen: (packageId, version) => {
     observeAsync(
       openPackageQueryRow(packageId, version),
@@ -8825,7 +8839,46 @@ const packageQueryActions: PackageQueryBindingActions = {
   onRun: runPackageQuery,
 };
 
+let packageQueryStreamRenderFrame: number | null = null;
+
+function cancelPackageQueryStreamRender() {
+  if (packageQueryStreamRenderFrame === null) return;
+  cancelAnimationFrame(packageQueryStreamRenderFrame);
+  packageQueryStreamRenderFrame = null;
+}
+
+function schedulePackageQueryStreamRender() {
+  if (packageQueryStreamRenderFrame !== null) return;
+  packageQueryStreamRenderFrame = requestAnimationFrame(() => {
+    packageQueryStreamRenderFrame = null;
+    if (state.packageQueryOpen) patchPackageQueryPage();
+  });
+}
+
+function patchPackageQueryPage() {
+  const focus = capturePackageQueryFocus(document);
+  const scrollTop = capturePackageQueryScroll(document);
+  const announcement = takePackageQueryAnnouncement();
+  const patched = patchPackageQueryStream(
+    document,
+    {
+      state: state.packageQueryState,
+      escapeHtml,
+    },
+    packageQueryActions);
+  if (!patched) {
+    render();
+    return;
+  }
+  const focusRestoration = restorePackageQueryFocus(document, focus);
+  if (focusRestoration !== "fallback") {
+    restorePackageQueryScroll(document, scrollTop);
+  }
+  packageQueryLiveAnnouncer.enqueue(announcement);
+}
+
 function renderPackageQueryPage() {
+  cancelPackageQueryStreamRender();
   const focus = capturePackageQueryFocus(document);
   const scrollTop = capturePackageQueryScroll(document);
   const announcement = takePackageQueryAnnouncement();

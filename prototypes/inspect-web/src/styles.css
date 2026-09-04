@@ -2701,6 +2701,7 @@ kbd {
   border-color: var(--accent);
   color: var(--accent);
 }
+#package-query-cancel-region { display: contents; }
 .query-bar-cancel { color: var(--yellow) !important; }
 .query-navigation-error,
 .query-failures {

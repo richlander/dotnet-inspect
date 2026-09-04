@@ -205,7 +205,7 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 17 exports
+### Package facade: 18 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
@@ -221,6 +221,7 @@ deployment smoke's deterministic awaited operation.
 - `QueryPackageDependencies`
 - `QueryPackageVersions`
 - `QueryWorkspacePackageOccurrences`
+- `RequestPackageQueryMatches`
 - `ResolvePackageDependencyVersion`
 - `RunPackageQuery`
 - `SearchTypes`

@@ -40,6 +40,7 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken)
             => await ExecuteAsync(
@@ -49,6 +50,7 @@ namespace InspectWeb.Engine.PackageFacade
                 maximumMatches,
                 includePrerelease,
                 contentProvider: null,
+                matchCredit,
                 emit,
                 cancellationToken).ConfigureAwait(false);
 
@@ -59,6 +61,7 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumMatches,
             bool includePrerelease,
             IPackageQueryContentProvider? contentProvider,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken)
         {
@@ -83,12 +86,14 @@ namespace InspectWeb.Engine.PackageFacade
                     plan,
                     contentProvider,
                     cancellationToken),
+                matchCredit,
                 emit,
                 cancellationToken).ConfigureAwait(false);
         }
 
         internal static async Task<BrowserPackageQueryEvent> PumpAsync(
             IAsyncEnumerable<PackageQueryEvent> events,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken)
         {
@@ -110,6 +115,26 @@ namespace InspectWeb.Engine.PackageFacade
                 {
                     completedEvent = projected;
                     continue;
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Match
+                    && matchCredit is not null)
+                {
+                    try
+                    {
+                        await matchCredit.WaitAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                        when (cancellationToken.IsCancellationRequested)
+                    {
+                        // The match was already established by MoveNextAsync.
+                        // Hand it to the generation guard before physical
+                        // cancellation settles, even though logical
+                        // cancellation has revoked view publication.
+                        emit(projected);
+                        throw;
+                    }
                 }
 
                 emit(projected);
@@ -254,12 +279,18 @@ public static partial class PackageExports
         BrowserPackageQueryOperationCoordinator.CancelCurrent();
 
     [JSExport]
+    public static bool RequestPackageQueryMatches(int additionalMatchCredit) =>
+        BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(
+            additionalMatchCredit);
+
+    [JSExport]
     public static async Task<string> RunPackageQuery(
         string prefix,
         string facetIdsJson,
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
+        int initialMatchCredit,
         JSObject eventSink)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
@@ -268,7 +299,8 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.StringArray) ?? [];
 
         using BrowserPackageQueryOperationLease operation =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync();
+            await BrowserPackageQueryOperationCoordinator.BeginAsync(
+                initialMatchCredit);
         BrowserPackageQueryEvent completed =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
             async deadline =>
@@ -282,6 +314,7 @@ public static partial class PackageExports
                     maximumMatches,
                     includePrerelease,
                     contentProvider,
+                    operation.MatchCredit,
                     queryEvent => eventSink.SetProperty(
                         "event",
                         BrowserPackageQueryOperations.Serialize(queryEvent)),
