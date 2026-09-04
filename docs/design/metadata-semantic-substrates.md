@@ -123,7 +123,12 @@ which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-
    severity, and recommendations belong to consumers.
 5. **Closed outcomes.** Every reachable disposition of the meaning, including
    failure, is expressible in the published outcome type without a consumer
-   inspecting strings or inferring meaning from absence.
+   inspecting strings or inferring meaning from absence. *Of the meaning* is
+   load-bearing: a bad handle, an unrequested bound, and an exhausted budget
+   are facts about the request and about us, not dispositions of the meaning,
+   and the third outcome-vocabulary rule keeps them out of requirement 5.
+   Which of them a component must express depends on the surfaces and bounds
+   it eventually chooses, so they belong to the publication contract.
 
    This is assessable from a proposed result algebra, before any component
    exists, which is what keeps the admission test decidable at admission time.
@@ -138,16 +143,24 @@ that exists, not demand a substrate might create.
 
 ### Worked admissions
 
-**Property, event, and accessor association — admit, with a split evidence
-grade.** The association between an accessor and its declaring property or
-event is derived (1) and **structural**: `MethodSemantics` states it outright
-(2). The association between a property and its compiler-generated backing
+**Property and event backing storage — admit; accessor association rides
+along.** These are two meanings, and requirement 1 separates them. The
+association between an accessor and its declaring property or event is
+**structural**: `MethodSemantics` states it outright, so it is a one-row
+decode and *not* independently admissible — requirement 1 excludes exactly
+this. The association between a property and its compiler-generated backing
 storage is **conventional**: it rests on the `<Prop>k__BackingField` name
 grammar (`src/ILInspector.MetadataPrimitives/GeneratedNameGrammar.cs:57`), not
-on any table that asserts the relationship. Both are metadata-only, so both
-are admissible — but a substrate here must publish the second labelled as
-conventional, carrying the matched field name, and must not let a consumer
-mistake it for a structural fact. Demand is shown by duplication (3): the
+on any table that asserts the relationship, so no single row states it and (1)
+holds. Both are metadata-only (2).
+
+A substrate is admitted on the conventional meaning and publishes the
+structural one alongside it, because the backing relationship cannot be stated
+without naming the property the accessors belong to. It must publish the
+conventional fact labelled as conventional, carrying the matched field name,
+and must not let a consumer mistake it for a structural fact. This is what
+requirement 1 doing real work looks like: the meaning that carries the
+substrate is the one no row states. Demand is shown by duplication (3): the
 decoders listed in the candidate inventory below each derive some of this
 today. It asserts association, not spelling (4), and must distinguish an
 ordinary backing association from an absent one and from an ambiguous one (5).
@@ -163,7 +176,7 @@ Decompiler, and the substrate boundary is exactly what keeps it there.
 Substrates share **required distinctions**, not one shared generic result
 type. A single closed generic outcome across unrelated domains would force
 every substrate to carry cases it cannot reach, which per-meaning
-reachability — stated at the end of this section — forbids.
+reachability forbids.
 
 A substrate must distinguish, whenever the distinction is reachable in its
 domain:
@@ -204,8 +217,15 @@ Three rules make the distinctions usable:
 expressible. The converse obligation belongs here, because it constrains
 surfaces rather than meanings: **every case of the outcome type used for a
 meaning must be reachable through at least one public surface publishing that
-meaning**, and a surface whose codomain is narrower than the type it returns
-must either return a narrower type or document the narrowing on that surface.
+meaning**, and a surface that can *never* produce some of the cases its return
+type declares must return a narrower type.
+
+Documenting the narrowing in prose is not sufficient. The consumer still binds
+against a type carrying cases it cannot receive, and must write a branch that
+can never be taken and can never be tested. A surface whose codomain narrows
+only *with its arguments* is not narrowing in this sense — across its arguments
+the declared type is fully reachable, and nothing is dead for any consumer of
+the surface as a whole.
 
 The unit is the published meaning, as it is throughout the admission test, and
 neither neighbouring choice works. Quantifying over the *component* is too
@@ -216,9 +236,12 @@ over each *argument* of a parameterized surface is too strong: it has no fixed
 point, because any function whose codomain narrows with its input would fail
 it, which describes most parameterized APIs rather than a defect.
 
-Per meaning, a result algebra shared across unrelated domains fails the first
-clause: cases belonging to one meaning are unreachable from every surface
-publishing the other, whether or not the two share a component.
+Together the two clauses forbid a dead case at any surface, which is the whole
+harm a shared algebra causes. An algebra shared across unrelated domains fails
+whenever some surface publishing one meaning cannot produce the other family's
+cases — by the first clause when the surfaces are disjoint, and by the second
+when one surface is unconditionally narrow. It is not the sharing that is
+forbidden; it is what sharing normally produces.
 
 A substrate may model additional domain distinctions. It must not add a case
 whose only consumer meaning is presentational.
@@ -408,8 +431,10 @@ that code. Duplication reproduces a derivation, not its quality.
 
 An admitted component may publish further families that would not pass the
 admission test on their own evidence. They are bound by the publication
-contract above — closed outcomes, immutability, identity, bounds — because
-their component is a substrate. They are **not** evidence for the pattern, and
+contract above — single-module scope, construction totality, bounds, identity,
+and per-meaning reachability — because their component is a substrate, and by
+requirement 5, which governs expressibility for every family a substrate
+publishes whether or not the family independently qualified. They are **not** evidence for the pattern, and
 none may be cited as precedent for admitting a new substrate. Recording them
 here rather than under **Established** is what keeps requirement 3's
 per-meaning rule from being satisfied by a class-level sibling.
@@ -504,8 +529,9 @@ This section is bounded, and deliberately cannot be used to admit new
 non-conforming work:
 
 - It is **closed to new substrates.** A component admitted after this document
-  lands must conform on admission. Only the three precedents that predate the
-  pattern may appear here.
+  lands must pass the admission test when its meaning is proposed and satisfy
+  the publication contract when it is built. Only the three precedents that
+  predate the pattern may appear here.
 - Every row names an **existing** deviation and the tracker that carries its
   `path:line` evidence —
   [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) for the
@@ -531,7 +557,7 @@ non-conforming work:
 | Unbounded declaration-table construction: the whole-table paths take no work bound, so the construction rule is unmet rather than deviated from | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) |
 | Bare row coordinates published throughout the result graphs, so a retained result cannot be rebound to a reader safely — the identity rows, and the raw-handle inputs that are the same problem from the other side | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) |
 | `MetadataTypeNameFailure` shared across two unrelated domains, so two of its four mechanisms are unreachable from every declaration surface — the first clause of per-meaning reachability | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
-| Entry points whose codomains are narrower than the types they return, with no type-level or documented record of the narrowing — the surface-narrowing clause of per-meaning reachability | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
+| Entry points that can never produce some of the cases their return type declares, including where the narrowing is recorded only in prose — the surface-narrowing clause of per-meaning reachability | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
 
 The gap is instructive in one respect worth keeping. Two of the three
 components already *declare* the case they fail to route to:
@@ -554,8 +580,8 @@ issue, and must pass the admission test on its own evidence.
 | Property, event, accessor, and backing-storage association | Decoded separately inside Metadata by `src/ILInspector.Metadata/MetadataDeclarationQuery.cs`, `src/ILInspector.Metadata/ApiSurfaceExtractor.cs`, and `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs`. The higher-layer demand is the Decompiler, which derives accessor association at `src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:281`-`294` and backing-storage association at `src/ILInspector.Decompiler/MemberBodyProducer.cs:1630` — where it builds `$"<{member.Name}>k__BackingField"` by hand rather than through `GeneratedNameGrammar`. |
 | Compiler-recognized type-use annotations (nullability, tuple names, dynamic, native integers, required members, ref-safety) | Separate decoders in Metadata, interpreted again for spelling in CSharp and in the Decompiler printer. |
 | Generic constraint semantics | Decoded in Metadata's declaration query and again in Analysis; the Decompiler reconstructs constraints separately. |
-| Interop and entry-point declaration contracts | Concentrated in surface extraction today, with no reusable typed result. |
-| Type and field layout relationships | Duplicated inside Metadata between projection and surface extraction; cross-layer demand is weaker. |
+| Interop and entry-point declaration contracts | Decoded inside Metadata at `src/ILInspector.Metadata/MethodClassificationScanner.cs:404`-`406` and `src/ILInspector.Metadata/AssemblyDetailScanner.cs:413`-`457`, with no reusable typed result. Demand above Metadata is not yet observed. |
+| Type and field layout relationships | **Weakest candidate — no observed duplication.** Metadata derives no layout relationship today. Both derivations sit in the Decompiler, and they are not the same sub-fact: `src/ILInspector.Decompiler/MemberBodyProducer.cs:974`-`1003` spells `StructLayout`/`FieldOffset`, while `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:3189` reads only `GetLayout().Size`. Listed for discovery; it does not satisfy requirement 3 today. |
 
 The strongest next validation of the pattern is accessor and backing-storage
 association: three independent decoders inside Metadata plus a fourth in the
@@ -608,9 +634,10 @@ every normative routing clause it is subject to, not only these:
 - requirement 2's rule that conventional evidence is labelled conventional and
   never presented as structural;
 - all three outcome-vocabulary rules;
-- correct selection *among* the required distinctions — the two wrong
-  `Malformed` routes recorded in **Known deviations** satisfy every
-  declaration rule and still misroute;
+- correct selection *among* the required distinctions — the state-machine
+  index declares `BudgetExceeded` and still publishes `Malformed` when a name
+  exceeds its byte budget, so it satisfies every declaration rule and
+  misroutes anyway;
 - construction totality: malformed input becomes a typed failure rather than an
   escaping exception;
 - bound exhaustion becomes **Budget-limited**, not `Malformed`;
@@ -652,8 +679,8 @@ the exact-TypeDef probe both publish `Malformed` — a claim about the
 *artifact* — for a caller error and for a bound we imposed. Nothing in a
 published type distinguishes those from a correct implementation.
 
-Requirement 5 constrains the *set of cases a type declares* and the surfaces
-that publish them. Proving that every internal state reaches its *correct*
+Requirement 5 constrains the *set of cases a type declares*, and per-meaning
+reachability the surfaces that publish them. Proving that every internal state reaches its *correct*
 case is a different and larger obligation: a per-substrate testing burden, not
 something a reviewer can discharge while reading a design document.
 
