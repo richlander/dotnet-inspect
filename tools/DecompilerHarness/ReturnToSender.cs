@@ -111,6 +111,7 @@ static class ReturnToSender
         [JsonIgnore]
         public byte[]? DonorPe { get; init; }
         internal ArtifactRequest? FinalRequest { get; init; }
+        internal RebuildCompilationAttempt? CompilationAttempt { get; init; }
     }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
@@ -984,6 +985,7 @@ static class ReturnToSender
             RecompiledOpcodes = floor.RecompiledOpcodes,
             Detail = floorDetail,
             CompileBackFloor = floor,
+            CompilationAttempt = null,
             FidelityDiff = floor.FidelityDiff,
             FaultIsolation = null,
             SupersededFaultIsolation = result.FaultIsolation,
@@ -1749,6 +1751,10 @@ static class ReturnToSender
         var sourceResult = compilationResult.Artifact;
         var plan = sourceResult.Plan;
         string unit = sourceResult.Source;
+        var compilationAttempt = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
+            ? null
+            : RebuildCompilationAttempt.Capture(
+                sourceResult, parseOptions, compileOptions, compilationResult.Provenance, references);
         if (!compilationResult.Succeeded || compilationResult.PeImage is null)
         {
             if (identityFailure is { } identityDiagnostic)
@@ -1766,6 +1772,7 @@ static class ReturnToSender
                 {
                     FinalRequest = sourceResult.Request,
                     Compilation = compilationResult.Provenance,
+                    CompilationAttempt = compilationAttempt,
                     BodyPolicy = bodyPolicy,
                     FullBodies = sourceResult.FullBodies,
                 };
@@ -1804,6 +1811,7 @@ static class ReturnToSender
             {
                 FinalRequest = sourceResult.Request,
                 Compilation = compilationResult.Provenance,
+                CompilationAttempt = compilationAttempt,
                 BodyPolicy = bodyPolicy,
                 FullBodies = sourceResult.FullBodies,
             };
@@ -1843,6 +1851,7 @@ static class ReturnToSender
             {
                 FinalRequest = sourceResult.Request,
                 Compilation = compilationResult.Provenance,
+                CompilationAttempt = compilationAttempt,
                 DonorPe = recompiledBytes,
                 BodyPolicy = bodyPolicy,
                 FullBodies = sourceResult.FullBodies,
@@ -1891,6 +1900,7 @@ static class ReturnToSender
         {
             FinalRequest = sourceResult.Request,
             Compilation = compilationResult.Provenance,
+            CompilationAttempt = compilationAttempt,
             DonorPe = recompiledBytes,
             BodyPolicy = bodyPolicy,
             FullBodies = sourceResult.FullBodies,

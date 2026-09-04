@@ -85,6 +85,7 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
+    public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
     public const string DecompilerClassicAsyncArtifacts =
         "decompiler.classic-async-artifacts";
@@ -124,6 +125,14 @@ public static class FixtureIds
 
 public static class FixtureCatalog
 {
+    public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
+        FixtureIds.DecompilerAuthoredRebuild,
+        "ILInspector.Decompiler.Fixtures.AuthoredRebuild",
+        "ILInspector.Decompiler.Fixtures.AuthoredRebuild.dll",
+        ["decompiler", "authored-rebuild", "unoptimized"],
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.SidecarAsset),
+        Asset("source", "ILInspector.Decompiler.Fixtures.AuthoredRebuild", "RebuildSamples.cs"));
+
     /// <summary>
     /// Attacker-controlled text inside C# string literals — a parameter default
     /// value, an [Obsolete] message, and a custom attribute argument, each
@@ -557,6 +566,7 @@ public static class FixtureCatalog
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
         SourceLinkPartiallyMalformed,
@@ -933,6 +943,7 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.ClassicStateMachines" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines",
             "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
             "ILInspector.Decompiler.Fixtures.Ladder" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.Ladder",
+            "ILInspector.Decompiler.Fixtures.AuthoredRebuild" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild",
             "ILInspector.Decompiler.Fixtures.LegacyUnsafe" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe",
             "ILInspector.Decompiler.Fixtures.NewUnsafe" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe",
             "ILInspector.Decompiler.Fixtures.RuntimeAsync" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync",
