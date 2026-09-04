@@ -195,6 +195,14 @@ internal sealed class ChangeRoutingPolicy
         ReadOnlySpan<byte> folded = BytePattern.AsciiFold(path);
         if (BytePattern.MatchesAny(
             folded,
+            // This list mirrors the input families the C# extractor
+            // enumerates for itself rather than the file types this
+            // repository happens to contain. Running the lane logs one
+            // "Found N <kind> files" line per family it reads: source,
+            // project, solution, resource, packages.config, nuget.config,
+            // global.json, DLL, and Razor view files. The one enumerated
+            // family deliberately not routed is DLL files, which are build
+            // outputs rather than tracked sources.
             "*.cs",
             "*.csx",
             "*.csproj",
@@ -205,7 +213,19 @@ internal sealed class ChangeRoutingPolicy
             "*.targets",
             "*.slnx",
             "*.sln",
-            "global.json"))
+            // Razor extraction is default-on, so views carry C# source.
+            "*.cshtml",
+            "*.razor",
+            "*.resx",
+            // Dependency-resolution inputs decide which packages and feeds
+            // participate. Matched at the root and at any depth because a
+            // pattern is tested against the whole path.
+            "global.json",
+            "*/global.json",
+            "nuget.config",
+            "*/nuget.config",
+            "packages.config",
+            "*/packages.config"))
         {
             state.CodeqlCSharp = true;
         }

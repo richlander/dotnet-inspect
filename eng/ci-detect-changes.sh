@@ -620,8 +620,20 @@ while IFS= read -r -d '' file; do
   # re-analyzing the whole tree. Matching folds case so that an uppercase
   # extension cannot silently skip a lane.
   case "$file_lower" in
-    *.cs|*.csx|*.csproj|*.props|*.targets|*.slnx|*.sln|global.json) \
+    # Mirrors the input families the C# extractor enumerates for itself
+    # rather than the file types this repository happens to contain. The
+    # lane logs one "Found N <kind> files" line per family it reads. The
+    # one enumerated family deliberately not routed is DLL files, which are
+    # build outputs rather than tracked sources.
+    *.cs|*.csx|*.csproj|*.props|*.targets|*.slnx|*.sln) \
       CODEQLCSHARP=true ;;
+    # Razor extraction is default-on, so views carry C# source.
+    *.cshtml|*.razor|*.resx) CODEQLCSHARP=true ;;
+    # Dependency-resolution inputs decide which packages and feeds
+    # participate. Matched at the root and at any depth.
+    global.json|*/global.json) CODEQLCSHARP=true ;;
+    nuget.config|*/nuget.config) CODEQLCSHARP=true ;;
+    packages.config|*/packages.config) CODEQLCSHARP=true ;;
   esac
   case "$file_lower" in
     # Mirrors the JavaScript extractor's own default inclusion set (see

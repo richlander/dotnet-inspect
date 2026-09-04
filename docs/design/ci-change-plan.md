@@ -210,19 +210,26 @@ tolerate it; the conservative policy above then applies.
 
 The three CodeQL lanes route on file-extension families rather than a project
 inventory, because CodeQL's unit of analysis is a language, not a project:
-`codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on C#
-sources plus the MSBuild and SDK inputs that decide which packages and sources
-participate in buildless extraction, and `codeqlJavaScript` on the JavaScript
-extractor's own published default inclusion set. That set is wider than
-JavaScript and TypeScript sources: it also covers HTML and its templates, YAML,
+`codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on the
+input families the C# extractor enumerates for itself, and `codeqlJavaScript`
+on the JavaScript extractor's own published default inclusion set. Both
+language lanes mirror the extractor rather than the file types this repository
+happens to contain, so that the lists do not drift as the repository gains file
+types; families that are absent simply never match. The C# set is wider than
+C# sources: buildless extraction still resolves dependencies, so it covers
+MSBuild and solution inputs, Razor views, resource files, and the
+`global.json`, `NuGet.Config`, and `packages.config` inputs that decide which
+packages and feeds participate. The one enumerated family deliberately not
+routed is DLL files, which are build outputs rather than tracked sources. The
+JavaScript set is wider than JavaScript and TypeScript sources: it also covers
+HTML and its templates, YAML,
 and named inputs such as `package.json` and `tsconfig.json`. YAML therefore
-selects both `codeqlActions` and `codeqlJavaScript`. The lane mirrors the
-published set rather than the file types this repository happens to contain, so
-that the list does not drift as the repository gains file types; families that
-are absent simply never match. The one documented inclusion deliberately not
+selects both `codeqlActions` and `codeqlJavaScript`.
+The one documented inclusion deliberately not
 routed is "all extension-less files", which would select the lane for ordinary
-metadata on nearly every candidate. Extension matching folds ASCII case, so an
-uppercase spelling cannot silently skip a lane. Like `markdownlint`,
+metadata on nearly every candidate. Matching folds ASCII case, so an
+uppercase spelling of either an extension or a named input such as
+`NuGet.Config` cannot silently skip a lane. Like `markdownlint`,
 `inspectWeb`, and `tla`, these lanes carry no pre-merge event condition, so a
 push to `main` analyzes whichever languages that push touched.
 
@@ -231,7 +238,10 @@ allows only squash merging, so merging a Dependabot pull request produces a
 Dependabot-authored commit on `main`, and GitHub gives workflows running on
 such a commit read-only permissions. Because uploading SARIF for a branch
 requires `security-events: write`, the lane would fail rather than publish, so
-the workflow does not start it. The pull-request run still analyzes the change,
+the workflow does not start it. The condition tests both the actor and the head
+commit's author, because they differ: on a squash merge the actor is the
+maintainer who merged rather than Dependabot, so an actor-only guard would
+never fire. The pull-request run still analyzes the change,
 since code scanning always accepts uploads from a `pull_request` event; only
 the default-branch baseline refresh is deferred to the weekly scan.
 

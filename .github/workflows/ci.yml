@@ -1399,15 +1399,20 @@ jobs:
   # workflows running on such a commit read-only permissions. The SARIF upload
   # needs security-events: write, which a job cannot grant itself, so the job
   # would fail with "403: Resource not accessible by integration" and turn
-  # ci-required red on main. The pull-request run still analyzes the change:
-  # code scanning always accepts uploads from a pull_request event. Only the
-  # default-branch baseline refresh is deferred, to the weekly scan.
+  # ci-required red on main. Both identities are checked because they differ:
+  # on a squash merge the actor is the maintainer who merged, not Dependabot,
+  # so an actor-only guard would never fire. The pull-request run still
+  # analyzes the change: code scanning always accepts uploads from a
+  # pull_request event. Only the default-branch baseline refresh is deferred,
+  # to the weekly scan.
   # https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible
   codeql-actions:
     needs: changes
     if: >-
       fromJSON(needs.changes.outputs.plan).validations.codeqlActions
-      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1426,7 +1431,9 @@ jobs:
     needs: changes
     if: >-
       fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
-      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1449,7 +1456,9 @@ jobs:
     needs: changes
     if: >-
       fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
-      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

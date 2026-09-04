@@ -226,6 +226,17 @@ internal static class ChangePlanTestSuite
             ("misc/probe.raml", "codeqljavascript"),
             ("misc/manifest.json", "codeqljavascript"),
             ("misc/.eslintrc.json", "codeqljavascript"),
+            // Input families the C# extractor enumerates. Razor views carry
+            // C# source; the dependency-resolution inputs decide which
+            // packages and feeds participate in buildless extraction.
+            ("misc/probe.razor", "codeqlcsharp"),
+            ("misc/probe.cshtml", "codeqlcsharp"),
+            ("misc/probe.resx", "codeqlcsharp"),
+            ("misc/packages.config", "codeqlcsharp"),
+            ("misc/nuget.config", "codeqlcsharp"),
+            ("misc/global.json", "codeqlcsharp"),
+            // Case folding on a basename match, not just an extension.
+            ("misc/NuGet.Config", "codeqlcsharp"),
             ("misc/notes.rst", ""),
         ];
 
