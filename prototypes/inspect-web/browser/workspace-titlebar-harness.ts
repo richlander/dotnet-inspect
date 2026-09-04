@@ -23,6 +23,7 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type WorkbenchShellBinding,
@@ -375,6 +376,20 @@ const harnessKeyboardHelpBindings = [
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
+      contextualActionsHtml: annotatedMode || sourceMode
+        ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
+            ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
+            ${sourceMode
+              ? renderSourcePageActions({
+                  source,
+                  copyButtonId: memberMode
+                    ? "copy-source"
+                    : "copy-type-source",
+                  escapeHtml,
+                })
+              : ""}
+          </div>`
+        : "",
       inspectedTargetHtml: `
         <div class="inspected-target" aria-label="Inspected target">
           <span class="subject-icon" aria-hidden="true">${workspaceMode
@@ -390,39 +405,11 @@ app.innerHTML = `
             }).join("")}
           </div>
         </div>`,
-      titleNavigationHtml: `
-        <nav class="title-navigation" aria-label="Search and history">
-          <div class="nav-history">
-            <button id="nav-back" ${historyBackMode ? "" : "disabled"} aria-label="Back">←</button>
-            <button id="nav-forward" ${historyForwardMode ? "" : "disabled"} aria-label="Forward">→</button>
-          </div>
-          <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
-            <span class="title-search-glyph" aria-hidden="true">⌕</span>
-            <span class="title-search-label title-search-label-full">Search types, members, packages</span>
-            <span class="title-search-label title-search-label-compact">Search</span>
-          </button>
-        </nav>`,
+      subjectInspectorHtml: scopeBarHtml(),
+      titleNavigationHtml: renderTitleNavigation(
+        historyBackMode,
+        historyForwardMode),
     })}
-    <header class="subject-zone" aria-label="Subjects and inspectors">
-      <div class="subject-inspector-region">${scopeBarHtml()}</div>
-      <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
-        ${annotatedMode || sourceMode
-          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
-              ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-              ${sourceMode
-                ? renderSourcePageActions({
-                    source,
-                    copyButtonId: memberMode
-                      ? "copy-source"
-                      : "copy-type-source",
-                    escapeHtml,
-                  })
-                : ""}
-            </div>`
-          : ""}
-        ${renderApplicationMenuButton()}
-      </div>
-    </header>
     <div class="notice-stack"></div>
     <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
