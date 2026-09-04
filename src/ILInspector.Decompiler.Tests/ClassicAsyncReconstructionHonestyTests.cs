@@ -202,12 +202,12 @@ public class ClassicAsyncReconstructionHonestyTests
     }
 
     [Fact]
-    public void LoopRoleNamesAreSynthesizedAndCollisionResolved()
+    public void LoopRoleNamesAreSynthesized()
     {
         using var source = OpenClassicFixture(readSymbols: true);
         IrFunction function = ImportAndRaise(
             source,
-            "AwaitInLoopWithRoleNameCollision");
+            "AwaitInLoop");
 
         DecompilerResult result = CSharpPrinter.Print(function);
 
@@ -215,7 +215,7 @@ public class ClassicAsyncReconstructionHonestyTests
         Assert.Equal(["sum", "task"], function.SynthesizedLocalNames);
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
         Assert.Contains(
-            "int sum_1 = 0;",
+            "int sum = 0;",
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -223,7 +223,7 @@ public class ClassicAsyncReconstructionHonestyTests
             result.Output,
             StringComparison.Ordinal);
         Assert.Contains(
-            "return sum_1;",
+            "return sum;",
             result.Output,
             StringComparison.Ordinal);
     }

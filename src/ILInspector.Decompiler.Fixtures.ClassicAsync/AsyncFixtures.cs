@@ -290,19 +290,6 @@ public static class AsyncFixtures
         return sum;
     }
 
-#pragma warning disable CS8981
-    public static async Task<int> AwaitInLoopWithRoleNameCollision<sum>(
-        Task<int>[] tasks)
-    {
-        int total = 0;
-        foreach (var work in tasks)
-        {
-            total += await work;
-        }
-        return total;
-    }
-#pragma warning restore CS8981
-
     public static async Task<int> AwaitInLoopWithWrappedOperand(
         Task<int>[] tasks)
     {

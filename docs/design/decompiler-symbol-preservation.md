@@ -138,7 +138,7 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 | Anonymous-object properties | Preserve property metadata names when the current same-assembly anonymous-type shape raises, and bind initializer values to those names. The current admission is name-pattern-based (#5585) and uses the narrow identifier grammar tracked by #5616. | P5, P23 | `AnonymousObjectPassTests` gates ASCII positive output, not generated-type authentication or full Unicode admission. |
 | Tuple elements in signatures | Preserve `TupleElementNamesAttribute` names on supported method returns and parameters, properties, and events. Composed field declarations remain a recoverable gap. | P6 | `TupleTypeViewTests` gates metadata decoding across all positions; method/property/event composition is manually probed. |
 | Iterator hoisted locals | Recover an ordinary source local name from authenticated iterator state-machine evidence when reconstruction owns the corresponding field and use. P28 records the keyword and full-Unicode spelling gap. | P7, P28 | `IteratorReconstructionPassTests.CountingLoopIterator_RendersLoopAndYield` |
-| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding ordinary `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. Loop-role names such as `sum` and `task` are synthesized preferences, not recovered identity, and remain collision-resolved. P28 records the full-grammar generated-name gap. | P8, P28 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `ClassicAsyncRequestAdapterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs, while `LoopRoleNamesAreSynthesizedAndCollisionResolved` gates role provenance and a method-generic collision. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
+| Classic async local names | Product import authenticates the exact kickoff, state machine, and `MoveNext` before decoding ordinary `alpha` from its hoisted field. It preserves `beta` from the matching PDB local. Without symbols, `alpha` remains preserved while `beta` falls back to `V_1`. Loop-role names such as `sum` and `task` are synthesized preferences, not recovered identity, and remain collision-resolved. P28 records the full-grammar generated-name gap. | P8, P28 | `PipelineImporterTests.Import_CarriesAuthenticatedClassicRequestSeed` and `ClassicAsyncRequestAdapterTests.ClassicPass_ImportsCertifiedExecutionMethod` gate owner authentication; `ClassicAsyncReconstructionHonestyTests.SequentialAwaitLocalNameComesFromSymbols` gates the raised names with PDBs, while `LoopRoleNamesAreSynthesized` gates role provenance. `NestedScopeNameCollisionTests` gates synthesized-name collision handling. The no-symbol result is manually probed; #5587 tracks correcting its vacuous focused test. |
 
 These guarantees are conditional on successful reconstruction. A method may
 carry a recoverable substring in a generated metadata name while the containing
@@ -396,7 +396,7 @@ dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
   --skip-pdb
 
 dotnet run --project src/ILInspector.Decompiler.Tests -c Release --no-build -- \
-  -method '*LoopRoleNamesAreSynthesizedAndCollisionResolved*'
+  -method '*LoopRoleNamesAreSynthesized*'
 ```
 
 Expected with symbols: current output declares and uses both `alpha` and
@@ -405,10 +405,10 @@ kickoff/state-machine relationship plus its exact hoisted field; `beta` is
 preserved from the PDB. Without symbols, output still preserves `alpha` but
 falls back to `V_1` for `beta`. The no-symbol result is a manual probe; #5587
 tracks its focused gate. The final command verifies that reconstruction records
-role-derived `sum` and `task` as synthesized preferences. A method-generic
-binder named `sum` forces the generated accumulator to `sum_1` without lowering
-fidelity; the authored optimized-away locals `total` and `work` are not
-misrepresented as recovered identity.
+role-derived `sum` and `task` as synthesized preferences rather than recovered
+identity. The generated-name collision gates verify that such preferences are
+renamed without lowering fidelity when an enclosing binder already owns the
+spelling.
 
 ### P9: deterministic no-symbol local names
 
