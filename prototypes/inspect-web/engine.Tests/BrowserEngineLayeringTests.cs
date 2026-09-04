@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using System.Xml.Linq;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -595,6 +597,76 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
+    public void EcosystemCatalogIsFacadeOnly()
+    {
+        string inspectWebRoot = Path.Combine(
+            RepositoryRoot(),
+            "prototypes",
+            "inspect-web");
+        string ecosystemsProject = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "DotnetInspector.Ecosystems",
+            "DotnetInspector.Ecosystems.csproj");
+        string[] productionProjects =
+        [
+            .. Directory.EnumerateFiles(
+                    inspectWebRoot,
+                    "*.csproj",
+                    SearchOption.AllDirectories)
+                .Where(project =>
+                    !project.Contains(
+                        $"{Path.DirectorySeparatorChar}engine.Tests"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !project.Contains(
+                        $"{Path.DirectorySeparatorChar}msdl-proxy.Tests"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !project.Contains(
+                        $"{Path.DirectorySeparatorChar}multi-facade-canary"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.Contains(
+            EngineProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(
+            CoreProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (string project in productionProjects)
+        {
+            if (project.Equals(
+                EngineProjectPath,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            Assert.DoesNotContain(
+                EvaluatedProjectItems(project, "ProjectReference")
+                    .Select(item => item.GetProperty("FullPath").GetString())
+                    .OfType<string>(),
+                reference => string.Equals(
+                    reference,
+                    ecosystemsProject,
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(
+                EvaluatedProjectItems(project, "Reference")
+                    .Select(item => item.GetProperty("Identity").GetString())
+                    .OfType<string>(),
+                reference => string.Equals(
+                    reference.Split(',', 2)[0],
+                    "DotnetInspector.Ecosystems",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+    }
+    [Fact]
+    [Fact]
     public void EveryBrowserProjectPinsTheLayeringGate()
     {
         // The ban list is what makes the compiler enforce "inspect only through a public product
@@ -815,6 +887,50 @@ public sealed class BrowserEngineLayeringTests
 
     static IReadOnlyList<string> ProjectReferences(string project) =>
         ProjectItems(project, "ProjectReference");
+
+    static IReadOnlyList<JsonElement> EvaluatedProjectItems(
+        string project,
+        string itemName)
+    {
+        string dotnetHost =
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+            ?? "dotnet";
+        var startInfo = new ProcessStartInfo(dotnetHost)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("msbuild");
+        startInfo.ArgumentList.Add(project);
+        startInfo.ArgumentList.Add("-nologo");
+        startInfo.ArgumentList.Add($"-getItem:{itemName}");
+        startInfo.ArgumentList.Add("-property:Configuration=Release");
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                $"Could not start '{dotnetHost}' to evaluate '{project}'.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        string standardOutput = output.GetAwaiter().GetResult();
+        string standardError = error.GetAwaiter().GetResult();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"MSBuild could not evaluate '{project}': {standardError}");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(standardOutput);
+        if (!document.RootElement
+            .GetProperty("Items")
+            .TryGetProperty(itemName, out JsonElement items))
+        {
+            return [];
+        }
+
+        return [.. items.EnumerateArray().Select(item => item.Clone())];
+    }
 
     static IReadOnlyList<string> ProjectItems(
         string project,
