@@ -64,13 +64,17 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   The converse — that we produce a value wherever SRM does — is a D3 claim, and
   only over certified-range output. On illegal input the obligation is D1 and
   D2 only.
-- Not a change to the decoder's **output shape**. It produces the same
-  `CustomAttributeValue<string>` it produces today, and every existing overload
-  keeps its present signature and behavior. This is not a claim that the API is
-  frozen: the defaulted-width signal D2 requires is additive surface — a new
-  overload or a richer observer — because the current observer is `Action<int>`
-  and cannot carry it. Existing callers are unaffected; a caller that wants the
-  signal must opt in.
+- Not a change to the decoder's **output shape**, and not a redesign of its
+  public surface. It produces the same `CustomAttributeValue<string>` it
+  produces today, and every existing overload keeps its **signature** and its
+  **successful-result shape**. Two deliberate behavior corrections are carved
+  out and are not compatibility violations: observer exceptions must stop
+  propagating through the malformed-metadata catch (#5085), and
+  `OutOfMemoryException` must stop being swallowed (#5397). Both are defects
+  this contract names, so preserving them is not an option. Separately, the
+  defaulted-width signal D2 requires is **additive** surface — a new overload or
+  a richer observer — because the current observer is `Action<int>` and cannot
+  carry it. A caller that wants the signal must opt in.
 
 ## The trust boundary
 
@@ -118,11 +122,14 @@ while the others hold.
 They are stated as **targets**. Each is normative — a violation is a defect to
 fix, not a behavior to document.
 
-> **D1 — Bounded.** Total work is near-linear in the size of the metadata the
-> decoder is given, across every attacker-controlled cardinality *jointly*.
-> The number of materialized slots is bounded by the value blob's length;
-> retained memory is bounded by slot count times the longest rendered name —
-> polynomial in the bytes supplied, not a constant multiple of them.
+> **D1 — Bounded.** Transient algorithmic work — signature reparses, definition
+> scans, width resolutions, structural match steps — is near-linear in the size
+> of the metadata the decoder is given, across every attacker-controlled
+> cardinality *jointly*. Materializing the output is bounded separately and is
+> not near-linear: the number of materialized slots is bounded by the value
+> blob's length, and retained memory by the value blob's length *plus* slot
+> count times the longest rendered type name — polynomial in the bytes supplied,
+> not a constant multiple of them.
 > **No allocation is ever sized from a declared count that exceeds the
 > remaining bytes.**
 >
@@ -146,12 +153,21 @@ being right on input that is not an attack.
 D1 has two clauses that are usually conflated, and separating them is the point
 of the invariant.
 
-**The cost clause** is the old I3, unchanged: near-linear aggregate work across
+**The cost clause** is the old I3, narrowed: near-linear aggregate *transient*
+work across
 declared element counts, declared parameter counts, generic arity, distinct
 handles and names, the number of rows a failed resolution scans, the number of
 attribute rows decoded from one image, and the size of a blob shared across
 many rows — *jointly*, because the attacker chooses them together. Bounding each
 dimension separately is not sufficient.
+
+The narrowing matters, and it is not a weakening. Writing the output is itself
+work, and you cannot retain a byte without writing it, so the memory clause below
+puts a floor under total work: because retained bytes are polynomial, *total*
+work is polynomial too. Claiming near-linear total work would contradict the
+memory clause outright. What is near-linear is everything the decoder does
+*besides* emitting its result — which is where every amplification found so far
+has lived, and the only part a gate can meaningfully hold to a linear standard.
 
 D1 is deliberately stated over aggregate cost rather than per-element
 repetition. "Perform this work once per distinct input" is the right *fix* for
@@ -234,14 +250,27 @@ The bounds D1 can honestly assert are therefore:
 
 - **slot count** ≤ the value blob's length — linear, and the property that
   defeats #57531; and
-- **retained bytes** ≤ slot count × longest rendered name — polynomial in
-  supplied bytes, not a constant multiple of it.
+- **retained bytes** ≤ the value blob's length + slot count × longest rendered
+  type name — polynomial in supplied bytes, not a constant multiple of it.
+
+The additive value-blob term is not redundant. `CustomAttributeTypedArgument`
+retains the argument's `Value` as well as its `Type`, and a serialized `string`
+argument's value is copied straight out of the blob. One slot whose type name is
+the six characters `string` can retain a hundred thousand characters of value,
+so a bound written only as slots × name length understates it by the whole
+length of the blob. The value term is linear, because those bytes had to be
+supplied; the product term is where the super-linear behavior lives.
 
 The super-linear term is a property of the output representation, which renders
 a name per argument rather than preserving the namespace/name split. Since
 issue #5288 holds the `CustomAttributeValue<string>` output shape, slice 2
-cannot remove it; it is tracked as a known gap
-([#5755](https://github.com/richlander/dotnet-inspect/issues/5755)). What the
+cannot remove it, so the contract **admits** it rather than forbidding it. That
+is why it is stated in the bound instead of being recorded as a divergence: a
+contract that booked its own permanent, unavoidable behavior as an open defect
+would be asking for a fix nobody can supply.
+[#5755](https://github.com/richlander/dotnet-inspect/issues/5755) records the
+measurement and stays open as the place to revisit this if the output-shape
+hold is ever lifted. What the
 contract still forbids is the #57531 shape — a tiny blob *declaring* a huge
 cost — and that remains exactly the `count > RemainingBytes` rule.
 
@@ -298,8 +327,10 @@ looping, which is the shape SRM already uses.
 
 ### D2 — Fail closed, visibly
 
-The decoder's output is a value or `null`. There is no third state, no partial
-result, and no exception that escapes as a decode outcome.
+The decoder's output is a value, `null`, or a caller's own observer exception
+travelling back to that caller. There is no partial result, and no exception
+arising from the blob escapes as a decode outcome. The three observable
+outcomes are enumerated below.
 
 **Refuse; do not defer.** This is the sharpest change from the previous design,
 which deliberately returned "safe" for a dozen conditions on the reasoning that
@@ -849,7 +880,7 @@ encoding.
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | A generative gate varying the attacker-controlled dimensions jointly, including the shared-prefix cross-product. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; five open defects violate it. |
+| **D1** | A generative gate varying the attacker-controlled dimensions jointly, including the shared-prefix cross-product. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
 | **Defaulted-width signal** (D2's "visibly" clause) | A slice-2 test asserting the per-argument signal is **set** for a defaulted width and **clear** for a resolved one, on the same decode path. Needed because the D2 differential is blind to the default and D3 carves the unresolvable case out, so no other gate can fail if the signal is never implemented. Tracked as #5742. | Does not exist. Lands with slice 2. |
@@ -882,7 +913,10 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
   retained bytes, and the cross-product is super-linear even though varying `P`
   or `L` alone looks linear. A gate varying only blob-side cardinalities is
   blind to both;
-- the number of attributes decoded from one image; and
+- the number of attributes decoded from one image;
+- **the length of serialized `string` argument values**, which are copied out of
+  the blob into the retained result and are invisible to a bound written only
+  over type names; and
 - the size of a blob shared across many attribute rows. `A` attribute rows may
   name one `B`-byte value blob, which the blob heap stores once; each row is
   nevertheless decoded independently, so `Θ(A + B)` of metadata yields `Θ(A × B)`
@@ -890,10 +924,15 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
 
 A dimension list is not enough on its own: several of these are only adversarial
 in combination with a particular *arrangement*, not at a particular *size*. The
-generator must control shape as well as magnitude, and must assert that total
-work — signature reparses, name renderings, definition scans, enum-width
-resolutions, and structural match steps — stays near-linear in total metadata size
-across the product of those dimensions, not merely flat along any one of them.
+generator must control shape as well as magnitude, and must assert two different
+things. Transient work — signature reparses, definition scans, enum-width
+resolutions, and structural match steps — stays near-linear in total metadata
+size across the product of those dimensions, not merely flat along any one of
+them. Output materialization — slot counts, name renderings, and retained value
+bytes — instead stays within the memory clause's stated bound. Asserting
+near-linearity over name renderings would demand something the output
+representation cannot deliver, so the gate would fail on inputs it is required
+to generate.
 
 Seed the corpus with the regressions already found by hand so the gate is
 demonstrably non-vacuous, and pin any failing seed as an ordinary case.
@@ -998,7 +1037,6 @@ component.
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also rebuilds the type-definition index, adding `Θ(A × T)`. | D1 | #5132 |
 | 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
 | 6 | `TryDecode` swallows `OutOfMemoryException` through a bare catch, which is exactly the laundered exception D2 forbids. | D2 | #5397 |
-| 7 | `P` distinct types sharing one `L`-character namespace supply `Θ(P + L)` bytes but retain `Θ(P × L)` characters, because metadata shares the namespace string while the output renders a copy of it into every argument's name. Measured at 120 retained chars per image byte and rising. Not fixable while the `CustomAttributeValue<string>` output shape is held. | D1 | #5755 |
 
 Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
 the wrong cost model.** Under the paired-walker design, work the guard cached and
