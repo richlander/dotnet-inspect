@@ -127,18 +127,27 @@ which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-
    expressible without a consumer inspecting strings or inferring meaning from
    absence.
 
-   *Reachability.* Every published case is reachable through at least one
-   public surface of the publishing component. A surface whose codomain is
-   narrower than the type it returns must either return a narrower type or
-   document the narrowing on that surface.
+   *Reachability.* The unit is the **published meaning**, as it is throughout
+   the admission test. Every case of the outcome type used for a meaning is
+   reachable through at least one public surface publishing *that meaning*.
+   A surface whose codomain is narrower than the type it returns must either
+   return a narrower type or document the narrowing on that surface.
 
-   A shared result algebra spanning unrelated domains fails the first
-   sentence: cases belonging to one domain are unreachable from every surface
-   of the other. The second sentence is the weaker, per-surface obligation —
-   deliberately so, because a stricter reading that quantified over each
-   *argument* of a parameterized surface would have no fixed point. Any
+   The unit matters, and neither neighbouring choice works. Quantifying over
+   the *component* is too weak: a component could publish two unrelated
+   families through one union type from two surfaces, document each surface's
+   subset, and satisfy both sentences — which is precisely the shared algebra
+   this requirement exists to forbid. Quantifying over each *argument* of a
+   parameterized surface is too strong: it has no fixed point, because any
    function whose codomain narrows with its input would fail it, which
    describes most parameterized APIs rather than a defect.
+
+   Per meaning, a shared result algebra spanning unrelated domains fails:
+   cases belonging to one meaning are unreachable from every surface
+   publishing the other, whether or not the two share a component.
+
+   The reachability half is a property of surfaces, so it is discharged when
+   the component is implemented rather than when a meaning is admitted.
 
 Requirement 3 is deliberately empirical. The inventory below records demand
 that exists, not demand a substrate might create.
@@ -188,8 +197,11 @@ domain:
 - **Unexamined** — the substrate deliberately did not look, because a bound
   was not requested or an optional role was not asked for. This is not an
   answer about the artifact at all.
+- **Invalid coordinate** — the caller supplied a handle or key that does not
+  address a row in this reader. This is a statement about the *request*, not
+  about the artifact.
 
-Two rules make the distinctions usable:
+Three rules make the distinctions usable:
 
 - **Never collapse a failure into an absence.** `Absent` and `Malformed` must
   not share a representation. Reporting unreadable metadata as "not present"
@@ -199,6 +211,10 @@ Two rules make the distinctions usable:
   deliberately does not look — because a bound was not requested, or a role is
   optional — that must be distinguishable from having looked and found
   nothing.
+- **Never publish a caller error, or a bound we imposed, as a claim about the
+  artifact.** `Malformed` asserts that the artifact is broken. A bad handle
+  and an exhausted budget are facts about the request and about us; both have
+  their own distinction above.
 
 A substrate may model additional domain distinctions. It must not add a case
 whose only consumer meaning is presentational.
@@ -368,10 +384,11 @@ admission.
 | Published meaning (component) | Reading consumer | Second demand, and its evidence |
 | --- | --- | --- |
 | State-machine claims and kickoff/type pairing (`StateMachineRelationshipIndex`) | Decompiler, reads the result — constructed at `src/ILInspector.Decompiler/Pipeline/MetadataSource.cs:62`-`63` and consumed at `:109` | **Duplication, twice over.** Analysis never calls the index. It derives state-machine type membership itself at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:823`-`854`, and independently pairs kickoff methods to state-machine types — with its own ambiguity handling — at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:1161`-`1271`, decoding `AsyncStateMachineAttribute` at `:211`. |
-| Exact `MoveNext` execution-role selection (`StateMachineRelationshipIndex`) | Decompiler, reads the result — `resolvedRelationship.TryGetMethod(StateMachineMethodRole.MoveNext, ...)` at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:193`-`194` | **Duplication, by the same mechanism.** Analysis resolves the same role from `MethodImpl` rather than from the index, for both machine kinds: `TryGetAsyncStateMachineMoveNext` at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:1279`, admitting a declaration only through `IsAsyncStateMachineMoveNextDeclaration` at `:1545`-`:1562`, and `TryGetIteratorStateMachineMoveNext` at `:1347` using `IsIteratorMoveNextDeclaration` at `:1527`. Called from four sites — `:600`, `:978`, `:1127`, and `:1226`. The predicates test the name, `HasThis`, arity, signature header, declaring interface, and return type, so the evidence is metadata-only. |
+| Exact `MoveNext` execution-role selection (`StateMachineRelationshipIndex`) | Decompiler, reads the result — `resolvedRelationship.TryGetMethod(StateMachineMethodRole.MoveNext, ...)` at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:193`-`194` | **Duplication, by the same mechanism.** Analysis resolves the same role from `MethodImpl` rather than from the index, for both machine kinds: `TryGetAsyncStateMachineMoveNext` at `src/ILInspector.Analysis/LibraryBodyAsyncSourceResolver.cs:1279`, admitting a declaration only through `IsAsyncStateMachineMoveNextDeclaration` at `:1545`-`:1562`, and `TryGetIteratorStateMachineMoveNext` at `:1347` using `IsIteratorMoveNextDeclaration` at `:1527`. Called from five sites — the async variant at `:600`, `:978`, `:1127`, and `:1226`, and the iterator variant at `:982`. The predicates test the name, `HasThis`, arity, signature header, declaring interface, and return type, so the evidence is metadata-only. |
 | Module memory-safety rules markers (`MemorySafetyMetadataIndex`) | CLI Signals, reads a projection — `src/ILInspector.Metadata/AssemblyDetailScanner.cs:197` publishes `MemorySafetyRules`, read at `src/dotnet-inspect/Inspectors/AuditSignalBuilder.cs:372` | **Duplication, already observed diverging.** The decompiler printer decodes the same module marker at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:2826`, and the two derivations disagree on a legal ECMA-335 spelling — [#5670](https://github.com/richlander/dotnet-inspect/issues/5670). |
 | Member unsafe contracts (`MemorySafetyMetadataIndex`) | No reader — `GetMemberContract` (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:363`) has no caller in product code | **Duplication by two higher layers.** Analysis computes a caller-unsafe mode from the same evidence — attribute on member or type, or a pointer in the signature, gated on module opt-in — at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:248`-`270`. The Decompiler assembles the same composite from separate parts: member and type attributes at `src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:55`-`56` and `:58`-`59` (used at `src/ILInspector.Decompiler/Pipeline/CrossAssemblyTypeResolver.cs:873`), pointer-shape evidence at `src/ILInspector.Decompiler/Pipeline/Ir/CSharpPrinter.cs:3028`-`3030`, and module opt-in at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:646`. |
 | Exact TypeDef declaration (`MetadataTypeDeclarationProbe`) | Queries, reads the result through the Metadata-owned session entry point — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1226`, `:1310`, `:2001` call `session.ProbeDeclaration(...)`, which returns the substrate's own `TypeDeclarationResult` (`src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`) | **Consumption.** The Decompiler calls the probe class directly — `MetadataTypeDeclarationProbe.ProbeDefinition(reader, typeName)` at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:236`. |
+| Forwarding chains and module exports (`MetadataTypeDeclarationProbe`) | Queries, reads the result through the Metadata-owned session entry point — `src/DotnetInspector.Queries/InspectionGraphIntegrationsQuery.cs:1998`-`2001` calls `session.ProbeDeclaration(...)` and handles `Forwarded` and `ExportedFromModule` at `:2030`-`2033` | **Consumption, by a second independent reader.** Metadata's own cross-assembly composition reads the same typed outcomes from the same surface — `TypeResolutionContext.cs:2043` calls `ready.Session.ProbeDeclaration(...)`, rejects `ExportedFromModule` at `:2276`-`2281`, and follows `Forwarded` while retaining a typed `TypeForwardingHop` at `:2284`-`2290`. The Decompiler is *not* a reader: `ProbeDefinition` "finds one exact TypeDef in the current image without considering exports or forwarders" (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:11`). |
 | TypeDef kind classification (`MetadataTypeDeclarationProbe`) | Analysis, reads a projection — `TypeResolutionContext` carries `defined.Kind` into `ResolvedTypeDefinition` (`src/ILInspector.Metadata/TypeResolutionContext.cs:2055`), and Analysis reads `resolved.Definition.Kind` at `src/ILInspector.Analysis/CatalogMemberJoinProjector.cs:185` | **Consumption and duplication both.** Analysis also keeps its own check — `IsValueTypeDefinition`, commented "Authoritative in-assembly check", at `src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:930`-`945` — so it consumes the substrate in one place and re-derives the same fact in another. The Decompiler classifies the family independently in `ClassifyShape` at `src/ILInspector.Decompiler/Pipeline/CrossAssemblyTypeResolver.cs:1333`, over a finer codomain that keeps the enum and delegate distinctions `MetadataTypeDefinitionKind` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`) folds away. |
 
 The state-machine duplication is not merely redundant, it is *weaker* than the
@@ -396,7 +413,6 @@ per-meaning rule from being satisfied by a class-level sibling.
 | --- | --- |
 | Remaining interface roles — `SetStateMachine`, `MoveNextAsync`, `Dispose`, `DisposeAsync` (`StateMachineRelationshipIndex`) | **No second demand, and no individual reader.** The Decompiler does not distinguish them: iterating role dispositions at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:234`-`245`, it collapses every role other than `MoveNext` to a single `Support` answer. Analysis derives none of them. They are published because `StateMachineRelationship` requires a complete role array — its constructor rejects any relationship that does not "account for every role" (`src/ILInspector.Metadata/StateMachineRelationship.cs:69`-`80`) against the per-kind role sets in `RolesFor` (`:154`-`175`) — not because a second layer needs them. |
 | Core-library-root authentication (`MetadataTypeDeclarationProbe`) | **No demand above Metadata.** `DeclaringAssemblyDefinesCoreLibraryRoot` (`src/ILInspector.Metadata/TypeDeclaration.cs:179`) is copied into every successful `Defined` result and re-published on the `ResolvedTypeDefinition` projection (`src/ILInspector.Metadata/TypeResolution.cs:982`), but every reader is inside Metadata — `TypeResolutionContext.cs:2247`, `:2341`, `:2819` and `TypeParameterKindClassifier.cs:330`, `:397`. It fails requirement 3's higher-layer half outright, and is a good illustration of it: a fact only Metadata consumes needs no published contract to stay consistent. |
-| Forwarding chains and module exports (`MetadataTypeDeclarationProbe`) | **Single reader.** `ProbeDefinition` explicitly "finds one exact TypeDef in the current image without considering exports or forwarders" (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:11`), so the Decompiler is not a reader of this family; only Queries is. |
 
 "Consumed" is used in two senses in the Established table and the column says
 which applies. A consumer **reads the substrate's result** when it handles the
@@ -412,9 +428,12 @@ distinction matters only for locating the call: a reader grepping Queries for
 alongside a substrate's output is neither — `RequiresUnsafeCount` sits in the
 same result object as `MemorySafetyRules` but is counted independently.
 
-Only the exact-TypeDef row is satisfied by two readers. The other five
-Established rows are satisfied by duplication: a second layer needs the same
-meaning and derives it independently. **A row can be admitted with no reader at
+Two rows are satisfied by two readers: exact TypeDef, and forwarding chains
+and module exports — the latter by one reader inside Metadata and one above
+it, which requirement 3's second half permits because the higher-layer reader
+is what makes the meaning a published contract rather than Metadata's internal
+business. The other five Established rows are satisfied by duplication: a
+second layer needs the same meaning and derives it independently. **A row can be admitted with no reader at
 all** — member unsafe contracts is published, has no caller in product code,
 and is still admitted, because Analysis and the Decompiler each derive that
 meaning privately. Demand is what the codebase needs, not what it currently
@@ -454,7 +473,7 @@ backlog. The memory-safety row's remaining adoption is tracked under
 state-machine duplication is recorded here and has no tracker yet. None is
 claimed as completed adoption.
 
-Three of the nine meanings published by the established components do not
+Two of the nine meanings published by the established components do not
 independently qualify. A component earns substrate status for the meaning that
 justified it, and tends to accumulate neighbouring families afterwards. The
 admission test governs the first; the publication contract governs both.
@@ -482,8 +501,8 @@ non-conforming work:
 - It is **closed to new substrates.** A component admitted after this document
   lands must conform on admission. Only the three precedents that predate the
   pattern may appear here.
-- Every row names an **existing** deviation with `path:line` evidence. Rows
-  whose correction is a code change name their tracker —
+- Every row names an **existing** deviation and the tracker that carries its
+  `path:line` evidence —
   [#5708](https://github.com/richlander/dotnet-inspect/issues/5708) for the
   declaration budget outcome,
   [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) for the
@@ -495,9 +514,8 @@ non-conforming work:
   [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) for the
   entry points whose codomains are narrower than their published types, and
   [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) for the
-  identity rows. The raw-handle row is tracked in
-  [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) as well,
-  since it is the input half of the same identity problem.
+  identity rows, whose row also covers the raw-handle inputs that are the
+  input half of the same identity problem.
 - A deviation never becomes the contract. If a deviation looks correct, the
   fix is to change this document through review, not to leave the row standing.
 
@@ -601,8 +619,8 @@ That rule binds this document twice over. It introduces no behavior, so it has
 no gate of its own to name — but **its factual claims about existing code are
 still claims**, and the Markdown-only exemption covers only documentation that
 makes no measured behavior claim. This document therefore keeps its factual
-surface small: the demand evidence in the inventory, which is load-bearing for
-requirement 3, and nothing else. The precedents' conformance to requirement 5
+surface small, concentrated in the inventory's demand evidence, which is
+load-bearing for requirement 3. The precedents' conformance to requirement 5
 is `unverified` and is owned by the linked trackers, not asserted here. The
 repository-wide routing posture is recorded under **Open questions**.
 
