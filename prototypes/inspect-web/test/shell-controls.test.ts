@@ -9,6 +9,7 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
@@ -388,22 +389,28 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
   assert.match(html, /\+ \/ - \/ 0/);
 });
 
-test("workbench shell renders the inspected target after the product root", () => {
+test("workbench shell separates navigation and inspected target rows", () => {
   const html = workbenchShellHtml({
+    applicationScopeHtml:
+      '<nav class="application-scope-strip">Query Workspace</nav>',
+    contextualActionsHtml: '<div class="working-surface-actions">Copy</div>',
     inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
-    titleNavigationHtml: '<nav class="title-navigation"><button id="open-search">Search</button></nav>',
+    subjectInspectorHtml: '<div class="lensbar">Subjects</div>',
+    titleNavigationHtml: renderTitleNavigation(true, false),
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-navigation"/);
-  assert.doesNotMatch(html, /class="lensbar"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="application-scope-region"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,
     /workspace-title|coordinate-selectors|package-version|framework-select/);
   assert.match(html, /class="brand-icon"[\s\S]*dotnet-inspect-bot\.png/);
   assert.match(html, /id="open-search"/);
+  assert.match(html, /id="nav-back"[\s\S]*<svg[\s\S]*id="nav-forward"/);
+  assert.match(html, /id="nav-forward"[\s\S]*disabled/);
+  assert.match(html, /id="application-menu-button"/);
   assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
   assert.doesNotMatch(html, /id="open-settings"/);
   assert.doesNotMatch(html, /id="share"/);

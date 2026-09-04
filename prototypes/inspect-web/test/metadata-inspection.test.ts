@@ -8,7 +8,9 @@ import {
   type MetadataInspectionState,
   type TypeMetadataLoadRequest,
 } from "../src/metadata-inspection.ts";
-import type { BrowserTypeMetadata } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserTypeMetadata,
+} from "../src/facades/inspect-web-metadata.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 import type {
   ExplorerTableData,

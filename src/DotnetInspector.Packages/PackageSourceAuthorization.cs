@@ -70,9 +70,7 @@ public sealed record PackageSourceAuthorization
             new ReadOnlyCollection<ConfiguredPackageAuthority>(
                 [
                     .. sources.Select(source =>
-                        new ConfiguredPackageAuthority(
-                            source,
-                            ConfiguredPackageAuthority.Classify(source))),
+                        new ConfiguredPackageAuthority(source)),
                 ]),
             denialReason: null);
     }

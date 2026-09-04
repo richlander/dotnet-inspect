@@ -15,7 +15,7 @@ import type {
   BrowserAnnotatedSourceCapabilityAvailability,
   BrowserAnnotatedSourceInvocationDestination,
   BrowserAnnotatedSourceViewerCatalog,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-source.d.ts";
 
 // The generated facade intentionally leaves the annotated document graph unknown.
 // This narrows that field to the product-owned model enforced by validateDocument.

@@ -4,6 +4,8 @@ using DotnetInspector.Queries;
 using InertText;
 using NuGetFetch;
 
+using InspectWeb.Engine.PackageFacade;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]
@@ -210,7 +212,7 @@ public sealed class BrowserPackageQueryOperationsTests
         string json = BrowserPackageQueryOperations.Serialize(queryEvent);
         BrowserPackageQueryEvent? roundTripped = JsonSerializer.Deserialize(
             json,
-            BrowserJsonContext.Default.BrowserPackageQueryEvent);
+            BrowserPackageJsonContext.Default.BrowserPackageQueryEvent);
 
         Assert.Equal(queryEvent, roundTripped);
     }

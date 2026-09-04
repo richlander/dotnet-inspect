@@ -119,7 +119,17 @@ dotnet_loader="$(
 
 test -f "$site_root/index.html"
 test -f "$site_root/manifest.json"
-test -f "$site_root/inspect-web-engine.js"
+for module in \
+  inspect-web-host \
+  inspect-web-package \
+  inspect-web-metadata \
+  inspect-web-analysis \
+  inspect-web-source \
+  inspect-web-call-graph \
+  inspect-web-catalog; do
+  test -f "$site_root/$module.js"
+done
+test ! -f "$site_root/inspect-web-engine.js"
 test -n "$dotnet_loader"
 test -f "$site_root/$dotnet_loader"
 ```
@@ -169,7 +179,17 @@ From another terminal on the build host:
 
 ```bash
 curl -fsSI "http://127.0.0.1:$DEMO_BUILD_ORIGIN_PORT/"
-curl -fsSI "http://127.0.0.1:$DEMO_BUILD_ORIGIN_PORT/inspect-web-engine.js"
+for module in \
+  inspect-web-host \
+  inspect-web-package \
+  inspect-web-metadata \
+  inspect-web-analysis \
+  inspect-web-source \
+  inspect-web-call-graph \
+  inspect-web-catalog; do
+  curl -fsSI \
+    "http://127.0.0.1:$DEMO_BUILD_ORIGIN_PORT/$module.js"
+done
 curl -fsSI "http://127.0.0.1:$DEMO_BUILD_ORIGIN_PORT/$dotnet_loader"
 ```
 

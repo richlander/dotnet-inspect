@@ -1,6 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using System.Text;
-using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Packages;
@@ -27,29 +27,20 @@ public sealed class ConfiguredPackageAuthority
 {
     private const string PersistentKeyNamespace = "authority-v1";
 
-    internal ConfiguredPackageAuthority(
-        PackageSource source,
-        ClassifiedPackageSourceIdentity classification)
+    internal ConfiguredPackageAuthority(PackageSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(classification);
         Source = source;
-        Classification = classification;
-        HttpEndpoint = classification.Kind is ConfiguredPackageAuthorityKind.Http
-            ? new Uri(source.Url, UriKind.Absolute)
-            : null;
+        Key = ConfiguredPackageAuthorityKey.Create(source);
         Association = PackageSourceAssociation.Create();
-        PersistentCacheKey = CreatePersistentCacheKey(
-            source,
-            classification,
-            HttpEndpoint);
+        PersistentCacheKey = CreatePersistentCacheKey(source, Key);
     }
 
     /// <summary>Gets the selected configured source representation.</summary>
     public PackageSource Source { get; }
 
     /// <summary>Gets the classified authority family.</summary>
-    public ConfiguredPackageAuthorityKind Kind => Classification.Kind;
+    public ConfiguredPackageAuthorityKind Kind => Key.Kind;
 
     /// <summary>Gets the source-result association minted for this authority.</summary>
     public PackageSourceAssociation Association { get; }
@@ -61,58 +52,19 @@ public sealed class ConfiguredPackageAuthority
     public string? PersistentCacheKey { get; }
 
     /// <summary>Gets the canonical local identity for a local authority.</summary>
-    public LocalPackageSourceIdentity? LocalIdentity =>
-        Classification.LocalIdentity;
+    public LocalPackageSourceIdentity? LocalIdentity => Key.LocalIdentity;
 
     /// <summary>Gets the configured endpoint for an HTTP authority.</summary>
-    public Uri? HttpEndpoint { get; }
+    public Uri? HttpEndpoint => Key.HttpEndpoint;
 
-    internal ClassifiedPackageSourceIdentity Classification { get; }
-
-    internal static ClassifiedPackageSourceIdentity Classify(
-        PackageSource source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
-        {
-            return ClassifiedPackageSourceIdentity.Local(
-                LocalPackageSourceIdentity.CreateAbsolute(source.Url));
-        }
-
-        // PackageSource construction already admitted only absolute HTTP(S)
-        // endpoints or canonical local paths.
-        return ClassifiedPackageSourceIdentity.Http(
-            new Uri(source.Url, UriKind.Absolute));
-    }
+    internal ConfiguredPackageAuthorityKey Key { get; }
 
     private static string? CreatePersistentCacheKey(
         PackageSource source,
-        ClassifiedPackageSourceIdentity classification,
-        Uri? httpEndpoint)
+        ConfiguredPackageAuthorityKey key)
     {
-        if (source.Credential is not null)
+        if (!key.TryGetPersistentValue(source, out string? stableIdentity))
             return null;
-
-        string stableIdentity;
-        if (classification.LocalIdentity is { } local)
-        {
-            stableIdentity = $"local:{local.PersistentValue}";
-        }
-        else
-        {
-            Uri endpoint = httpEndpoint!;
-            if (endpoint.Query.Length > 0
-                || endpoint.Fragment.Length > 0
-                || !UrlRedaction.ForPathComponent(endpoint.AbsolutePath)
-                    .ToString()
-                    .Equals(endpoint.AbsolutePath, StringComparison.Ordinal))
-            {
-                return null;
-            }
-
-            stableIdentity =
-                $"http:{classification.HttpEndpointKey}";
-        }
 
         byte[] digest = SHA256.HashData(
             new UTF8Encoding(
@@ -125,36 +77,157 @@ public sealed class ConfiguredPackageAuthority
 }
 
 /// <summary>
-/// The package-owned classification key used to decide whether aliases may
-/// collapse. Authority equality additionally requires all route policy to
-/// agree and is represented at runtime by the authority object itself.
+/// The package-owned runtime key used to decide whether aliases may collapse.
 /// </summary>
-internal sealed record ClassifiedPackageSourceIdentity
+internal sealed class ConfiguredPackageAuthorityKey :
+    IEquatable<ConfiguredPackageAuthorityKey>
 {
-    private ClassifiedPackageSourceIdentity(
+    private static readonly ConfiguredPackageAuthorityKey NuGetOrg =
+        Create(PackageSource.NuGetOrg);
+
+    private readonly string _value;
+
+    private ConfiguredPackageAuthorityKey(
+        string value,
         ConfiguredPackageAuthorityKind kind,
-        string? httpEndpointKey,
-        LocalPackageSourceIdentity? localIdentity)
+        LocalPackageSourceIdentity? localIdentity,
+        Uri? httpEndpoint)
     {
+        _value = value;
         Kind = kind;
-        HttpEndpointKey = httpEndpointKey;
         LocalIdentity = localIdentity;
+        HttpEndpoint = httpEndpoint;
     }
 
     public ConfiguredPackageAuthorityKind Kind { get; }
-    public string? HttpEndpointKey { get; }
     public LocalPackageSourceIdentity? LocalIdentity { get; }
+    public Uri? HttpEndpoint { get; }
 
-    public static ClassifiedPackageSourceIdentity Http(Uri endpoint) =>
-        new(
+    public static ConfiguredPackageAuthorityKey Create(PackageSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (TryCreate(source, out ConfiguredPackageAuthorityKey? key, out _))
+            return key;
+
+        throw new ArgumentException(
+            "The package source endpoint is unusable.",
+            nameof(source));
+    }
+
+    public static bool TryCreate(
+        PackageSource source,
+        [NotNullWhen(true)] out ConfiguredPackageAuthorityKey? key,
+        [NotNullWhen(false)] out string? problem)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        key = null;
+        problem = null;
+        if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
+        {
+            try
+            {
+                LocalPackageSourceIdentity local =
+                    LocalPackageSourceIdentity.CreateAbsolute(source.Url);
+                key = new ConfiguredPackageAuthorityKey(
+                    $"local\n{local.PersistentValue}",
+                    ConfiguredPackageAuthorityKind.LocalFolder,
+                    local,
+                    httpEndpoint: null);
+                return true;
+            }
+            catch (Exception exception) when (exception is
+                ArgumentException
+                or IOException
+                or NotSupportedException)
+            {
+                problem = "The local package source path is unusable.";
+                return false;
+            }
+        }
+
+        int schemeEnd = source.Url.IndexOf(
+            "://",
+            StringComparison.Ordinal);
+        if (schemeEnd <= 0
+            || !Uri.TryCreate(
+                source.Url,
+                UriKind.Absolute,
+                out Uri? endpoint)
+            || endpoint.Scheme is not ("http" or "https")
+            || !NuGetHttpRequest.HasValidRawText(
+                source.Url,
+                allowNonAscii: true)
+            || !NuGetSourceRequest.TryEndpointUrl(source.Url, out _)
+            || !NuGetSourceRequest.CanProjectEndpoint(endpoint))
+        {
+            problem =
+                "The package source service-index endpoint is unusable.";
+            return false;
+        }
+
+        string host;
+        try
+        {
+            host = endpoint.HostNameType == UriHostNameType.IPv6
+                ? $"[{endpoint.IdnHost}]"
+                : endpoint.IdnHost.ToLowerInvariant();
+        }
+        catch (UriFormatException)
+        {
+            problem =
+                "The package source service-index endpoint has an unusable host.";
+            return false;
+        }
+
+        int suffixStart = source.Url.IndexOfAny(
+            ['/', '?', '#'],
+            schemeEnd + 3);
+        string suffix = suffixStart < 0
+            ? string.Empty
+            : source.Url[suffixStart..];
+        int pathEnd = suffix.IndexOfAny(['?', '#']);
+        if (pathEnd < 0)
+            pathEnd = suffix.Length;
+        string path = suffix[..pathEnd];
+        if (path.EndsWith("/", StringComparison.Ordinal))
+            path = path[..^1];
+        string remainder = suffix[pathEnd..];
+        string origin =
+            $"{endpoint.Scheme.ToLowerInvariant()}://{host}:{endpoint.Port}";
+        key = new ConfiguredPackageAuthorityKey(
+            $"{origin}{NuGetCredentialScope.NormalizeEscapes(path)}"
+            + NuGetCredentialScope.NormalizeEscapes(remainder),
             ConfiguredPackageAuthorityKind.Http,
-            NuGetCredentialScope.CanonicalizeEndpoint(endpoint),
-            localIdentity: null);
+            localIdentity: null,
+            endpoint);
+        return true;
+    }
 
-    public static ClassifiedPackageSourceIdentity Local(
-        LocalPackageSourceIdentity identity) =>
-        new(
-            ConfiguredPackageAuthorityKind.LocalFolder,
-            httpEndpointKey: null,
-            identity);
+    public bool IsNuGetOrg => Equals(NuGetOrg);
+
+    public bool Equals(ConfiguredPackageAuthorityKey? other) =>
+        other is not null
+        && string.Equals(_value, other._value, StringComparison.Ordinal);
+
+    public override bool Equals(object? obj) =>
+        obj is ConfiguredPackageAuthorityKey other && Equals(other);
+
+    public override int GetHashCode() =>
+        StringComparer.Ordinal.GetHashCode(_value);
+
+    public override string ToString() =>
+        nameof(ConfiguredPackageAuthorityKey);
+
+    internal bool TryGetPersistentValue(
+        PackageSource source,
+        [NotNullWhen(true)] out string? value)
+    {
+        value = null;
+        if (source.Credential is not null
+            || LocalIdentity is not { } local)
+            return false;
+
+        value = $"local:{local.PersistentValue}";
+        return true;
+    }
 }

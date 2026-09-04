@@ -1475,6 +1475,269 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public void ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct()
+    {
+        using var config = new TempNuGetConfig(
+            [("first", "https://feed.example/v3/index.json?tenant=first"),
+             ("second", "https://feed.example/v3/index.json?tenant=second")],
+            mappings: [("first", "*"), ("second", "*")]);
+
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(["first", "second"], sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void ConfiguredAuthority_CredentialPathRotationsRemainDistinctWithoutDiagnosticDisclosure()
+    {
+        const string FirstSecret = "credential-slot-first";
+        const string SecondSecret = "credential-slot-second";
+        ConfiguredPackageAuthorityKey first =
+            ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource(
+                    "first",
+                    $"https://feed.example/{FirstSecret}/index.json"));
+        ConfiguredPackageAuthorityKey second =
+            ConfiguredPackageAuthorityKey.Create(
+                new NuGetSource(
+                    "second",
+                    $"https://feed.example/{SecondSecret}/index.json"));
+
+        Assert.NotEqual(first, second);
+        Assert.DoesNotContain(FirstSecret, first.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(SecondSecret, second.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        "https://feed.example/%7E/private/index.json",
+        "https://feed.example/~/private/index.json")]
+    [InlineData(
+        "https://feed.example/other/../v3/index.json",
+        "https://feed.example/v3/index.json")]
+    public void ConfiguredAuthority_RawPathDistinctionsRemainSeparate(
+        string firstUrl,
+        string secondUrl)
+    {
+        ConfiguredPackageAuthorityKey first =
+            ConfiguredPackageAuthorityKey.Create(
+                new PackageSource("first", firstUrl));
+        ConfiguredPackageAuthorityKey second =
+            ConfiguredPackageAuthorityKey.Create(
+                new PackageSource("second", secondUrl));
+
+        Assert.NotEqual(first, second);
+    }
+
+    [Theory]
+    [InlineData("https://api.nuget.org/v3/%69ndex.json")]
+    [InlineData("https://api.nuget.org/other/../v3/index.json")]
+    public void ConfiguredAuthority_NoncanonicalNuGetOrgPathIsNotGallery(
+        string sourceUrl)
+    {
+        var source = new PackageSource("custom", sourceUrl);
+        ConfiguredPackageAuthorityKey authority =
+            ConfiguredPackageAuthorityKey.Create(source);
+
+        Assert.False(authority.IsNuGetOrg);
+        Assert.False(source.IsNuGetOrg);
+    }
+
+    [Theory]
+    [InlineData("https://api.nuget.org/v3/index.json")]
+    [InlineData("HTTPS://API.NUGET.ORG:443/v3/index.json/")]
+    public void ConfiguredAuthority_CanonicalNuGetOrgPathIsGallery(
+        string sourceUrl)
+    {
+        var source = new PackageSource("nuget.org", sourceUrl);
+        ConfiguredPackageAuthorityKey authority =
+            ConfiguredPackageAuthorityKey.Create(source);
+
+        Assert.True(authority.IsNuGetOrg);
+        Assert.True(source.IsNuGetOrg);
+    }
+
+    [Fact]
+    public void ResolveSources_EncodedPathDoesNotAdoptLiteralPathCredentials()
+    {
+        const string Encoded =
+            "https://feed.example/%7E/private/index.json";
+        const string Literal =
+            "https://feed.example/~/private/index.json";
+        using var config = new TempNuGetConfig(
+            [("encoded", Encoded)],
+            credentialedSource: "encoded");
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSources(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [Literal],
+                }));
+
+        Assert.Equal(Literal, source.Name);
+        Assert.Equal(Literal, source.Url);
+        Assert.Null(source.Credential);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackageWithFailures_RetainsValidPeer()
+    {
+        using var config = new TempNuGetConfig(
+            [("valid", IndexUrl),
+             ("unsupported", "ftp://legacy.example/v3/index.json")]);
+
+        PackageSourceResolution resolution =
+            NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["valid"],
+            resolution.Sources.Select(source => source.Name));
+        PackageSourceResolutionFailure failure =
+            Assert.Single(resolution.Failures);
+        Assert.Equal("unsupported", failure.Name);
+        Assert.Equal("unsupported", failure.Authority.ToString());
+        Assert.DoesNotContain(
+            "ftp://legacy.example",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackageWithFailures_MappedUnsupportedAliasIsNotInactive()
+    {
+        using var config = new TempNuGetConfig(
+            [("legacy", "ftp://legacy.example/v3/index.json")],
+            mappings: [("legacy", "*")]);
+
+        PackageSourceResolution resolution =
+            NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Empty(resolution.Sources);
+        PackageSourceResolutionFailure failure =
+            Assert.Single(resolution.Failures);
+        Assert.Equal("legacy", failure.Name);
+        Assert.DoesNotContain(
+            "not active",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackageWithFailures_ExplicitUnsupportedSourceRetainsMappedAlias()
+    {
+        const string Unsupported =
+            "ftp://legacy.example/v3/index.json";
+        using var config = new TempNuGetConfig(
+            [("valid", IndexUrl), ("legacy", Unsupported)],
+            mappings: [("valid", "*"), ("legacy", "*")]);
+
+        PackageSourceResolution resolution =
+            NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [IndexUrl, Unsupported],
+                },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["valid"],
+            resolution.Sources.Select(source => source.Name));
+        PackageSourceResolutionFailure failure =
+            Assert.Single(resolution.Failures);
+        Assert.Equal("legacy", failure.Name);
+        Assert.Equal("legacy", failure.Authority.ToString());
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackageWithFailures_ExplicitMalformedSourceRetainsMappedAlias()
+    {
+        const string Malformed =
+            "https://example.invalid/%zz/index.json";
+        using var config = new TempNuGetConfig(
+            [("valid", IndexUrl), ("malformed", Malformed)],
+            mappings: [("valid", "*"), ("malformed", "*")]);
+
+        PackageSourceResolution resolution =
+            NuGetSourceResolver.ResolveSourcesForPackageWithFailures(
+                new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                    Sources = [IndexUrl, Malformed],
+                },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["valid"],
+            resolution.Sources.Select(source => source.Name));
+        PackageSourceResolutionFailure failure =
+            Assert.Single(resolution.Failures);
+        Assert.Equal("malformed", failure.Name);
+        Assert.Equal("malformed", failure.Authority.ToString());
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_LegacyCallerRetainsMalformedPeer()
+    {
+        const string Malformed =
+            "https://example.invalid/%zz/index.json";
+        using var config = new TempNuGetConfig(
+            [("valid", IndexUrl), ("malformed", Malformed)]);
+
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["valid", "malformed"],
+            sources.Select(source => source.Name));
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_OneTrailingSlashAliasesCollapse()
+    {
+        using var config = new TempNuGetConfig(
+            [("bare", "https://feed.example/v3/index.json"),
+             ("slashed", "https://feed.example/v3/index.json/")],
+            mappings: [("bare", "*"), ("slashed", "*")]);
+
+        PackageSource source = Assert.Single(
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package"));
+
+        Assert.Equal("bare", source.Name);
+    }
+
+    [Fact]
+    public void ResolveSourcesForPackage_RepeatedTrailingSlashAuthorityRemainsDistinct()
+    {
+        using var config = new TempNuGetConfig(
+            [("slashed", "https://feed.example/v3/index.json/"),
+             ("repeated", "https://feed.example/v3/index.json//")],
+            mappings: [("slashed", "*"), ("repeated", "*")]);
+
+        List<PackageSource> sources =
+            NuGetSourceResolver.ResolveSourcesForPackage(
+                new NuGetSourceOptions { ConfigFile = config.Path },
+                "Contoso.Package");
+
+        Assert.Equal(
+            ["slashed", "repeated"],
+            sources.Select(source => source.Name));
+    }
+
+    [Fact]
     public void ResolveSourcesForPackage_MappingCollapsesEquivalentLocalAliases()
     {
         string feed = Path.Combine(
@@ -1519,7 +1782,7 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
-    public void ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct()
+    public void PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations()
     {
         using var config = new TempNuGetConfig(
             [
@@ -1566,7 +1829,7 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
-    public void ConfiguredAuthority_CredentialPathRotationsDoNotShareAuthorityOrRetainSecret()
+    public void PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey()
     {
         const string firstSecret = "first-secret";
         const string secondSecret = "second-secret";
@@ -1598,6 +1861,21 @@ public class NuGetSearchSourcesTests
         Assert.NotSame(first, second);
         Assert.Null(first.PersistentCacheKey);
         Assert.Null(second.PersistentCacheKey);
+    }
+
+    [Fact]
+    public void PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey()
+    {
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [new PackageSource("online", IndexUrl)]);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        Assert.Equal(ConfiguredPackageAuthorityKind.Http, authority.Kind);
+        Assert.NotNull(authority.HttpEndpoint);
+        Assert.Null(authority.LocalIdentity);
+        Assert.Null(authority.PersistentCacheKey);
     }
 
     [Fact]
