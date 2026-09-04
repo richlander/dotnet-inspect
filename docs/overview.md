@@ -91,9 +91,9 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
-  private shipped inventory, discovery, and lookup live here today. The
-  [Ecosystem Pack](design/ecosystem-packs.md) pattern targets shipped pack
-  metadata and product-demo source content for this assembly while Workspace
+  private shipped inventory, discovery, and lookup live here. The
+  [Ecosystem Pack](design/ecosystem-packs.md) pattern supplies shipped pack
+  metadata and product-demo source content from this assembly while Workspace
   Definitions retains demo records, resolution, run plans, and execution. Only
   the CLI and the managed inspect-web facade may consume this application
   assembly; reusable Queries, Packages, Services, Metadata, and browser Core do

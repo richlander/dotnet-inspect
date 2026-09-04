@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Xml.Linq;
 using ILInspector.Metadata;
@@ -599,6 +601,12 @@ public sealed class BrowserEngineLayeringTests
     [Fact]
     public void EcosystemCatalogIsFacadeOnly()
     {
+        // The compiled-reference gate is sound only when catalog IDs cannot be inlined.
+        Assert.DoesNotContain(
+            typeof(DotnetInspector.Ecosystems.ProductDemoIds)
+                .GetFields(BindingFlags.Public | BindingFlags.Static),
+            field => field.IsLiteral);
+
         string inspectWebRoot = Path.Combine(
             RepositoryRoot(),
             "prototypes",
@@ -637,32 +645,52 @@ public sealed class BrowserEngineLayeringTests
             CoreProjectPath,
             productionProjects,
             StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(
+            CatalogProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (string project in productionProjects)
         {
+            IReadOnlyList<string> projectReferences =
+                EvaluatedProjectItems(project, "ProjectReference")
+                    .Select(item => item.GetProperty("FullPath").GetString())
+                    .OfType<string>()
+                    .ToArray();
             if (project.Equals(
-                EngineProjectPath,
+                CatalogProjectPath,
                 StringComparison.OrdinalIgnoreCase))
             {
+                Assert.Contains(
+                    projectReferences,
+                    reference => string.Equals(
+                        reference,
+                        ecosystemsProject,
+                        StringComparison.OrdinalIgnoreCase));
+                Assert.Contains(
+                    CompiledAssemblyReferences(project),
+                    reference => string.Equals(
+                        reference,
+                        "DotnetInspector.Ecosystems",
+                        StringComparison.Ordinal));
                 continue;
             }
 
             Assert.DoesNotContain(
-                EvaluatedProjectItems(project, "ProjectReference")
-                    .Select(item => item.GetProperty("FullPath").GetString())
-                    .OfType<string>(),
+                projectReferences,
                 reference => string.Equals(
                     reference,
                     ecosystemsProject,
                     StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(
-                EvaluatedProjectItems(project, "Reference")
-                    .Select(item => item.GetProperty("Identity").GetString())
-                    .OfType<string>(),
-                reference => string.Equals(
-                    reference.Split(',', 2)[0],
-                    "DotnetInspector.Ecosystems",
-                    StringComparison.OrdinalIgnoreCase));
+            if (ProjectCanReach(project, CatalogProjectPath))
+            {
+                Assert.DoesNotContain(
+                    CompiledAssemblyReferences(project),
+                    reference => string.Equals(
+                        reference,
+                        "DotnetInspector.Ecosystems",
+                        StringComparison.Ordinal));
+            }
         }
     }
 
@@ -848,6 +876,13 @@ public sealed class BrowserEngineLayeringTests
         "engine.Core",
         "InspectWeb.Engine.Core.csproj");
 
+    static string CatalogProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "prototypes",
+        "inspect-web",
+        "engine.CatalogExports",
+        "InspectWeb.Engine.CatalogExports.csproj");
+
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
@@ -887,6 +922,46 @@ public sealed class BrowserEngineLayeringTests
 
     static IReadOnlyList<string> ProjectReferences(string project) =>
         ProjectItems(project, "ProjectReference");
+
+    static bool ProjectCanReach(string project, string target)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>();
+        pending.Push(project);
+        while (pending.TryPop(out string? current))
+        {
+            if (!visited.Add(current))
+                continue;
+            foreach (string reference in ProjectReferences(current))
+            {
+                if (reference.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                pending.Push(reference);
+            }
+        }
+
+        return false;
+    }
+
+    static IReadOnlyList<string> CompiledAssemblyReferences(string project)
+    {
+        string assemblyName = ProjectAssemblyName(project);
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"{assemblyName}.dll");
+        Assert.True(
+            File.Exists(assemblyPath),
+            $"Release assembly '{assemblyPath}' is required for the browser layering gate.");
+
+        using FileStream stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return
+        [
+            .. reader.AssemblyReferences.Select(handle =>
+                reader.GetString(reader.GetAssemblyReference(handle).Name)),
+        ];
+    }
 
     static IReadOnlyList<JsonElement> EvaluatedProjectItems(
         string project,

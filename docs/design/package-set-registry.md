@@ -20,9 +20,10 @@ initial registry and Release gates landed in
 registry construction, exact audited membership, CLI adaptation, non-friend
 use, friendship, and project layering.
 
-This amendment defines the next package set, `package-set.aspire`, from
-measured NuGet and API evidence. Its descriptor, membership, and named Release
-gates remain unimplemented and therefore unverified.
+This amendment defines `package-set.aspire` from measured NuGet and API
+evidence. `DotnetInspector.Ecosystems` publishes its descriptor and exact
+82-member manifest, with Release evidence provided by
+`PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot`.
 
 Related designs:
 
@@ -314,12 +315,13 @@ discover or look up the registry directly.
 
 ## Initial registry
 
-The implemented registry currently issues two descriptors:
+The implemented registry issues three descriptors:
 
 | Identity | Title | Summary | Order |
 | --- | --- | --- | ---: |
 | `package-set.microsoft-extensions` | Microsoft.Extensions | Current Microsoft.Extensions packages that add managed APIs beyond the shared frameworks. | 100 |
 | `package-set.aspnetcore` | ASP.NET Core | Current ASP.NET Core packages that add managed APIs beyond the shared frameworks. | 200 |
+| `package-set.aspire` | Aspire | Current `aspire`-co-owned Aspire packages with public managed APIs. | 300 |
 
 Their stable purposes bound later membership changes:
 
@@ -385,7 +387,7 @@ membership authority.
 
 ## Aspire adoption
 
-The next registry adoption issues one descriptor after the existing two:
+The Aspire adoption issues one descriptor after the existing two:
 
 | Identity | Title | Summary | Order |
 | --- | --- | --- | ---: |
@@ -628,44 +630,39 @@ The target Release suite is `PackageSetRegistryTests` in
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns every shipped descriptor in explicit order with exact IDs and metadata. The implemented baseline is two descriptors; Aspire adoption extends the literal expectation to the third descriptor at order 300. |
+| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns all three shipped descriptors in explicit order with exact IDs and metadata. |
 | `PackageSetRegistryTests.ExactLookupReturnsEnumeratedDescriptor` | Exact lookup and enumeration expose the same immutable descriptor and member order. |
 | `PackageSetRegistryTests.InvalidRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate or out-of-order manifest order, invalid, versioned, or target-specific coordinates, and within-set duplicate package IDs reject complete internal registry construction rather than publishing a shortened catalog. |
 | `PackageSetRegistryTests.DescriptorAndMembershipAreImmutableSnapshots` | Caller collection mutation and returned-collection use cannot change registry metadata, membership, or order. |
 | `PackageSetRegistryTests.InvalidTextDoesNotConstructAnIdentity` | Case variants, labels, CLI spellings, whitespace, and other non-canonical text fail the identity-construction boundary. |
-| `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use every canonical typed shipped ID without parsing literals, and each resolves to the matching enumerated descriptor. Aspire adoption adds `PackageSetIds.Aspire`. |
+| `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use every canonical typed shipped ID without parsing literals, and each resolves to the matching enumerated descriptor, including `PackageSetIds.Aspire`. |
 | `PackageSetRegistryTests.UnknownIdentityDoesNotAliasOrSelectADefault` | A well-formed unregistered identity returns typed unknown and does not resolve by neighboring identity, label, or default. |
-| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the application manifest contains the exact audited 44- and 53-package ID sequences in ordinal order, each lifted to a versionless target-neutral coordinate; exclusion canaries pin known deprecated, legacy-only, and shared-framework-only IDs. |
+| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the application manifest contains the exact audited 44-, 53-, and 82-package ID sequences in ordinal order, each lifted to a versionless target-neutral coordinate; exclusion canaries pin known deprecated, legacy-only, shared-framework-only, and delivery-only IDs. |
 | `SearchScopeResolutionTests.PackageSetFlagsUseAuditedMembership` | `--extensions` and `--aspnetcore` project registry members back to the exact audited ordered package-ID strings while retaining composition and deduplication behavior after the transfer. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsDiscoveryAndLookup` | A non-friend consumer references only the supported public surface to enumerate, select, and inspect a package set without CLI, source, acquisition, or workspace types. |
 
-The implementation PR should also retain the current search-scope tests for
-composition, deduplication, and ordering when membership moves out of
-`ScopeConstants`. The literal registry manifest gate, not expectations read
-back from the registry, proves the audited membership shipped exactly. Deleting
-the donor arrays and wiring exact registry lookup are reviewed source changes;
-the CLI behavior gate proves the flags retain their ordering and composition
-contract while intentionally replacing ad hoc membership. This design does
-not claim a repository-wide source scan proving that no dead copy of the
-literals exists.
+The current search-scope tests retain composition, deduplication, and ordering
+after membership moved out of `ScopeConstants`. The literal registry manifest
+gate, not expectations read back from the registry, proves the audited
+membership shipped exactly. Deleting the donor arrays and wiring exact
+registry lookup were reviewed source changes; the CLI behavior gate proves the
+flags retain their ordering and composition contract after replacing ad hoc
+membership. This design does not claim a repository-wide source scan proving
+that no dead copy of the literals exists.
 
-The first slice creating `DotnetInspector.Ecosystems` also lands the
+The first slice creating `DotnetInspector.Ecosystems` also landed the
 front-end-only dependency, inspect-web project-graph, test-only friendship, and
 lower-owner no-friend gates named by
-[Static Ecosystem Packs](ecosystem-packs.md#required-gates). Later
-ecosystem-pack adoption adds
+[Static Ecosystem Packs](ecosystem-packs.md#required-gates). Ecosystem-pack
+adoption is enforced by
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` and
-`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`;
-those gates are deferred because the registry donor-transfer slice publishes no
-pack rows.
+`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
 
-Aspire implementation adds or extends these Release gates:
+Aspire membership is enforced by this Release gate:
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.AspireManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates. |
-| `PackageSetRegistryTests.AspireIncludesApiBreadthCanaries` | The manifest includes literal foundation, testing, separate-subsystem, first-party integration, partner integration, client-adapter, and non-.NET resource canaries such as `Aspire.Hosting`, `Aspire.Hosting.Testing`, `Aspire.TypeSystem`, `Aspire.Hosting.Azure`, `Aspire.Hosting.AWS`, `Aspire.Azure.Storage.Blobs`, and `Aspire.Hosting.Python`. |
-| `PackageSetRegistryTests.AspireExcludesBoundaryCanaries` | The manifest excludes owner-boundary canaries `Aspire.ClickHouse.Driver`, `Aspire.Hosting.ClickHouse`, `Aspire.Hosting.DocumentDB`, and `Aspire.Util.TestLogger`; legacy-line canary `Aspire.Hosting.Dapr`; package-type canaries `Aspire.AppHost.Sdk`, `Aspire.Cli`, and `Aspire.ProjectTemplates`; and public-API canaries `Aspire.Hosting.AppHost`, `Aspire.Hosting.CodeGeneration.TypeScript`, `Aspire.Dashboard.Sdk.linux-x64`, and `Aspire.Hosting.Orchestration.linux-x64`. |
+| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates; direct inclusion assertions cover base hosting, testing, the type-system subsystem, AWS and Python integrations, and current MongoDB and RabbitMQ client lines. Exact sequence equality enforces every audited exclusion, with direct assertions for four representative archive-stage exclusions. |
 
 These gates prove the reviewed source snapshot and registry behavior. They do
 not make the network audit a runtime operation or prove prefix-query and
@@ -675,13 +672,13 @@ Integration-scanner contracts owned elsewhere.
 
 1. The initial registry, audited Microsoft.Extensions and ASP.NET Core
    manifests, CLI donor transfer, and application-shell gates landed in #5753.
-2. Lock the Aspire membership rule and audit evidence in this amendment.
-3. Add `PackageSetIds.Aspire`, the 82-member private manifest, exact
-   Release gates, and non-friend discovery coverage without adding a generic
-   CLI option.
-4. Reference that identity whenever the Aspire ecosystem pack lands with at
-   least one independently coherent capability. Package-set, prefix, demo, and
-   scanner slots are optional and do not wait for or activate one another.
+2. The Aspire membership rule and audit evidence landed in #5763.
+3. `PackageSetIds.Aspire`, the 82-member private manifest, exact Release gate,
+   non-friend discovery coverage, and ecosystem-pack reference ship in
+   `DotnetInspector.Ecosystems` without adding a generic CLI option.
+4. The Aspire ecosystem pack references that identity and ships independently
+   coherent demos. Package-set, prefix, demo, and scanner slots remain optional
+   and do not wait for or activate one another.
 5. Have #5602 define the typed resolved-coordinate handoff for generic CLI and
    browser **Add package set** adoption.
 

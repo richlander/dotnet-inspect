@@ -1089,7 +1089,7 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Target product-resident home demos ship through the static application
+Product-resident home demos ship through the static application
 ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
 ecosystem grouping, display metadata, and global product order. Workspace
 Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
@@ -1099,8 +1099,9 @@ Grouped and flat discovery expose only immutable metadata; selecting one exact
 scenario ID dispatches only that source, whose binding requires exactly one
 matching scenario record. Selection retains the catalog descriptor beside the
 resolved scenario, and hosts use that descriptor as product display metadata.
-The current `DotnetInspector.Queries.Definitions.ProductInspectionDemos`
-registry remains the donor until that transfer lands.
+The donor `DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry
+has been removed; `DotnetInspector.Ecosystems` is the sole shipping application
+inventory.
 
 Home demos are closed presets over the open query/section product: each source
 fixes inputs and names **existing product section(s)**
@@ -1117,10 +1118,9 @@ exists. CLI argv, definition plans, and browser engine operations (including a
 generated TypeScript binding of that engine surface) must be encodings of the
 same preset—not parallel demo systems. Ecosystem grouping does not select or
 activate the pack's package set, prefixes, or scanner, and is never inferred
-from package coordinates or display text. Residual: the ecosystem-catalog
-donor transfer, minted view-facet ids, `WorkspaceContextLoader` as the shared
-group-run owner, and Call Graph structured-JSON projection (see
-workspace-definitions). Detail:
+from package coordinates or display text. Residual: minted view-facet ids,
+`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
+structured-JSON projection (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

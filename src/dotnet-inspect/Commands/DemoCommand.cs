@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Queries;
@@ -63,8 +64,8 @@ public static class DemoCommand
 
         if (format == OutputFormat.Json)
         {
-            var rows = ProductInspectionDemos.Entries
-                .Select(entry => new DemoListJsonRow(entry.Id, entry.Title, entry.Summary))
+            var rows = EcosystemPackCatalog.DiscoverDemos()
+                .Select(entry => new DemoListJsonRow(entry.ScenarioId, entry.Title, entry.Summary))
                 .ToList();
             Console.WriteLine(JsonSerializer.Serialize(rows, DemoJsonContext.Default.ListDemoListJsonRow));
             return 0;
@@ -72,10 +73,10 @@ public static class DemoCommand
 
         var view = new DemoListView
         {
-            Demos = ProductInspectionDemos.Entries
+            Demos = EcosystemPackCatalog.DiscoverDemos()
                 .Select(entry => new DemoListRow
                 {
-                    Id = entry.Id,
+                    Id = entry.ScenarioId,
                     Title = entry.Title,
                     Summary = entry.Summary,
                 })
@@ -97,18 +98,22 @@ public static class DemoCommand
         if (string.Equals(scenarioId, "list", StringComparison.OrdinalIgnoreCase))
             return Task.FromResult(ExecuteList(format, noHeader, mermaidRequested: embeddedMermaid));
 
-        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        EcosystemDemoSelectionResult result =
+            EcosystemPackCatalog.SelectDemo(scenarioId);
+        if (result is EcosystemDemoSelectionResult.Unknown)
         {
             CommandError.Write($"Unknown home demo '{scenarioId}'.");
             CommandError.WriteBlankLine();
             CommandError.WriteLine("Available demos:");
-            foreach (var entry in ProductInspectionDemos.Entries)
-                CommandError.WriteLine($"  {entry.Id}");
+            foreach (EcosystemDemoDescriptor entry in EcosystemPackCatalog.DiscoverDemos())
+                CommandError.WriteLine($"  {entry.ScenarioId}");
             CommandError.WriteBlankLine();
             CommandError.WriteLine("Run 'dotnet-inspect demo list' for titles and summaries.");
             return Task.FromResult(1);
         }
 
+        ResolvedScenario resolved =
+            ((EcosystemDemoSelectionResult.Known)result).Selection.Scenario;
         if (!DemoScenarioRunner.TryCreateOptions(
                 resolved, format, noHeader, embeddedMermaid, out var options, out var error))
         {
