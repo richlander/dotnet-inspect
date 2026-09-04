@@ -16,6 +16,10 @@ Issue #5672 adds atomic unexpected-terminal publication for the Worker runtime
 consumer in #5636. It remains an operation-authority contract: producer
 placement and Worker settlement decoding stay outside this owner.
 
+Issue #5735 adds two-phase ordinary-terminal publication for the same consumer.
+It lets a producer commit multiple operation outcomes before any observer
+callout while leaving Worker closure selection and batching outside this owner.
+
 The checked
 [operation-authority model](models/inspect-web-operation-authority/README.md)
 establishes only the bounded abstract properties recorded with that model. It
@@ -207,8 +211,15 @@ interface OperationDiagnosticObserver {
   readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
+interface OperationTerminalPublication {
+  readonly publish: () => undefined;
+}
+
 interface OperationProducerSink<TValue, TError, TProgress> {
   readonly reportProgress: (value: TProgress) => undefined;
+  readonly commitTerminal: (
+    outcome: OperationOutcome<TValue, TError>,
+  ) => OperationTerminalPublication;
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
@@ -291,13 +302,15 @@ disposal, before disposed, terminal, canceled, or idempotency checks.
 return a rejected `OperationControlResult`, during every feature event; none
 changes authority state.
 
-All immediate callback interfaces use readonly function properties whose
-return is `undefined`, not TypeScript methods returning `void`. Under strict
-function types, this rejects Promise-returning implementations and
-implementations whose event, diagnostic, input, sink, or cancellation-reason
-parameter is narrower than the owner-issued type. This is an internal typed
-TypeScript boundary; an adapter that admits untyped JavaScript must validate
-equivalent synchronous behavior before constructing these values.
+All immediate callback interfaces use readonly function properties, not
+TypeScript methods returning `void`. Observer and producer-callout returns are
+exactly `undefined`; `commitTerminal` synchronously returns only its
+owner-issued publication capability. Under strict function types, this rejects
+Promise-returning implementations and implementations whose event, diagnostic,
+input, sink, outcome, or cancellation-reason parameter is narrower than the
+owner-issued type. This is an internal typed TypeScript boundary; an adapter
+that admits untyped JavaScript must validate equivalent synchronous behavior
+before constructing these values.
 
 Product feature observers are required to return normally. If one throws, the
 authority performs an internal fault transition rather than reentering the
@@ -315,6 +328,32 @@ diagnostic delivery, so the observer may reenter operation APIs. If diagnostic
 delivery throws, the authority catches it and writes the original diagnostic
 plus observer failure to the browser's last-resort console sink without
 recursively invoking the observer.
+
+`commitTerminal(outcome)` separates ordinary terminal authority from observer
+publication. It synchronously validates the producer record, commits the
+authorized outcome, and returns an opaque one-shot
+`OperationTerminalPublication` without invoking a feature or diagnostic
+observer. Calling `publish()` exercises only the already-reserved feature event
+or deferred producer-contract diagnostic. The capability remains valid after
+the outcome commit, but replacement or disposal before publication suppresses
+the stale feature event without replacing that committed outcome.
+
+A producer that needs cross-operation atomicity first calls `commitTerminal`
+for every affected sink and only then exercises the returned capabilities.
+Observer failure or diagnostic reentrancy from one publication therefore sees
+every sibling outcome as final. The producer must exercise each returned
+capability exactly once, synchronously before returning control from the
+producer callback that performed the final commit and before reporting
+quiescence. Repeated publication or quiescence with an outstanding capability
+is a producer-contract failure. Dropping a capability cannot be diagnosed until
+the producer attempts quiescence or another physical-liveness owner detects the
+missing release. `reportTerminal(outcome)` remains the one-step convenience
+path implemented as commit followed by immediate publication.
+
+Capability publication uses the same feature-event callout path as ordinary
+producer reports. A nested producer publication therefore retains the existing
+page-wide feature-delivery guard until the outermost event returns; the new
+capability does not add a separate operation-authority reentrancy entry point.
 
 `reportUnexpectedTerminal(error, diagnostic)` is the producer's atomic form
 for a terminal failure that also requires unexpected-failure reporting. It
@@ -472,7 +511,9 @@ suppression.
 The first authorized logical-completion transition atomically resolves
 `outcome` exactly once and reserves exactly one corresponding feature event:
 
-- producer success or failure reserves `terminal`;
+- ordinary producer success or failure may reserve `terminal` without
+  publication through `commitTerminal`, while `reportTerminal` immediately
+  exercises that reservation;
 - atomic unexpected terminal failure reserves `terminal` before delivering its
   diagnostic and exercises that reservation after diagnostic delivery;
 - direct cancellation reserves `canceled`;
@@ -659,9 +700,10 @@ eventual producer quiescence. Choosing between them is producer policy.
 
 The model deliberately abstracts page-wide allocation, multiple sessions,
 TypeScript implementation and observer callouts, browser queues, producer
-internals, worker transport, managed interop, and arbitrary operation
-cardinality. Those are covered by focused implementation gates or adjacent
-owners.
+internals, worker transport, managed interop, arbitrary operation cardinality,
+and the two-phase commit/publication interval. In particular, exercising a
+reserved event after its commit is checked by focused implementation gates,
+not by the model's atomic completion action.
 
 ## Required implementation gate
 
@@ -709,6 +751,13 @@ under the ordinary inspect-web `npm test` gate and include:
   commit-before-callout, one diagnostic, no escaping exception, no retry, and
   an unchanged first outcome;
 - synchronous and deferred producer completion;
+- two-phase terminal commit across independent sessions, with every handle
+  outcome final before the first feature or diagnostic observer callout and
+  diagnostic-reentrant sibling cancellation remaining a no-op;
+- one-shot terminal publication, deferred producer-contract diagnostics, and
+  quiescence rejection while any publication capability remains outstanding;
+- replacement and disposal between commit and publication suppressing the
+  stale feature event without replacing the committed outcome;
 - one logical outcome and one quiescence resolution;
 - omitted cancellation normalization, reason immutability, and exactly one
   producer cancellation request;
