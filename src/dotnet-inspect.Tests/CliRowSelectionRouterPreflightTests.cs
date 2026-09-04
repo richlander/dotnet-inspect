@@ -795,6 +795,53 @@ public sealed class CliRowSelectionRouterPreflightTests
         Assert.Null(reversed.RequestKind);
         Assert.Equal(1, result.Position);
         Assert.Equal(result.Position, reversed.Position);
+
+        CandidateFixture undeclaredTopMeaning =
+            new(
+                "undeclared-top-meaning",
+                declarations:
+                    RowDeclarations.All
+                    & ~RowDeclarations.Top);
+        CandidateFixture undeclaredRowsMeaning =
+            new(
+                "undeclared-rows-meaning",
+                declarations:
+                    RowDeclarations.All
+                    & ~RowDeclarations.Rows,
+                rowsName: "--top",
+                omitTopOrderBindings: true);
+        CliRowSelectionRouteEnvelopeResult undeclared =
+            Evaluate(
+                [
+                    "Target",
+                    "--top",
+                    "2"
+                ],
+                undeclaredTopMeaning,
+                undeclaredRowsMeaning);
+        CliRowSelectionRouteEnvelopeResult undeclaredReversed =
+            Evaluate(
+                [
+                    "Target",
+                    "--top",
+                    "2"
+                ],
+                undeclaredRowsMeaning,
+                undeclaredTopMeaning);
+
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            undeclared.Outcome);
+        Assert.Equal(
+            undeclared.Outcome,
+            undeclaredReversed.Outcome);
+        Assert.Null(undeclared.RequestKind);
+        Assert.Null(undeclaredReversed.RequestKind);
+        Assert.Equal(1, undeclared.Position);
+        Assert.Equal(
+            undeclared.Position,
+            undeclaredReversed.Position);
     }
 
     [Fact]
