@@ -1488,12 +1488,23 @@ test("typed type panel owns its rendered control bindings", () => {
   const rootEventBinder =
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
+  const clearFilters =
+    binding.match(/onClearFilters: \(\) => \{[\s\S]*?\n    },/)?.[0]
+    ?? "";
   assert.match(
     binding,
     /bindTypePanel\(document, \{/);
+  assert.doesNotMatch(clearFilters, /libraryScope/);
+  assert.doesNotMatch(clearFilters, /focusFilter/);
+  assert.match(
+    clearFilters,
+    /state\.accessibilityFilter = defaultAccessibilityFilter\(state\.package\)/);
   assert.match(
     binding,
-    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},\s*onTypeFilterEscape:/);
+    /onTypeFilterChange: value => \{[\s\S]*?render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
+  assert.match(
+    binding,
+    /onTypeFilterDisclosureToggle: expanded => \{\s*state\.typeFiltersExpanded = expanded;\s*},/);
   assert.match(
     binding,
     /onTypeFilterEscape: \(\) => \{\s*state\.typeFilter = "";\s*render\(\);\s*focusFilter\(\{ immediate: true \}\);\s*},/);
@@ -2262,7 +2273,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /function focusFilter\([\s\S]*\{ immediate = false \}: \{ immediate\?: boolean \} = \{\},[\s\S]*const focus = \(\) => \{[\s\S]*"#member-filter, #type-filter"[\s\S]*if \(immediate\) \{\s*focus\(\);\s*return;\s*}\s*requestAnimationFrame\(focus\);/);
   assert.match(
     appSource,
-    /function focusFilter\([\s\S]*input\.closest<HTMLDetailsElement>\(\s*"\[data-member-filter-disclosure\]"\)[\s\S]*state\.memberFiltersExpanded = true;[\s\S]*disclosure\.open = true;[\s\S]*input\.focus\(\)/);
+    /function focusFilter\([\s\S]*input\.closest<HTMLDetailsElement>\(\s*"\[data-member-filter-disclosure\]"\)[\s\S]*input\.closest<HTMLDetailsElement>\(\s*"\[data-type-filter-disclosure\]"\)[\s\S]*state\.memberFiltersExpanded = true;[\s\S]*state\.typeFiltersExpanded = true;[\s\S]*disclosure\.open = true;[\s\S]*input\.focus\(\)/);
 });
 
 test("Spotlight navigation waits for selection data before restoring focus", () => {
@@ -2447,7 +2458,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /async loadDocumentation\(request\)[\s\S]*const preservedFocus = dependencies\.renderPreservingMemberFocus\(\);[\s\S]*state\.memberDocumentationLoading = false;[\s\S]*dependencies\.renderPreservingMemberFocus\(preservedFocus\)/);
   assert.match(
     stylesSource,
-    /\.type-browser:not\(\.member-nav\) \.namespace-chips, \.pane-footer \{ display: none; \}/);
+    /\.type-library-context \.namespace-chips, \.pane-footer \{ display: none; \}/);
   assert.match(
     typePanelSource,
     /memberFilter\?\.addEventListener\(\s*"input",\s*\(\) => actions\.onMemberFilterChange\(memberFilter\.value\)\)/);

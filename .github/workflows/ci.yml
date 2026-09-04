@@ -1055,8 +1055,8 @@ jobs:
       - name: Build C# Diff harness and fixtures
         run: |
           dotnet build tools/CSharpDiffHarness/CSharpDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run C# Diff baseline smoke
         shell: bash
@@ -1156,8 +1156,8 @@ jobs:
       - name: Build IL Diff harness and fixtures
         run: |
           dotnet build tools/IlDiffHarness/IlDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run IL Diff baseline smoke
         shell: bash

@@ -29,6 +29,7 @@ namespace InspectWeb.Engine.PackageFacade
                                     "Unknown package-query facet tier."),
                             },
                             facet.SelectionGroupId,
+                            facet.CombinesWithinSelectionGroup,
                             facet.DisplayGroupId,
                             facet.DisplayGroupLabel)),
                 ]);
@@ -76,17 +77,42 @@ namespace InspectWeb.Engine.PackageFacade
 
             PackageQueryPlan plan =
                 ((PackageQueryPlanResult.Accepted)planResult).Plan;
+            return await PumpAsync(
+                PackageQuery.ExecuteAsync(
+                    BrowserPackageWorkspace.Gallery,
+                    plan,
+                    contentProvider,
+                    cancellationToken),
+                emit,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        internal static async Task<BrowserPackageQueryEvent> PumpAsync(
+            IAsyncEnumerable<PackageQueryEvent> events,
+            Action<BrowserPackageQueryEvent> emit,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(events);
+            ArgumentNullException.ThrowIfNull(emit);
             BrowserPackageQueryEvent? completedEvent = null;
-            await foreach (PackageQueryEvent queryEvent in PackageQuery.ExecuteAsync(
-                BrowserPackageWorkspace.Gallery,
-                plan,
-                contentProvider,
-                cancellationToken).ConfigureAwait(false))
+            await foreach (PackageQueryEvent queryEvent in events
+                .WithCancellation(cancellationToken)
+                .ConfigureAwait(false))
             {
                 BrowserPackageQueryEvent projected = Project(queryEvent);
-                emit(projected);
+                if (completedEvent is not null)
+                {
+                    throw new InvalidOperationException(
+                        "The package-query stream produced an event after completion.");
+                }
+
                 if (projected.Kind == BrowserPackageQueryEventKind.Completed)
+                {
                     completedEvent = projected;
+                    continue;
+                }
+
+                emit(projected);
             }
 
             return completedEvent
@@ -98,6 +124,26 @@ namespace InspectWeb.Engine.PackageFacade
             PackageQueryEvent queryEvent) =>
             queryEvent switch
             {
+            PackageQueryEvent.Progress progress =>
+                new BrowserPackageQueryEvent(
+                    BrowserPackageQueryEventKind.Progress,
+                    Row: null,
+                    Failure: null,
+                    Completion: null,
+                    Progress: new BrowserPackageQueryProgress(
+                        progress.Value.Phase switch
+                        {
+                            PackageQueryProgressPhase.Search =>
+                                BrowserPackageQueryProgressPhase.Search,
+                            PackageQueryProgressPhase.Manifest =>
+                                BrowserPackageQueryProgressPhase.Manifest,
+                            PackageQueryProgressPhase.PackageContent =>
+                                BrowserPackageQueryProgressPhase.PackageContent,
+                            _ => throw new InvalidOperationException(
+                                "Unknown package-query progress phase."),
+                        },
+                        progress.Value.Completed,
+                        progress.Value.Limit)),
             PackageQueryEvent.Match match =>
                 new BrowserPackageQueryEvent(
                     BrowserPackageQueryEventKind.Match,
