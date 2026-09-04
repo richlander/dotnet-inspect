@@ -1116,7 +1116,8 @@ kbd {
 .member-surface-scroll { container: member-surface / inline-size; min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 60px; }
 .member-surface-scroll > .document-section:first-child { padding-top: 0; }
 .member-surface .learn-overview { max-width: none; }
-.member-surface .learn-overview > .learn-section:not(.member-overview-intro) { max-width: 900px; }
+.member-surface .learn-overview > .learn-section:not(.member-overview-intro),
+.member-applicability { max-width: 900px; }
 .learn-section.member-overview-intro { padding-top: 0; }
 .member-overview-intro > :first-child { margin-top: 0; }
 .member-overview-intro .signature-panel { margin-top: 0; }
@@ -1192,20 +1193,33 @@ kbd {
 .signature-code .token.parameter,
 .signature-code .token.named-parameter { color: #c9cbbf; }
 .signature-code .token.punctuation { color: #8d9187; }
-.parameter-docs { margin: 0; }
-.parameter-docs > div { display: grid; grid-template-columns: minmax(130px, 22%) 1fr; padding: 16px 0; border-top: 1px solid var(--line); }
-.parameter-docs dt code { color: var(--text); font: 13px var(--mono); }
-.parameter-docs dd { margin: 0; }
-.parameter-docs dd > a { color: var(--blue); font: 13px var(--mono); }
-.parameter-docs dd > span { display: block; margin-top: 8px; color: var(--dim); font-size: 12px; }
-.parameter-docs dd p,
+.member-surface .learn-overview > .member-contract-section {
+  margin-top: 24px;
+  padding: 0 0 2px;
+  border-top: 1px solid var(--line);
+}
+.member-contract-heading { display: flex; align-items: baseline; gap: 10px; padding: 16px 0 10px; }
+.member-contract-heading h2 { margin: 0; color: var(--text); font-size: 16px; line-height: 1.25; }
+.member-contract-heading span { color: var(--dim); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.member-contract-list { margin: 0; border-top: 1px solid var(--line); }
+.member-contract-list > div { display: grid; grid-template-columns: minmax(190px, 32%) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.member-contract-list dt { min-width: 0; display: grid; align-content: start; gap: 4px; padding: 11px 10px; }
+.member-contract-list dd { min-width: 0; margin: 0; padding: 11px 10px; }
+.member-contract-name { color: var(--text); font: 600 13px/1.45 var(--mono); }
+.member-contract-type { color: var(--blue); font: 12px/1.45 var(--mono); overflow-wrap: anywhere; }
+.member-contract-identity-unavailable { color: var(--dim); font: 11px/1.45 var(--mono); }
+.member-contract-default { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: baseline; color: var(--dim); font: 10px/1.45 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.member-contract-default code { color: var(--text); font: 11px/1.45 var(--mono); letter-spacing: 0; text-transform: none; overflow-wrap: anywhere; }
+.member-contract-description { margin: 0; color: var(--text); font-size: 14px; line-height: 1.6; }
+.member-contract-list .docs-loading,
+.member-contract-list .docs-unavailable { margin: 0; }
+.member-contract-section > .docs-loading,
+.member-contract-section > .docs-unavailable { margin: 0; padding: 11px 10px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .docs-unavailable { margin: 10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
 .docs-loading { margin: 18px 0; color: var(--dim); font: 11px var(--mono); }
-.exception-docs { margin: 0; }
-.exception-docs > div { display: grid; grid-template-columns: minmax(190px, 30%) 1fr; padding: 15px 0; border-top: 1px solid var(--line); }
-.exception-docs dt { color: var(--blue); font: 13px var(--mono); }
-.exception-docs dd { margin: 0; color: var(--text); font-size: 14px; line-height: 1.6; }
-.applies-to > span { display: inline-block; padding: 5px 9px; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--blue); font: 11px var(--mono); }
+.member-applicability { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--line); }
+.member-applicability span { color: var(--dim); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.member-applicability code { padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 2px; color: var(--blue); font: 11px var(--mono); }
 .call-graph-section { max-width: 1100px; padding-top: 8px; }
 .graph-expanding { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .graph-expanding .loader { width: 13px; height: 13px; border-width: 2px; }
@@ -1756,6 +1770,9 @@ kbd {
   .member-identity dl > div { grid-template-columns: minmax(0, 1fr); }
   .member-identity dt { padding-bottom: 0; }
   .member-identity dd { padding-top: 6px; }
+  .member-contract-list > div { grid-template-columns: minmax(0, 1fr); }
+  .member-contract-list dt { padding-bottom: 6px; }
+  .member-contract-list dd { padding-top: 0; }
 }
 
 @media (max-width: 760px) {

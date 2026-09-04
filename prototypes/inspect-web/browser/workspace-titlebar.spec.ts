@@ -182,7 +182,7 @@ test("narrowing retains detail after focus leaves the content frame", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.evaluate(() => new Promise<void>(resolve =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -199,7 +199,7 @@ test("immediate narrowing ignores stale navigation focus ownership", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
@@ -231,7 +231,7 @@ test("pointer departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
@@ -248,7 +248,7 @@ test("pointer departure cancels queued replacement focus", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("body")).toBeFocused();
@@ -264,18 +264,20 @@ test("focus departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").evaluate(element => {
-    if (!(element instanceof HTMLElement))
-      throw new Error("The detail focus target is unavailable.");
-    element.tabIndex = -1;
-    element.focus();
-  });
+  await page.locator(".member-documentation .docs-unavailable")
+    .evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("The detail focus target is unavailable.");
+      element.tabIndex = -1;
+      element.focus();
+    });
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
   await expect(page.locator(".detail-pane")).toBeVisible();
-  await expect(page.locator(".docs-unavailable")).toBeFocused();
+  await expect(page.locator(".member-documentation .docs-unavailable"))
+    .toBeFocused();
 });
 
 test("failed replacement restoration expires its pane authority", async ({
@@ -304,7 +306,7 @@ test("immediate widening ignores a departed narrow toggle", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.getByRole("button", { name: "Members" }).focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.setViewportSize({ width: 900, height: 700 });
 
@@ -413,8 +415,10 @@ test("Member Overview keeps declaration, summary, and identity in order", async 
   const declaration = await box(page, ".signature-panel");
   const summary = await box(page, ".member-documentation");
   const parameters = await box(page, ".member-parameters");
-  const parameterProse = await box(page, ".member-parameters dd p");
-  const returnsProse = await box(page, ".member-returns .api-summary");
+  const parameterProse = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd p");
+  const returnsProse = await box(page, ".member-returns dd p");
   expect(detail.x + detail.width - (declaration.x + declaration.width))
     .toBeCloseTo(16, 0);
   expect(summary.width).toBeLessThan(declaration.width);
@@ -422,6 +426,86 @@ test("Member Overview keeps declaration, summary, and identity in order", async 
   expect(parameterProse.width).toBeLessThanOrEqual(900);
   expect(returnsProse.width).toBeLessThanOrEqual(900);
   expect(declaration.width).toBeGreaterThan(parameters.width);
+});
+
+test("Member Overview presents a compact structured contract body", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+  await expect(page.locator(".member-contract-heading h2"))
+    .toHaveText(["Parameters", "Returns", "Exceptions"]);
+  await expect(page.locator(".member-parameters .member-contract-heading span"))
+    .toHaveText("3 parameters");
+  await expect(page.locator(".member-exceptions .member-contract-heading span"))
+    .toHaveText("2 documented");
+  await expect(page.locator(".member-parameters a")).toHaveCount(0);
+  await expect(page.locator(".member-contract-name"))
+    .toHaveText(["utf8Json", "jsonTypeInfo", "propertyNamingPolicy"]);
+  await expect(page.locator(".member-contract-default"))
+    .toHaveText(/Default\s+"camelCasePropertyNamingAndCaseInsensitive"/);
+  await expect(page.locator(".member-applicability"))
+    .toHaveText(/Applies to\s*net10\.0/);
+  expect(await page.locator(".member-contract-heading h2").first()
+    .evaluate(element => getComputedStyle(element).fontSize)).toBe("16px");
+  const wideParameterIdentity = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dt");
+  const wideParameterDocumentation = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd");
+  expect(wideParameterDocumentation.y)
+    .toBeCloseTo(wideParameterIdentity.y, 0);
+
+  const order = await page.evaluate(() => {
+    const selectors = [
+      ".member-identity",
+      ".member-parameters",
+      ".member-returns",
+      ".member-exceptions",
+      ".member-applicability",
+    ];
+    const regions = selectors.map(selector => document.querySelector(selector));
+    if (regions.some(region => !region))
+      throw new Error("The Member Overview contract regions are unavailable.");
+    return regions.slice(0, -1).every((region, index) =>
+      Boolean(region!.compareDocumentPosition(regions[index + 1]!)
+        & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(order).toBe(true);
+});
+
+test("Member Overview distinguishes lower documentation states", async ({
+  page,
+}) => {
+  const states = [
+    {
+      mode: "loading",
+      parameter: "Loading parameter documentation…",
+      exceptions: "Loading documented exceptions…",
+    },
+    {
+      mode: "error",
+      parameter: "Parameter documentation is unavailable.",
+      exceptions: "Exception documentation is unavailable.",
+    },
+    {
+      mode: "missing",
+      parameter:
+        "No parameter documentation was found in the package XML documentation.",
+      exceptions: "No exceptions are documented for this overload.",
+    },
+  ];
+  for (const state of states) {
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-docs=${state.mode}`);
+    await expect(page.locator(".member-parameters dd p").first())
+      .toHaveText(state.parameter);
+    await expect(page.locator(".member-exceptions > p"))
+      .toHaveText(state.exceptions);
+  }
 });
 
 test("Member Overview responds to constrained pane widths", async ({
@@ -438,7 +522,22 @@ test("Member Overview responds to constrained pane widths", async ({
     const value = await box(
       page,
       ".member-identity dl > div:first-child dd");
+    const parameterIdentity = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dt");
+    const parameterDocumentation = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dd");
     expect(value.y).toBeGreaterThan(label.y);
+    expect(parameterDocumentation.y).toBeGreaterThan(parameterIdentity.y);
+    for (const selector of [
+      ".member-parameters .member-contract-list > div:nth-child(2) dt",
+      ".member-parameters .member-contract-list > div:nth-child(3) dt",
+      ".member-exceptions .member-contract-list > div:first-child dt",
+    ]) {
+      expect(await page.locator(selector).evaluate(element =>
+        element.scrollWidth <= element.clientWidth)).toBe(true);
+    }
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }

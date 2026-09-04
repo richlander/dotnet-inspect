@@ -5203,6 +5203,9 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     memberOverview,
     /aria-labelledby="member-declaration-title"[\s\S]*?aria-label="Copy declaration"[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);
+  assert.match(
+    memberOverview,
+    /renderMemberContractSections\(\{[\s\S]*?parameters,[\s\S]*?returnType: overload\.returnType,[\s\S]*?returns: overload\.returns,[\s\S]*?exceptions: overload\.exceptions,[\s\S]*?activeFramework: pkg\.activeFramework,[\s\S]*?documentationStatus:/);
   assert.doesNotMatch(renderMember, /class="learn-title"/);
   assert.doesNotMatch(
     renderMember,
@@ -5218,13 +5221,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
-    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\) \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
+    /\.member-surface \.learn-overview \{ max-width: none; \}/);
+  assert.match(
+    stylesSource,
+    /\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\),\s*\.member-applicability \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
   assert.match(
     stylesSource,
     /\.member-documentation \{ max-width: 760px;/);
   assert.match(
     stylesSource,
     /\.member-surface-scroll \{ container: member-surface \/ inline-size;[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-identity dl > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(
+    stylesSource,
+    /\.member-contract-list > div \{[^}]*grid-template-columns: minmax\(190px, 32%\) minmax\(0, 1fr\);[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-contract-list > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(
     stylesSource,
     /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
