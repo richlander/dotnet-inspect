@@ -372,10 +372,29 @@ jobs:
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
-          test -f "$site/inspect-web-engine.js"
-          cmp \
-            prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js \
-            "$site/inspect-web-engine.js"
+          expected_modules=$(
+            printf '%s\n' \
+              inspect-web-host.js \
+              inspect-web-package.js \
+              inspect-web-metadata.js \
+              inspect-web-analysis.js \
+              inspect-web-source.js \
+              inspect-web-call-graph.js \
+              inspect-web-catalog.js |
+              sort
+          )
+          published_modules=$(
+            find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' \
+              -printf '%f\n' |
+              sort
+          )
+          test "$published_modules" = "$expected_modules"
+          while IFS= read -r module; do
+            cmp \
+              "prototypes/inspect-web/engine/wwwroot/$module" \
+              "$site/$module"
+          done <<< "$expected_modules"
+          test ! -f "$site/inspect-web-engine.js"
           test ! -f "$site/inspect-web-engine.ts"
           # The site is deployed from this artifact, so the headers have to be verified
           # where they ship. The toolchain test pins them in the source file; this checks
@@ -428,8 +447,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: >
           node
-          scripts/verify-published-engine-facade.ts
+          scripts/verify-published-engine-facades.ts
           ../../artifacts/inspect-web-publish/wwwroot
+          production
 
       - name: Test browser engine
         run: >

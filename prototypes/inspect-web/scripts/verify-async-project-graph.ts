@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   readdirSync,
   readFileSync,
@@ -46,6 +47,7 @@ assert.ok(
 
 const expected = new Set<string>();
 const projectNames = new Set<string>();
+const repositoryProjects: string[] = [];
 for (const projectPath of Object.keys(projects)) {
   const canonical = realpathSync(projectPath);
   const repositoryRelative = relative(repository, canonical);
@@ -62,7 +64,9 @@ for (const projectPath of Object.keys(projects)) {
     `browser engine graph has duplicate project name ${projectName}`);
   projectNames.add(projectName);
   expected.add(canonical);
+  repositoryProjects.push(repositoryRelative.split(sep).join("/"));
 }
+repositoryProjects.sort();
 
 const engineProject = realpathSync(
   resolve(repository, "prototypes/inspect-web/engine/InspectWeb.Engine.csproj"));
@@ -98,7 +102,13 @@ assert.deepEqual(
 
 writeFileSync(
   resolve(resultArgument),
-  `${JSON.stringify({ repository_project_count: expected.size })}\n`,
+  `${JSON.stringify({
+    repository_projects: repositoryProjects,
+    repository_project_count: repositoryProjects.length,
+    repository_project_sha256: createHash("sha256")
+      .update(`${repositoryProjects.join("\n")}\n`)
+      .digest("hex"),
+  })}\n`,
 );
 console.log(
   `${lowering === "compiler" ? "Compiler" : "Runtime"} async reached all `

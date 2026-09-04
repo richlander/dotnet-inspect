@@ -2045,6 +2045,48 @@ package-root container. A workspace containing only Root-capable coordinates
 has no assembly groups. A mixed workspace retains all Roots at the host
 boundary while creating groups for selected coordinates only.
 
+`InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` is the
+artifact-backed realization for one acquisition-issued `PackageRootBinding`.
+It requires an asynchronous workspace and uses the binding's package
+coordinate, content-generation identity, and selection identity as the exact
+join currency. The complete distinct union of selected surface and
+implementation assets enters one `ArtifactSetSession`; an asset selected into
+both roles contributes only once. The existing
+`MaxAggregateRetainedImageBytes` option is the one caller-supplied retained-byte
+limit for the whole realization. The artifact generation receives half; the
+resulting role groups receive the remainder. A distinct surface and
+implementation group divide the role-group share again. This partition bounds
+the source snapshots retained by the artifact session plus the independent
+snapshots retained by Metadata groups rather than applying the same limit to
+both copies.
+
+Publication is all-or-nothing. Every selected asset must materialize within the
+per-entry and aggregate limits before a role group is created. A published
+valid assembly retains its artifact registration, decoded identity, and
+non-empty MVID. A selected malformed, native, module, or empty-MVID asset
+remains a participant through the compatibility rejection carrier defined by
+the assembly-inspection-query owner. The artifact session and its query lease
+transfer to the exact distinct role groups, and workspace close releases them
+only after those groups report quiescence. Failure before transfer attempts
+group, query-lease, and artifact-session cleanup without replacing the primary
+failure. Disposing the returned role realization releases its groups but not
+the artifact session; the asynchronous workspace remains the session owner
+until close. Callers serialize this realization with other workspace group
+admissions because exact ownership transfer cannot be evaluated while a group
+admission is incomplete.
+
+`ArtifactBackedPackageRealization_PreservesMixedParticipantsAndExactLifetime`
+gates one valid and one malformed selected asset, one source entry open per
+distinct asset, exact package binding identities in artifact provenance,
+visible available/rejected query outcomes, and artifact release after an
+active group operation completes.
+`ArtifactBackedPackageRealization_RejectsAggregateBudgetWithoutPartialGroup`
+gates aggregate retained-byte rejection and absence of a partial group.
+The synchronous stream-backed realization remains available for current
+callers. CLI and browser/Wasm adoption are separate slices in
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
+adds no host retention, cache, eviction, or presentation behavior.
+
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed
 operations must report the retained compile-library outcome as unavailable or
