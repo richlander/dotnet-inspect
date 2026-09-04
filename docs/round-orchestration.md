@@ -289,9 +289,9 @@ snapshot satisfies the prerequisite. The duration context comes from
 states the binding tier table and roster names. Pick the second seat from the
 prior round's clean count:
 
-- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
+- **No prior round, or 0/2 clean:** prefer GPT-6 Astra again for the second
   seat.
-- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
+- **1/2 clean:** keep GPT-6 Astra fixed, rule out last round's second seat,
   then prefer a different family than the author (the author's family only as
   a fallback) at that model's highest available quality.
 

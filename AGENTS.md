@@ -493,7 +493,7 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-6 Astra**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
 When uncertain, use the standard round. Second-seat selection by prior clean
 count lives in
