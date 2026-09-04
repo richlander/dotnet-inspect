@@ -1380,8 +1380,7 @@ public sealed partial class InspectionWorkspace :
 
     internal bool CompleteCoordinatedGroupAdmissions(
         ImmutableArray<WorkspaceCoordinatedGroupAdmission> admissions,
-        ImmutableArray<AssemblyContextGroup> groups,
-        ImmutableArray<ArtifactRootScopeProjection> rootProjections = default)
+        ImmutableArray<AssemblyContextGroup> groups)
     {
         if (admissions.IsDefaultOrEmpty
             || admissions.Length != groups.Length)
@@ -1399,15 +1398,6 @@ public sealed partial class InspectionWorkspace :
                 throw new InvalidOperationException(
                     "A coordinated admission belongs to a different inspection workspace.");
             }
-        }
-        if (!rootProjections.IsDefault
-            && (rootProjections.IsEmpty
-                || rootProjections.Any(
-                    static projection => projection is null)))
-        {
-            throw new ArgumentException(
-                "Artifact Root publication requires one or more projections.",
-                nameof(rootProjections));
         }
 
         bool published;
@@ -1428,31 +1418,6 @@ public sealed partial class InspectionWorkspace :
                         admission._admission.RegistrationIndex,
                         groups[index],
                         admission._admission.CoordinatedParticipation));
-            }
-            if (published && !rootProjections.IsDefault)
-            {
-                foreach (ArtifactRootScopeProjection projection
-                    in rootProjections)
-                {
-                    if (!ReferenceEquals(
-                            projection.Correspondence.WorkspaceIdentity,
-                            _identity)
-                        || projection.Status
-                            is not ArtifactRootRealizationStatus.Ready ready
-                        || !ReferenceEquals(
-                            ready.Generation.WorkspaceIdentity,
-                            _identity)
-                        || !Equals(
-                            ready.Generation.Correspondence,
-                            projection.Correspondence))
-                    {
-                        throw new InvalidOperationException(
-                            "An Artifact Root projection must bind this exact Workspace and correspondence.");
-                    }
-
-                    _artifactRootScope[projection.Correspondence] =
-                        projection;
-                }
             }
         }
 

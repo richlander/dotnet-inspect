@@ -14,14 +14,12 @@ remaining target behavior are identified explicitly under
 
 The resource-free Root projection tracked by
 [#5713](https://github.com/richlander/dotnet-inspect/issues/5713) is a focused
-addition to this existing owner. Its initial package-ready implementation
-publishes resource-free correspondence and generation references with the
-existing package-role completion, supports current Ready/absent lookup, and
-rejects stale or foreign generation references before new projection access.
-It is the bottom slice of a design stack. The Root preparation and publication
+addition to this existing owner. Its initial implementation supplies the
+resource-free Package correspondence currency; physical-generation identity,
+current status, and stale-access validation remain with the publication
 handoff tracked by
-[#5727](https://github.com/richlander/dotnet-inspect/issues/5727) is the middle
-slice, and the logical Workspace Scope contract is the upper slice in
+[#5727](https://github.com/richlander/dotnet-inspect/issues/5727), the middle
+slice. The logical Workspace Scope contract is the upper slice in
 [#5701](https://github.com/richlander/dotnet-inspect/pull/5701).
 
 See [inspection-space.md](../inspection-space.md) for workspace and query
@@ -2411,24 +2409,20 @@ The target Release gates are:
 | `ArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess` | Owner validation, not equality alone, rejects a stale, foreign, unknown, or non-current reference before physical access or lease issuance. |
 | `BrowserArtifactRootProjection_DoesNotRetainRetiredPackageBytes` | Browser package bytes can drain after artifact leases release even while logical consumers retain old projections. |
 
-The initial package-ready implementation extends the existing package binding
-and Workspace generation suites rather than creating a second acquisition or
-admission protocol. Its Release gates are:
+The initial implementation verifies the Package correspondence arm through:
 
 - `PackageArtifactRootCorrespondence_IsExactAndResourceFree`;
 - `PackageArtifactRootCorrespondence_StableOnlyAcrossCorrespondingReplacement`;
 - `PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess`;
-- `PackageArtifactRootGenerationReference_ChangesWithPhysicalGeneration`; and
-- `PackageArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess`.
+  and
+- `PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance`.
 
-These gates verify the Package arm only. The generic target gates remain
-**unverified** until a non-package adapter exists. The `Pending` and `Failed`
-status carriers are construction-controlled and have no owner producer in this
-slice; #5727 must publish those states before
-`ArtifactRootProjection_RefreshReturnsCurrentPointInTimeStatus` and
-`ArtifactRootProjection_NonReadyCarriesNoCurrentReference` can become verified.
-The long-lived Browser byte-drain gate also remains unverified until retired
-Workspace admissions stop retaining their released group graph.
+The generic target gates remain **unverified** until the non-package adapter
+exists. Generation-reference, current-status, stale-access, and byte-drain
+targets also remain **unverified**. #5727 must issue physical-generation
+identity from the ArtifactSetSession-backed realization established by #5607,
+publish it through the owner gate, and validate it at physical access; the
+older direct-group completion does not define Workspace current composition.
 
 This focused addition does not define logical Workspace membership, Root
 occurrence identity or order, Add/Replace/Remove/Clear, dependency-expansion

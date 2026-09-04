@@ -8,7 +8,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class ArtifactRootScopeProjectionTests
+public sealed class ArtifactRootCorrespondenceTests
 {
     const string Framework = "net11.0";
 
@@ -19,24 +19,17 @@ public sealed class ArtifactRootScopeProjectionTests
             PackageAssemblyContextCompletionTests.SharedBinding(
                 "Resource.Free");
         using var workspace = new InspectionWorkspace();
-        ArtifactRootCorrespondence correspondence =
+        PackageArtifactRootCorrespondence correspondence =
             workspace.CreatePackageArtifactRootCorrespondence(binding);
-        var generation = new ArtifactRootGenerationReference(
-            workspace.Identity,
-            correspondence);
 
         AssertResourceFree(typeof(ArtifactRootCorrespondence));
         AssertResourceFree(correspondence.GetType());
-        AssertResourceFree(typeof(ArtifactRootGenerationReference));
         Assert.Empty(
             typeof(PackageArtifactRootCorrespondence)
                 .GetConstructors());
-        Assert.Empty(
-            typeof(ArtifactRootGenerationReference)
-                .GetConstructors());
         Assert.Same(
-            correspondence,
-            generation.Correspondence);
+            workspace.Identity,
+            correspondence.WorkspaceIdentity);
     }
 
     [Fact]
@@ -56,6 +49,11 @@ public sealed class ArtifactRootScopeProjectionTests
                 "Stable.Correspondence",
                 producer: "tests",
                 targetFramework: "net10.0");
+        PackageRootBinding equivalentTargetSpelling =
+            Binding(
+                "Stable.Correspondence",
+                producer: "tests",
+                targetFramework: "NET11.0");
         PackageRootBinding changedProducer =
             Binding(
                 "Stable.Correspondence",
@@ -78,6 +76,10 @@ public sealed class ArtifactRootScopeProjectionTests
         Assert.Equal(
             firstCorrespondence,
             replacementCorrespondence);
+        Assert.Equal(
+            firstCorrespondence,
+            workspace.CreatePackageArtifactRootCorrespondence(
+                equivalentTargetSpelling));
         Assert.NotEqual(
             firstCorrespondence,
             workspace.CreatePackageArtifactRootCorrespondence(
@@ -103,6 +105,16 @@ public sealed class ArtifactRootScopeProjectionTests
     [Fact]
     public void PackageArtifactRootCorrespondence_ExactRequestMatchPerformsNoPhysicalAccess()
     {
+        PackageArtifactRootRequest request =
+            PackageArtifactRootRequest.Create(
+                new RealizedMemberCoordinate.Package(
+                    "exact.match",
+                    "1.0.0",
+                    "tests",
+                    Framework,
+                    runtimeIdentifier: null),
+                Framework,
+                selectionRuntimeIdentifier: null);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
                 Archive(
@@ -132,178 +144,29 @@ public sealed class ArtifactRootScopeProjectionTests
             workspace.CreatePackageArtifactRootCorrespondence(binding);
 
         Assert.Equal(first, second);
-        Assert.True(first.Matches(binding));
+        Assert.True(first.Matches(request));
+        AssertResourceFree(typeof(PackageArtifactRootRequest));
         Assert.Equal(0, content.AccessCount);
     }
 
     [Fact]
-    public async Task PackageArtifactRootGenerationReference_ChangesWithPhysicalGeneration()
+    public void PackageArtifactRootCorrespondence_RuntimeCloseStopsIssuance()
     {
-        PackageRootBinding firstBinding =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Replacement.Generation");
-        PackageRootBinding replacementBinding =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Replacement.Generation");
-        await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
-        PackageAssemblyContextCompletion first =
-            await ExecuteAsync(workspace, firstBinding);
-        ArtifactRootScopeProjection firstRoot =
-            Assert.Single(first.RootScopeProjections);
-        ArtifactRootGenerationReference firstGeneration =
-            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
-                firstRoot.Status).Generation;
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Closed.Correspondence");
+        var workspace = new InspectionWorkspace();
+        PackageArtifactRootCorrespondence correspondence =
+            workspace.CreatePackageArtifactRootCorrespondence(binding);
 
-        PackageAssemblyContextCompletion replacement =
-            await ExecuteAsync(workspace, replacementBinding);
-        ArtifactRootScopeProjection replacementRoot =
-            Assert.Single(replacement.RootScopeProjections);
-        ArtifactRootGenerationReference replacementGeneration =
-            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
-                replacementRoot.Status).Generation;
-        var current = Assert.IsType<
-            ArtifactRootScopeProjectionResult.Current>(
-                workspace.GetCurrentRootScopeProjection(
-                    firstRoot.Correspondence));
+        workspace.Dispose();
 
-        Assert.Equal(
-            firstRoot.Correspondence,
-            replacementRoot.Correspondence);
-        Assert.NotSame(
-            firstGeneration,
-            replacementGeneration);
-        Assert.Same(replacementRoot, current.Projection);
-
-        await replacement.CloseAsync();
-        var absent = Assert.IsType<
-            ArtifactRootScopeProjectionResult.Unavailable>(
-                workspace.GetCurrentRootScopeProjection(
-                    firstRoot.Correspondence));
-        Assert.Equal(
-            ArtifactRootScopeProjectionUnavailableReason.Absent,
-            absent.Reason);
-        await first.CloseAsync();
-    }
-
-    [Fact]
-    public async Task PackageArtifactRootGenerationReference_StaleOrForeignCannotEnterAccess()
-    {
-        PackageRootBinding firstBinding =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Generation.Access");
-        PackageRootBinding replacementBinding =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Generation.Access");
-        await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
-        await using InspectionWorkspace foreignWorkspace =
-            InspectionWorkspace.CreateAsynchronous();
-        PackageAssemblyContextCompletion first =
-            await ExecuteAsync(workspace, firstBinding);
-        PackageAssemblyContextProjection admittedBeforeReplacement =
-            first.CreateProjection([firstBinding]);
-        ArtifactRootScopeProjection firstRoot =
-            Assert.Single(first.RootScopeProjections);
-        ArtifactRootGenerationReference firstGeneration =
-            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
-                firstRoot.Status).Generation;
-        PackageAssemblyContextCompletion foreign =
-            await ExecuteAsync(foreignWorkspace, firstBinding);
-        ArtifactRootGenerationReference foreignGeneration =
-            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
-                Assert.Single(foreign.RootScopeProjections).Status)
-                .Generation;
-
-        PackageAssemblyContextCompletion replacement =
-            await ExecuteAsync(workspace, replacementBinding);
-        ArtifactRootGenerationReference replacementGeneration =
-            Assert.IsType<ArtifactRootRealizationStatus.Ready>(
-                Assert.Single(replacement.RootScopeProjections).Status)
-                .Generation;
-        var stale = Assert.IsType<
-            PackageAssemblyContextProjectionAccessResult.Rejected>(
-                first.CreateProjection(
-                    [firstBinding],
-                    [firstGeneration]));
-        var foreignResult = Assert.IsType<
-            PackageAssemblyContextProjectionAccessResult.Rejected>(
-                replacement.CreateProjection(
-                    [replacementBinding],
-                    [foreignGeneration]));
-        var substituted = Assert.IsType<
-            PackageAssemblyContextProjectionAccessResult.Rejected>(
-                first.CreateProjection(
-                    [firstBinding],
-                    [replacementGeneration]));
-        var unknown = Assert.IsType<
-            PackageAssemblyContextProjectionAccessResult.Rejected>(
-                replacement.CreateProjection(
-                    [replacementBinding],
-                    [
-                        new ArtifactRootGenerationReference(
-                            workspace.Identity,
-                            firstRoot.Correspondence),
-                    ]));
-        var admitted = Assert.IsType<
-            PackageAssemblyContextProjectionAccessResult.Admitted>(
-                replacement.CreateProjection(
-                    [replacementBinding],
-                    [replacementGeneration]));
-
-        Assert.Equal(
-            PackageAssemblyContextProjectionAccessRejection
-                .ArtifactGenerationMismatch,
-            stale.Reason);
-        Assert.Equal(
-            PackageAssemblyContextProjectionAccessRejection
-                .ArtifactGenerationMismatch,
-            foreignResult.Reason);
-        Assert.Equal(
-            PackageAssemblyContextProjectionAccessRejection
-                .ArtifactGenerationMismatch,
-            substituted.Reason);
-        Assert.Equal(
-            PackageAssemblyContextProjectionAccessRejection
-                .ArtifactGenerationMismatch,
-            unknown.Reason);
-        Assert.Throws<InvalidOperationException>(
-            () => first.CreateProjection([firstBinding]));
-        Assert.NotEmpty(
-            admittedBeforeReplacement.SurfaceRole.Participants);
-
-        await admitted.Projection.ReturnAsync();
-        await admittedBeforeReplacement.ReturnAsync();
-        await replacement.CloseAsync();
-        await first.CloseAsync();
-        await foreign.CloseAsync();
-    }
-
-    [Fact]
-    public async Task PackageArtifactRootCorrespondence_DuplicateLogicalRootsAreRejected()
-    {
-        PackageRootBinding first =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Duplicate.Root");
-        PackageRootBinding replacement =
-            PackageAssemblyContextCompletionTests.SeparateBinding(
-                "Duplicate.Root");
-        await using InspectionWorkspace workspace =
-            InspectionWorkspace.CreateAsynchronous();
-
-        Assert.Throws<ArgumentException>(
-            () => workspace.PreparePackageAssemblyContextCompletion(
-                [first, replacement]));
-    }
-
-    static async Task<PackageAssemblyContextCompletion> ExecuteAsync(
-        InspectionWorkspace workspace,
-        PackageRootBinding binding)
-    {
-        PackageAssemblyContextCompletionOperation operation =
-            workspace.PreparePackageAssemblyContextCompletion(
-                [binding]);
-        return await operation.ExecuteAsync(operation.Identity);
+        Assert.Same(
+            workspace.Identity,
+            correspondence.WorkspaceIdentity);
+        Assert.Throws<ObjectDisposedException>(
+            () => workspace.CreatePackageArtifactRootCorrespondence(
+                binding));
     }
 
     static PackageRootBinding Binding(
@@ -315,7 +178,7 @@ public sealed class ArtifactRootScopeProjectionTests
         var content = new InMemoryPackageContent(
             Archive(
                 (
-                    $"lib/{targetFramework}/{packageId}.dll",
+                    $"lib/net11.0/{packageId}.dll",
                     File.ReadAllBytes(
                         typeof(AssemblyReferenceIdentity)
                             .Assembly.Location))),
@@ -362,7 +225,6 @@ public sealed class ArtifactRootScopeProjectionTests
             typeof(PackageRootRealization),
             typeof(IPackageContent),
             typeof(AssemblyContextGroup),
-            typeof(PackageAssemblyContextCompletion),
             typeof(Stream),
             typeof(Delegate),
         ];
