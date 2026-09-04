@@ -34,12 +34,12 @@ pinned release is:
 
 - **Version:** `v1.8.0` ("The Clarke" release) — currently a GitHub
   **prerelease**, not the "latest" stable tag. Agents in this repository are
-  standardized on it (confirmed TLC build `2026.09.01.002747`, rev
-  `95b800c`), so pin to it rather than the older
+  standardized on it (confirmed TLC build `2026.09.03.193042`, rev
+  `1239539`), so pin to it rather than the older
   stable `v1.7.4` to stay consistent with work already done.
 - **Source:** <https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0>
 - **Asset:** `tla2tools.jar`
-- **SHA-256:** `dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94` —
+- **SHA-256:** `16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b` —
   CI verifies this on every run (cache hit or fresh download), since a
   cache key alone is not an integrity check against a substituted release
   asset. Update it alongside the version when the pin changes.

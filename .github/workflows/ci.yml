@@ -205,7 +205,7 @@ jobs:
           path: ~/.local/share/tlaplus/tla2tools.jar
           # Include the asset digest so a recreated tagged release cannot
           # reuse cached bytes from the prior asset.
-          key: tla2tools-v1.8.0-dbcc75552f21978a
+          key: tla2tools-v1.8.0-16b8cd970e07147f
 
       # Pinned per docs/runbooks/tla-plus-setup.md: v1.8.0 is a GitHub
       # prerelease, so it is never resolved by a "latest" alias -- always
@@ -226,7 +226,7 @@ jobs:
       - name: Verify tla2tools.jar checksum
         run: |
           set -euo pipefail
-          echo "dbcc75552f21978a4846688b8e23be1a6b6c0b3fcee35d78fec2df167958ec94  $HOME/.local/share/tlaplus/tla2tools.jar" \
+          echo "16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b  $HOME/.local/share/tlaplus/tla2tools.jar" \
             | sha256sum -c -
 
       - name: Run TLA+ checks
