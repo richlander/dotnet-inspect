@@ -26,16 +26,19 @@ scope and are unverified.
 ## Shell placement boundary
 
 [Inspect Web Surface Composition](inspect-web-surface-composition.md) owns
-`/query` route placement, layout, and placement of the per-row
-`Open in workspace` action.
+the persistent Query/Workspace application-scope strip, `/query` route
+placement, layout, and placement of the per-row `Open in workspace` action.
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search) owns
-the Search entry. This document owns the action's package-ID/version request
-semantics as part of the query surface contract.
+the Search entry. [Inspect Web Navigation
+Presentation](inspect-web-navigation-presentation.md#application-scope-strip)
+owns the separate Query entry. This document owns the action's
+package-ID/version request semantics as part of the query surface contract.
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
 owns commitment of the returned result, including focus and browser history.
-Together these focused owners replace this document's former `Query`-tab
-placement and package-tab handoff path. This document continues to own the
-query surface's internal request, state, evidence, and rendering contract.
+Together these focused owners keep Query outside the inspection-subject and
+inspector tablists while making it a first-class application scope. This
+document continues to own the query surface's internal request, state,
+evidence, and rendering contract.
 
 ## Why this is not another workbench lens
 
@@ -72,10 +75,14 @@ This mirrors the existing `NuGetSearchOutcome` shape (`Results` + `Failures`,
 never a success-shaped empty result) rather than inventing a new error
 convention. The runtime `QueryRequest` carries the package-ID prefix, selected
 opaque product facet descriptors, and independent candidate and match limits.
+The query bar accepts either a literal prefix or the familiar equivalent with
+one trailing `*`; the product plan removes that suffix before source work and
+evidence construction.
 Facet descriptors come from `PackageQuery.Facets`; the browser does not own an
 independent predicate table. It preserves the product-issued ID, label,
-summary, weight, tier, optional exclusive-selection group, and optional
-display group.
+summary, weight, tier, optional compatibility-selection group, and optional
+display group. A descriptor also states whether it can form an OR-union with
+other combining members of its selection group.
 
 Rows carry the highest evidence tier used by the request: `nuspec` for search
 and manifest evidence, or `package-content` when a selected facet opens the
@@ -89,7 +96,10 @@ evaluation failures remain visible per-package failures.
 The query content is a full-bleed working surface rather than a modal over one
 package. Its `/query` route and layout are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#package-query);
-its Search entry is owned by
+its persistent application-scope entry and Search entry are owned by
+[Inspect Web Navigation
+Presentation](inspect-web-navigation-presentation.md#application-scope-strip)
+and
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md#search):
 
 ```text
@@ -118,13 +128,18 @@ its Search entry is owned by
   replace one another. Product-issued display groups render `.NET Tool`, `v1`,
   and `v2` as one segmented control while retaining three independently
   focusable buttons and opaque facet IDs. `.NET Tool` matches any tool from
-  manifest evidence; `v1` and `v2` inspect `DotnetToolSettings.xml`.
+  manifest evidence and replaces selected version segments. `v1` and `v2`
+  inspect `DotnetToolSettings.xml`; either replaces `.NET Tool`, while both
+  version segments may remain selected and form an OR-union. A matching row's
+  product evidence identifies the format it matched.
   `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
   `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
   that content facets may download up to 20 candidate archives.
-- **Result stream**: rows append incrementally. Each row is a compact
-  package summary plus the product-authored evidence for *why* it matched —
-  never a bare name.
+- **Result stream**: rows append incrementally. Product-issued progress
+  checkpoints distinguish source search, manifest evaluation, and explicit
+  package-content evaluation, so filtered candidates remain perceptible
+  without becoming result rows. Each row is a compact package summary plus the
+  product-authored evidence for *why* it matched — never a bare name.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
   Workspace transition, without inferring a framework, source, or fallback
@@ -135,7 +150,7 @@ its Search entry is owned by
 | State | Trigger | UI |
 |---|---|---|
 | Composing | Query surface opened with no request yet | Prefix form and facet rail stay visible; the result pane explains how to start |
-| Streaming | Request dispatched | Result rows append as pages arrive; running count; cancel affordance; facets stay interactive and re-scope the live stream |
+| Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; result rows append as matches arrive; running count and cancel affordance remain visible; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a persistent banner names the failed producer or package, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway *and the cap was reached via exhaustion*, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness — a stream stopped by hitting the declared cap keeps its `bounded: <reason>` label regardless, since a cap-reached outcome never claimed exhaustiveness to begin with |
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
@@ -146,6 +161,45 @@ Changing the prefix, toggling a facet, cancelling, leaving the route, or
 starting another run aborts or supersedes the active source operation. Rows
 already received remain visible after explicit cancellation, while events from
 an older generation cannot enter a replacement outcome.
+
+## Async stream adoption
+
+Package Query adopts
+[Engine-to-Browser async event streams](engine-browser-async-event-stream.md)
+with this feature-owned vocabulary:
+
+- `Progress(Search, completed, 1)` starts at zero before source discovery is
+  awaited and reaches one only after a usable source result arrives.
+- `Progress(Manifest, completed, candidateLimit)` advances once for every
+  bounded candidate whose manifest outcome is known. The limit is an upper
+  bound, so the UI says "of up to" rather than presenting it as an exact total.
+- `Progress(PackageContent, completed, candidateLimit)` starts before the first
+  admitted archive acquisition and advances after each archive is evaluated or
+  becomes a visible item failure. The same upper-bound wording applies.
+- `Match` and `Failure` are durable events. At most `candidateLimit` durable
+  candidate events are produced.
+- `Completed` is the only terminal event. The Browser adapter returns it through
+  the managed task result and never sends it through the callback channel.
+
+Progress is monotonic per phase and keyed by phase for Browser-state
+coalescing. A request produces at most two search checkpoints, one manifest
+checkpoint per candidate, and one package-content checkpoint per admitted
+archive plus its initial phase checkpoint. The current synchronous callback
+only validates and enqueues nonterminal events; one JavaScript microtask drains
+each pending batch in producer order, outside the managed callback stack.
+Because all Package Query work is bounded, the queue is structurally capped at
+`2 * candidateLimit + 2` events without content facets and
+`3 * candidateLimit + 3` events with them. A future worker adapter may batch
+durable events and coalesce same-phase progress under the shared owner without
+changing this feature vocabulary.
+
+This direct callback is the shared stream contract's transitional first-adopter
+path. The Package Query controller's feature-owned generation guard suppresses
+events after cancellation or supersession; it does not claim integration with
+shared operation authority. Operation-authority adoption in either callback or
+worker placement depends on #5570. Worker placement additionally depends on
+issues #5419 and #5418. Another replaceable feature must use that shared
+authority path rather than copy the Package Query generation guard.
 
 ## Sharing and URL shape
 
@@ -334,13 +388,19 @@ and browser-history and focus-return outcomes are proved by
    or fallback from display text. Confirm that a typed failure retains
    `/query`, the result set, and the request.
 7. Confirm that `.NET Tool`, `v1`, and `v2` form one segmented control with
-   independent focus and pressed state, and that selecting one replaces the
-   others.
-8. Select `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
+   independent focus and pressed state. `.NET Tool` replaces either version;
+   either version replaces `.NET Tool`; `v1` and `v2` remain selectable
+   together and return their OR-union with format-specific row evidence.
+8. Run a sparse or zero-match query and confirm source, manifest, and
+   package-content progress advances before completion without manufacturing
+   rows. Confirm semantic completion crosses the Browser boundary only once.
+9. Select `v1`, `v2`, or `embedded SKILL.md`; confirm the request bound drops
    to 20 candidates, archive acquisition uses the Browser package store and
    deadline, and acquisition/evaluation failures remain visible. Remove the
    final package-content facet and confirm the default returns to 200.
-9. Confirm that no assembly/IL promoted facet, selection checkbox, or `Deepen`
+10. Enter `System.*` and confirm it lowers to the literal `System.` source
+    prefix rather than treating `*` as a package-ID character.
+11. Confirm that no assembly/IL promoted facet, selection checkbox, or `Deepen`
    control is rendered.
 
 ## Landing sequence

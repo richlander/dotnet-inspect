@@ -2,6 +2,7 @@ import {
   bindScopeBar,
   captureScopeBarFocus,
   createScopeBarState,
+  renderApplicationScopeBar,
   renderScopeBar,
   restoreScopeBarFocus,
   scopeBarShortLabel,
@@ -23,13 +24,13 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type WorkbenchShellBinding,
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import {
   bindSettingsPanel,
@@ -41,18 +42,39 @@ import {
 } from "../src/type-panel.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace,
   renderWorkspaceSubject,
-  retainWorkspacePacket,
+  renderWorkspaceView,
 } from "../src/workspace-subject.ts";
+import {
+  bindContentFrame,
+  CONTENT_FRAME_NARROW_QUERY,
+  contentFrameFocusOwnerFor,
+  contentFrameResizeFocusOwner,
+  decideContentFrameResize,
+  focusContentNavigation,
+  focusContentNavigationToggle,
+  renderContentNavigationBar,
+  renderContentNavigationCloseButton,
+  type ContentFrameFocusOwner,
+  type ContentFrameFocusTarget,
+  type ContentFramePane,
+} from "../src/content-frame.ts";
+import {
+  captureMemberFocus,
+  restoreMemberFocus,
+  type MemberFocusSnapshot,
+} from "../src/member-focus.ts";
 
 declare global {
   interface Window {
     focusWorkbenchSearchProbe: () => boolean;
     renderPackageScopeProbe: () => void;
+    rerenderApplicationScopeProbe: () => void;
     rerenderApplicationMenuProbe: () => void;
     rerenderScopeBarProbe: () => void;
+    beginContentFrameReplacementProbe: () => void;
+    flushContentFrameReplacementProbe: () => void;
   }
 }
 
@@ -78,11 +100,13 @@ const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
+const metadataMode = params.has("metadata");
 const graphMode = params.has("graph");
 const limitationMode = params.has("limitation");
 const historyBackMode = params.has("history-back");
 const historyForwardMode = params.has("history-forward");
 const longMode = params.has("long");
+const emptyMemberEntryMode = params.has("empty-member-entry");
 const defaultPackageIcon =
   "https://nuget.org/Content/gallery/img/default-package-icon-256x256.png";
 const systemTextJsonIcon =
@@ -149,97 +173,28 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const packetDefinitions: readonly BrowserHomeDemoResolved[] = [
-  {
-    id: "stj-serializer",
-    title: "System.Text.Json",
-    summary: "Browse a real package API",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: null,
-      memberKey: null,
-      section: "Methods",
-    },
-  },
-  {
-    id: "stj-serialize-callgraph",
-    title: "Serialize call graph",
-    summary: "Dense package-local STJ graph",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: "1dc14dd1fb",
-      memberKey: "method:Serialize",
-      section: "Call Graph",
-    },
-  },
-  {
-    id: "stj-getdecimal-callgraph",
-    title: "JsonElement.GetDecimal",
-    summary: "STJ number parse path",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonElement",
-      memberAnchor: "cfd9980a6c",
-      memberKey: "method:GetDecimal",
-      section: "Call Graph",
-    },
-  },
-];
-let workspacePackets: BrowserHomeDemoResolved[] = [];
-for (const packet of packetDefinitions)
-  workspacePackets = retainWorkspacePacket(workspacePackets, packet);
-let selectedWorkspacePacketId = workspacePackets[0]?.id ?? "";
-
-function selectedWorkspacePacket(): BrowserHomeDemoResolved | null {
-  return workspacePackets.find(
-    packet => packet.id === selectedWorkspacePacketId) ?? null;
-}
-
 function workspaceNavigationHtml(): string {
   return renderWorkspaceSubject({
-    packets: workspacePackets,
-    selectedPacketId: selectedWorkspacePacketId,
+    packageCount: coordinates.length,
+    selected: true,
     escapeHtml,
   });
 }
 
 function workspaceDetailHtml(): string {
-  return renderWorkspacePacketView({
-    packet: selectedWorkspacePacket(),
-    packages: coordinates.slice(0, 1),
-    activePackage: coordinates[0] ?? null,
+  return renderWorkspaceView({
+    occurrences: coordinates
+      .filter(item => !item.isRuntimePack)
+      .map((item, index) => ({
+        action: `occurrence-${index}`,
+        package: item.id,
+        version: item.version,
+        framework: item.activeFramework,
+      })),
+    packages: coordinates,
+    loading: false,
+    error: "",
     escapeHtml,
-    packageIdentityKey: item =>
-      `${item.id}@${item.version}::${item.activeFramework}`,
   });
 }
 
@@ -251,8 +206,19 @@ let activeScope: WorkspaceScope = workspaceMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = "overview";
-let activeTypeLens: TypeLens = sourceMode ? "source" : "api";
+let activeTypeLens: TypeLens = sourceMode
+  ? "source"
+  : metadataMode
+    ? "metadata"
+    : "api";
 let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+let contentFramePane: ContentFramePane = "detail";
+let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
+let contentFrameReplacementFocus: MemberFocusSnapshot | null = null;
+let contentFrameReplacementFocusGeneration: number | null = null;
+let documentFocusGeneration = 0;
+const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 const source = {
   provider: limitationMode ? "decompiled" : "pdb",
   provenance: limitationMode
@@ -321,13 +287,17 @@ function scopeBarHtml() {
   });
 }
 
+const contentNavigationLabel = memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
-  : `<section class="type-browser">
-      <header class="browser-head">Target inventory</header>
+  : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
+      <header class="browser-head">
+        <span class="pane-label">${contentNavigationLabel.toUpperCase()}</span>
+        ${renderContentNavigationCloseButton()}
+      </header>
       <label class="type-search">
         <span>/</span>
-        <input aria-label="Filter types" placeholder="Filter types" />
+        <input aria-label="Filter ${contentNavigationLabel.toLowerCase()}" placeholder="Filter ${contentNavigationLabel.toLowerCase()}" />
       </label>
       <div class="namespace-picker">
         <select id="namespace-jump" class="scope-select">
@@ -339,10 +309,81 @@ const navigationHtml = workspaceMode
           <button class="active">all kinds</button>
         </div>
       </div>
-      <div class="type-list">
-        <button class="namespace-row">System.Text.Json</button>
+      <div id="type-list" class="type-list" role="listbox" tabindex="0">
+        <button class="type-row selected" type="button" role="option"
+          aria-selected="true" data-harness-navigation-row>
+          <span class="${memberMode ? "member-icon" : "kind-icon"}">${memberMode ? "M" : "C"}</span>
+          <span class="type-name">${memberMode ? "DeserializeSync" : "JsonSerializer"}</span>
+          <small>${memberMode ? "method" : "class"}</small>
+        </button>
+      </div>
+    </aside>`;
+
+function detailHtml() {
+  if (sourceMode) {
+    return renderSourceResult({
+      source,
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    });
+  }
+  if (workspaceMode) return workspaceDetailHtml();
+  if (metadataMode) {
+    return `<section class="metadata-surface" aria-labelledby="metadata-surface-title">
+      <header class="metadata-surface-head">
+        <h1 id="metadata-surface-title">Metadata</h1>
+        <p>sealed class <span>· public</span></p>
+      </header>
+      <div class="metadata-surface-scroll">
+        <section class="document-section metadata-shape-section">
+          <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
+        </section>
+      </div>
+      <footer class="metadata-surface-footer">
+        <span>System.Text.Json.JsonSerializer</span>
+        <span>net10.0 · System.Text.Json.dll</span>
+      </footer>
+    </section>`;
+  }
+  if (memberMode) {
+    return `<section class="member-surface" aria-labelledby="member-surface-title">
+      <header class="api-surface-head member-surface-head">
+        <h1 id="member-surface-title">DeserializeSync</h1>
+        <p>method <span>· 1 of 1</span></p>
+      </header>
+      <div class="member-surface-scroll">
+        <article class="learn-overview">
+          <section class="learn-section member-overview-intro">
+            <p class="docs-unavailable">No summary was found in the package XML documentation.</p>
+            <div class="signature-panel">
+              <div class="signature-language"><span>C#</span><small>declaration</small></div>
+              <pre class="language-csharp signature-code"><code>public static object? DeserializeSync(string json)</code></pre>
+            </div>
+          </section>
+        </article>
       </div>
     </section>`;
+  }
+  if (!packageMode) {
+    return `<section class="api-surface" aria-labelledby="api-surface-title">
+      <header class="api-surface-head">
+        <h1 id="api-surface-title">Members</h1>
+        <p>12 of 12 member groups <span>· 18 overloads</span></p>
+      </header>
+      <div class="member-browser-controls api-surface-controls"></div>
+      <div class="api-surface-scroll"></div>
+      <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
+    </section>`;
+  }
+  return `<h1>${subjectPath.at(-1)?.label}</h1>
+    <section class="document-section package-coordinate-editor">
+      <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
+      <div class="package-coordinate-fields">
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
+        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
+      </div>
+    </section>`;
+}
 const harnessKeybindings = new KeybindingRegistry();
 harnessKeybindings.register({
   id: "workspace.open-all",
@@ -446,6 +487,24 @@ const harnessKeyboardHelpBindings = [
 app.innerHTML = `
   <div class="workbench">
     ${workbenchShellHtml({
+      applicationScopeHtml: renderApplicationScopeBar(
+        workspaceMode ? "workspace" : null,
+        true,
+        escapeHtml),
+      contextualActionsHtml: annotatedMode || sourceMode
+        ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
+            ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
+            ${sourceMode
+              ? renderSourcePageActions({
+                  source,
+                  copyButtonId: memberMode
+                    ? "copy-source"
+                    : "copy-type-source",
+                  escapeHtml,
+                })
+              : ""}
+          </div>`
+        : "",
       inspectedTargetHtml: `
         <div class="inspected-target" aria-label="Inspected target">
           <span class="subject-icon" aria-hidden="true">${workspaceMode
@@ -461,62 +520,24 @@ app.innerHTML = `
             }).join("")}
           </div>
         </div>`,
-      titleNavigationHtml: `
-        <nav class="title-navigation" aria-label="Search and history">
-          <div class="nav-history">
-            <button id="nav-back" ${historyBackMode ? "" : "disabled"} aria-label="Back">←</button>
-            <button id="nav-forward" ${historyForwardMode ? "" : "disabled"} aria-label="Forward">→</button>
-          </div>
-          <button id="open-search" class="title-search" type="button" aria-haspopup="dialog">
-            <span class="title-search-glyph" aria-hidden="true">⌕</span>
-            <span class="title-search-label title-search-label-full">Search types, members, packages</span>
-            <span class="title-search-label title-search-label-compact">Search</span>
-            <kbd>Ctrl P</kbd>
-          </button>
-        </nav>`,
+      subjectInspectorHtml: scopeBarHtml(),
+      titleNavigationHtml: renderTitleNavigation(
+        historyBackMode,
+        historyForwardMode),
     })}
-    <header class="subject-zone" aria-label="Subjects and inspectors">
-      <div class="subject-inspector-region">${scopeBarHtml()}</div>
-      <div class="shell-actions${annotatedMode ? " annotated-page-actions" : ""}${sourceMode ? " source-page-actions" : ""}">
-        ${annotatedMode || sourceMode
-          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedMode ? "Annotated Source actions" : "Source actions"}">
-              ${annotatedMode ? renderAnnotatedSourcePageActions(true) : ""}
-              ${sourceMode
-                ? renderSourcePageActions({
-                    source,
-                    copyButtonId: memberMode
-                      ? "copy-source"
-                      : "copy-type-source",
-                    escapeHtml,
-                  })
-                : ""}
-            </div>`
-          : ""}
-        ${renderApplicationMenuButton()}
-      </div>
-    </header>
     <div class="notice-stack"></div>
-    <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+    <main id="subject-panel" class="workspace${workspaceMode ? "" : " content-frame"}"
+      ${workspaceMode ? "" : `data-content-pane="${contentFramePane}"`}
+      role="tabpanel" aria-labelledby="${workspaceMode ? "application-scope-workspace" : "active-subject-tab"}">
       ${navigationHtml}
-      <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          ${sourceMode
-            ? renderSourceResult({
-                source,
-                escapeHtml,
-                highlightCSharp: escapeHtml,
-              })
-            : workspaceMode
-              ? workspaceDetailHtml()
-              : `<h1>${subjectPath.at(-1)?.label}</h1>
-              ${packageMode ? `
-                <section class="document-section package-coordinate-editor">
-                  <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-                  <div class="package-coordinate-fields">
-                    <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-                    <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
-                  </div>
-                </section>` : ""}`}
+      <section class="detail-pane${workspaceMode
+        ? ""
+        : packageMode || sourceMode
+          ? " content-navigation-separated"
+          : " content-navigation-integrated"}">
+        ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+          ${detailHtml()}
         </article>
       </section>
     </main>
@@ -588,6 +609,10 @@ harnessDispatchKeybindings.register({
         "button, a[href], input, select, textarea, summary, "
         + "[role=button], [role=link], [role=checkbox]")),
   run: () => {
+    if (emptyMemberEntryMode) {
+      enterEmptyMemberNavigation();
+      return true;
+    }
     document.body.dataset.drillIn = "true";
     return true;
   },
@@ -656,6 +681,9 @@ function renderHarnessScopeBar() {
 
 function bindHarnessScopeBar() {
   scopeBarBinding = bindScopeBar(document, {
+    onApplicationScopeSelect: applicationScope => {
+      document.body.dataset.applicationScope = applicationScope;
+    },
     onMemberSectionSelect: section => {
       activeMemberSection = section;
       renderHarnessScopeBar();
@@ -675,9 +703,7 @@ function bindHarnessScopeBar() {
   }, scopeBarState);
 }
 
-function renderHarnessWorkspace(packetId: string) {
-  if (!workspacePackets.some(packet => packet.id === packetId)) return;
-  selectedWorkspacePacketId = packetId;
+function renderHarnessWorkspace() {
   const navigation =
     document.querySelector<HTMLElement>(".workspace-nav");
   const detail =
@@ -690,32 +716,122 @@ function renderHarnessWorkspace(packetId: string) {
     throw new Error("The workspace packet harness is incomplete.");
   navigation.outerHTML = workspaceNavigationHtml();
   detail.innerHTML = workspaceDetailHtml();
-  const title = selectedWorkspacePacket()?.title ?? "Current workspace";
+  const title = "Default Workspace";
   path.setAttribute("aria-label", title);
   path.title = title;
   pathSegment.textContent = title;
   bindHarnessWorkspace();
   requestAnimationFrame(() =>
-    focusWorkspacePacket(document, packetId));
+    focusWorkspace(document));
+}
+
+function enterEmptyMemberNavigation() {
+  const navigation =
+    document.querySelector<HTMLElement>("#content-navigation-pane");
+  if (!navigation)
+    throw new Error("The content navigation pane is unavailable.");
+  navigation.outerHTML = `
+    <aside id="content-navigation-pane" class="type-browser member-nav"
+      aria-label="Members">
+      <header class="browser-head">
+        <span class="pane-label">MEMBERS</span>
+        ${renderContentNavigationCloseButton()}
+      </header>
+      <div id="type-list" class="type-list member-list" role="listbox"
+        tabindex="0">
+        <div class="empty-list">No members match these filters.</div>
+      </div>
+    </aside>`;
+  contentFramePane = "navigation";
+  document.querySelector<HTMLElement>(".content-frame")
+    ?.setAttribute("data-content-pane", contentFramePane);
+  requestAnimationFrame(() => focusContentNavigation(document));
 }
 
 function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
     onSelect: renderHarnessWorkspace,
-    onOpen: packetId => {
+    onActivate: action => {
       const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
       document.body.dataset.workspaceExecutionCount = String(count + 1);
-      document.body.dataset.workspaceExecution = packetId;
+      document.body.dataset.workspaceExecution = action;
     },
-    onClose: packageKey => {
-      document.body.dataset.workspaceClose = packageKey;
-    },
+    onRetry: () => {},
   });
 }
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
+bindContentFrame(document, {
+  onShowDetail: () => {
+    contentFramePane = "detail";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigationToggle(document));
+  },
+  onShowNavigation: () => {
+    contentFramePane = "navigation";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigation(document));
+  },
+});
+function focusContentFrameTarget(target: ContentFrameFocusTarget) {
+  if (target === "navigation")
+    focusContentNavigation(document);
+  else if (target === "navigation-toggle")
+    focusContentNavigationToggle(document);
+}
+document.addEventListener("pointerdown", event => {
+  documentFocusGeneration++;
+  contentFrameReplacementFocusOwner = null;
+  const pointed = event.target instanceof Element ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
+});
+document.addEventListener("focusin", event => {
+  documentFocusGeneration++;
+  contentFrameReplacementFocusOwner = null;
+  const focused = event.target instanceof HTMLElement ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
+});
+document.addEventListener("focusout", () => {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const focused = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      if (contentFrameFocusOwnerFor(focused) === null)
+        contentFrameFocusOwner = null;
+    });
+  });
+});
+contentFrameMedia.addEventListener("change", event => {
+  if (workspaceMode) return;
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  contentFrameFocusOwner = contentFrameResizeFocusOwner(
+    focused,
+    contentFrameFocusOwner,
+    contentFrameReplacementFocusOwner);
+  const decision = decideContentFrameResize(
+    contentFramePane,
+    event.matches,
+    contentFrameFocusOwner);
+  contentFramePane = decision.pane;
+  document.querySelector<HTMLElement>(".content-frame")
+    ?.setAttribute("data-content-pane", contentFramePane);
+  if (decision.focus)
+    requestAnimationFrame(() => focusContentFrameTarget(decision.focus));
+});
+document.querySelectorAll<HTMLElement>("[data-harness-navigation-row]")
+  .forEach(row => row.addEventListener("click", () => {
+    contentFramePane = "detail";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigationToggle(document));
+  }));
 if (workspaceMode) document.body.dataset.workspaceExecutionCount = "0";
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);
@@ -723,6 +839,35 @@ window.renderPackageScopeProbe = () => {
   activeScope = "package";
   activePackageLens = "overview";
   renderHarnessScopeBar();
+};
+window.rerenderApplicationScopeProbe = () => {
+  const focusedElement = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const focusTarget = focusedElement
+    ?.closest("[data-application-scope-strip]")
+    ? captureScopeBarFocus(focusedElement)
+    : null;
+  const region = document.querySelector<HTMLElement>(
+    ".titlebar > .application-scope-region");
+  if (!focusTarget || !region)
+    throw new Error("The application scope focus probe is unavailable.");
+  appRoot.tabIndex = -1;
+  appRoot.focus({ preventScroll: true });
+  scopeBarBinding?.disconnect();
+  region.outerHTML = `
+    <div class="application-scope-region">
+      ${renderApplicationScopeBar(
+        workspaceMode ? "workspace" : null,
+        true,
+        escapeHtml)}
+    </div>`;
+  bindHarnessScopeBar();
+  if (!restoreScopeBarFocus(document, focusTarget)) {
+    document.querySelector<HTMLElement>(".brand")
+      ?.focus({ preventScroll: true });
+  }
+  appRoot.removeAttribute("tabindex");
 };
 window.rerenderApplicationMenuProbe = () => {
   const applicationMenuHadFocus = applicationMenuOwnsFocus(document);
@@ -740,3 +885,36 @@ window.rerenderApplicationMenuProbe = () => {
   if (applicationMenuHadFocus) focusApplicationMenuButton(document);
 };
 window.rerenderScopeBarProbe = renderHarnessScopeBar;
+window.beginContentFrameReplacementProbe = () => {
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  const replacementFocusOwner = contentFrameFocusOwnerFor(focused);
+  const focusGeneration = documentFocusGeneration;
+  contentFrameReplacementFocus = captureMemberFocus(document);
+  contentFrameReplacementFocusGeneration = focusGeneration;
+  contentFrameFocusOwner = null;
+  contentFrameReplacementFocusOwner = null;
+  const frame = document.querySelector<HTMLElement>(".content-frame");
+  if (!frame)
+    throw new Error("The content frame is unavailable.");
+  const markup = frame.outerHTML;
+  frame.outerHTML = markup;
+  if (replacementFocusOwner !== null
+    && focusGeneration === documentFocusGeneration) {
+    contentFrameReplacementFocusOwner = replacementFocusOwner;
+  }
+};
+window.flushContentFrameReplacementProbe = () => {
+  const preserved = contentFrameReplacementFocus;
+  const focusGeneration = contentFrameReplacementFocusGeneration;
+  contentFrameReplacementFocus = null;
+  contentFrameReplacementFocusGeneration = null;
+  if (preserved) {
+    restoreMemberFocus(document, preserved, callback => {
+      callback(performance.now());
+      return 0;
+    }, () => focusGeneration === documentFocusGeneration);
+  }
+  contentFrameReplacementFocusOwner = null;
+};

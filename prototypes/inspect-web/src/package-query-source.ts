@@ -4,11 +4,13 @@ import type {
   BrowserPackageQueryFacetDescriptor,
   BrowserPackageQueryCompletion,
   BrowserPackageQueryFailure,
+  BrowserPackageQueryProgress,
   BrowserPackageQueryRow,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
   QueryFacetTerm,
+  QueryProgress,
   QueryResultRow,
   TerminalQueryCompletion,
 } from "./package-query.ts";
@@ -41,6 +43,7 @@ function toQueryFacet(
     weight: descriptor.weight,
     tier: toQueryTier(descriptor.tier),
     selectionGroupId: descriptor.selectionGroupId,
+    combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
     displayGroupId: descriptor.displayGroupId,
     displayGroupLabel: descriptor.displayGroupLabel,
   };
@@ -50,10 +53,43 @@ export function createBrowserPackageQueryDataSource(
   engine: BrowserPackageQueryEngine,
 ): PackageQueryDataSource {
   return {
-    async run(request, onPage, onFailure, abortSignal) {
+    async run(request, onPage, onFailure, onProgress, abortSignal) {
       if (abortSignal.aborted) return { kind: "cancelled" };
 
       let completion: TerminalQueryCompletion | null = null;
+      const flushState: {
+        failed: boolean;
+        error: unknown;
+      } = {
+        failed: false,
+        error: undefined,
+      };
+      let flushScheduled = false;
+      const pendingEvents: BrowserPackageQueryEvent[] = [];
+      const flushEvents = () => {
+        flushScheduled = false;
+        const batch = pendingEvents.splice(0);
+        try {
+          for (const queryEvent of batch) {
+            dispatchEvent(
+              queryEvent,
+              onPage,
+              onFailure,
+              onProgress,
+              terminal => { completion = terminal; });
+          }
+        } catch (error) {
+          flushState.failed = true;
+          flushState.error = error;
+          pendingEvents.length = 0;
+          engine.cancel();
+        }
+      };
+      const scheduleFlush = () => {
+        if (flushScheduled) return;
+        flushScheduled = true;
+        queueMicrotask(flushEvents);
+      };
       const eventSink: Record<string, unknown> = {};
       Object.defineProperty(eventSink, "event", {
         set(value: unknown) {
@@ -61,11 +97,13 @@ export function createBrowserPackageQueryDataSource(
             throw new TypeError(
               "The Browser package-query event payload was not JSON text.");
           }
-          dispatchEvent(
-            parseBrowserEvent(value),
-            onPage,
-            onFailure,
-            terminal => { completion = terminal; });
+          const queryEvent = parseBrowserEvent(value);
+          if (queryEvent.kind === "Completed") {
+            throw new TypeError(
+              "The Browser package-query callback carried a terminal event.");
+          }
+          pendingEvents.push(queryEvent);
+          scheduleFlush();
         },
       });
 
@@ -79,14 +117,19 @@ export function createBrowserPackageQueryDataSource(
           request.requestedMatchLimit,
           false,
           eventSink);
+        flushEvents();
+        if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
-        if (!completion) {
-          dispatchEvent(
-            finalEvent,
-            onPage,
-            onFailure,
-            terminal => { completion = terminal; });
+        if (finalEvent.kind !== "Completed") {
+          throw new TypeError(
+            "The Browser package-query result was not a terminal event.");
         }
+        dispatchEvent(
+          finalEvent,
+          onPage,
+          onFailure,
+          onProgress,
+          terminal => { completion = terminal; });
         return completion
           ?? {
             kind: "failed",
@@ -94,6 +137,8 @@ export function createBrowserPackageQueryDataSource(
               "The Browser package-query stream ended without a completion event.",
           };
       } catch (error) {
+        flushEvents();
+        if (flushState.failed) throw flushState.error;
         if (abortSignal.aborted) return { kind: "cancelled" };
         throw error;
       } finally {
@@ -107,12 +152,21 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
   const parsed: unknown = JSON.parse(json);
   const event = objectValue(parsed, "package-query event");
   switch (event.kind) {
+    case "Progress":
+      return {
+        kind: "Progress",
+        row: null,
+        failure: null,
+        completion: null,
+        progress: parseProgress(event.progress),
+      };
     case "Match":
       return {
         kind: "Match",
         row: parseRow(event.row),
         failure: null,
         completion: null,
+        progress: null,
       };
     case "Failure":
       return {
@@ -120,6 +174,7 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         row: null,
         failure: parseFailure(event.failure),
         completion: null,
+        progress: null,
       };
     case "Completed":
       return {
@@ -127,6 +182,7 @@ function parseBrowserEvent(json: string): BrowserPackageQueryEvent {
         row: null,
         failure: null,
         completion: parseCompletion(event.completion),
+        progress: null,
       };
     default:
       throw new TypeError(
@@ -212,6 +268,17 @@ function parseFailure(value: unknown): BrowserPackageQueryFailure {
   };
 }
 
+function parseProgress(value: unknown): BrowserPackageQueryProgress {
+  const progress = objectValue(value, "package-query progress");
+  return {
+    phase: progressPhaseValue(progress.phase),
+    completed: numberValue(
+      progress.completed,
+      "package-query completed progress"),
+    limit: numberValue(progress.limit, "package-query progress limit"),
+  };
+}
+
 function parseCompletion(value: unknown): BrowserPackageQueryCompletion {
   const completion = objectValue(value, "package-query completion");
   return {
@@ -277,13 +344,35 @@ function completionKindValue(
   }
 }
 
+function progressPhaseValue(
+  value: unknown,
+): BrowserPackageQueryProgress["phase"] {
+  switch (value) {
+    case "Search":
+    case "Manifest":
+    case "PackageContent":
+      return value;
+    default:
+      throw new TypeError(
+        `Unknown package-query progress phase '${String(value)}'.`);
+  }
+}
+
 function dispatchEvent(
   queryEvent: BrowserPackageQueryEvent,
   onPage: (rows: readonly QueryResultRow[]) => void,
   onFailure: (failure: string) => void,
+  onProgress: (progress: QueryProgress) => void,
   onCompleted: (completion: TerminalQueryCompletion) => void,
 ): void {
   switch (queryEvent.kind) {
+    case "Progress":
+      if (!queryEvent.progress) {
+        throw new TypeError(
+          "A package-query progress event contained no progress.");
+      }
+      onProgress(toQueryProgress(queryEvent.progress));
+      return;
     case "Match":
       if (!queryEvent.row) {
         throw new TypeError("A package-query match event contained no row.");
@@ -308,6 +397,31 @@ function dispatchEvent(
       throw new TypeError(
         `Unknown Browser package-query event '${String(queryEvent.kind)}'.`);
   }
+}
+
+function toQueryProgress(
+  progress: BrowserPackageQueryProgress,
+): QueryProgress {
+  let phase: QueryProgress["phase"];
+  switch (progress.phase) {
+    case "Search":
+      phase = "search";
+      break;
+    case "Manifest":
+      phase = "manifest";
+      break;
+    case "PackageContent":
+      phase = "package-content";
+      break;
+    default:
+      throw new TypeError(
+        `Unknown package-query progress phase '${String(progress.phase)}'.`);
+  }
+  return {
+    phase,
+    completed: progress.completed,
+    limit: progress.limit,
+  };
 }
 
 function toQueryRow(

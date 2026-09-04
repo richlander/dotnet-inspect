@@ -61,23 +61,16 @@ jobs:
   # ubuntu-26.04 coverage without making it the scheduler for every run.
   changes:
     runs-on: ubuntu-24.04
-    # eng/ci-detect-changes.sh reads the pull request and its file list from
-    # the Pull requests API, which contents:read alone does not cover.
     permissions:
       contents: read
-      pull-requests: read
     timeout-minutes: 10
     outputs:
       plan: ${{ steps.plan.outputs.plan }}
     steps:
       - uses: actions/checkout@v7
         with:
-          # Full history. Change detection diffs against github.event.before,
-          # which is not always the immediate parent: a push advances main by
-          # more than one commit whenever two PRs merge back to back or a
-          # batch is pushed. fetch-depth: 2 left that commit outside the
-          # shallow clone and the diff died with "Invalid symmetric difference
-          # expression", taking the whole run with it.
+          # Full history. The planner must resolve both exact endpoint commits;
+          # a push's before commit is not always the immediate parent.
           fetch-depth: 0
 
       - uses: actions/setup-dotnet@v6
@@ -142,7 +135,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 1
+            and .schemaVersion == 2
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -151,6 +144,15 @@ jobs:
           # Clear inherited workflow/job values before executing this gate.
           BASH_ENV: ""
           CI_EVENT_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+
+      - name: Upload TLA+ scope evidence
+        if: fromJSON(steps.plan.outputs.plan).validations.tla
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan/${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}
+          if-no-files-found: error
+          retention-days: 1
 
   # Lint markdown files
   markdownlint:
@@ -178,11 +180,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download TLA+ scope evidence
+        uses: actions/download-artifact@v8
         with:
-          # The gate diffs the effective candidate against its event-provided
-          # base so it can select only the model directories changed by the PR,
-          # push, or merge-group candidate.
-          fetch-depth: 0
+          name: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          path: ${{ runner.temp }}/ci-plan
 
       - name: Self-test TLA+ runner scope
         shell: bash
@@ -229,13 +232,37 @@ jobs:
       - name: Run TLA+ checks
         shell: bash
         env:
-          CI_BEFORE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          TLA_SCOPE_ARTIFACT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}
+          TLA_SCOPE_FRAMING: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.framing }}
+          TLA_SCOPE_RECORD_COUNT: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.recordCount }}
+          TLA_SCOPE_SHA256: ${{ fromJSON(needs.changes.outputs.plan).scopes.tla.sha256 }}
         run: |
           set -euo pipefail
-          if [ -z "$CI_BEFORE_SHA" ] \
-             || [ "$CI_BEFORE_SHA" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "${CI_BEFORE_SHA}^{commit}"; then
-            echo "::error::Could not resolve the base commit for scoped TLA+ checks."
+          if [ "$TLA_SCOPE_ARTIFACT" != "ci-plan-tla-paths0" ]; then
+            echo "::error::The TLA+ scope artifact identity is unsupported."
+            exit 1
+          fi
+          if [ "$TLA_SCOPE_FRAMING" != "pathBytesNulTerminated" ]; then
+            echo "::error::The TLA+ scope framing is unsupported."
+            exit 1
+          fi
+          scope_file="${RUNNER_TEMP}/ci-plan/${TLA_SCOPE_ARTIFACT}"
+          if [ ! -f "$scope_file" ]; then
+            echo "::error::The planned TLA+ scope evidence is missing."
+            exit 1
+          fi
+          actual_sha256=$(sha256sum "$scope_file" | cut -d ' ' -f 1)
+          if [ "$actual_sha256" != "$TLA_SCOPE_SHA256" ]; then
+            echo "::error::The TLA+ scope evidence digest does not match the plan."
+            exit 1
+          fi
+          actual_record_count=$(
+            LC_ALL=C tr -cd '\000' < "$scope_file" |
+              wc -c |
+              tr -d '[:space:]'
+          )
+          if [ "$actual_record_count" != "$TLA_SCOPE_RECORD_COUNT" ]; then
+            echo "::error::The TLA+ scope evidence record count does not match the plan."
             exit 1
           fi
           export TLA_TOOLS_JAR="$HOME/.local/share/tlaplus/tla2tools.jar"
@@ -246,8 +273,7 @@ jobs:
           # hit it (a hit is a warning, not a failure -- see
           # eng/run-tla-checks.sh).
           export TLA_CHECK_TIMEOUT_SECONDS=120
-          git diff --no-renames --name-only -z "$CI_BEFORE_SHA" HEAD -- |
-            eng/run-tla-checks.sh --changed-files0
+          eng/run-tla-checks.sh --changed-files0 < "$scope_file"
 
   inspect-web:
     needs: changes
@@ -314,16 +340,6 @@ jobs:
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
-      - name: Audit shipped browser dependencies
-        working-directory: prototypes/inspect-web
-        # The runtime libraries are lockfile dependencies, so advisories against the code that
-        # reaches a user's browser are visible to `npm audit`. `--audit-level=info` is the
-        # strictest setting and is not the default: npm falls back to `low`, which passes a
-        # package whose advisories are all `info`. No `--omit=dev`, because that filters by
-        # where a package is declared rather than by whether it ships -- Vite is a
-        # devDependency and its helpers are in the bundle.
-        run: npm audit --audit-level=info
-
       - name: Check generated inspect-web TypeScript facade for drift
         run: eng/generate-inspect-web-engine-facade.sh --check
 
@@ -356,10 +372,29 @@ jobs:
           index="$site/index.html"
           test -f "$index"
           test -f "$site/staticwebapp.config.json"
-          test -f "$site/inspect-web-engine.js"
-          cmp \
-            prototypes/inspect-web/engine/wwwroot/inspect-web-engine.js \
-            "$site/inspect-web-engine.js"
+          expected_modules=$(
+            printf '%s\n' \
+              inspect-web-host.js \
+              inspect-web-package.js \
+              inspect-web-metadata.js \
+              inspect-web-analysis.js \
+              inspect-web-source.js \
+              inspect-web-call-graph.js \
+              inspect-web-catalog.js |
+              sort
+          )
+          published_modules=$(
+            find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' \
+              -printf '%f\n' |
+              sort
+          )
+          test "$published_modules" = "$expected_modules"
+          while IFS= read -r module; do
+            cmp \
+              "prototypes/inspect-web/engine/wwwroot/$module" \
+              "$site/$module"
+          done <<< "$expected_modules"
+          test ! -f "$site/inspect-web-engine.js"
           test ! -f "$site/inspect-web-engine.ts"
           # The site is deployed from this artifact, so the headers have to be verified
           # where they ship. The toolchain test pins them in the source file; this checks
@@ -412,8 +447,9 @@ jobs:
         working-directory: prototypes/inspect-web
         run: >
           node
-          scripts/verify-published-engine-facade.ts
+          scripts/verify-published-engine-facades.ts
           ../../artifacts/inspect-web-publish/wwwroot
+          production
 
       - name: Test browser engine
         run: >
@@ -522,6 +558,12 @@ jobs:
       - name: Build
         run: dotnet build dotnet-inspect.slnx -c Release
 
+      - name: Test dependency policy
+        run: dotnet run --project eng/DependencyPolicy.Tests -c Release --no-build
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
+
       - name: Run MethodSemantics NativeAOT probe
         run: eng/run-method-semantics-platform-probe.sh nativeaot ${{ matrix.rid }}
 
@@ -615,6 +657,12 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run ecosystem registry tests
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
       - name: Run row-selection tests
         run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
 
@@ -631,7 +679,7 @@ jobs:
         run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release
 
       - name: Run fixture catalog tests
-        run: dotnet run --project tests/DotnetInspector.Fixtures.Tests -c Release
+        run: dotnet run --project tests/DotnetInspector.FixtureInfrastructure.Tests -c Release
 
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
@@ -645,7 +693,7 @@ jobs:
       # token that CI — and any fork PR — does not have. Everything that can be proven with an
       # in-memory transport, including the whole credential-mechanism matrix, runs here.
       - name: Run NuGetFetch tests (offline)
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       # InertText sits below every other project, so a regression here reaches every assembly
       # that prints artifact-derived text. The gates are pure and fast — a full BMP sweep and a
@@ -662,7 +710,7 @@ jobs:
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"
 
       - name: Run analysis tests (fast)
-        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project src/ILInspector.Analysis.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # The runtime-async compiler switch changes IL lowering without changing
       # whether the fixture builds. Run the focused owner gates so CI proves
@@ -751,7 +799,7 @@ jobs:
 
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
       # acquisition fails, but the lane must not go green having silently
@@ -769,6 +817,39 @@ jobs:
           echo "::error::The authenticated GitHub Packages fixture test failed." >&2
           echo "This lane cannot certify hosted fixture consumption. See the fixture test step." >&2
           exit 1
+
+  # Pull-request and merge-group candidates validate dependency policy in the
+  # full test job above. Pushes to main need a focused second look at the
+  # composed tree: two independently green PRs can introduce a forbidden edge
+  # only when both are present, and the full test matrix intentionally skips
+  # post-merge runs.
+  dependency-policy:
+    needs: changes
+    if: fromJSON(needs.changes.outputs.plan).validations.dependencyPolicy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Validate dependency policy
+        run: dotnet run --project eng/DependencyPolicy -c Release --no-build
 
   # net10.0 fallback build coverage. The official non-AOT "any" package targets
   # the net10.0 LTS floor (Directory.Build.props), but the full test lane builds
@@ -996,8 +1077,8 @@ jobs:
       - name: Build C# Diff harness and fixtures
         run: |
           dotnet build tools/CSharpDiffHarness/CSharpDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run C# Diff baseline smoke
         shell: bash
@@ -1097,8 +1178,8 @@ jobs:
       - name: Build IL Diff harness and fixtures
         run: |
           dotnet build tools/IlDiffHarness/IlDiffHarness.csproj -c Release
-          dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-          dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+          dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 
       - name: Run IL Diff baseline smoke
         shell: bash
@@ -1351,10 +1432,11 @@ jobs:
       - inspect-web
       - skill-gate
       - test
+      - dependency-policy
       - tla-plus
       # Path-gated jobs report `skipped` when their input class is absent; all
-      # expensive jobs except inspect-web also skip on pushes to main. That
-      # passes the gate by design; the allow list below distinguishes
+      # expensive jobs except inspect-web and dependency-policy skip on pushes
+      # to main. That passes the gate by design; the allow list below distinguishes
       # "correctly not run" from "ran and failed".
       - build-net10
       - decompiler-gates

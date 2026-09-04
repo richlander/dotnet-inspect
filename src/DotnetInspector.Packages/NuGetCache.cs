@@ -110,6 +110,35 @@ public static class NuGetCache
     }
 
     /// <summary>
+    /// Gets every NuGet global-packages root dependency resolution can read, with an explicit
+    /// <c>NUGET_PACKAGES</c> override first and the platform-default root second.
+    /// </summary>
+    public static IReadOnlyList<string> GetNuGetPackageRoots()
+    {
+        List<string> roots = [];
+        StringComparer comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+        void Add(string? root)
+        {
+            if (string.IsNullOrWhiteSpace(root))
+                return;
+
+            string fullPath = Path.GetFullPath(root);
+            if (!roots.Contains(fullPath, comparer))
+                roots.Add(fullPath);
+        }
+
+        Add(Environment.GetEnvironmentVariable("NUGET_PACKAGES"));
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Add(string.IsNullOrEmpty(home)
+            ? null
+            : Path.Combine(home, ".nuget", "packages"));
+        return roots;
+    }
+
+    /// <summary>
     /// Gets the base path for application caches (read-write).
     /// Delegates to <see cref="CoreCache.GetBasePath"/>.
     /// </summary>
@@ -137,6 +166,72 @@ public static class NuGetCache
     public static string GetPackageContentCachePath()
     {
         return CoreCache.GetCategoryPath(PackageContentCategory);
+    }
+
+    /// <summary>
+    /// Gets the product package-content cache when cache services have already
+    /// been initialized.
+    /// </summary>
+    public static bool TryGetPackageContentCachePath(out string path)
+    {
+        if (_appName is null)
+        {
+            path = "";
+            return false;
+        }
+
+        path = GetPackageContentCachePath();
+        return true;
+    }
+
+    /// <summary>
+    /// Recovers the exact package coordinate and asset path represented by a
+    /// file inside a product-owned package-content cache slot.
+    /// </summary>
+    public static bool TryGetPackageContentIdentity(
+        string path,
+        out string packageName,
+        out string version,
+        out string assetPath,
+        out string packageDirectory)
+    {
+        packageName = "";
+        version = "";
+        assetPath = "";
+        packageDirectory = "";
+        if (!TryGetPackageContentCachePath(out string cacheRoot))
+            return false;
+
+        string relative = Path.GetRelativePath(
+            Path.GetFullPath(cacheRoot),
+            Path.GetFullPath(path));
+        if (Path.IsPathRooted(relative)
+            || relative.Equals("..", StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.DirectorySeparatorChar}",
+                StringComparison.Ordinal)
+            || relative.StartsWith(
+                $"..{Path.AltDirectorySeparatorChar}",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        string[] segments = relative.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length < 4)
+            return false;
+
+        packageName = segments[0];
+        version = segments[1];
+        assetPath = string.Join('/', segments[3..]);
+        packageDirectory = Path.Combine(
+            cacheRoot,
+            segments[0],
+            segments[1],
+            segments[2]);
+        return true;
     }
 
     internal static bool UsesGlobalPackages => !_skipNuGetCache;
@@ -204,24 +299,27 @@ public static class NuGetCache
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
         => [.. EnumerateCachedPackageContent(
             packageName,
             version,
             allowedSourceKeys,
-            globalPackagesPath)];
+            globalPackagesPath,
+            globalPackagesPaths)];
 
     /// <summary>
     /// Cache tiers for a coordinate, preferred order: product-owned app-cache
-    /// slots (configured producer order), then NuGet global-packages. Yields
-    /// lazily so a usable app-cache hit never opens global
+    /// slots (configured producer order), then the ordered NuGet global-packages
+    /// roots. Yields lazily so a usable app-cache hit never opens global
     /// <c>.nupkg.metadata</c> or inspects a corrupt foreign tree.
     /// </summary>
     internal static IEnumerable<CachedPackage> EnumerateCachedPackageContent(
         string packageName,
         string version,
         IReadOnlyList<string>? allowedSourceKeys,
-        string? globalPackagesPath = null)
+        string? globalPackagesPath = null,
+        IReadOnlyList<string>? globalPackagesPaths = null)
     {
         ValidatePathComponent(packageName, "package name");
         ValidatePathComponent(version, "version");
@@ -237,8 +335,8 @@ public static class NuGetCache
         // to read from, in configured order. A slot belonging to any other
         // source is not consulted: those bytes were fetched under an authority
         // this caller no longer claims.
-        var appCachePath = GetPackageContentCachePath();
-        if (Directory.Exists(appCachePath))
+        if (TryGetPackageContentCachePath(out string appCachePath)
+            && Directory.Exists(appCachePath))
         {
             foreach (var sourceKey in allowedSourceKeys ?? [])
             {
@@ -278,14 +376,19 @@ public static class NuGetCache
         // (admission rejected them or none existed).
         if (!_skipNuGetCache)
         {
-            var nugetCachePath = globalPackagesPath ?? GetNuGetCachePath();
-            CachedPackage? global = TryGetGlobalPackageContent(
-                nugetCachePath,
-                normalizedName,
-                normalizedVersion,
-                allowedSourceKeys);
-            if (global is not null)
+            IEnumerable<string> roots = globalPackagesPath is not null
+                ? [globalPackagesPath]
+                : globalPackagesPaths ?? GetNuGetPackageRoots();
+            foreach (string root in roots)
             {
+                CachedPackage? global = TryGetGlobalPackageContent(
+                    root,
+                    normalizedName,
+                    normalizedVersion,
+                    allowedSourceKeys);
+                if (global is null)
+                    continue;
+
                 if (!any)
                 {
                     any = true;
@@ -897,8 +1000,10 @@ public static class NuGetCache
     /// HTTP canonicalization is delegated to
     /// <see cref="NuGetCredentialScope.CanonicalizeEndpoint"/>. Local
     /// canonicalization is delegated to
-    /// <see cref="LocalPackageSourceIdentity"/>. Each source kind therefore has
-    /// one identity across resolution, authorization, and cache provenance.
+    /// <see cref="LocalPackageSourceIdentity"/>. This legacy producer identity
+    /// is intentionally distinct from the package owner's stricter,
+    /// process-local configured-authority identity; cache provenance cannot
+    /// authorize credentials or source results.
     /// </remarks>
     /// <param name="sourceUrl">
     /// The source URL, or an absolute local folder path.

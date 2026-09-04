@@ -422,13 +422,16 @@ a network origin or resource scope does not create context association.
 Feed-advertised metadata cannot mint or replace the context reference.
 
 The configured-authority owner supplies one provider-query URI when it creates
-the context. That URI is the canonical configured service-index endpoint
-selected by the owner's alias decision, retained privately by the context
-solely for `GetAuthenticationCredentials`. Every authorized challenge for the
-context queries the plugin with that URI, including when an advertised resource
-or redirect target supplies the first challenge. The concrete challenge target
-never becomes provider lookup identity and feed-advertised metadata cannot
-replace it. Provider-query identity does not authorize a target.
+the context. That URI retains the exact configured service-index spelling
+selected by the owner's alias decision, including raw path and query spelling,
+solely for `GetAuthenticationCredentials`. Parsing the URI to establish
+resource scope must not replace that provider-query spelling. Every authorized
+challenge for the context queries the plugin with that exact URI, including
+when an advertised resource or redirect target supplies the first challenge.
+The concrete challenge target never becomes provider lookup identity and
+feed-advertised metadata cannot replace it. Provider-query identity does not
+authorize a target. NuGet.Client's JSON URI serialization likewise emits the
+URI's original string rather than its normalized presentation.
 
 The configured service-index endpoint establishes the context's
 credential-resource scope. For ordinary hosts the scope is the endpoint's URI
@@ -538,6 +541,9 @@ The target is unverified until Release gates establish:
   a provider that answers only for the configured service-index URI is queried
   with that URI, and the resulting credential is replayed only to the
   authorized resource;
+- `CredentialRequestPreservesOriginalSourceSpelling`: raw-distinct configured
+  service-index spellings remain distinct in plugin protocol requests rather
+  than collapsing through parsed-URI presentation;
 - `SharedAssociationPipelinesShareAuthenticationContext`: two V3 pipelines
   constructed with the same `PackageSourceAssociation` share credential
   publication and coalesce concurrent challenges into one provider
@@ -861,7 +867,7 @@ Two tiers, in `src/NuGetFetch.Tests`:
 CI runs the offline tier only:
 
 ```bash
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 ```
 
 The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
@@ -872,7 +878,7 @@ PAT:
 export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
 export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
   --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
-dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-trait "Network=Live"
 ```
 
 The token is read from the environment and never written to a config file.

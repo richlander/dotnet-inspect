@@ -81,7 +81,8 @@ public sealed class PackageRootBinding
     public static PackageRootBinding CreateFromSource(
         AcquiredPackageSourcePayload payload,
         string? selectionTargetFramework = null,
-        string? runtimeIdentifier = null)
+        string? runtimeIdentifier = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         if (runtimeIdentifier is not null
@@ -105,6 +106,7 @@ public sealed class PackageRootBinding
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -118,12 +120,14 @@ public sealed class PackageRootBinding
     /// </summary>
     public static PackageRootBinding CreateFromResolved(
         AcquiredPackagePayload payload,
-        string? selectionTargetFramework = null)
+        string? selectionTargetFramework = null,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(payload);
         return Create(
             payload,
             payload.Coordinate.PackageId,
+            displayPackageId ?? payload.Coordinate.PackageId,
             payload.Coordinate.Version,
             payload.Content,
             payload.ProducerKey,
@@ -134,7 +138,8 @@ public sealed class PackageRootBinding
 
     static PackageRootBinding Create(
         object acquiredPayload,
-        string packageId,
+        string coordinatePackageId,
+        string displayPackageId,
         string packageVersion,
         IPackageContent content,
         string producerKey,
@@ -142,6 +147,14 @@ public sealed class PackageRootBinding
         string? targetFramework,
         string? runtimeIdentifier)
     {
+        if (!displayPackageId.Equals(
+                coordinatePackageId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "A package Root display id must identify the acquired package.",
+                nameof(displayPackageId));
+        }
         if (!content.ProducerKey.Equals(producerKey, StringComparison.Ordinal))
         {
             throw new ArgumentException(
@@ -151,7 +164,7 @@ public sealed class PackageRootBinding
 
         var root = new PackageRootRealization(
             content,
-            packageId,
+            displayPackageId,
             packageVersion,
             targetFramework,
             runtimeIdentifier);
@@ -163,7 +176,7 @@ public sealed class PackageRootBinding
         string? effectiveRuntimeIdentifier =
             runtimeIdentifier;
         if (!RealizedMemberCoordinate.Package.TryCreate(
-                packageId,
+                coordinatePackageId,
                 packageVersion,
                 producerKey,
                 effectiveFramework,
@@ -272,9 +285,13 @@ public sealed record PackageAssemblyContextRealizationOptions
     public int MaxAssembliesPerRole { get; init; } = int.MaxValue;
 
     /// <summary>
-    /// The retained-image budget across both roles. Distinct surface and
-    /// implementation groups receive half each.
+    /// The retained-byte budget for one package realization.
     /// </summary>
+    /// <remarks>
+    /// Artifact-backed realization divides this budget between the artifact
+    /// generation and the resulting role groups. Distinct surface and
+    /// implementation groups divide the role-group share again.
+    /// </remarks>
     public long MaxAggregateRetainedImageBytes { get; init; } =
         AssemblyContextGroupOptions.DefaultMaxRetainedImageBytes;
 
@@ -583,25 +600,12 @@ public sealed partial class InspectionWorkspace
         long entryLimit,
         int roleIndex)
     {
-        AssemblyResolutionProvenance provenance =
-            AssemblyResolutionProvenance.Package(
-                asset.Package.PackageId,
-                asset.Package.PackageVersion,
-                asset.Asset.TargetFramework,
-                rid: null);
-        string fallbackName = "RejectedPackageAsset"
-            + roleIndex.ToString(CultureInfo.InvariantCulture);
-        var fallbackIdentity = new AssemblyReferenceIdentity(
-            fallbackName,
-            Version: null,
-            Culture: null,
-            PublicKeyToken: null);
         Func<Stream> openRead = () => OpenEntry(asset, entryLimit);
         ResolvedAssemblyReference assembly =
             ResolvedAssemblyReference.CreateFromStreamWithFallbackIdentity(
                 openRead,
-                fallbackIdentity,
-                provenance,
+                RejectionCarrierIdentity(roleIndex),
+                PackageProvenance(asset),
                 out bool usedFallbackIdentity);
         return new RoleAssembly(
             asset.PackageIndex,
@@ -611,8 +615,29 @@ public sealed partial class InspectionWorkspace
             IdentityDecoded: !usedFallbackIdentity);
     }
 
-    static Stream OpenEntry(RoleAsset asset, long maxExpandedBytes)
+    static AssemblyResolutionProvenance PackageProvenance(
+        RoleAsset asset) =>
+        AssemblyResolutionProvenance.Package(
+            asset.Package.PackageId,
+            asset.Package.PackageVersion,
+            asset.Asset.TargetFramework,
+            rid: null);
+
+    static AssemblyReferenceIdentity RejectionCarrierIdentity(
+        int roleIndex) =>
+        new(
+            "RejectedPackageAsset"
+                + roleIndex.ToString(CultureInfo.InvariantCulture),
+            Version: null,
+            Culture: null,
+            PublicKeyToken: null);
+
+    static Stream OpenEntry(
+        RoleAsset asset,
+        long maxExpandedBytes,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!asset.Package.Content.TryOpenEntry(
                 asset.Asset.Path,
                 maxExpandedBytes,
@@ -625,6 +650,7 @@ public sealed partial class InspectionWorkspace
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return new BoundedPackageEntryStream(
                 stream,
                 maxExpandedBytes);

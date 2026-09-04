@@ -14,20 +14,23 @@ public sealed class NoResolverAssemblyBindingPolicy : IAssemblyBindingPolicy
 
     public AssemblyBindingPolicyVersion Version { get; } = new();
 
-    public AssemblyBindingSelection Select(AssemblyBindingRequest request)
+    public AssemblyBindingSelectionSnapshot Select(
+        AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        return request.Target switch
-        {
-            AssemblyBindingTarget.AssemblyReference =>
-                AssemblyBindingSelection.NameNotOwned(),
-            AssemblyBindingTarget.IntrinsicCoreLibrary =>
-                AssemblyBindingSelection.CannotSelect(
+        return new AssemblyBindingSelectionSnapshot(
+            Version,
+            request.Target switch
+            {
+                AssemblyBindingTarget.AssemblyReference =>
+                    AssemblyBindingSelection.NameNotOwned(),
+                AssemblyBindingTarget.IntrinsicCoreLibrary =>
+                    AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.UnsupportedScope)),
+                _ => AssemblyBindingSelection.Invalid(
                     new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.UnsupportedScope)),
-            _ => AssemblyBindingSelection.Invalid(
-                new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.InvalidPolicyResult)),
-        };
+                        AssemblyBindingFailureKind.InvalidPolicyResult)),
+            });
     }
 }

@@ -8,8 +8,20 @@ Focused L3 design proposal for
 
 This document owns the `dotnet-inspect` command-line grammar and lowering
 boundary for semantic row selection and rendered-line selection. The current
-product has not adopted this contract. All asserted behavior is unverified
-until the gates in [Required gates](#required-gates) land.
+product has not adopted this contract.
+
+Implementation is partial. #5644 implements value parsing, ordered lowering,
+modifier composition, Top-order attachment, typed capability rejection, and
+structured failure selection over already-owned explicit-command option
+occurrences. #5678 implements the explicit-command adapter that establishes
+required-value ownership from System.CommandLine, normalizes eligible bare
+shorthand, preserves raw positions, extracts those occurrences, and invokes
+the lowerer. Implicit routing, diagnostic selection and rendering, command
+adoption, and guidance remain unimplemented.
+
+Only those two explicit-command subsets are verified by their named Release
+gates in [Required gates](#required-gates). Every other asserted behavior
+remains unverified until its named gate lands.
 
 Related owners:
 
@@ -54,6 +66,94 @@ This design does not own:
 L3 may reject a combination because its command has not adopted the required
 adjacent capability. It may not invent that capability or define the adjacent
 owner's behavior to make the combination succeed.
+
+## Explicit-command lowering boundary
+
+The first implemented slice begins after an explicit command has assigned each
+row-selection occurrence its option identity, value where applicable, and argv
+position. It does not split attached tokens, classify option arity, rewrite bare
+`-N`, or participate in command routing.
+
+The lowerer parses count, Window, and Top values; applies direction and line
+modifiers; preserves the argv order of semantic gestures; attaches the one
+typed opaque `--order-by` operand to Top when Top is present; otherwise
+preserves it as baseline-order input; and checks the active command's typed
+capability declaration. Success contains L2-owned `RowSelectionIntent` plus
+optional L3 rendered-line intent. Failure is structured and content-free; this
+slice does not render a diagnostic or echo argv text.
+
+Capabilities follow the lowered unit. A count that survives as semantic Head
+or Tail requires the semantic Head/Tail capability. A count redirected by
+`--lines` or `--tail-lines` requires only the rendered-line capability, because
+it contributes no semantic operation.
+
+Value failures are selected before repetition and modifier conflicts, which are
+selected before capability failures. Within each category, argv position
+selects the first failure except that absence conflicts complete at end of argv
+and use the first modifier's position. Token, arity, routing, L2-resolution, and
+diagnostic precedence remain unimplemented.
+
+The CLI project and reusable L2 project temporarily contain types in the same
+`DotnetInspector.Sections` namespace while existing section pipelines remain in
+the CLI assembly. This slice introduces no colliding type and uses only the
+L2-owned intent contract; the broader namespace migration remains owned by
+[Inspection layers](inspection-layers.md).
+
+## Explicit-command argv adapter boundary
+
+The explicit-command adapter takes one command tree, the raw argument array,
+the active command's typed row-option identities, and its capability
+declaration. It performs an ownership parse, normalizes eligible bare shorthand,
+reparses only when normalization changes the token sequence, extracts typed
+occurrences with original raw argument positions, and invokes the
+explicit-occurrence lowerer.
+
+Required-value protection comes from option results in the ownership parse,
+including parent-bound options and attached values. It does not use a static
+option-name list. An optional-valued or zero-arity option does not protect a
+separate shorthand-shaped token even when System.CommandLine initially assigns
+that token as its value. Occurrence extraction and row-specific arity checks
+also require the authoritative parse token to be an option token for the bound
+alias; row-option-shaped text owned as another required option's value does not
+create a row-selection occurrence.
+
+Bare shorthand recognition is lexical and ASCII-only. Zero and overflowing
+decimal text normalize to `-n` and reach the common value failure rather than
+becoming unrelated unknown options. Both normalized tokens retain the original
+raw token's position. The adapter normalizes only when the bound limit option
+actually exposes the `-n` alias and the earliest active command declaring that
+option owns option syntax at the raw token's position. It does not hoist
+shorthand across a command boundary: earlier tokens remain ancestor positional
+input or retain their ancestor parse diagnostic. Tokens after `--` are not
+normalized or extracted.
+
+The adapter disables System.CommandLine's POSIX multi-option bundling and
+response-file token replacement for both parse passes. The adapter itself
+normalizes the one documented compact `-nN` form; a broader bundle such as a
+separate short option joined with `-nN` is not an additional spelling in this
+grammar. `@`-prefixed arguments remain literal command input rather than
+introducing a second source-position domain. This deliberate narrowing applies
+to the parse result returned by the adapter and must remain visible in each
+command adoption.
+
+System.CommandLine accepts a boolean attached value such as `--head=true` even
+when an option is declared zero-arity. The adapter records an attached-value
+failure for the four row-selection modifiers from the raw token so the grammar
+does not inherit that boolean convention. A following separate token remains
+independent input. It similarly records a missing-value failure when an exact
+row value option is followed by end of argv, `--`, or a known option token;
+signed numeric text remains a value for common validation.
+
+The four value-bearing row options use repeatable raw-string option identities
+with one value allowed per token. This parser shape preserves each occurrence
+without producing System.CommandLine's scalar-option aggregate error; the
+explicit-occurrence lowerer therefore owns repeated-gesture failure. The
+adapter preserves parser errors and structured row-arity failures but does not
+yet select or render the one diagnostic when both exist.
+
+This adapter is not installed in the current command path. Existing
+rendered-line compatibility behavior, explicit commands, and implicit routing
+remain unchanged.
 
 ## Convention and deliberate divergence
 
@@ -450,6 +550,28 @@ All gates run in Release. New gates are **unverified** until implemented.
 `UntrustedArgumentDiagnosticContainmentTests` already exists and remains the
 enforcing gate for argv-derived diagnostic containment; each implemented
 spelling adds its new diagnostic channels to that gate.
+
+The implemented explicit-command occurrence lowerer is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CliRowSelectionExplicitValueTests` | Positive ASCII-decimal Count and Top values plus closed, prefix, and suffix Window values lower to typed intent; empty, signed, non-ASCII, zero, overflowing, integer, start-plus-count, boundless, repeated-operator, reversed, and internally spaced forms return their structured value failure. |
+| `CliRowSelectionExplicitOrderTests` | Count, Window, and Top preserve argv order; one order operand attaches only to Top when Top is present and otherwise remains typed baseline-order input. |
+| `CliRowSelectionExplicitModifierTests` | Direction modifiers lower the limit count to Head or Tail intent, line modifiers remove that count while preserving neighboring semantic operations, exact modifier repeats and equivalent tail/line redundancy are tolerated, conflicting directions reject at the completing token, and absence conflicts name the first modifier. |
+| `CliRowSelectionExplicitCapabilityTests` | An explicit request succeeds with exactly its lowered semantic, order, and line capabilities; line-unit counts do not require the Head/Tail capability, missing capabilities reject in argv order, and an empty request requires none. |
+| `CliRowSelectionExplicitFailurePrecedenceTests` | Value failure precedes repetition/conflict, repetition/conflict precedes capability rejection, each category uses the specified position rule, and structured failure publishes no success value. |
+
+The implemented explicit-command argv adapter is enforced by:
+
+| Gate | Property |
+| --- | --- |
+| `CliRowSelectionExplicitTokenOwnershipTests` | Required separated, attached, compact, and parent-bound values remain owned; row-option-shaped required values do not create phantom occurrences; unrelated option prefixes do not steal row occurrences; optional and zero-arity options leave a separate bare shorthand available; response-file-shaped and `--`-following text remain literal positional input. |
+| `CliRowSelectionExplicitBareShorthandTests` | Positive, zero, and overflowing ASCII-decimal shorthand normalize to the common `-n` path with original positions only where the earliest active command declaring `-n` owns option syntax; ancestor positional text and non-ASCII text are not shorthand; repeats remain distinct occurrences. |
+| `CliRowSelectionExplicitOccurrencePositionTests` | Separated, `=`/`:` attached, and compact values extract typed occurrences at their raw option positions, including one opaque order operand, then preserve semantic order through lowering. |
+| `CliRowSelectionExplicitParseFailureTests` | Authoritative System.CommandLine failures, including unsupported POSIX bundles, suppress lowering; missing row values and attached modifier values produce structured row-arity failures; following separate tokens remain independently parsed; repeatable one-value-per-token option identities preserve complete repeats for the lowerer's repeated-gesture failure. |
+| `CliRowSelectionExplicitAdapterCompositionTests` | Raw Window plus bare count and line-unit input composes through the adapter into surviving semantic Window and rendered-line intent with exactly the lowered capabilities. |
+
+The remaining implementation must satisfy:
 
 | Gate | Property |
 | --- | --- |

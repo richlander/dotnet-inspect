@@ -134,6 +134,7 @@ interface SpotlightOptions {
   activeFramework: () => string;
   render: () => void;
   focusAfterDismiss?: () => void;
+  captureFocusAfterDismiss?: () => () => void;
 }
 
 const BASE_SCOPES = [
@@ -481,7 +482,7 @@ export function createSpotlight(options: SpotlightOptions) {
           </div>
           <div class="spotlight-chips" id="spotlight-chips">${chipsHtml()}</div>
           <div class="spotlight-results" id="spotlight-results" role="listbox">${resultsHtml(items)}</div>
-          <div class="spotlight-foot"><span>↑↓ select</span><span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span><span>esc close</span></div>
+          <div class="spotlight-foot"><span><kbd>Ctrl P</kbd> search</span><span>↑↓ select</span><span>→ target</span><span>↵ ${commands ? "complete / run" : "open"}</span><span>esc close</span></div>
         </div>
       </div>`;
   }
@@ -625,9 +626,11 @@ export function createSpotlight(options: SpotlightOptions) {
     const generation = interactionGeneration;
     reset();
     const execution = options.executeCommand(result.command, result);
+    const focusAfterDismiss = options.captureFocusAfterDismiss?.()
+      ?? options.focusAfterDismiss;
     options.render();
     const focusAfterExecution = () => {
-      if (generation === interactionGeneration) options.focusAfterDismiss?.();
+      if (generation === interactionGeneration) focusAfterDismiss?.();
     };
     Promise.resolve(execution).then(
       focusAfterExecution,

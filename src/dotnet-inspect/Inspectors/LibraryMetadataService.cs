@@ -698,10 +698,50 @@ internal static class LibraryMetadataService
         string? packageName = null,
         string? packageVersion = null,
         NuGetSourceOptions? sourceOptions = null)
+        => await ProbeLocalSourceLinkAsync(
+            () => SourceLinkService.Open(assemblyPath, logger.Log),
+            assemblyPath,
+            httpClient,
+            logger,
+            isPlatformAssembly,
+            packageName,
+            packageVersion,
+            sourceOptions);
+
+    public static async Task<bool> ProbeLocalSourceLinkAsync(
+        ResolvedAssemblyReference assembly,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly = false,
+        string? packageName = null,
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        return await ProbeLocalSourceLinkAsync(
+            () => SourceLinkService.Open(assembly, logger.Log),
+            assembly.Path ?? assembly.Identity.Name,
+            httpClient,
+            logger,
+            isPlatformAssembly,
+            packageName,
+            packageVersion,
+            sourceOptions);
+    }
+
+    private static async Task<bool> ProbeLocalSourceLinkAsync(
+        Func<SourceLinkService> openService,
+        string subject,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly,
+        string? packageName,
+        string? packageVersion,
+        NuGetSourceOptions? sourceOptions)
     {
         try
         {
-            using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+            using var service = openService();
             var context = service.Context;
 
             if (!context.HasPdb && !context.WindowsPdbDetected && context.NeedsPdb)
@@ -716,7 +756,9 @@ internal static class LibraryMetadataService
         }
         catch (Exception ex)
         {
-            logger.Log($"SourceLink discovery probe failed for {assemblyPath}: {ex.Message}");
+            logger.Log(
+                $"SourceLink discovery probe failed for {subject}: "
+                + ex.Message);
             return false;
         }
     }
@@ -900,7 +942,7 @@ internal static class LibraryMetadataService
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.Reference(reference),
                         AssemblyBindingOrigin.Global(),
-                        AssemblyResolutionScope.Any));
+                        AssemblyResolutionScope.Any)).Selection;
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)
                     ?.Assembly;
@@ -1088,7 +1130,7 @@ internal static class LibraryMetadataService
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(reference),
                     AssemblyBindingOrigin.Global(),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
             ResolvedAssemblyReference? resolved =
                 (selection as AssemblyBindingSelection.Selected)?.Assembly;
             if (selection is AssemblyBindingSelection.Unavailable unavailable)
@@ -1496,7 +1538,7 @@ internal static class LibraryMetadataService
                     ?.EvidenceMethodToken),
             SupportingIL =
                 opportunity.SupportingCallSite is
-                    { ILOffset: var supportingOffset }
+                { ILOffset: var supportingOffset }
                     ? $"IL_{supportingOffset:X4}"
                     : null,
             Evidence = opportunity.Evidence,

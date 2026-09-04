@@ -1,6 +1,6 @@
 # Inspect-web JSExport facade partitioning
 
-Status: **proposed** for issue
+Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 
 This is the owning document for the inspect-web production facade partition:
@@ -19,8 +19,8 @@ implemented browser build and deployment procedure.
 
 ## Decision
 
-Inspect-web will replace its one production `InspectWeb.Engine.dll` export
-surface with seven independently generated facade modules:
+Inspect-web replaces its former single `InspectWeb.Engine.dll` export surface
+with seven independently generated facade modules:
 
 | Facade | Managed assembly | Context artifact | Checked-in source | Responsibility |
 | --- | --- | --- | --- | --- |
@@ -60,9 +60,11 @@ dependency. Attribute order is explanatory only.
 
 Each module is generated from a different managed export assembly. The
 Browser/Wasm application remains one host with one SDK runtime. A
-consumer-owned coordinator imports the generated modules from the same
-`dotnet.js` module specifier and initializes them serially. Only the host
-facade's generated `runEntryPoint()` is used.
+consumer-owned coordinator calls the host facade's generated `createRuntime()`
+exactly once, passes that same narrow runtime handle to every facade, and
+initializes them serially. Only the host facade's generated `runEntryPoint()`
+is used. Correctness does not depend on whether the selected SDK runtime
+memoizes repeated creation.
 
 The managed project graph has three roles:
 
@@ -177,13 +179,13 @@ This partition does not:
 The export assemblies are L3 browser adapters. Their names describe the
 capability they adapt, not ownership of the underlying product facts.
 
-## Current surface and target inventory
+## Production surface inventory
 
-The current engine contains 45 `[JSExport]` methods across seven source files.
+The seven rooted export assemblies contain 48 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
-The target inventory below is exhaustive. The compiled
+The inventory below is exhaustive. The compiled
 `InspectWebJsExportContext` is the implementation source of truth for its
 assembly membership.
 `ProductionFacadeContext_DeclaresExactAssemblySet` gates equality between the
@@ -203,9 +205,11 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 14 exports
+### Package facade: 17 exports
 
+- `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
+- `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
@@ -216,11 +220,13 @@ deployment smoke's deterministic awaited operation.
 - `QueryPackage`
 - `QueryPackageDependencies`
 - `QueryPackageVersions`
+- `QueryWorkspacePackageOccurrences`
 - `ResolvePackageDependencyVersion`
 - `RunPackageQuery`
 - `SearchTypes`
 
 This facade owns browser adaptation for package and platform acquisition,
+ordered workspace package occurrences and their opaque activation actions,
 package-query streaming, package-shipped documents, package dependency
 coordinates, and the API surface initially loaded for a package or platform.
 `SearchTypes` stays here because it ranks candidates from that loaded package
@@ -370,13 +376,14 @@ import * as catalog from "/inspect-web-catalog.js";
 let readiness: Promise<void> | undefined;
 
 async function initializeCore(): Promise<void> {
-  await host.initializeRuntime();
-  await packageApi.initializeRuntime();
-  await metadata.initializeRuntime();
-  await analysis.initializeRuntime();
-  await source.initializeRuntime();
-  await callGraph.initializeRuntime();
-  await catalog.initializeRuntime();
+  const runtime = host.createRuntime();
+  await host.initializeRuntime(runtime);
+  await packageApi.initializeRuntime(runtime);
+  await metadata.initializeRuntime(runtime);
+  await analysis.initializeRuntime(runtime);
+  await source.initializeRuntime(runtime);
+  await callGraph.initializeRuntime(runtime);
+  await catalog.initializeRuntime(runtime);
 }
 
 export function initializeFacades(): Promise<void> {
@@ -386,8 +393,10 @@ export function initializeFacades(): Promise<void> {
 ```
 
 The real coordinator also retains the first initialization failure so later
-callers observe the same failure. It does not return a runtime or raw managed
-export object.
+callers observe the same failure. The generated `JsExportRuntime` handle
+exposes only the two SDK capabilities required by generated facades; the
+coordinator neither returns that handle nor exposes a raw managed export
+object.
 
 Startup remains eager and ordered:
 
@@ -418,10 +427,11 @@ runtime acquisition rejects the shared readiness promise. The implementation
 does not fall back to the monolithic module or expose a partially initialized
 application.
 
-The existing multi-facade canary gates the underlying SDK behavior:
+The existing multi-facade canary gates the explicit composition behavior on
+both shipped Browser/Wasm runtimes:
 
-- first initialization creates the runtime;
-- later generated facades reuse the completed SDK runtime;
+- the coordinator calls `createRuntime()` exactly once;
+- every generated facade receives that same runtime promise;
 - independently generated modules retain assembly-specific dispatch; and
 - wrong roots, duplicate runtime modules, cross-routing, skipped initialization,
   and dropped managed invocation fail the gate.
@@ -506,6 +516,19 @@ summary but does not establish graph equality. Their lowering counts remain the
 expected all-or-nothing inverse. A receipt for only `InspectWeb.Engine.dll` is
 incomplete after partitioning even if its local counts are correct.
 
+CoreCLR staging follows only the highest-run-number successful `main`/`push`
+run of the compiler-async staging workflow. A successful completion is a
+wakeup, not deployment authority: after entering one static job-level
+concurrency group, the atomic build-and-deploy job resolves the current highest
+successful run and uses that run's exact artifact and head SHA. It checks the
+selected identity again immediately before deployment. A later rerun of an
+older successful staging run may restart the job, but the restarted job still
+builds and deploys the current highest successful run instead of the older
+wakeup. A newer failed, cancelled, or in-progress run does not make older
+successful evidence false; its later successful completion supplies the
+superseding wakeup. Failed, cancelled, manual, and non-`main` completions do
+not enter the group.
+
 The deployment smoke initializes every module, which acquires its exact
 assembly export root and validates every expected runtime path, then invokes
 `host.asyncLoweringCanary()`. It remains independent of network, package-cache,
@@ -573,14 +596,14 @@ contracts that issue #4497 does not need.
 ## Implementation sequence
 
 The binding cutover is atomic. The current generated module acquires only
-`InspectWeb.Engine`, validates all 45 managed paths during initialization, and
+`InspectWeb.Engine`, validates all 48 managed paths during initialization, and
 supplies the application's declarations and runtime calls. Moving an export
 before replacing that module leaves a stale path; regenerating the monolith
 after the move removes the operation before its consumer has migrated.
 
 One cutover PR therefore:
 
-1. introduces the six capability export assemblies and moves all 45 exports and
+1. introduces the six capability export assemblies and moves all 48 exports and
    their DTO closures to their final assemblies;
 2. declares the seven roots in `InspectWebJsExportContext`, then generates the
    complete context once and compiles, verifies, lints, and drift-checks every
@@ -612,7 +635,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 45
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 48
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,
@@ -626,11 +649,12 @@ The partition is implemented when all of the following hold:
 6. TypeScript and Oxlint ownership tests cover each generated and authored
    composition file without admitting build-output directories.
 7. The production Browser/Wasm composition gate initializes concurrent callers,
-   observes one live SDK runtime, invokes every facade through its own assembly,
-   and runs the entry point exactly once.
+   passes one consumer-created runtime handle to every facade, observes one SDK
+   creation and one live runtime, invokes every facade through its own
+   assembly, and runs the entry point exactly once.
 8. Existing multi-facade close negatives still fail for duplicate runtimes,
    wrong assembly roots, cross-routing, skipped initialization, and dropped
-   managed invocation.
+   managed invocation, while positive startup passes on both Mono and CoreCLR.
 9. `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` and
    `InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts` prove paired
    deployment completeness and parity.

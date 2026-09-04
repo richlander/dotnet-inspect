@@ -11,6 +11,8 @@ See:
 - [CLI change classification and obsolete
   inputs](design/cli-change-classification.md) for published surfaces, change
   disclosure, invalid-input guards, and routing reservations;
+- [Search scope resolution](design/search-scope-resolution.md) for search
+  defaults, explicit-source suppression, and named scope-group expansion;
 - [Command transitions](design/command-transition-model.md) for command versus
   option boundaries;
 - [Progressive disclosure](design/progressive-disclosure.md) for verbosity,
@@ -30,6 +32,7 @@ The CLI owns:
 - parsing command and option syntax;
 - resolving explicit package, platform, project, library, type, member, and
   version-range gestures;
+- normalizing search source gestures through the focused search-scope owner;
 - authorizing network, source-content, and expensive work;
 - creating and disposing operation contexts, workspaces, services, and
   cancellation;
@@ -76,6 +79,32 @@ stdout / stderr / exit code
 Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
+
+### Library inspection subject
+
+After a `library` source resolver identifies a physical participant, the
+command forms one command-scoped inspection subject carrying its path and the
+selected `ResolvedAssemblyReference`, when one exists. An integration-produced
+descriptor is preferred unchanged; otherwise the command consumes
+`ResolvedAssemblyReference.SelectFromPath` with the direct-file, package, or
+platform resolver's typed provenance. The command does not decode metadata to
+reclassify that result.
+
+A `Rejected` selection is reported with the selected path before SourceLink
+probing, ordinary inspection, or an IL-coordinate early return. A
+`Descriptorless` selection keeps the path-only compatibility route. The same
+subject supplies local SourceLink probing, `LibraryMetadataService`, and both
+single and batch IL-coordinate resolution. Package selection remains
+participant-scoped: a rejected participant contributes a warning and non-zero
+exit status without suppressing healthy participants.
+
+`LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
+`LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates`,
+and
+`LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
+gate this composition.
 
 ## Command families
 

@@ -348,6 +348,12 @@ them. It also retains the acquisition provenance and policy inputs needed to
 decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
 
+[Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
+the committed logical Root occurrences above those physical contexts,
+closed-by-default selective dependency expansion, revision-bound scope edits,
+and closure completeness. Artifact Acquisition retains realization, admission,
+binding-context publication, query authorization, and physical lifetime.
+
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
 package versions or framework contexts without mixing their bindings.

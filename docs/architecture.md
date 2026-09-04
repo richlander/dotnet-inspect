@@ -167,6 +167,7 @@ reaches through Research to redefine the other.
 | `DotnetInspector.Vocabulary` | Cross-host catalog | Shared static catalogs for legal rich-query values across hosts. | [Query vocabulary](design/vocabulary.md) |
 | `DotnetInspector.RowSelection` | Shared row-selection contract | Typed `Head`, `Tail`, `Window`, and `Top` declarations plus complete-sequence generic reference evaluation. | [Semantic row selection](design/semantic-row-selection.md) |
 | `DotnetInspector.Sections` | Shared L2 contracts | Typed unresolved row-selection intent plus binding of already-resolved section-row cohorts to semantic selection and L2 result identities. | [L2 section-row shaping](design/section-row-shaping.md) |
+| `DotnetInspector.Presentation` | Shared presentation composition | Host-neutral lowering from typed inspection and comparison contracts into Markout presentation shapes. Member source diff projection deliberately consumes the Queries, Decompiler, Text, Metadata, MetadataPrimitives, and CSharpText graph so hosts cannot pair independently acquired endpoints or infer constructor context from display text. | [Analysis diff](design/analysis-diff.md), [Comparison document](design/comparison-document.md), [Member source diff presentation](design/member-source-diff-presentation.md) |
 | `DotnetInspector.Queries` | Core L1 | Typed query definitions, immutable catalogs, workspaces, execution plans, and typed results. | [Inspection layers](design/inspection-layers.md), [inspection space](inspection-space.md) |
 | `DotnetInspector.ResearchQueries` | Optional L1 companion | Research-backed queries without pulling Research into the core query assembly. | [Inspection layers](design/inspection-layers.md) |
 | `DotnetInspector.PackageQueries` | Optional L1 companion | Package-aware composition over package-neutral queries and realization proofs. | [Package Root realization](design/artifact-acquisition-and-workspaces.md#package-root-realization) |
@@ -189,6 +190,7 @@ referencing the CLI assembly.
 
 | Host | Place in flow | Role | Primary guide |
 | ---- | ------------- | ---- | ------------- |
+| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity, audited membership, discovery, and lookup shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md) |
 | `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
 | `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
@@ -201,6 +203,13 @@ Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
 persistent filesystem-derived package projection may replace cold inspection;
 `CoreCache` remains only its storage mechanism.
+
+Within `DotnetInspector.Services`, package-metadata persistence is a focused
+observation-reuse owner. Its
+[package metadata persistence](design/package-metadata-persistence.md)
+contract defines when a complete, authority-scoped present or absent
+observation may replace a fresh metadata operation; `MetadataFieldCache` and
+`CoreCache` remain encoding and storage mechanisms.
 
 ## Core currencies
 

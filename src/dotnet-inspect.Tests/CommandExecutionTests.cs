@@ -11124,7 +11124,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
-            "MaxDepth:2", "-S", "Source Diff", "--tips", "q");
+            "MaxDepth:2", "-S", "Source Diff", "-v:d", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -16162,10 +16162,10 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData(
         SourceChecksumVerification.Exact,
-        "# Integrity: PDB source document bytes match portable-PDB SHA256 checksum 0123456789ABCDEF.")]
+        "Integrity: PDB source document bytes match portable-PDB SHA256 checksum 0123456789ABCDEF.")]
     [InlineData(
         SourceChecksumVerification.LineEndingNormalized,
-        "# Integrity: PDB source document matches portable-PDB SHA256 checksum 0123456789ABCDEF after CR/LF normalization.")]
+        "Integrity: PDB source document matches portable-PDB SHA256 checksum 0123456789ABCDEF after CR/LF normalization.")]
     public async Task Member_SelectedOverload_SelectSourceDiff_RendersPdbSourceVsDecompiledDiff(
         SourceChecksumVerification checksumVerification,
         string expectedIntegrity)
@@ -16185,6 +16185,7 @@ public partial class CommandExecutionTests
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nameof(CommandExecutionSourceDiffFixture.AddOne) },
             OverloadIndex = member.DeclaringOverloadIndex ?? 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
+            Verbosity = Verbosity.Detailed,
             MethodSource = new MethodSourceContext(
                 """
                 public int AddOne(int value)
@@ -16206,7 +16207,7 @@ public partial class CommandExecutionTests
         Assert.Contains("## Source Diff", output);
         Assert.Contains("```diff", output);
         Assert.Contains(
-            "# PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
+            "PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
             output);
         Assert.Contains(expectedIntegrity, output);
         Assert.Contains("--- PDB Source", output);
@@ -16274,13 +16275,16 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, normalExit);
         Assert.Empty(normalError);
-        Assert.Contains("Source diff status: Partial", normalOutput);
-        Assert.Contains("use -v:d for complete line evidence", normalOutput);
+        Assert.Contains("Added lines", normalOutput);
+        Assert.Contains("Removed lines", normalOutput);
+        Assert.Contains("Changed lines", normalOutput);
+        Assert.Contains("Moved lines", normalOutput);
         Assert.DoesNotContain("-authored-line-60", normalOutput);
+        Assert.DoesNotContain("```diff", normalOutput);
 
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
-        Assert.DoesNotContain("Source diff status: Partial", detailedOutput);
+        Assert.Contains("```diff", detailedOutput);
         Assert.Contains("-authored-line-60", detailedOutput);
     }
 
@@ -16293,7 +16297,7 @@ public partial class CommandExecutionTests
             "member",
             "DotnetInspector.Output.SourceTextDiffRenderer",
             "--library", productAssemblyPath,
-            "RenderReviewerDiff",
+            "CreateOutput",
             "--all",
             "-S", "Source Diff",
             "--tips", "q",
@@ -16306,16 +16310,54 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, normalExit);
         Assert.Empty(normalError);
-        Assert.Single(
-            normalOutput.Split('\n'),
-            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+        Assert.Contains("Changed lines", normalOutput);
+        Assert.DoesNotContain("```diff", normalOutput);
 
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
-        Assert.DoesNotContain(
-            detailedOutput.Split('\n'),
-            line => line.StartsWith("# Source diff status: Partial", StringComparison.Ordinal));
+        Assert.Contains("```diff", detailedOutput);
         Assert.NotEqual(normalOutput, detailedOutput);
+    }
+
+    [Theory]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    public async Task Member_SourceDiff_TabularOutputKeepsMetadataAndSummaryStructured(
+        string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandExecutionSourceDiffFixture).FullName!,
+            "--library",
+            TestAssemblyPath,
+            nameof(CommandExecutionSourceDiffFixture.AddOne),
+            "-S",
+            SectionNames.SourceDiff,
+            format,
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("PDB source", output);
+        Assert.Contains("Integrity", output);
+        Assert.Contains("Added lines", output);
+        Assert.Contains("Removed lines", output);
+        Assert.Contains("Changed lines", output);
+        Assert.Contains("Moved lines", output);
+
+        if (format == "--jsonl")
+        {
+            foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                using JsonDocument document = JsonDocument.Parse(line);
+                Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+            }
+        }
+        else
+        {
+            Assert.Contains("field\tvalue", output);
+        }
     }
 
     [Fact]
@@ -21107,6 +21149,174 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen()
+    {
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Package(
+                "Test.Package",
+                "1.2.3",
+                "net11.0",
+                rid: null);
+        var selected = Assert.IsType<
+            AssemblyDescriptorSelectionResult.Ready>(
+            ResolvedAssemblyReference.SelectFromPath(
+                TestAssemblyPath,
+                provenance));
+
+        var ready = Assert.IsType<
+            LibraryInspectionSubjectSelection.Ready>(
+            LibraryInspectionSubject.Select(
+                "path-that-must-not-be-opened.dll",
+                AssemblyResolutionProvenance.Local("fallback"),
+                selected.Reference));
+
+        Assert.Same(selected.Reference, ready.Subject.AssemblyReference);
+        Assert.Same(provenance, ready.Subject.AssemblyReference!.Provenance);
+        using var sourceLink = ready.Subject.OpenSourceLink();
+        Assert.True(sourceLink.Context.HasMetadata);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-direct-").FullName;
+        string malformedPath = Path.Combine(tempDir, "Malformed.dll");
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                malformedPath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-package-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string malformedPath = Path.Combine(
+            libraryDirectory,
+            "Malformed.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string packagePath = Path.Combine(
+            tempDir,
+            "Malformed.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Malformed.dll",
+                "--package",
+                packagePath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Malformed.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates()
+    {
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-platform-").FullName;
+        const string Version = "999.0.0";
+        string runtimeDirectory = Path.Combine(
+            tempDir,
+            "shared",
+            "Microsoft.NETCore.App",
+            Version);
+        Directory.CreateDirectory(runtimeDirectory);
+        string malformedPath = Path.Combine(
+            runtimeDirectory,
+            "Malformed.Platform.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", tempDir);
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--platform",
+                "Malformed.Platform",
+                "--framework",
+                "runtime",
+                "--version",
+                Version,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
@@ -25203,6 +25413,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-multitfm-").FullName;
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string libraryDirectory =
+                Path.Combine(content, "lib", "net11.0");
+            Directory.CreateDirectory(libraryDirectory);
+            string healthyPath = Path.Combine(
+                libraryDirectory,
+                "Good.dll");
+            string malformedPath = Path.Combine(
+                libraryDirectory,
+                "Bad.dll");
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+            File.Copy(TestAssemblyPath, healthyPath);
+            string packagePath = Path.Combine(
+                tempDir,
+                "Mixed.Package.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Good.dll", output);
+            Assert.DoesNotContain("Bad.dll", output);
+            Assert.Contains("Bad.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
     {
         LibraryInspection FailedInspection(string tfm)
@@ -25642,9 +25904,13 @@ public partial class CommandExecutionTests
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "produced no output",
+                "Could not select library descriptor",
                 error,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "selected managed assembly has no usable identity",
+                error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

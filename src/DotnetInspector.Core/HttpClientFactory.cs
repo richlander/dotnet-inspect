@@ -33,6 +33,8 @@ public static class HttpClientFactory
         _packageSourceClients = new(StringComparer.Ordinal);
     private static IDisposable? _networkTrafficLoggingSubscription;
     private static Func<HttpMessageHandler, HttpMessageHandler>? _authenticationDecorator;
+    private static Func<string, HttpMessageHandler>?
+        _packageSourceHandlerOverride;
 
     /// <summary>
     /// Configure the factory before first use. Safe to call multiple times;
@@ -118,6 +120,7 @@ public static class HttpClientFactory
         _shared = null;
         _sharedUntrustedFetch = null;
         _untrustedFetchOverride = null;
+        _packageSourceHandlerOverride = null;
         foreach (Lazy<HttpClient> client in _packageSourceClients.Values)
         {
             if (client.IsValueCreated)
@@ -190,6 +193,63 @@ public static class HttpClientFactory
             options,
             includeAuthentication: false);
     }
+
+    /// <summary>
+    /// Creates the owned credential-free handler chain for one explicitly
+    /// configured package source.
+    /// </summary>
+    /// <remarks>
+    /// The configured host and port may resolve to private addresses. Redirect
+    /// handling remains disabled because the source client owns bounded
+    /// redirect authorization. This desktop transport is unavailable in
+    /// Browser/Wasm.
+    /// </remarks>
+    public static HttpMessageHandler
+        CreateCredentialFreePackageSourceHandler(string sourceUrl)
+    {
+        if (OperatingSystem.IsBrowser())
+        {
+            throw new PlatformNotSupportedException(
+                "Configured package-source handlers are unavailable in Browser/Wasm.");
+        }
+
+        if (_packageSourceHandlerOverride is not null)
+            return _packageSourceHandlerOverride(sourceUrl);
+
+        Uri source = ParsePackageSource(sourceUrl);
+        string trustedHost = source.IdnHost;
+        int trustedPort = source.Port;
+        HttpMessageHandler handler = new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.All,
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            Credentials = null,
+            PreAuthenticate = false,
+            UseProxy = false,
+            ConnectCallback = (context, cancellationToken) =>
+                NetworkDestinationPolicy.ConnectAsync(
+                    context,
+                    trustedHost,
+                    trustedPort,
+                    cancellationToken),
+        };
+
+        if (_options.Offline)
+            handler = new OfflineHandler(handler);
+
+        if (InfoTracker.Enabled)
+            handler = new CountingHandler(handler);
+
+        handler = new NetworkTelemetryHandler(
+            handler,
+            NetworkClientKinds.Shared);
+        return new UserAgentHandler(handler, UserAgent);
+    }
+
+    internal static void SetPackageSourceHandlerForTesting(
+        Func<string, HttpMessageHandler>? factory) =>
+        _packageSourceHandlerOverride = factory;
 
     private static HttpClient CreateClient(bool includeAuthentication)
     {
@@ -427,6 +487,20 @@ internal sealed class CountingHandler(HttpMessageHandler inner) : DelegatingHand
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
         InfoTracker.RecordHttpRequest();
+        return base.SendAsync(request, cancellationToken);
+    }
+}
+
+internal sealed class UserAgentHandler(
+    HttpMessageHandler inner,
+    string productName) : DelegatingHandler(inner)
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Headers.UserAgent.Count == 0)
+            request.Headers.UserAgent.ParseAdd(productName);
         return base.SendAsync(request, cancellationToken);
     }
 }

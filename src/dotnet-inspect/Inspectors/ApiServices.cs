@@ -57,7 +57,9 @@ internal static class ApiServices
         string? apiVersion,
         string? selectedTfm,
         VerboseLogger logger,
-        ApiOptions options)
+        ApiOptions options,
+        string? packageExtractPath = null,
+        bool usePackageSourcePolicy = false)
     {
         string? apiDllPath = FindApiDll(searchPath, logger);
         if (apiDllPath is null)
@@ -81,7 +83,11 @@ internal static class ApiServices
                         runtimeAssemblyPath is not null,
                     options.ProjectAssetsPath,
                     options.Tfm ?? selectedTfm,
-                    options.PlatformFramework);
+                    options.PlatformFramework,
+                    packageExtractPath,
+                    options.SourceOptions,
+                    usePackageSourcePolicy:
+                        usePackageSourcePolicy || packageExtractPath is not null);
         ApiSurface? api =
             resolution is not null
                 ? resolution.ExtractApiSurface(
@@ -141,7 +147,10 @@ internal static class ApiServices
         bool isPlatformAssembly,
         string? projectAssetsPath,
         string? targetFramework,
-        string? platformFramework)
+        string? platformFramework,
+        string? packageExtractPath,
+        NuGetSourceOptions? sourceOptions,
+        bool usePackageSourcePolicy)
     {
         try
         {
@@ -150,7 +159,10 @@ internal static class ApiServices
                 isPlatformAssembly,
                 projectAssetsPath,
                 targetFramework,
-                platformFramework);
+                platformFramework,
+                packageExtractPath,
+                sourceOptions,
+                usePackageSourcePolicy);
         }
         catch (Exception ex) when (
             ex is IOException

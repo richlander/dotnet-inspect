@@ -64,10 +64,13 @@ The model does not cover:
   owner-supplied boolean per group;
 - a workspace-level result fault after the owner request has started; the
   bounded fault path covers failure before that request;
+- an owner recovery request between that fault and artifact-cleanup start; the
+  bounded recovery transition begins from the retained cleanup wait;
 - exception payloads, cleanup-failure ordering, close-report serialization,
   or thread scheduling;
 - later session-related group rejection, which remains gated by
-  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`;
+  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet` and
+  `RegisterArtifactSession_RejectsLaterCoordinatedGroup`;
 - product capability, product substrate, host, or rendering behavior; or
 - implementation conformance.
 
@@ -100,6 +103,7 @@ terminal receipt cannot authorize release for the second exact dependency.
 | `TransferWaitsForCompletedAdmissions` | Transfer does not compute its exact current set while a group admission remains incomplete. |
 | `ArtifactReleaseWaitsForExactReceipts` | Query-lease/session cleanup starts only after both exact dependent owners issue terminal receipts. |
 | `ReleaseRequestsCarryOwnerAuthority` | Every imported owner request has a recorded issuer, and artifact cleanup is never that issuer. |
+| `RecoveryPrecedesPostFaultRequest` | A requested second group after the modeled fault can arise only through the explicit adjacent-owner recovery transition. |
 | `ArtifactCleanupResultRemainsVisible` | Terminal close publishes the artifact cleanup result, including failure. |
 | `GroupCloseFailureRemainsVisible` | Terminal close preserves whether any workspace-level group close faulted. |
 | `Dependent*CompletionMatchesRequest` and `Dependent*CompletionCarriesResult` | Each exact owner issues a receipt only for its requested group and publishes identity/result together. |
@@ -138,8 +142,14 @@ issued that request.
 
 The reachability configurations intentionally negate their named observations,
 so exit code 12 means TLC reached the required neighboring positive behavior.
-They remain unlisted in the sparse exact-outcome manifest; the positive
-configurations and focused contract mutations are the repository gates.
+`Safety.cfg` enforces fault-before-request ordering through
+`RecoveryPrecedesPostFaultRequest`.
+The sparse exact-outcome manifest enforces the contract-defining retained-fault,
+adjacent-owner recovery, and post-transfer unrelated-admission paths. In
+particular, `ReachabilityOwnerRecoveryRequest.cfg` proves that the required
+explicit recovery path remains reachable rather than making that safety
+invariant vacuous. The already-terminal and mixed-result configurations remain
+unlisted neighboring evidence.
 
 ## Running TLC
 
@@ -182,23 +192,23 @@ SHA-256
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
-| `Safety.cfg` | No error | 74,452 | 24,247 | 23 |
-| `Liveness.cfg` | No error | 74,452 | 24,247 | 23 |
-| `ReachabilityFaultedSettlementWait.cfg` | `NoFaultedSettlementWaitObserved` violated | 2,831 | 1,253 | 9 |
-| `ReachabilityOwnerRecoveryRequest.cfg` | `NoOwnerRecoveryRequestObserved` violated | 5,456 | 2,250 | 10 |
-| `ReachabilityAlreadyTerminalTransfer.cfg` | `NoAlreadyTerminalTransferObserved` violated | 143 | 87 | 5 |
+| `Safety.cfg` | No error | 57,596 | 19,429 | 23 |
+| `Liveness.cfg` | No error | 57,596 | 19,429 | 23 |
+| `ReachabilityFaultedSettlementWait.cfg` | `NoFaultedSettlementWaitObserved` violated | 2,570 | 1,161 | 9 |
+| `ReachabilityOwnerRecoveryRequest.cfg` | `NoOwnerRecoveryRequestObserved` violated | 4,819 | 2,038 | 10 |
+| `ReachabilityAlreadyTerminalTransfer.cfg` | `NoAlreadyTerminalTransferObserved` violated | 141 | 86 | 5 |
 | `ReachabilityUnrelatedAfterTransfer.cfg` | `NoUnrelatedAfterTransferObserved` violated | 31 | 23 | 4 |
-| `ReachabilityMixedReceiptResults.cfg` | `NoMixedReceiptCleanupObserved` violated | 26,293 | 8,998 | 13 |
+| `ReachabilityMixedReceiptResults.cfg` | `NoMixedReceiptCleanupObserved` violated | 21,489 | 7,646 | 13 |
 | `BrokenForeignTransfer.cfg` | `TransferUsesCompleteExactSet` violated | 6 | 6 | 2 |
 | `BrokenIncompleteTransfer.cfg` | `TransferUsesCompleteExactSet` violated | 6 | 6 | 2 |
 | `BrokenDuplicateTransfer.cfg` | `TransferUsesDistinctGroups` violated | 6 | 6 | 2 |
 | `BrokenTransferDuringAdmission.cfg` | `TransferWaitsForCompletedAdmissions` violated | 8 | 7 | 3 |
-| `BrokenForeignReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 54,681 | 17,215 | 16 |
-| `BrokenPartialReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 5,457 | 2,251 | 10 |
-| `BrokenArtifactCleanupReleaseAuthority.cfg` | `ReleaseRequestsCarryOwnerAuthority` violated | 5,457 | 2,251 | 10 |
+| `BrokenForeignReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 42,892 | 14,097 | 16 |
+| `BrokenPartialReceipt.cfg` | `ArtifactReleaseWaitsForExactReceipts` violated | 4,820 | 2,039 | 10 |
+| `BrokenArtifactCleanupReleaseAuthority.cfg` | `ReleaseRequestsCarryOwnerAuthority` violated | 4,820 | 2,039 | 10 |
 | `BrokenImportedReceiptLifecycle.cfg` | Imported owner action property violated | 17 | 15 | 3 |
-| `BrokenGroupCloseFaultOmission.cfg` | `GroupCloseFailureRemainsVisible` violated | 37,710 | 12,377 | 14 |
-| `BrokenCleanupOmission.cfg` | `ArtifactCleanupResultRemainsVisible` violated | 37,711 | 12,378 | 14 |
+| `BrokenGroupCloseFaultOmission.cfg` | `GroupCloseFailureRemainsVisible` violated | 30,214 | 10,337 | 14 |
+| `BrokenCleanupOmission.cfg` | `ArtifactCleanupResultRemainsVisible` violated | 30,211 | 10,334 | 14 |
 
 The positive safety and liveness runs explored the complete bounded state
 graph. The fault-recovery trace settles the second workspace-level group close

@@ -425,6 +425,7 @@ public class SourceForwarderResolutionTests
                 PackageVersion: "1.0.0",
                 ResolvedPackagePath:
                     "Microsoft.Root.Symbols@1.0.0",
+                PackageExtractPath: null,
                 ApiSource: SourceKind.NuGet,
                 ApiVersion: "1.0.0",
                 PlatformFramework: null,
@@ -432,6 +433,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
@@ -494,6 +497,7 @@ public class SourceForwarderResolutionTests
                 PackageName: packageName,
                 PackageVersion: "2.0.0",
                 ResolvedPackagePath: null,
+                PackageExtractPath: null,
                 ApiSource: SourceKind.Project,
                 ApiVersion: "2.0.0",
                 PlatformFramework: null,
@@ -501,6 +505,8 @@ public class SourceForwarderResolutionTests
                 ProjectAssetsPath: null,
                 TempDir: null,
                 TypeName: fixture.Type.FullName,
+                PackageReplaySourceUrls: null,
+                PackageReplayUsesOriginalSources: false,
                 Context: new CommandContext(
                     verbose: true,
                     client));
@@ -1896,12 +1902,19 @@ public class SourceForwarderResolutionTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && reference.Identity == dependency.Identity
                 ? AssemblyBindingSelection.Found(dependency)
                 : AssemblyBindingSelection.NotFound();
+        }
     }
 }

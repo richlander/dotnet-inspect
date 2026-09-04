@@ -30,6 +30,8 @@ interface HarnessOptions {
   query?: string;
   commandContext?: CommandContext | null;
   focusAfterDismiss?: () => void;
+  captureFocusAfterDismiss?: () => () => void;
+  executeCommand?: () => Promise<unknown> | undefined;
   searchResults?: () => SpotlightResult[];
   lenses?: () => readonly (readonly [string, string])[];
 }
@@ -70,6 +72,8 @@ function createHarness({
   query = "",
   commandContext = null,
   focusAfterDismiss = () => {},
+  captureFocusAfterDismiss,
+  executeCommand = () => undefined,
   searchResults = () => [],
   lenses = () => [["api", "API"], ["metadata", "Metadata"]],
 }: HarnessOptions = {}) {
@@ -91,7 +95,7 @@ function createHarness({
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
-    executeCommand: () => undefined,
+    executeCommand,
     reportCommandError: () => {},
     commandContext: () => commandContext,
     schedulePackageFetch: () => {},
@@ -101,6 +105,7 @@ function createHarness({
     activeFramework: () => "net10.0",
     render: () => {},
     focusAfterDismiss,
+    ...(captureFocusAfterDismiss ? { captureFocusAfterDismiss } : {}),
   });
   return { keybindings, spotlight, state };
 }
@@ -328,6 +333,72 @@ test("closing Spotlight restores focus through the application boundary", () => 
   assert.equal(state.spotlightQuery, "");
 });
 
+test("newer document focus blocks delayed command focus restoration", async () => {
+  let resolveCommand: (() => void) | undefined;
+  const command = new Promise<void>(resolve => {
+    resolveCommand = resolve;
+  });
+  let documentFocusGeneration = 0;
+  let restored = 0;
+  let click: (() => void) | undefined;
+  const { spotlight, state } = createHarness({
+    scope: "commands",
+    query: "show metadata",
+    commandContext: {
+      command: "show metadata",
+      package: packageContext,
+    },
+    executeCommand: () => {
+      return command;
+    },
+    captureFocusAfterDismiss: () => {
+      const generation = documentFocusGeneration;
+      return () => {
+        if (generation === documentFocusGeneration) restored++;
+      };
+    },
+  });
+  state.spotlightOpen = true;
+  const results = spotlight.results();
+  const commandIndex = results.findIndex(result =>
+    result.kind === "command" && result.action === "execute");
+  assert.notEqual(commandIndex, -1);
+  spotlight.modalHtml();
+  const row = {
+    dataset: { slIndex: String(commandIndex) },
+    addEventListener: (_name: string, listener: () => void) => {
+      click = listener;
+    },
+  };
+  const input = {
+    value: state.spotlightQuery,
+    selectionStart: state.spotlightQuery.length,
+    selectionEnd: state.spotlightQuery.length,
+    addEventListener: () => {},
+    focus: () => {},
+    setAttribute: () => {},
+    setSelectionRange: () => {},
+  };
+  const root = {
+    querySelector: (selector: string) =>
+      selector === "#spotlight-input" ? input : null,
+    querySelectorAll: (selector: string) =>
+      selector === "[data-sl-index]" ? [row] : [],
+  };
+
+  withStubbedFocusTarget(() =>
+    // The mock implements the exact ParentNode query surface Spotlight consumes.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    spotlight.bind(root as unknown as ParentNode, "modal"));
+  click?.();
+  documentFocusGeneration++;
+  resolveCommand?.();
+  await command;
+  await Promise.resolve();
+
+  assert.equal(restored, 0);
+});
+
 test("workspace Spotlight exposes commands as a dedicated scope", () => {
   const { spotlight } = createHarness({
     scope: "commands",
@@ -341,6 +412,10 @@ test("workspace Spotlight exposes commands as a dedicated scope", () => {
   assert.match(html, /aria-activedescendant="spotlight-result-0"/);
   assert.match(html, /id="spotlight-result-0"/);
   assert.match(html, /data-sl-index="0"/);
+  assert.match(
+    html,
+    /class="spotlight-foot"[^>]*>[\s\S]*<kbd>Ctrl P<\/kbd> search/,
+  );
   assert.match(html, />type</);
   assert.doesNotMatch(html, /data-sl-pkg-load/);
 });

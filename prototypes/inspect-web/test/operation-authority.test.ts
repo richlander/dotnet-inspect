@@ -23,6 +23,7 @@ import {
   type OperationProducerSink,
   type OperationSession,
   type OperationStartResult,
+  type OperationTerminalPublication,
   type PreparedOperationProducer,
 } from "../src/operation-authority.ts";
 
@@ -738,6 +739,186 @@ test("deferred terminal outcome and quiescence are independent", async () => {
   await handle.quiesced;
 });
 
+test("terminal commits precede cross-session observer publication", async () => {
+  const page = createOperationAuthorityPage(deterministicOptions());
+  let secondHandle: TestHandle;
+  let cancelResult: OperationControlResult | undefined;
+  const second = sessionHarness(page);
+  const first = sessionHarness(
+    page,
+    event => {
+      if (event.kind === "terminal")
+        throw new Error("first terminal observer failed");
+      return undefined;
+    },
+    () => {
+      cancelResult = secondHandle.cancel("user");
+      return undefined;
+    },
+  );
+  const firstProducer = producer();
+  const secondProducer = producer();
+  const firstHandle = started(
+    first.session.start("first", firstProducer.adapter),
+  );
+  secondHandle = started(
+    second.session.start("second", secondProducer.adapter),
+  );
+  const firstSink = firstProducer.attempts[0]?.sink;
+  const secondSink = secondProducer.attempts[0]?.sink;
+  assert.ok(firstSink);
+  assert.ok(secondSink);
+
+  const firstPublication = firstSink.commitTerminal({
+    kind: "failed",
+    error: "first-boundary",
+  });
+  const secondPublication = secondSink.commitTerminal({
+    kind: "failed",
+    error: "second-boundary",
+  });
+
+  assert.deepEqual(firstHandle.cancel("user"), { kind: "no-op" });
+  assert.deepEqual(secondHandle.cancel("user"), { kind: "no-op" });
+  assert.deepEqual(first.events.map(event => event.kind), ["started"]);
+  assert.deepEqual(second.events.map(event => event.kind), ["started"]);
+  assert.equal(first.diagnostics.length, 0);
+
+  firstPublication.publish();
+  secondPublication.publish();
+
+  assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "failed",
+    error: "first-boundary",
+  });
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "second-boundary",
+  });
+  assert.deepEqual(first.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+  assert.deepEqual(second.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+  assert.equal(first.diagnostics[0]?.kind, "feature-observer");
+});
+
+test("terminal publication is exactly once and defers contract diagnostics", () => {
+  const harness = sessionHarness();
+  const activeProducer = producer();
+  started(harness.session.start("work", activeProducer.adapter));
+  const sink = activeProducer.attempts[0]?.sink;
+  assert.ok(sink);
+
+  const publication = sink.commitTerminal({
+    kind: "succeeded",
+    value: "done",
+  });
+  const duplicate = sink.commitTerminal({
+    kind: "failed",
+    error: "duplicate",
+  });
+
+  assert.deepEqual(harness.events.map(event => event.kind), ["started"]);
+  assert.equal(harness.diagnostics.length, 0);
+
+  publication.publish();
+  publication.publish();
+  duplicate.publish();
+
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+  assert.equal(harness.diagnostics.length, 2);
+  assert.ok(harness.diagnostics.every(
+    diagnostic => diagnostic.kind === "producer-contract",
+  ));
+});
+
+test("terminal publication respects replacement and disposal precedence", async () => {
+  const replacementHarness = sessionHarness();
+  const originalProducer = producer();
+  const original = started(
+    replacementHarness.session.start("original", originalProducer.adapter),
+  );
+  const publication = originalProducer.attempts[0]?.sink.commitTerminal({
+    kind: "succeeded",
+    value: "original-result",
+  });
+  assert.ok(publication);
+  started(replacementHarness.session.start("replacement", producer().adapter));
+  publication.publish();
+
+  assert.deepEqual(await original.outcome, {
+    kind: "succeeded",
+    value: "original-result",
+  });
+  assert.deepEqual(replacementHarness.events.map(event => event.kind), [
+    "started",
+    "replaced",
+  ]);
+
+  const disposalHarness = sessionHarness();
+  const disposedProducer = producer();
+  const disposed = started(
+    disposalHarness.session.start("disposed", disposedProducer.adapter),
+  );
+  const suppressed = disposedProducer.attempts[0]?.sink.commitTerminal({
+    kind: "failed",
+    error: "committed-before-disposal",
+  });
+  assert.ok(suppressed);
+  assert.deepEqual(disposalHarness.session.dispose(), { kind: "applied" });
+  suppressed.publish();
+
+  assert.deepEqual(await disposed.outcome, {
+    kind: "failed",
+    error: "committed-before-disposal",
+  });
+  assert.deepEqual(disposalHarness.events.map(event => event.kind), [
+    "started",
+    "disposed",
+  ]);
+});
+
+test("quiescence waits for every terminal publication capability", async () => {
+  const harness = sessionHarness();
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("work", activeProducer.adapter),
+  );
+  const sink = activeProducer.attempts[0]?.sink;
+  assert.ok(sink);
+  const publication = sink.commitTerminal({
+    kind: "succeeded",
+    value: "done",
+  });
+
+  sink.reportQuiesced();
+
+  assert.equal(await promiseSettled(handle.quiesced), false);
+  assert.equal(harness.diagnostics[0]?.kind, "producer-contract");
+  assert.deepEqual(harness.events.map(event => event.kind), ["started"]);
+
+  publication.publish();
+  sink.reportQuiesced();
+
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: "done",
+  });
+  assert.equal(await promiseSettled(handle.quiesced), true);
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+});
+
 test("outcome and quiescence each resolve exactly once", async () => {
   const harness = sessionHarness();
   const activeProducer = producer();
@@ -1222,6 +1403,188 @@ test("unexpected stale failure remains diagnostic without feature publication", 
   }]);
 });
 
+test("unexpected terminal commits authority before diagnostic and publishes in order", async () => {
+  const order: string[] = [];
+  let handle: TestHandle;
+  let cancelResult: OperationControlResult | undefined;
+  const harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    event => {
+      order.push(`feature:${event.kind}`);
+      return undefined;
+    },
+    () => {
+      order.push("diagnostic");
+      cancelResult = handle.cancel("user");
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  handle = started(harness.session.start("work", activeProducer.adapter));
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.equal(await promiseSettled(handle.quiesced), false);
+  assert.deepEqual(order, [
+    "feature:started",
+    "diagnostic",
+    "feature:terminal",
+  ]);
+  activeProducer.attempts[0]?.sink.reportQuiesced();
+  assert.equal(await promiseSettled(handle.quiesced), true);
+});
+
+test("unexpected terminal reservation survives diagnostic reentrant replacement", async () => {
+  const order: string[] = [];
+  const nestedProducer = producer();
+  let harness: SessionHarness;
+  let nestedResult: TestStartResult | undefined;
+  harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    event => {
+      order.push(`feature:${event.kind}`);
+      return undefined;
+    },
+    () => {
+      order.push("diagnostic");
+      nestedResult = harness.session.start("nested", nestedProducer.adapter);
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("original", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.equal(nestedResult?.kind, "started");
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(order, [
+    "feature:started",
+    "diagnostic",
+    "feature:replaced",
+    "feature:terminal",
+  ]);
+});
+
+test("diagnostic reentrant disposal suppresses only terminal feature publication", async () => {
+  let harness: SessionHarness;
+  let disposeResult: OperationControlResult | undefined;
+  harness = sessionHarness(
+    createOperationAuthorityPage(deterministicOptions()),
+    undefined,
+    () => {
+      disposeResult = harness.session.dispose();
+      return undefined;
+    },
+  );
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("work", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(disposeResult, { kind: "applied" });
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "disposed",
+  ]);
+  assert.equal(harness.diagnostics.length, 1);
+  assert.deepEqual(activeProducer.attempts[0]?.cancellations, []);
+  assert.equal(await promiseSettled(handle.quiesced), false);
+  activeProducer.attempts[0]?.sink.reportQuiesced();
+  assert.equal(await promiseSettled(handle.quiesced), true);
+});
+
+test("unexpected terminal survives throwing diagnostic observation", async () => {
+  const observerFailure = new Error("observer");
+  const fallbacks: {
+    readonly diagnostic: OperationDiagnostic;
+    readonly observerError: unknown;
+  }[] = [];
+  const page = createOperationAuthorityPage({
+    ...deterministicOptions(),
+    lastResortConsole: {
+      report: (diagnostic, observerError) => {
+        fallbacks.push({ diagnostic, observerError });
+        return undefined;
+      },
+    },
+  });
+  const harness = sessionHarness(page, undefined, () => {
+    throw observerFailure;
+  });
+  const activeProducer = producer();
+  const handle = started(
+    harness.session.start("work", activeProducer.adapter),
+  );
+
+  activeProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "feature-error",
+    "unexpected-failure",
+  );
+
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "feature-error",
+  });
+  assert.deepEqual(harness.events.map(event => event.kind), [
+    "started",
+    "terminal",
+  ]);
+  assert.equal(fallbacks.length, 1);
+  assert.equal(fallbacks[0]?.observerError, observerFailure);
+});
+
+test("unexpected terminal on a stale operation remains diagnostic only", async () => {
+  const harness = sessionHarness();
+  const staleProducer = producer();
+  const staleHandle = started(
+    harness.session.start("stale", staleProducer.adapter),
+  );
+  started(harness.session.start("current", producer().adapter));
+  const eventsBefore = harness.events.length;
+
+  staleProducer.attempts[0]?.sink.reportUnexpectedTerminal(
+    "late-error",
+    "late-unexpected-failure",
+  );
+
+  assert.deepEqual(await staleHandle.outcome, {
+    kind: "canceled",
+    reason: "superseded",
+  });
+  assert.equal(harness.events.length, eventsBefore);
+  assert.deepEqual(harness.diagnostics, [{
+    kind: "producer-contract",
+    operationId: staleProducer.attempts[0]?.identity.id ?? null,
+    error: "late-unexpected-failure",
+  }]);
+});
+
 test("stale progress, success, failure, and release cannot change the current view", async () => {
   const harness = sessionHarness();
   const progressProducer = producer();
@@ -1620,7 +1983,9 @@ function compileTimeCallbackContracts(): void {
   };
   const validSink: TestSink = {
     reportProgress: _value => undefined,
+    commitTerminal: _outcome => ({ publish: () => undefined }),
     reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
@@ -1658,18 +2023,46 @@ function compileTimeCallbackContracts(): void {
   const promiseSink: TestSink = {
     // @ts-expect-error Producer sink callbacks never return Promises.
     reportProgress: async _value => {},
+    commitTerminal: _outcome => ({ publish: () => undefined }),
     reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
   };
   const narrowedSink: TestSink = {
     reportProgress: _value => undefined,
+    commitTerminal: _outcome => ({ publish: () => undefined }),
     // @ts-expect-error A terminal callback cannot narrow the owner-issued outcome.
     reportTerminal: (
       _outcome: { readonly kind: "succeeded"; readonly value: string },
     ) => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: _error => undefined,
+  };
+  const promiseCommitSink: TestSink = {
+    reportProgress: _value => undefined,
+    // @ts-expect-error Terminal commit is synchronous and returns a capability.
+    commitTerminal: async _outcome => ({ publish: () => undefined }),
+    reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: _error => undefined,
+  };
+  const narrowedCommitSink: TestSink = {
+    reportProgress: _value => undefined,
+    // @ts-expect-error Terminal commit cannot narrow the owner-issued outcome.
+    commitTerminal: (
+      _outcome: { readonly kind: "succeeded"; readonly value: string },
+    ) => ({ publish: () => undefined }),
+    reportTerminal: _outcome => undefined,
+    reportUnexpectedTerminal: (_error, _diagnostic) => undefined,
+    reportQuiesced: () => undefined,
+    reportUnexpectedFailure: _error => undefined,
+  };
+  const promisePublication: OperationTerminalPublication = {
+    // @ts-expect-error Terminal publication is synchronous and returns undefined.
+    publish: async () => {},
   };
   const promiseBinding: PreparedOperationProducer = {
     requestCancellation: _reason => undefined,
@@ -1721,8 +2114,11 @@ function compileTimeCallbackContracts(): void {
   void narrowedFeature;
   void promiseDiagnostic;
   void narrowedDiagnostic;
+  void promisePublication;
   void promiseSink;
   void narrowedSink;
+  void promiseCommitSink;
+  void narrowedCommitSink;
   void promiseBinding;
   void narrowedBinding;
   void promiseAdapter;

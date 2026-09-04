@@ -117,10 +117,21 @@ export interface OperationDiagnosticObserver {
   readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
+export interface OperationTerminalPublication {
+  readonly publish: () => undefined;
+}
+
 export interface OperationProducerSink<TValue, TError, TProgress> {
   readonly reportProgress: (value: TProgress) => undefined;
+  readonly commitTerminal: (
+    outcome: OperationOutcome<TValue, TError>,
+  ) => OperationTerminalPublication;
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
+  ) => undefined;
+  readonly reportUnexpectedTerminal: (
+    error: TError,
+    diagnostic: unknown,
   ) => undefined;
   readonly reportQuiesced: () => undefined;
   readonly reportUnexpectedFailure: (error: unknown) => undefined;
@@ -233,6 +244,7 @@ interface OperationRecord<TValue, TError, TProgress> {
   activated: boolean;
   cancellationReserved: boolean;
   terminalReported: boolean;
+  terminalPublicationsPending: number;
   released: boolean;
 }
 
@@ -455,6 +467,87 @@ function createRecord<TValue, TError, TProgress>(
   const quiescedDeferred = deferred<void>();
   let record: OperationRecord<TValue, TError, TProgress>;
 
+  const reserveTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ):
+    | { readonly kind: "rejected"; readonly message: string }
+    | { readonly kind: "consumed" }
+    | { readonly kind: "reserved" } => {
+    if (record.released) {
+      return {
+        kind: "rejected",
+        message: "Producer reported a terminal outcome after resource release.",
+      };
+    }
+    if (record.terminalReported) {
+      return {
+        kind: "rejected",
+        message: "Producer reported more than one terminal outcome.",
+      };
+    }
+    record.terminalReported = true;
+    if (!publicationAuthority(session, record)) return { kind: "consumed" };
+    resolveOutcome(record, outcome);
+    session.revision++;
+    return { kind: "reserved" };
+  };
+
+  const publishTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ): void => {
+    if (outcome.kind === "canceled") {
+      publishFeature(session, {
+        kind: "canceled",
+        operationId: record.identity.id,
+        reason: outcome.reason,
+      });
+    } else {
+      publishFeature(session, {
+        kind: "terminal",
+        operationId: record.identity.id,
+        outcome,
+      });
+    }
+  };
+
+  const createTerminalPublication = (
+    publish: () => undefined,
+  ): OperationTerminalPublication => {
+    let published = false;
+    record.terminalPublicationsPending++;
+    return {
+      publish: () => {
+        if (published) {
+          producerContractError(
+            session,
+            record,
+            "Producer exercised a terminal publication more than once.",
+          );
+          return undefined;
+        }
+        published = true;
+        record.terminalPublicationsPending--;
+        return publish();
+      },
+    };
+  };
+
+  const commitTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ): OperationTerminalPublication => {
+    const reservation = reserveTerminal(outcome);
+    return createTerminalPublication(() => {
+      if (reservation.kind === "rejected") {
+        producerContractError(session, record, reservation.message);
+      } else if (reservation.kind === "reserved"
+        && !session.disposed
+        && session.current === record) {
+        publishTerminal(outcome);
+      }
+      return undefined;
+    });
+  };
+
   const sink: OperationProducerSink<TValue, TError, TProgress> = {
     reportProgress: value => {
       if (record.released) {
@@ -473,40 +566,25 @@ function createRecord<TValue, TError, TProgress>(
       }
       return undefined;
     },
+    commitTerminal,
     reportTerminal: outcome => {
-      if (record.released) {
-        producerContractError(
-          session,
-          record,
-          "Producer reported a terminal outcome after resource release.",
-        );
+      commitTerminal(outcome).publish();
+      return undefined;
+    },
+    reportUnexpectedTerminal: (error, diagnostic) => {
+      const outcome = { kind: "failed", error } as const;
+      const reservation = reserveTerminal(outcome);
+      if (reservation.kind === "rejected") {
+        producerContractError(session, record, reservation.message);
         return undefined;
       }
-      if (record.terminalReported) {
-        producerContractError(
-          session,
-          record,
-          "Producer reported more than one terminal outcome.",
-        );
-        return undefined;
-      }
-      record.terminalReported = true;
-      if (!publicationAuthority(session, record)) return undefined;
-      resolveOutcome(record, outcome);
-      session.revision++;
-      if (outcome.kind === "canceled") {
-        publishFeature(session, {
-          kind: "canceled",
-          operationId: record.identity.id,
-          reason: outcome.reason,
-        });
-      } else {
-        publishFeature(session, {
-          kind: "terminal",
-          operationId: record.identity.id,
-          outcome,
-        });
-      }
+      reportDiagnostic(session, {
+        kind: "producer-contract",
+        operationId: record.identity.id,
+        error: diagnostic,
+      });
+      if (reservation.kind === "reserved")
+        publishTerminal(outcome);
       return undefined;
     },
     reportQuiesced: () => {
@@ -523,6 +601,14 @@ function createRecord<TValue, TError, TProgress>(
           session,
           record,
           "Producer reported resource release before physical settlement.",
+        );
+        return undefined;
+      }
+      if (record.terminalPublicationsPending > 0) {
+        producerContractError(
+          session,
+          record,
+          "Producer reported resource release before terminal publication.",
         );
         return undefined;
       }
@@ -566,6 +652,7 @@ function createRecord<TValue, TError, TProgress>(
     activated: false,
     cancellationReserved: false,
     terminalReported: false,
+    terminalPublicationsPending: 0,
     released: false,
   };
   return record;

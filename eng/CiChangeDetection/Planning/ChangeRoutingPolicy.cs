@@ -11,6 +11,8 @@ namespace CiChangeDetection.Planning;
 internal sealed class ChangeRoutingPolicy
 {
     private const string DetectionScript = "eng/ci-detect-changes.sh";
+    private const string TlaExpectedExitCodes =
+        "eng/tla-expected-exit-codes.txt";
 
     private readonly ProjectInventory? webProjects;
     private readonly ProjectInventory? decompilerSkipProjects;
@@ -61,7 +63,7 @@ internal sealed class ChangeRoutingPolicy
             ProjectInventory.TryLoad(
                 repository,
                 "eng/decompiler-gate-skip-projects.txt",
-                ["src/", "tests/", "tools/"],
+                ["fixtures/", "src/", "tests/", "tools/"],
                 requireNonEmpty: false,
                 out ProjectInventory loadedDecompiler)
                 ? loadedDecompiler
@@ -117,14 +119,21 @@ internal sealed class ChangeRoutingPolicy
     }
 
     /// <summary>
-    /// Reports whether a path is TLA+ model content, as distinct from the TLA+
-    /// infrastructure paths that also select the lane. Only model content
-    /// enters the scoped path corpus.
+    /// Reports whether a path is scoped input consumed by the TLA+ runner, as
+    /// distinct from infrastructure paths that only select the lane.
     /// </summary>
     /// <param name="path">The raw path bytes.</param>
-    /// <returns>True when the path is a TLA+ module or configuration.</returns>
-    internal static bool IsTlaModelContent(ReadOnlySpan<byte> path)
+    /// <returns>
+    /// True for model content or the exact-outcome manifest whose changed
+    /// entries select model directories.
+    /// </returns>
+    internal static bool IsTlaScopedInput(ReadOnlySpan<byte> path)
     {
+        if (BytePattern.Matches(path, TlaExpectedExitCodes))
+        {
+            return true;
+        }
+
         ReadOnlySpan<byte> folded = BytePattern.AsciiFold(path);
         return BytePattern.MatchesAny(
             folded,
@@ -148,8 +157,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/run-tla-checks.sh",
             "eng/test-tla-checks.sh",
             "eng/tla-module-overrides.txt",
-            "eng/tla-expected-exit-codes.txt")
-        || IsTlaModelContent(path);
+            TlaExpectedExitCodes)
+        || IsTlaScopedInput(path);
 
     private void RoutePath(ReadOnlySpan<byte> path, ref RoutingState state)
     {
@@ -188,6 +197,10 @@ internal sealed class ChangeRoutingPolicy
             state.Web = true;
         }
         else if (BytePattern.Matches(path, "src/*"))
+        {
+            state.Code = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
         {
             state.Code = true;
         }
@@ -236,6 +249,9 @@ internal sealed class ChangeRoutingPolicy
         else if (BytePattern.MatchesAny(
             path,
             "eng/CiChangeDetection/*",
+            "eng/DependencyPolicy/*",
+            "eng/DependencyPolicy.Tests/*",
+            "eng/dependency-policy.json",
             "eng/package-fixtures/*",
             "eng/package-manifest-corpus.json",
             "eng/verify-package-manifest-corpus.cs",
@@ -341,8 +357,8 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.ILDiff/*",
             "src/ILInspector.Instructions/*",
             "src/ILInspector.ControlFlow/*",
-            "src/DiffFixtures.V1/*",
-            "src/DiffFixtures.V2/*",
+            "fixtures/diff/DiffFixtures.V1/*",
+            "fixtures/diff/DiffFixtures.V2/*",
             "tools/DiffHarnessCommon/*",
             "Directory.Packages.props",
             "*.props",
@@ -364,8 +380,8 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.ILDiff/*",
             "src/ILInspector.Instructions/*",
             "src/ILInspector.ControlFlow/*",
-            "src/DiffFixtures.V1/*",
-            "src/DiffFixtures.V2/*",
+            "fixtures/diff/DiffFixtures.V1/*",
+            "fixtures/diff/DiffFixtures.V2/*",
             "tools/DiffHarnessCommon/*",
             "Directory.Packages.props",
             "*.props",
@@ -441,7 +457,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
-        else if (BytePattern.MatchesAny(path, "src/*", "tests/*", "tools/*")
+        else if (BytePattern.MatchesAny(
+                path,
+                "fixtures/*",
+                "src/*",
+                "tests/*",
+                "tools/*")
             && !SkipsDecompilerProject(path))
         {
             state.Decompiler = true;

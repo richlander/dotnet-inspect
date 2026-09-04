@@ -1,7 +1,9 @@
+using DotnetInspector.Ecosystems;
+
 namespace DotnetInspector.Services;
 
 /// <summary>
-/// Resolves search scopes based on explicit flags and applies curated defaults.
+/// Resolves platform-framework and package search scopes from explicit source selections.
 /// </summary>
 public static class ScopeResolver
 {
@@ -11,8 +13,7 @@ public static class ScopeResolver
     public record ScopeFlags(
         bool Platform = false,
         bool Extensions = false,
-        bool AspNetCore = false,
-        bool Curated = false);
+        bool AspNetCore = false);
 
     /// <summary>
     /// Resolved scope containing frameworks and packages to search.
@@ -20,8 +21,8 @@ public static class ScopeResolver
     public record ResolvedScope(string[] Frameworks, string[] Packages);
 
     /// <summary>
-    /// Resolves the search scope based on explicit flags and existing packages.
-    /// When no explicit scope is specified, applies curated defaults (all platform frameworks + curated packages).
+    /// Resolves the search scope based on explicit flags and source presence.
+    /// When no explicit source is specified, selects all platform frameworks.
     /// </summary>
     /// <param name="flags">Scope flags from command line options.</param>
     /// <param name="existingPackages">Packages already specified via --package.</param>
@@ -36,7 +37,7 @@ public static class ScopeResolver
         string? packagePrefix = null,
         bool hasOtherScopeIndicators = false)
     {
-        bool hasExplicitScope = flags.Platform || flags.Extensions || flags.AspNetCore || flags.Curated
+        bool hasExplicitScope = flags.Platform || flags.Extensions || flags.AspNetCore
             || existingPackages.Length > 0 || existingAssemblies.Length > 0 || packagePrefix != null
             || hasOtherScopeIndicators;
 
@@ -54,18 +55,34 @@ public static class ScopeResolver
                 frameworks = ScopeConstants.PlatformFrameworks;
 
             if (flags.Extensions)
-                packages = [.. packages, .. ScopeConstants.ExtensionsPackages];
+                packages =
+                [
+                    .. packages,
+                    .. PackageIds(PackageSetIds.MicrosoftExtensions),
+                ];
 
             if (flags.AspNetCore)
-                packages = [.. packages, .. ScopeConstants.AspNetCorePackages];
-
-            if (flags.Curated)
-            {
-                frameworks = [.. frameworks, .. ScopeConstants.PlatformFrameworks];
-                packages = [.. packages, .. ScopeConstants.CuratedPackages];
-            }
+                packages =
+                [
+                    .. packages,
+                    .. PackageIds(PackageSetIds.AspNetCore),
+                ];
         }
 
-        return new ResolvedScope(frameworks, packages);
+        return new ResolvedScope(
+            frameworks,
+            packages.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
+
+    private static IEnumerable<string> PackageIds(PackageSetId id) =>
+        PackageSetCatalog.Lookup(id) switch
+        {
+            PackageSetLookupResult.Known known =>
+                known.Descriptor.Members.Select(member => member.PackageId),
+            PackageSetLookupResult.Unknown unknown =>
+                throw new InvalidOperationException(
+                    $"Shipped package set '{unknown.Id}' is not registered."),
+            _ => throw new InvalidOperationException(
+                $"Shipped package-set lookup returned an unsupported result for '{id}'."),
+        };
 }

@@ -319,10 +319,10 @@ public class StructuralCloneCrossAssemblyCorpusTests
     {
         StructuralCloneCrossAssemblyCorpusDocument corpus = LoadCorpus();
         Assert.Equal(
-            "src/DiffFixtures.V1",
+            "fixtures/diff/DiffFixtures.V1",
             corpus.Left.Project);
         Assert.Equal(
-            "src/DiffFixtures.V2",
+            "fixtures/diff/DiffFixtures.V2",
             corpus.Right.Project);
         Assert.Equal(
             "DiffFixtureSample.DiffSample",

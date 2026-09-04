@@ -63,7 +63,10 @@ public sealed class WorkspaceContextLoaderTests
                     Framework = Framework,
                     Members = [PackageMember(Version)],
                 },
-                Options(client, store),
+                Options(client, store) with
+                {
+                    IncludePackageRootBindings = true,
+                },
                 TestContext.Current.CancellationToken);
 
         var loaded = Loaded(outcome);
@@ -71,6 +74,17 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(Framework, loaded.Framework);
         Assert.Null(loaded.RuntimeIdentifier);
         Assert.Equal(2, loaded.Group.Participants.Length);
+        PackageRootBinding packageRoot =
+            Assert.Single(loaded.PackageRoots);
+        Assert.Equal(PackageId, packageRoot.Root.PackageId);
+        Assert.Equal(Version, packageRoot.Root.PackageVersion);
+        Assert.Equal(
+            Framework,
+            packageRoot.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized),
+            packageRoot.Coordinate);
         Assert.Equal(
             [
                 Path.GetFileNameWithoutExtension(CallerPath),
@@ -176,7 +190,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Platform));
+                AssemblyResolutionScope.Platform)).Selection;
         Assert.Same(
             target.Assembly,
             Assert.IsType<AssemblyBindingSelection.Selected>(selection)
@@ -1193,7 +1207,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
 
         Assert.Same(
             target.Assembly,
@@ -1211,7 +1225,7 @@ public sealed class WorkspaceContextLoaderTests
                         null,
                         null)),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
         Assert.IsType<AssemblyBindingSelection.Missing>(outside);
     }
 
@@ -2127,7 +2141,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
         Assert.Same(
             target.Assembly,
             Assert.IsType<AssemblyBindingSelection.Selected>(selection).Assembly);
@@ -3031,7 +3045,7 @@ public sealed class WorkspaceContextLoaderTests
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(target.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                    AssemblyResolutionScope.Any)));
+                    AssemblyResolutionScope.Any)).Selection);
     }
 
     [Fact]
@@ -3400,7 +3414,7 @@ public sealed class WorkspaceContextLoaderTests
                     AssemblyBindingTarget.Reference(
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(first.Assembly),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
             Assert.Same(
                 participant.Assembly,
                 Assert.IsType<AssemblyBindingSelection.Selected>(selection)

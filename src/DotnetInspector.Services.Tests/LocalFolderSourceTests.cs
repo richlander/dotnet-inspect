@@ -34,7 +34,7 @@ public class LocalFolderSourceTests : IDisposable
     {
         @"D:\some\local\packages",
         "/var/local/packages",
-        "file:///var/packages",
+        new Uri(Path.Combine(Path.GetTempPath(), "packages")).AbsoluteUri,
         @"C:\Program Files (x86)\Microsoft SDKs\NuGetPackages\",
         // Also unparseable / non-absolute should be skipped, not crash:
         "local-packages",

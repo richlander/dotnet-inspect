@@ -60,11 +60,8 @@ public static class CommandLineBuilder
     /// </summary>
     public static HashSet<string> KnownCommands => ArgumentPreprocessor.KnownCommands;
 
-    // Scope constants delegated to ScopeConstants for backward compatibility
+    // Platform scope constants delegated to ScopeConstants for backward compatibility.
     internal static string[] PlatformFrameworkNames => ScopeConstants.PlatformFrameworks;
-    internal static string[] ExtensionsScopePackages => ScopeConstants.ExtensionsPackages;
-    internal static string[] AspNetCoreScopePackages => ScopeConstants.AspNetCorePackages;
-    internal static string[] CuratedScopePackages => ScopeConstants.CuratedPackages;
 
     /// <summary>
     /// Pre-processes args and rewrites line-window shorthand only when the active
@@ -401,6 +398,10 @@ public static class CommandLineBuilder
         // Workspace share packet conversion
         rootCommand.Subcommands.Add(
             UtilityCommandDefinitions.CreateWorkspaceStateCommand());
+
+        // Product-owned runtime Workspace inventory
+        rootCommand.Subcommands.Add(
+            WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
         rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
