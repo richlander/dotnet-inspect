@@ -126,6 +126,7 @@ VARIABLES
     terminalSealedSelected,
     terminalAdmittedOpposite,
     terminalSealedOpposite,
+    foreignSealedSelected,
     terminalCandidate,
     rootAttemptKind,
     terminalAttemptKind,
@@ -153,10 +154,10 @@ bindingVars == <<liveBinding, bindingAdvanced>>
 
 inputVars ==
     <<rootSealed, terminalAdmittedSelected, terminalSealedSelected,
-      terminalAdmittedOpposite, terminalSealedOpposite, terminalCandidate,
-      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
-      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
-      attemptMap, censusMap>>
+      terminalAdmittedOpposite, terminalSealedOpposite,
+      foreignSealedSelected, terminalCandidate, rootAttemptKind,
+      terminalAttemptKind, rootDomainHealth, terminalDomainHealth,
+      requestKind, capturedBinding, receiptMap, attemptMap, censusMap>>
 
 outputVars ==
     <<compositionPhase, effectiveQueryInput, effectiveResearchAttempt,
@@ -167,12 +168,13 @@ vars ==
       lastDeclaration, validated, terminalKind, terminalCause,
       terminalAssembly, liveBinding, bindingAdvanced, rootSealed,
       terminalAdmittedSelected, terminalSealedSelected,
-      terminalAdmittedOpposite, terminalSealedOpposite, terminalCandidate,
-      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
-      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
-      attemptMap, censusMap, compositionPhase, effectiveQueryInput,
-      effectiveResearchAttempt, effectiveCensus, retainedRootAttempt,
-      retainedHops, retainedBinding>>
+      terminalAdmittedOpposite, terminalSealedOpposite,
+      foreignSealedSelected, terminalCandidate, rootAttemptKind,
+      terminalAttemptKind, rootDomainHealth, terminalDomainHealth,
+      requestKind, capturedBinding, receiptMap, attemptMap, censusMap,
+      compositionPhase, effectiveQueryInput, effectiveResearchAttempt,
+      effectiveCensus, retainedRootAttempt, retainedHops,
+      retainedBinding>>
 
 Forwarding ==
     INSTANCE TypeForwardingResolution WITH
@@ -453,12 +455,18 @@ AttemptReady ==
        /\ ExactCensusReady
        /\ ChosenCensus.health = "Healthy"
 
+PopulationReady ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected = terminalSealedSelected
+    /\ ~foreignSealedSelected
+
 CiInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
     /\ terminalAdmittedOpposite
     /\ terminalSealedOpposite
+    /\ ~foreignSealedSelected
     /\ rootAttemptKind \in
         {"Resolved", "DeclaringTypeForwarded"}
     /\ terminalAttemptKind = "Resolved"
@@ -474,6 +482,7 @@ Init ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
     /\ terminalAttemptKind \in AttemptKinds
@@ -494,11 +503,13 @@ Init ==
 
 ResolveStep ==
     /\ compositionPhase = "Resolving"
+    /\ PopulationReady
     /\ Forwarding!Advance
     /\ UNCHANGED <<bindingVars, inputVars, outputVars>>
 
 BindingAdvanceStep ==
     /\ compositionPhase = "Resolving"
+    /\ PopulationReady
     /\ BindingLifecycle!Advance
     /\ UNCHANGED <<resolutionVars, inputVars, outputVars>>
 
@@ -511,6 +522,11 @@ PublishNonSuccess(phase) ==
     /\ retainedHops' = hops
     /\ retainedBinding' = NoOutcome
     /\ UNCHANGED <<resolutionVars, bindingVars, inputVars>>
+
+RejectPopulation ==
+    /\ compositionPhase = "Resolving"
+    /\ ~PopulationReady
+    /\ PublishNonSuccess("Rejected")
 
 DetectBindingFault ==
     /\ compositionPhase = "Resolving"
@@ -587,6 +603,7 @@ CompleteUnavailableMutation ==
           retainedHops, retainedBinding>>
 
 Next ==
+    \/ RejectPopulation
     \/ ResolveStep
     \/ BindingAdvanceStep
     \/ DetectBindingFault
@@ -611,6 +628,7 @@ TypeOK ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
     /\ terminalAttemptKind \in AttemptKinds
@@ -664,6 +682,12 @@ ForwardingResolvedRequiresValidatedCandidate ==
     Forwarding!ResolvedRequiresValidatedCandidate
 BindingAdvancedVersionIsFresh ==
     BindingLifecycle!AdvancedVersionIsFresh
+
+InvalidPopulationIsRejectedBeforeResolution ==
+    ~PopulationReady =>
+        /\ resolutionPhase = "Probing"
+        /\ Len(hops) = 0
+        /\ compositionPhase \in {"Resolving", "Rejected"}
 
 SelectedEndpointBelongsToRequestedSide ==
     effectiveQueryInput # NoOutcome =>
@@ -768,6 +792,95 @@ ResearchCompletionHasSelectedEndpoint ==
         /\ effectiveResearchAttempt # NoOutcome
         /\ effectiveCensus # NoOutcome
         /\ effectiveResearchAttempt.kind = "Resolved"
+
+StableScenarioInputs(rootKind, terminalHealth, targetRequestKind) ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ terminalAdmittedOpposite
+    /\ terminalSealedOpposite
+    /\ ~foreignSealedSelected
+    /\ terminalCandidate = Target
+    /\ rootAttemptKind = rootKind
+    /\ terminalAttemptKind = "Resolved"
+    /\ rootDomainHealth = "Healthy"
+    /\ terminalDomainHealth = terminalHealth
+    /\ requestKind = targetRequestKind
+    /\ liveBinding = InitialBinding
+
+DirectCompletionInputConstraint ==
+    /\ StableScenarioInputs("Resolved", "Healthy", "Carried")
+    /\ current = Facade
+    /\ path = <<Facade>>
+    /\ Len(hops) = 0
+    /\ (resolutionPhase = "Terminal" =>
+        /\ terminalKind = "Resolved"
+        /\ terminalAssembly = Facade)
+
+ForwardedResolvedRouteConstraint ==
+    /\ current \in {Facade, Target}
+    /\ path \in {<<Facade>>, <<Facade, Target>>}
+    /\ Len(hops) <= 1
+    /\ (resolutionPhase = "Terminal" =>
+        /\ terminalKind = "Resolved"
+        /\ terminalAssembly = Target
+        /\ Len(hops) = 1)
+
+ForwardedCompletionInputConstraint ==
+    /\ StableScenarioInputs(
+        "DeclaringTypeForwarded",
+        "Healthy",
+        "Carried")
+    /\ ForwardedResolvedRouteConstraint
+
+BlockedTerminalCensusInputConstraint ==
+    /\ StableScenarioInputs(
+        "DeclaringTypeForwarded",
+        "Blocked",
+        "Carried")
+    /\ ForwardedResolvedRouteConstraint
+
+ExactAddressInputConstraint ==
+    /\ StableScenarioInputs(
+        "DeclaringTypeForwarded",
+        "Healthy",
+        "ExactAddress")
+    /\ ForwardedResolvedRouteConstraint
+
+MissingTerminalPopulationInputConstraint ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ ~terminalSealedSelected
+    /\ ~foreignSealedSelected
+    /\ liveBinding = InitialBinding
+
+ForeignPopulationInputConstraint ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ foreignSealedSelected
+    /\ liveBinding = InitialBinding
+
+DirectScenarioCompletesWithRoot ==
+    <>(/\ compositionPhase = "Complete"
+       /\ effectiveQueryInput.registration.assembly = Facade)
+
+ForwardedScenarioCompletesWithTerminal ==
+    <>(/\ compositionPhase = "Complete"
+       /\ effectiveQueryInput.registration.assembly = Target
+       /\ Len(retainedHops) = 1)
+
+BlockedTerminalCensusBecomesUnavailable ==
+    <> (compositionPhase = "Unavailable")
+
+ExactAddressBecomesRejected ==
+    <> (compositionPhase = "Rejected")
+
+MissingTerminalPopulationBecomesRejected ==
+    <> (compositionPhase = "Rejected")
+
+ForeignPopulationBecomesRejected ==
+    <> (compositionPhase = "Rejected")
 
 CompositionConverges ==
     <>(compositionPhase \in

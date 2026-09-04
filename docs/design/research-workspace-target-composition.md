@@ -107,6 +107,14 @@ must already be members of the sealed Queries population before Research
 admission. Composition cannot add the terminal participant after Research
 returns, and it cannot trigger supplemental acquisition.
 
+For the selected side, group participants and sealed Queries inputs are an
+exact bijection by acquisition registration. Every group participant has one
+input, every input names one group participant, and neither duplicates nor
+foreign extras are accepted. A complete Research resolution produced from a
+broader or different population is rejected before Metadata resolution or
+Research census consumption, even when its extra input occupies another domain
+or merely makes the terminal domain ambiguous.
+
 This contract applies only to `ResearchTargetRequestKind.Carried`. An
 `ExactAddress` request already designates one physical input and MethodDef
 address; another input's disposition is `NotRequested`, so forwarding
@@ -172,8 +180,9 @@ capability-bearing object graph.
 Composition validates one side in this order:
 
 1. the root belongs to the exact group by acquisition-registration reference;
-2. every group participant offered for this profile has exactly one sealed
-   side-local Queries input;
+2. group participants and sealed side-local Queries inputs form an exact
+   acquisition-registration bijection, with no missing, duplicate, or foreign
+   input;
 3. the population receipt is valid for the exact operation, question, side,
    and Research admission;
 4. every group participant's current `BindingPolicy.Version` remains
@@ -248,9 +257,9 @@ Expected non-success is closed into two Queries-owned categories:
   retains the capability-free Metadata projection or exact inert Research
   outcome that stopped composition.
 - `Rejected` means the supplied owner-issued evidence could not form the exact
-  association chain: foreign root, missing or duplicate population member,
-  invalid receipt, unsupported exact-address scope, wrong side, scope, or
-  domain, missing terminal correspondence, or terminal evidence mismatch.
+  association chain: foreign root, missing, duplicate, or extra population
+  member, invalid receipt, unsupported exact-address scope, wrong side, scope,
+  or domain, missing terminal correspondence, or terminal evidence mismatch.
 
 Neither category contains an effective attempt. Ambiguity remains ambiguity in
 the preserved Metadata or Research evidence; it is not converted to absence.
@@ -276,6 +285,10 @@ The facade domain may remain blocked by its
 `Unavailable/DeclaringTypeForwarded` attempt. That does not taint a distinct
 healthy implementation domain, but it also does not authorize Queries to
 manufacture correspondence across domains.
+
+The current executable model is side-local and does not prove this later
+two-sided handoff. Divergent-domain correspondence remains **unverified** at
+this design head and is assigned to the named Release gate below.
 
 ## Workspace and acquisition boundary
 
@@ -332,6 +345,8 @@ to an effective attempt.
 
 The model rechecks the imported forwarding safety properties and checks that:
 
+- a missing or extra sealed input rejects the population before Metadata
+  resolution begins;
 - a selected endpoint belongs to the requested side and admitted group;
 - terminal ownership is preserved rather than reset to the facade;
 - pre-existing Research attempts, domain health, and Queries-to-Research
@@ -343,6 +358,11 @@ The model rechecks the imported forwarding safety properties and checks that:
   - forwarding hops and binding-policy version remain attached;
 - Research completion requires a selected resolved attempt; and
 - every resolution reaches either a composed or unavailable terminal result.
+
+Exact-outcome configurations require direct and forwarded completion, blocked
+census unavailability, exact-address rejection, and rejection of both a
+missing group participant input and an extra foreign input. The two-sided
+divergent-domain handoff remains outside this side-local model and unverified.
 
 Focused mutations substitute the facade, cross the comparison side, reconstruct
 the Research input without the receipt, relabel the root attempt, select a
@@ -424,6 +444,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_RejectsExactAddressScope`
 - `WorkspaceResearchTarget_RejectsWrongSideScopeAndDomainMappings`
 - `WorkspaceResearchTarget_RejectsForeignOrIncompletePopulationReceipt`
+- `WorkspaceResearchTarget_RejectsExtraForeignPopulationMember`
 - `AssemblyContextTypeResolutionQuery_RootBindingPolicyVersionDriftThrows`
 - `AssemblyContextTypeResolutionQuery_NonRootBindingPolicyVersionDriftThrows`
 - `WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows`
