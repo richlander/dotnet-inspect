@@ -913,9 +913,13 @@ This boundary does not define:
 
 ## Research local producer session and completion
 
-**Status:** target design for
-[#5441](https://github.com/richlander/dotnet-inspect/issues/5441). No runtime
-type implements this contract, and every named gate below is **unverified**.
+**Status:** implemented by `ResearchProducerSession`,
+`ResearchProducerSessionValidator`, and the Research-owned models in
+`ResearchProducerSessionModels.cs`, tracked by
+[#5820](https://github.com/richlander/dotnet-inspect/issues/5820).
+`ResearchProducerSessionTests` contains the named implementation gates below.
+The design was established by
+[#5441](https://github.com/richlander/dotnet-inspect/issues/5441).
 The ILDiff owner now supplies its focused typed-inspection adapter through
 `IlAssemblyDiff.CompareMemberEndpoints`, gated by the owner-specific tests named
 in [IL diff canonicalization boundary](il-diff-canonicalization.md). The C#
@@ -1033,6 +1037,19 @@ A null reader, handle, body, collection, or native result authorizes no state.
 Input access or validation that prevents the adapter from receiving its exact
 endpoint is retained as Research unavailability, not translated into subject
 absence or no applicable input.
+
+The body-producer subject for paired or one-sided correspondence is the exact
+`ResearchTargetCorrespondenceKey.CanonicalIdentity` retained by that
+correspondence. A both-absent domain uses its exact scope's declaring-type
+intent and normalized Metadata selector. Both sides receive the same logical
+subject. The subject is producer payload identity, not work-item identity.
+
+A resolved API-only target whose relationship role is `None` has no
+`MetadataMethodAddress` that either body-producer endpoint can admit. Research
+retains that item as `EndpointAddressUnavailable` and invokes no producer. It
+does not reinterpret the missing physical endpoint as producer-owned
+`NoApplicableInput`; a bodyful/bodyless MethodDef pair still reaches both
+native adapters, which classify the bodyless side themselves.
 
 Research invokes only the producer's total endpoint adapter and never calls its
 pair algorithm directly. The imported producer contract ensures that every
@@ -1196,7 +1213,8 @@ Implementation proceeds in focused owner order:
    [#5444](https://github.com/richlander/dotnet-inspect/issues/5444) and
    [#5443](https://github.com/richlander/dotnet-inspect/issues/5443).
 2. Research implements its catalog, exact work derivation, sequential session,
-   input access, cleanup, and completion validator.
+   input access, cleanup, and completion validator through
+   `ResearchProducerSession`.
 3. The Research completion becomes available to the separately owned rank-5
    direct-member and rank-6 publication efforts; this design specifies neither
    adoption.
