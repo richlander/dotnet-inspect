@@ -59,14 +59,30 @@ public class AuthoredCorpusHistoryStoreTests
 
     [Theory]
     [Trait("Area", "Corpus")]
-    [InlineData("{}")]
-    [InlineData("{}\n\n")]
-    [InlineData("{}\r\n")]
-    [InlineData("[]\n")]
-    [InlineData("{} {}\n")]
-    public void StoreVerifier_RejectsMalformedPhysicalFraming(string store)
-        => Assert.ThrowsAny<Exception>(
+    [InlineData("missing-final-lf")]
+    [InlineData("blank-record")]
+    [InlineData("crlf")]
+    [InlineData("non-object-record")]
+    [InlineData("multiple-values-one-line")]
+    [InlineData("torn-trailing-record")]
+    public void StoreVerifier_RejectsMalformedPhysicalFraming(string mutation)
+    {
+        string valid = AuthoredCorpusHistoryStore.SerializeCanonical(Grandfather());
+        string row = valid.TrimEnd('\n');
+        string store = mutation switch
+        {
+            "missing-final-lf" => row,
+            "blank-record" => valid + "\n",
+            "crlf" => row + "\r\n",
+            "non-object-record" => $"[{row}]\n",
+            "multiple-values-one-line" => $"{row} {valid}",
+            "torn-trailing-record" => valid + """{"date":"2026-08-12","commit":""",
+            _ => throw new InvalidOperationException(),
+        };
+
+        Assert.ThrowsAny<Exception>(
             () => AuthoredCorpusHistoryStore.ParseAndVerify(store, new FakeRepository()));
+    }
 
     [Fact]
     [Trait("Area", "Corpus")]
