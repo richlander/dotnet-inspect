@@ -205,6 +205,7 @@ function targetStrip(target: ScopeBarFocusTarget): "subject" | "inspector" {
 function bindRovingTabs(
   tabs: readonly HTMLButtonElement[],
   reveal: (target: HTMLButtonElement) => void,
+  activateOnNavigation = false,
 ): void {
   tabs.forEach((tab, index) =>
     tab.addEventListener("keydown", event => {
@@ -232,6 +233,7 @@ function bindRovingTabs(
       });
       target.tabIndex = 0;
       target.focus();
+      if (activateOnNavigation) target.click();
     }));
 }
 
@@ -253,7 +255,7 @@ export function bindScopeBar(
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>(
       "[data-subject-tab]"),
-  ], target => controller?.reveal(target));
+  ], target => controller?.reveal(target), true);
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
   ], target => controller?.reveal(target));
