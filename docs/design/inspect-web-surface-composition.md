@@ -113,8 +113,8 @@ terminal-deficit states inside the remaining page boundary.
 The application-scope strip uses a distinct quiet treatment and may be removed
 at constrained widths only after focus has left it. Query remains reachable
 through Spotlight's global keyboard entry and Workspace through hierarchical
-drill-out or a return action. On `/query`, the visible heading and
-route-specific Back action continue to orient the surface if the strip yields.
+drill-out or a return action. The standalone `/query` surface does not render
+this strip; its visible heading and route-specific Back action orient it.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -418,6 +418,11 @@ initial prefix, and requests this route. [Inspect Web Navigation
 Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
 owns this route's browser-history entry and return-focus behavior, including
 its visible `Back` action.
+
+The page header contains the product home link and `Back`, not the
+`Query`/`Workspace` application-scope buttons. This placement is independent of
+viewport width and whether a workspace is retained in the session; the
+workspace shell keeps its application-scope strip.
 
 The route renders one visible level-one `Package query` heading followed by an
 editable `Package ID prefix` input and `Run query` action.

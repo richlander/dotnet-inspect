@@ -2027,7 +2027,7 @@ test("application scope rerenders preserve focus until responsive yielding", asy
   await expect(page.locator(".brand")).toBeFocused();
 });
 
-test("query rerenders preserve product focus and reject yielded scopes", async ({
+test("query header omits scope buttons and preserves navigation focus across widths", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 700, height: 900 });
@@ -2041,11 +2041,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
   });
 
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
@@ -2060,7 +2062,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -2073,11 +2074,11 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     activeId: "package-query-product",
   });
 
-  const workspace = page.locator("[data-application-scope='workspace']");
-  await workspace.focus();
+  const back = page.locator("#package-query-back");
+  await back.focus();
   await page.setViewportSize({ width: 500, height: 900 });
-  await expect(workspace).toBeVisible();
-  const yieldedResult = await page.evaluate(async () => {
+  await expect(back).toBeVisible();
+  const backResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
     const {
       capturePackageQueryFocus,
@@ -2090,7 +2091,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -2098,12 +2098,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
       activeId: document.activeElement?.id,
     };
   });
-  expect(yieldedResult).toEqual({
-    restoration: "fallback",
-    activeId: "package-query-prefix",
+  expect(backResult).toEqual({
+    restoration: "restored",
+    activeId: "package-query-back",
   });
-  await expect(page.locator(".query-page-bar .application-scope-region"))
-    .toBeHidden();
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-product")).toBeVisible();
 });
 
 test("Workspace retains its full split height at constrained widths", async ({
