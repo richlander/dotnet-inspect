@@ -36,6 +36,7 @@ export interface RenderScopeBarOptions<TId extends string = string> {
   stripAttribute: string;
   panelId?: string;
   subjectPanelId?: string;
+  availableScopes?: readonly WorkspaceScope[];
   showMemberScope?: boolean;
   emptyStripLabel?: string;
   escapeHtml: (value: unknown) => string;
@@ -204,6 +205,7 @@ function targetStrip(target: ScopeBarFocusTarget): "subject" | "inspector" {
 function bindRovingTabs(
   tabs: readonly HTMLButtonElement[],
   reveal: (target: HTMLButtonElement) => void,
+  activateOnNavigation = false,
 ): void {
   tabs.forEach((tab, index) =>
     tab.addEventListener("keydown", event => {
@@ -231,6 +233,7 @@ function bindRovingTabs(
       });
       target.tabIndex = 0;
       target.focus();
+      if (activateOnNavigation) target.click();
     }));
 }
 
@@ -252,7 +255,7 @@ export function bindScopeBar(
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>(
       "[data-subject-tab]"),
-  ], target => controller?.reveal(target));
+  ], target => controller?.reveal(target), true);
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]"),
   ], target => controller?.reveal(target));
@@ -468,6 +471,7 @@ export function renderScopeBar<TId extends string>(
     stripAttribute,
     panelId,
     subjectPanelId = "subject-panel",
+    availableScopes,
     showMemberScope = scope === "member",
     emptyStripLabel = "",
     escapeHtml,
@@ -482,7 +486,8 @@ export function renderScopeBar<TId extends string>(
       : scope === "type"
         ? "Type"
         : "Member";
-  const subjects = subjectDefinitions(showMemberScope);
+  const subjects = subjectDefinitions(showMemberScope)
+    .filter(([id]) => availableScopes?.includes(id) ?? true);
   const subjectIds = subjects.map(([id]) => id).join(",");
   const inspectorIds = strip.map(([id]) => id).join(",");
   const inspectorAnchor = activeIndex >= 0

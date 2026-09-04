@@ -316,20 +316,42 @@ public static class TypeDependencyScanner
     /// here, and <see cref="BuildNode"/> re-reads them for the small subset it
     /// actually visits.
     /// </summary>
+    /// <remarks>
+    /// Resolution is strict. The nullable <c>GetTypeName</c> overload collapses
+    /// a signature rejection to <see langword="null"/>, and <see cref="BuildNode"/>
+    /// silently drops a null dependency — so a malformed <c>TypeSpecification</c>
+    /// base or interface would publish an edge-less type carrying no rejection,
+    /// which is the certified-absence shape this scanner exists to prevent.
+    /// </remarks>
     private static void ValidateRelationships(
         MetadataReader reader,
         TypeDefinition typeDef)
     {
         var context = GenericContext.ForType(reader, typeDef);
 
-        if (!typeDef.BaseType.IsNil)
-            _ = TypeResolver.GetTypeName(reader, typeDef.BaseType, context);
+        ThrowIfRejected(
+            TypeResolver.ResolveTypeName(reader, typeDef.BaseType, context));
 
         foreach (var ifaceHandle in typeDef.GetInterfaceImplementations())
         {
             var iface = reader.GetInterfaceImplementation(ifaceHandle);
-            _ = TypeResolver.GetTypeName(reader, iface.Interface, context);
+            ThrowIfRejected(
+                TypeResolver.ResolveTypeName(reader, iface.Interface, context));
         }
+    }
+
+    /// <summary>
+    /// Raises a rejected type-name resolution as the invalid-image outcome the
+    /// participant scope already handles, preserving the mechanism and detail.
+    /// </summary>
+    private static void ThrowIfRejected(MetadataTypeNameResult result)
+    {
+        if (result is not MetadataTypeNameResult.Rejected rejected)
+            return;
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejected.Failure.Kind}): "
+            + rejected.Failure.Detail);
     }
 
     /// <summary>
