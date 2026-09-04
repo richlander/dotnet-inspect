@@ -1061,9 +1061,11 @@ and 5 against that mermaid build. The code comment asserting that DOMPurify
 makes package Markdown safe had been resting on that build. None of it was
 hidden; nothing was in a position to look.
 
-CI runs `npm audit --audit-level=info` over the whole tree. Three review rounds
-went into that one line, and each found the same shape of mistake: a flag, or
-the absence of one, meaning something narrower than it appeared to.
+Auditing that lockfile is what makes the difference visible, and `npm audit` is
+still the way to run it by hand. Three review rounds went into the one CI line
+that used to run it, and each found the same shape of mistake: a flag, or the
+absence of one, meaning something narrower than it appeared to. That analysis is
+worth keeping even though the line is gone.
 
 `--audit-level` reads as a severity filter over advisories. npm applies it to
 *packages*, bucketing each by the highest severity affecting it. Of the 24
@@ -1081,11 +1083,21 @@ declared, not by whether its code reaches a browser. Vite is a devDependency and
 its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
 the boundary it resembled.
 
-What remains is the strictest available check over all 168 packages, which is
-what lets the sanitization comment name its gate without qualification. It is
-clean today. It will sometimes fail for a build tool rather than for shipped
-code; that is the accepted trade against a narrower gate whose description has
-to be exactly right, and three times was not.
+That check no longer runs in CI. `npm audit` needs npm's advisories endpoint,
+and it exits non-zero both when it finds an advisory and when it cannot reach
+that endpoint, so the merge gate could not tell a vulnerable dependency from an
+npm outage. On 2026-09-04 the endpoint returned 503s and timeouts for over two
+hours and turned `ci-required` red on unrelated pull requests; a gate that
+blocks merges on a third party's uptime is not measuring this repository.
+
+What watches the lockfile now is Dependabot: the same 168 packages against the
+same advisory database, with vulnerability alerts enabled and a weekly npm
+update schedule for `/prototypes/inspect-web`. The honest difference is timing.
+`npm audit` blocked the merge that introduced an advisory; Dependabot reports
+one after it lands and opens a security update. That is weaker, and it is what
+lets the sanitization comment name a gate that is monitoring rather than
+enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
+demand.
 
 What remains on a CDN is the three Prism scripts in `index.html`. Those are
 markup, they carry digests, and the freshness check reads them -- so the
