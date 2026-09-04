@@ -5069,6 +5069,9 @@ test("package metadata uses compact coordinates in a full-area working surface",
     appSource,
     /packageMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
   assert.match(
+    appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| packageMetadataWorkingSurface[\s\S]*?;/);
+  assert.match(
     renderPackage,
     /if \(state\.packageLens === "metadata"\) return body;/);
   assert.match(

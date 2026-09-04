@@ -3137,7 +3137,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationLabel =
     navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
-    apiWorkingSurface || metadataWorkingSurface || memberWorkingSurface;
+    apiWorkingSurface
+    || metadataWorkingSurface
+    || packageMetadataWorkingSurface
+    || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
