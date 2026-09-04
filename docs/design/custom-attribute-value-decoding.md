@@ -115,7 +115,9 @@ fix, not a behavior to document.
 
 > **D1 — Bounded.** Total work is near-linear in the size of the metadata the
 > decoder is given, across every attacker-controlled cardinality *jointly*.
-> Retained memory is at most a constant multiple of the value blob's length.
+> The number of materialized slots is bounded by the value blob's length;
+> retained memory is bounded by a constant multiple of the bytes actually
+> supplied — the value blob *plus* the metadata its values reference.
 > **No allocation is ever sized from a declared count that exceeds the
 > remaining bytes.**
 >
@@ -197,6 +199,27 @@ heap object per element. For the densest case the true figure is tens of bytes
 retained per blob byte, not the 16 the slots alone suggest. Quote the shape of
 the bound rather than a specific multiple, and if slice 2 wants a smaller
 constant it must introduce and gate value caching explicitly.
+
+**The two bounds have different denominators, and conflating them states a
+falsehood.** Slot *count* is bounded by the value blob's length, which is the
+property that defeats #57531. Retained *bytes* are not, because
+`CustomAttributeTypedArgument<string>.Type` retains a rendered type name whose
+length comes from the metadata string heap, not from the blob. An
+eight-byte blob carrying one enum-typed argument retains a string as long as
+the enum's name:
+
+| Enum name length | Value blob | Retained `Type` chars |
+| --- | --- | --- |
+| 8 | 8 bytes | 11 |
+| 100 | 8 bytes | 103 |
+| 1,000 | 8 bytes | 1,003 |
+| 10,000 | 8 bytes | 10,003 |
+
+The ratio to blob length grows without bound, so a blob-relative bound is
+simply false; the ratio to *supplied* bytes stays constant, because the
+attacker had to supply the name to reference it. State the bound against
+supplied bytes and keep the blob-relative claim for slot count, where it is
+both true and the one that matters.
 
 What this removes is the amplification — the twelve-byte blob that asks for tens
 of gigabytes. A host-level memory limit is the host's concern, not this
@@ -391,7 +414,7 @@ fabricated named argument, consuming the blob *exactly*:
 
 ```text
 blob     01 00 07 00 00 00 01 00 53 02 00 00
-producer fixed=[Int64 0x0253000000000007]  named=[]
+producer fixed=[Int64 0x0253000100000007]  named=[]
 fallback fixed=[Int32 7]  named=[Field name='' value=False]
 ```
 
@@ -404,11 +427,21 @@ happens to fail structurally one argument later, and that is luck, not design.
 **So the guess must be visible, which is D2's "visibly" clause doing real work.**
 A defaulted width is not a refusal and must not pretend to be one, but neither
 may it be indistinguishable from a resolved width. **Slice 2 defines a
-per-argument defaulted-width signal on the decoded result**; the mechanism is
-slice 2's to choose, subject to #5288 holding the `CustomAttributeValue<string>`
-output shape. Today no such signal exists — `EnumUnderlyingPrimitive` returns the
+per-argument defaulted-width signal on the decoded result**, carried
+*out-of-band* — alongside the returned value, not as a new field inside
+`CustomAttributeValue<string>` — which is what lets it coexist with #5288's
+hold on that output shape. Today no such signal exists —
+`EnumUnderlyingPrimitive` returns the
 defaulted `Int32` as an ordinary value — which is the gap
 [#5742](https://github.com/richlander/dotnet-inspect/issues/5742) tracks.
+
+**This obligation names its own gate, because no existing one covers it.** The
+D2 differential is blind to the default (SRM guesses `Int32` identically) and
+D3 carves the unresolvable case out, so slice 2 could otherwise report green
+with the signal never implemented. Slice 2 therefore lands a test asserting the
+signal is **set** for an argument whose width was defaulted and **clear** for
+one whose width was resolved, on the same decode path. Until that test exists
+the signal is `unverified`, and the enforcement-gates table says so.
 
 What survives intact regardless is [D1](#d1--bounded): the misread cannot become
 an unbounded or out-of-bounds operation. The failure mode is a confidently wrong
@@ -784,6 +817,7 @@ encoding.
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
+| **Defaulted-width signal** (D2's "visibly" clause) | A slice-2 test asserting the per-argument signal is **set** for a defaulted width and **clear** for a resolved one, on the same decode path. Needed because the D2 differential is blind to the default and D3 carves the unresolvable case out, so no other gate can fail if the signal is never implemented. Tracked as #5742. | Does not exist. Lands with slice 2. |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -806,6 +840,10 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
   which is why issue #5130 passes all four existing amplification regressions;
 - the number of *distinct* handles and names referenced;
 - the number of rows in the tables a failed resolution scans;
+- **the length of the metadata strings the values reference**, held against a
+  fixed blob length. This is the dimension that separates D1's two bounds: it
+  leaves slot count untouched while scaling retained bytes, so a gate that
+  varies only blob-side cardinalities cannot observe it;
 - the number of attributes decoded from one image; and
 - the size of a blob shared across many attribute rows. `A` attribute rows may
   name one `B`-byte value blob, which the blob heap stores once; each row is
