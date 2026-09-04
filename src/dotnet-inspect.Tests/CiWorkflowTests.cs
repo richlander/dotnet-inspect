@@ -88,10 +88,17 @@ public class CiWorkflowTests
 
         foreach (string method in methods)
         {
-            Assert.Contains($" -method '*{method}*'", step);
+            Assert.Contains($" --filter-method '*{method}*'", step);
             Assert.Contains($"method=\\\"$method\\\"", step);
         }
         Assert.Contains("total=\"[1-9][0-9]*\"", step);
+        Assert.Contains("--report-xunit", step);
+        Assert.Contains(
+            "--report-xunit-filename \"$results_name\"",
+            step);
+        Assert.Contains(
+            "--results-directory \"$results_dir\"",
+            step);
     }
 
     static string JobHeader(string jobName)
