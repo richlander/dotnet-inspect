@@ -62,8 +62,8 @@ public sealed class PackageVersionDiscoveryResult
 }
 
 /// <summary>
-/// Owns source associations, plugin-authentication contexts, and V3 routes for
-/// one desktop package-composition lifetime.
+/// Owns source associations, HTTP and local routes, and HTTP authentication
+/// contexts for one desktop package-composition lifetime.
 /// </summary>
 public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 {
@@ -239,19 +239,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 break;
             }
 
-            if (!Uri.TryCreate(
-                    source.Url,
-                    UriKind.Absolute,
-                    out Uri? endpoint)
-                || endpoint.Scheme is not ("http" or "https"))
-            {
-                failures.Add(new PackageAuthorityFailure(
-                    PackageSourceDisplay.ForDiagnostics(source),
-                    PackageAuthorityFailureKind.Unsupported,
-                    $"Package source {PackageSourceDisplay.ForDiagnostics(source)} does not support version enumeration in this host."));
-                continue;
-            }
-
             if (!ConfiguredPackageAuthorityKey.TryCreate(
                     source,
                     out ConfiguredPackageAuthorityKey? authorityKey,
@@ -268,7 +255,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 
             bool isGallery =
                 authorityKey.IsNuGetOrg && source.Credential is null;
-            if (!isGallery
+            if (authorityKey.HttpEndpoint is { } endpoint
+                && !isGallery
                 && source.Credential is null
                 && !PluginAuthenticationContext.CanScopeProviderQuery(
                     endpoint))
@@ -285,7 +273,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             AuthorityEntry authority = GetOrCreateAuthority(
                 source,
                 authorityKey,
-                endpoint,
                 isGallery);
             log?.Invoke(
                 $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(source)}.");
@@ -405,7 +392,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
     private AuthorityEntry GetOrCreateAuthority(
         PackageSource source,
         ConfiguredPackageAuthorityKey key,
-        Uri endpoint,
         bool isGallery)
     {
         if (_authorities.TryGetValue(key, out AuthorityEntry? existing))
@@ -425,29 +411,36 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         IPackageSourceClient? client = null;
         try
         {
-            transport = _createTransport(source, isGallery);
-            if (isGallery)
+            if (key.LocalIdentity is { } local)
             {
-                client = PackageSourceClientFactory.CreateGallery(
-                    association,
-                    transport,
-                    _options);
+                client = PackageSourceClientFactory.Create(local, association);
             }
             else
             {
-                if (source.Credential is null)
+                transport = _createTransport(source, isGallery);
+                if (isGallery)
                 {
-                    owner = PluginAuthenticationContextOwner.Create(
+                    client = PackageSourceClientFactory.CreateGallery(
                         association,
-                        endpoint,
-                        _credentialSource);
+                        transport,
+                        _options);
                 }
-                client = PackageSourceClientFactory.Create(
-                    source,
-                    association,
-                    transport,
-                    _options,
-                    owner?.Context);
+                else
+                {
+                    if (source.Credential is null)
+                    {
+                        owner = PluginAuthenticationContextOwner.Create(
+                            association,
+                            key.HttpEndpoint!,
+                            _credentialSource);
+                    }
+                    client = PackageSourceClientFactory.Create(
+                        source,
+                        association,
+                        transport,
+                        _options,
+                        owner?.Context);
+                }
             }
 
             var authority =
