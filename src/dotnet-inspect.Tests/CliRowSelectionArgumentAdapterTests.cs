@@ -403,6 +403,100 @@ public sealed class CliRowSelectionArgumentAdapterTests
             nonAsciiCompact.Arguments);
         Assert.Empty(nonAsciiCompact.Occurrences);
 
+        Fixture ancestorMany =
+            new(
+                includeParent: true,
+                parentAllowsMany: true);
+        CliRowSelectionArgumentResult parentBare =
+            ancestorMany.Success(
+                [
+                    "outer",
+                    "-5",
+                    "demo"
+                ]);
+        Assert.Equal(
+            [
+                "outer",
+                "-5",
+                "demo"
+            ],
+            parentBare.Arguments);
+        Assert.Equal(
+            ["-5"],
+            Assert.IsType<string[]>(
+                parentBare.ParseResult.GetValue(
+                    ancestorMany.ParentPositionals)));
+        Assert.Empty(parentBare.Occurrences);
+
+        Fixture ancestorOne =
+            new(includeParent: true);
+        CliRowSelectionArgumentResult parentCompact =
+            ancestorOne.Success(
+                [
+                    "outer",
+                    "-n5",
+                    "demo"
+                ]);
+        Assert.Equal(
+            [
+                "outer",
+                "-n5",
+                "demo"
+            ],
+            parentCompact.Arguments);
+        Assert.Equal(
+            "-n5",
+            parentCompact.ParseResult.GetValue(
+                ancestorOne.ParentPositional));
+        Assert.Empty(parentCompact.Occurrences);
+
+        CliRowSelectionArgumentResult beforeCommand =
+            fixture.Lower(
+                [
+                    "-5",
+                    "demo"
+                ]);
+        Assert.Equal(
+            [
+                "-5",
+                "demo"
+            ],
+            beforeCommand.Arguments);
+        Assert.True(beforeCommand.HasParseErrors);
+        Assert.Empty(beforeCommand.Occurrences);
+        Assert.Null(beforeCommand.LoweringResult);
+
+        Fixture rootOwned =
+            new(includeRootLimit: true);
+        CliRowSelectionArgumentResult beforeChild =
+            rootOwned.Success(
+                [
+                    "-5",
+                    "demo"
+                ]);
+        Assert.Equal(
+            [
+                "-n",
+                "5",
+                "demo"
+            ],
+            beforeChild.Arguments);
+        Assert.Equal(
+            0,
+            Assert.Single(beforeChild.Occurrences)
+                .Position);
+
+        CliRowSelectionArgumentResult afterChild =
+            rootOwned.Success(
+                [
+                    "demo",
+                    "-5"
+                ]);
+        Assert.Equal(
+            1,
+            Assert.Single(afterChild.Occurrences)
+                .Position);
+
         Fixture withoutShorthand =
             new(limitName: "--limit");
         CliRowSelectionArgumentResult unavailable =
@@ -761,7 +855,10 @@ public sealed class CliRowSelectionArgumentAdapterTests
             CliRowSelectionCapabilities capabilities =
                 CliRowSelectionCapabilities.All,
             string limitName = "-n",
-            string? limitAlias = null)
+            string? limitAlias = null,
+            bool includeParent = false,
+            bool parentAllowsMany = false,
+            bool includeRootLimit = false)
         {
             Limit =
                 RowValueOption(
@@ -834,13 +931,53 @@ public sealed class CliRowSelectionArgumentAdapterTests
                     Positionals);
             }
 
-            _root =
-                new()
+            ParentPositionals =
+                new("parent-values")
                 {
-                    command
+                    Arity = ArgumentArity.ZeroOrMore
                 };
+            ParentPositional =
+                new("parent-value")
+                {
+                    Arity = ArgumentArity.ZeroOrOne
+                };
+            _root = new();
+            if (includeParent)
+            {
+                var parent =
+                    new Command("outer")
+                    {
+                        command
+                    };
+                if (parentAllowsMany)
+                {
+                    parent.Arguments.Add(
+                        ParentPositionals);
+                }
+                else
+                {
+                    parent.Arguments.Add(
+                        ParentPositional);
+                }
+
+                _root.Subcommands.Add(
+                    parent);
+            }
+            else
+            {
+                _root.Subcommands.Add(
+                    command);
+            }
+
             _root.Options.Add(
                 RootRequired);
+            if (includeRootLimit)
+            {
+                Limit.Recursive = true;
+                _root.Options.Add(
+                    Limit);
+            }
+
             _bindings =
                 new(
                     Limit,
@@ -883,6 +1020,10 @@ public sealed class CliRowSelectionArgumentAdapterTests
         public Option<bool> ShortA { get; }
 
         public Argument<string[]> Positionals { get; }
+
+        public Argument<string[]> ParentPositionals { get; }
+
+        public Argument<string?> ParentPositional { get; }
 
         public CliRowSelectionArgumentResult Lower(
             string[] arguments) =>

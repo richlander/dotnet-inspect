@@ -260,10 +260,17 @@ internal static class CliRowSelectionArgumentAdapter
                         alias.Equals(
                             "-n",
                             StringComparison.Ordinal));
-        if (shorthandAlias is null
-            || !IsActiveOption(
+        if (shorthandAlias is null)
+        {
+            return OriginalArguments(arguments);
+        }
+
+        int? firstOwnedArgumentIndex =
+            FindOptionScopeStartArgumentIndex(
                 ownershipParse,
-                limit))
+                ownershipArguments,
+                limit);
+        if (firstOwnedArgumentIndex is null)
         {
             return OriginalArguments(arguments);
         }
@@ -290,7 +297,8 @@ internal static class CliRowSelectionArgumentAdapter
                 break;
             }
 
-            if (!TryGetNormalizedLimitValue(
+            if (index < firstOwnedArgumentIndex.Value
+                || !TryGetNormalizedLimitValue(
                     token,
                     shorthandAlias,
                     out string? value)
@@ -684,10 +692,12 @@ internal static class CliRowSelectionArgumentAdapter
         return false;
     }
 
-    private static bool IsActiveOption(
+    private static int? FindOptionScopeStartArgumentIndex(
         ParseResult parseResult,
+        IReadOnlyList<ParsedArgument> parsedArguments,
         Option option)
     {
+        int? firstOwnedArgumentIndex = null;
         for (CommandResult? command = parseResult.CommandResult;
             command is not null;
             command = command.Parent as CommandResult)
@@ -698,11 +708,46 @@ internal static class CliRowSelectionArgumentAdapter
                             candidate,
                             option)))
             {
-                return true;
+                if (command.Parent is null)
+                {
+                    return 0;
+                }
+
+                Token? identifier =
+                    command.IdentifierToken;
+                bool mappedCommand = false;
+                for (int index = 0;
+                    index < parsedArguments.Count;
+                    index++)
+                {
+                    if (parsedArguments[index].Tokens.Any(
+                            token =>
+                                ReferenceEquals(
+                                    token,
+                                    identifier)))
+                    {
+                        int ownedArgumentIndex =
+                            index + 1;
+                        firstOwnedArgumentIndex =
+                            firstOwnedArgumentIndex is null
+                                ? ownedArgumentIndex
+                                : Math.Min(
+                                    firstOwnedArgumentIndex.Value,
+                                    ownedArgumentIndex);
+                        mappedCommand = true;
+                        break;
+                    }
+                }
+
+                if (!mappedCommand)
+                {
+                    throw new InvalidOperationException(
+                        "The active command token was not mapped to raw argv.");
+                }
             }
         }
 
-        return false;
+        return firstOwnedArgumentIndex;
     }
 
     private static bool IsOptionToken(
