@@ -475,6 +475,8 @@ Workspace renders stable focus targets for its heading, every demo entry, and
 every coordinate action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
+Its content panel is labelled by the active Workspace application-scope
+control, including when a cold catalog has no inspection-subject entries.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, local-file correspondence, or

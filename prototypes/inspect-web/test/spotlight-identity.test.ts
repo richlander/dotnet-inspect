@@ -1258,6 +1258,12 @@ test("keyboard help projects available global and current graph bindings", () =>
   assert.match(
     renderWorkspaceFocus,
     /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*restoreWorkspaceFocus\(document, workspaceFocus\);[\s\S]*recordNav\(\);\s*return;/);
+  const catalogRenderer =
+    appSource.match(/function renderWorkspaceCatalogView\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    catalogRenderer,
+    /applicationScopeHtml: renderApplicationScopeBar\(\s*"workspace",\s*true,\s*escapeHtml\)[\s\S]*<main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">/);
   assert.match(
     appSource,
     /function drillIn\(\) \{\s*if \(scope\(\) === "workspace"\) \{\s*if \(!state\.package\) return;/);
@@ -2632,7 +2638,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\);\s*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
   assert.match(
     history,
-    /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!packageQuerySearchReturnFocusIsPending\(\);\s*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
+    /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!state\.packageQueryReturnFocusPending;\s*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
   assert.doesNotMatch(
     appSource,
     /preserveUrlThroughNextRender/);
@@ -3082,13 +3088,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.loading = false;\s*state\.packageQueryOpen = false/);
   assert.match(
     appSource,
-    /function packageQuerySearchReturnFocusIsPending\(\): boolean \{\s*return state\.packageQueryReturnFocusPending\s*&& state\.packageQueryReturnFocus === "package-search";\s*\}/);
-  assert.match(
-    appSource,
     /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending\) return;[\s\S]*state\.packageQueryReturnFocus === "application-query"[\s\S]*if \(state\.packageQueryReturnFocus !== "package-search"\) return;[\s\S]*focusWorkbenchSearch\(document\)[\s\S]*focusLevelOneHeading\(\)/);
   assert.match(
     appSource,
-    /if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.diag = computeDiagnostics\([\s\S]*render\(\);\s*if \(!packageQuerySearchReturnFocusIsPending\(\)\) \{\s*afterCurrentNavigationFrame\(\(\) =>\s*focusWorkspace\(document\)\)/);
+    /if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.diag = computeDiagnostics\([\s\S]*render\(\);\s*if \(!state\.packageQueryReturnFocusPending\) \{\s*afterCurrentNavigationFrame\(\(\) =>\s*focusWorkspace\(document\)\)/);
   assert.match(
     appSource,
     /state\.packageQueryReturnFocus === "application-query"[\s\S]*data-application-scope="query"[\s\S]*focusRenderedElement\(queryScope\)[\s\S]*else if \(focusLevelOneHeading\(\)\)/);

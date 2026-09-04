@@ -3201,7 +3201,7 @@ function renderWorkspaceCatalogView() {
       <div class="notice-stack">
         ${renderQueryNotice()}
       </div>
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="application-scope-workspace">
         ${renderWorkspaceNavPane()}
         <section class="detail-pane">
           <article id="inspector-panel" class="detail-scroll">
@@ -8199,11 +8199,6 @@ function focusInspectionResult(navigationSeq: number): void {
   });
 }
 
-function packageQuerySearchReturnFocusIsPending(): boolean {
-  return state.packageQueryReturnFocusPending
-    && state.packageQueryReturnFocus === "package-search";
-}
-
 function restorePackageQueryReturnFocus() {
   if (!state.packageQueryReturnFocusPending) return;
   if (state.packageQueryReturnFocus === "application-query") {
@@ -11610,7 +11605,7 @@ async function bootstrap() {
       state.atPackageRoot = true;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
-      if (!packageQuerySearchReturnFocusIsPending()) {
+      if (!state.packageQueryReturnFocusPending) {
         afterCurrentNavigationFrame(() =>
           focusWorkspace(document));
       }
@@ -12240,7 +12235,7 @@ window.addEventListener("popstate", () => {
     state.atPackageRoot = true;
     state.loading = !state.engineReady;
     const focusWorkspaceOnEntry =
-      !packageQuerySearchReturnFocusIsPending();
+      !state.packageQueryReturnFocusPending;
     render();
     if (state.engineReady && focusWorkspaceOnEntry) {
       afterCurrentNavigationFrame(() =>
