@@ -1,4 +1,5 @@
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 
 namespace DotnetInspector.Commands;
 
@@ -33,4 +34,8 @@ public class CommandContext
         HttpClient = httpClient
             ?? throw new ArgumentNullException(nameof(httpClient));
     }
+
+    internal DesktopPackageSourceComposition
+        CreatePackageSourceComposition() =>
+        new(HttpClient.Timeout);
 }

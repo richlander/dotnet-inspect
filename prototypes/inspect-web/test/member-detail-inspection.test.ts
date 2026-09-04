@@ -27,7 +27,7 @@ import {
 } from "../src/package-acquisition.ts";
 import type {
   BrowserMemberSurface,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-package.d.ts";
 
 function wireMemberSurface(
   overrides: Partial<BrowserMemberSurface> = {},

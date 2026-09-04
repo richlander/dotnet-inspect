@@ -1,7 +1,7 @@
 import type {
   BrowserOpportunityItem,
   BrowserPackageOpportunities,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-analysis.d.ts";
 
 export type OpportunityItem = BrowserOpportunityItem;
 type PackageOpportunities = Pick<

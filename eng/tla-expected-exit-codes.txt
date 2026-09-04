@@ -32,6 +32,7 @@ docs/design/models/research-workspace-target-composition/ResearchWorkspaceTarget
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionCiSafety.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionLiveness.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionSafety.cfg=0
+docs/design/models/workspace-binding-policy-realization/BrokenAutomaticRetryAfterFailure.cfg=12
 docs/design/models/workspace-binding-policy-realization/BrokenImportedBindingVersionLifecycle.cfg=13
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationLiveness.cfg=0
 docs/design/models/workspace-binding-policy-realization/WorkspaceBindingPolicyRealizationSafety.cfg=0
