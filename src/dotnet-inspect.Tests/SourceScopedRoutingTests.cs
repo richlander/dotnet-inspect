@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Net;
 using System.Text.Json;
+using System.Xml.Linq;
 
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
@@ -1382,8 +1384,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
             high: sources.Length - 1);
     }
 
-    [Fact]
-    public async Task OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling(
+        bool localSuccess)
     {
         const string TimedOutSource =
             "https://timeout.example/v3/index.json";
@@ -1391,6 +1396,11 @@ public sealed class SourceScopedRoutingTests : IDisposable
             "https://success.example/v3/index.json";
         const string SuccessFlat =
             "https://success.example/v3/flat2/";
+        string successSource = localSuccess
+            ? Path.Combine(_testRoot, "timeout-failover")
+            : SuccessSource;
+        if (localSuccess)
+            WriteLocalPackage(successSource, "timeout-failover", "1.0.0");
         await using var composition = new DesktopPackageSourceComposition(
             TimeSpan.FromMilliseconds(50),
             new UnavailableCredentialSource(),
@@ -1418,7 +1428,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 limit: null,
                 new NuGetSourceOptions
                 {
-                    Sources = [TimedOutSource, SuccessSource],
+                    Sources = [TimedOutSource, successSource],
                 },
                 cancellationToken:
                     TestContext.Current.CancellationToken);
@@ -1430,12 +1440,15 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Contains(TimedOutSource, failure.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task SourceClassification_PlainDirectoryNeverConstructsHttpTransport()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport(
+        bool fileUri)
     {
         string packageName = $"LocalDirectory{Guid.NewGuid():N}";
         string localSource = Path.Combine(_testRoot, "local-source");
-        Directory.CreateDirectory(localSource);
+        WriteLocalPackage(localSource, packageName, "1.0.0", hierarchical: fileUri);
         bool transportCreated = false;
         DotnetInspector.Core.HttpClientFactory.Initialize(
             new HttpClientFactoryOptions());
@@ -1456,19 +1469,12 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     "-n",
                     "1",
                     "--source",
-                    localSource,
+                    fileUri ? new Uri(localSource).AbsoluteUri : localSource,
                 ]);
 
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(
-                "does not support version enumeration",
-                error,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                "Use a package source that supports version enumeration",
-                error,
-                StringComparison.Ordinal);
+            Assert.Equal(0, exit);
+            Assert.Equal("1.0.0", output.Trim());
+            Assert.Empty(error);
             Assert.False(transportCreated);
         }
         finally
@@ -1477,6 +1483,205 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 new HttpClientFactoryOptions { Offline = true });
             DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
         }
+    }
+
+    [Theory]
+    [InlineData(false, false, null)]
+    [InlineData(true, false, null)]
+    [InlineData(false, true, null)]
+    [InlineData(true, true, null)]
+    [InlineData(false, false, 1)]
+    [InlineData(true, true, 1)]
+    public async Task PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit(
+        bool reverseSources,
+        bool preview,
+        int? limit)
+    {
+        const string PackageName = "Mixed.LocalVersions";
+        string local = Path.Combine(_testRoot, "mixed-source");
+        WriteLocalPackage(local, PackageName, "1.0.0");
+        WriteLocalPackage(local, PackageName, "2.0.0", hierarchical: true);
+        WriteLocalPackage(local, PackageName, "3.0.0-preview.1");
+        string[] sources = reverseSources
+            ? [SecondSource, local]
+            : [local, SecondSource];
+
+        var (exit, output, error, requests) =
+            await RunOnlineVersionFeedCommandAsync(
+                PackageName,
+                "2.0.0",
+                [
+                    "package", PackageName, "--versions",
+                    .. limit is { } count ? new[] { "-n", count.ToString() } : [],
+                    "--source", sources[0], "--source", sources[1],
+                    .. preview ? new[] { "--preview" } : [],
+                    "--jsonl",
+                ]);
+
+        string[] expected = preview
+            ? ["3.0.0-preview.1", "2.0.0", "1.0.0"]
+            : ["2.0.0", "1.0.0"];
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            expected.Take(limit ?? int.MaxValue)
+                .Select(version => $"{{\"version\":\"{version}\"}}"),
+            output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        Assert.Empty(error);
+        Assert.Contains(
+            $"{SecondFlatContainer}{PackageName.ToLowerInvariant()}/index.json",
+            requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails(
+        bool missing)
+    {
+        string local = Path.Combine(_testRoot, "empty-source");
+        if (!missing)
+            Directory.CreateDirectory(local);
+        var credentials = new RecordingCredentialSource();
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentials,
+            (_, _) => throw new InvalidOperationException("Local source constructed HTTP transport."));
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                "Absent.Package",
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = [local] },
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Versions);
+        Assert.False(result.HasAnyCandidate);
+        Assert.Empty(credentials.Queries);
+        if (missing)
+        {
+            Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+            Assert.Equal(
+                PackageAuthorityFailureKind.Transport,
+                Assert.Single(result.Failures).Kind);
+        }
+        else
+        {
+            Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+            Assert.Empty(result.Failures);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial(
+        bool malformed)
+    {
+        const string PackageName = "Incomplete.LocalVersions";
+        string local = Path.Combine(_testRoot, "failed-source");
+        if (malformed)
+        {
+            Directory.CreateDirectory(local);
+            File.WriteAllText(
+                Path.Combine(local, $"{PackageName}.1.0.0.nupkg"),
+                "not a package archive");
+        }
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                PackageName,
+                "2.0.0",
+                [
+                    "package", PackageName, "--versions", "-n", "1", "--jsonl",
+                    "--source", local, "--source", SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"2.0.0"}""", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(local, error, StringComparison.Ordinal);
+        Assert.Contains(
+            malformed ? "invalid version metadata" : "could not be reached",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial()
+    {
+        const string PackageName = "Readable.LocalVersions";
+        string local = Path.Combine(_testRoot, "readable-source");
+        WriteLocalPackage(local, PackageName, "1.0.0");
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                PackageName,
+                "2.0.0",
+                [
+                    "package", PackageName, "--versions", "--jsonl",
+                    "--source", RefusedSource, "--source", local,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("""{"version":"1.0.0"}""", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots()
+    {
+        const string PackageName = "Mapped.LocalVersions";
+        string local = Path.Combine(_testRoot, "mapped-source");
+        string other = Path.Combine(_testRoot, "other-source");
+        WriteLocalPackage(local, PackageName, "1.0.0");
+        WriteLocalPackage(other, PackageName, "2.0.0");
+        string configPath = Path.Combine(_testRoot, "NuGet.Config");
+        new XDocument(
+            new XElement("configuration",
+                new XElement("packageSources",
+                    new XElement("clear"),
+                    Source("unmapped", "mapped-source"),
+                    Source("path", "mapped-source"),
+                    Source("uri", new Uri(local).AbsoluteUri),
+                    Source("other", "other-source")),
+                new XElement("packageSourceCredentials",
+                    new XElement("unmapped",
+                        new XElement("add", new XAttribute("key", "Username"), new XAttribute("value", "reader")),
+                        new XElement("add", new XAttribute("key", "ClearTextPassword"), new XAttribute("value", "test")))),
+                new XElement("packageSourceMapping",
+                    Mapping("path"), Mapping("uri"), Mapping("other"))))
+            .Save(configPath);
+
+        var credentials = new RecordingCredentialSource();
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(5),
+            credentials,
+            (_, _) => throw new InvalidOperationException("Local source constructed HTTP transport."));
+        var log = new List<string>();
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                PackageName,
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { ConfigFile = configPath },
+                log.Add,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State);
+        Assert.Equal(["2.0.0", "1.0.0"], result.Versions);
+        Assert.Empty(result.Failures);
+        Assert.Empty(credentials.Queries);
+        Assert.Equal(2, log.Count(message => message.StartsWith("Fetching versions from ", StringComparison.Ordinal)));
+
+        static XElement Source(string name, string location) =>
+            new("add", new XAttribute("key", name), new XAttribute("value", location));
+        static XElement Mapping(string name) =>
+            new("packageSource", new XAttribute("key", name),
+                new XElement("package", new XAttribute("pattern", PackageName)));
     }
 
     [Fact]
@@ -1711,6 +1916,28 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 includePrerelease),
             version,
             extension: "txt");
+    }
+
+    private static void WriteLocalPackage(
+        string root,
+        string packageName,
+        string version,
+        bool hierarchical = false)
+    {
+        string id = packageName.ToLowerInvariant();
+        string directory = hierarchical
+            ? Path.Combine(root, id, version)
+            : root;
+        Directory.CreateDirectory(directory);
+        using var archive = new ZipArchive(
+            File.Create(Path.Combine(directory, $"{id}.{version}.nupkg")),
+            ZipArchiveMode.Create);
+        using var writer = new StreamWriter(archive.CreateEntry($"{id}.nuspec").Open());
+        writer.Write($"""
+            <package><metadata>
+              <id>{packageName}</id><version>{version}</version>
+            </metadata></package>
+            """);
     }
 
     private void SeedPackage(string packageName, string? sourceUrl = null)

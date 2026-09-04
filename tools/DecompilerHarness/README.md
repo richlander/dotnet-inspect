@@ -536,13 +536,17 @@ eligible-method completeness for the exact scanned assembly set; it is **not** a
 claim that every C# declaration in the file was checked. A file with no eligible
 target is rejected structurally rather than qualifying vacuously.
 
-Each immutable file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
+Each checksum-pinned file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
 triple the manifest registers, grouped across assemblies and marked
 `sharedAcrossAssemblies` when more than one module maps it — is:
 
-- **Enrolled** — its exact commit-pinned source URL is already present in the
-  verified baseline, so it remains visible but is not ranked as a next
-  candidate.
+- **Enrolled** — it qualifies in the current run, and its exact source URL is
+  already present in the accepted baseline and is commit-pinned under the
+  product's recognized SourceLink provenance grammar. It remains visible but
+  is not ranked as a next candidate. A mutable or unknown-host URL is not
+  enough to establish cross-run enrollment correspondence, and a currently
+  rejected or unevaluable file retains that verdict rather than being
+  relabeled.
 - **Qualified** — every eligible target has a captured record, evaluates
   `ValidMatch`, is `PrinterExact` `Exact` at the supported printer comparison
   version, and its Printer body parses for the syntax inventory.
@@ -603,11 +607,17 @@ rejected.
 inventory entries. The
 candidate report records the baseline's provenance, digest, and feature set —
 never its local path.
+Baseline cleanliness is disclosed rather than admitted: a dirty baseline or one
+whose build revision did not match the then-current checkout may still supply a
+passing measured feature set. The ledger preserves those facts, including
+`sourceRevisionMatchesHead`, so the operator can distinguish measurement
+consistency from repository reproducibility.
 
 Qualified files are then ranked greedily and deterministically: starting from
 the baseline's observed features, repeatedly take the remaining qualified file
 covering the most currently uncovered features, breaking ties on total feature
-count descending, eligible-target count descending, then source URL ordinal.
+count descending, eligible-target count descending, source URL ordinal,
+checksum algorithm ordinal, and checksum ordinal.
 Each pick records its `rank` and `incrementalFeatures` and updates the covered
 set, so a file's gain reflects the picks before it and zero-gain files rank
 after every positive-gain file.
@@ -615,13 +625,16 @@ after every positive-gain file.
 `GreedyRanking_BreaksTiesDeterministically` are the named gates.
 
 **Exit code.** Candidate rejection and transient source unavailability are typed
-data and exit 0. The run fails only on measurement integrity: no usable assembly
-or real-method target, a failed PDB mapping census, an evaluation count or
-correlation mismatch, an invalid or unverified baseline report, or a run in
-which no checksum-identified file was evaluated at all.
+data and exit 0. The supplied assembly set is all-or-nothing for measurement
+integrity: an unreadable assembly, duplicate module identity, absent real-method
+target, or failed complete PDB census in any input refuses the run rather than
+publishing a ranking for the remainder. An evaluation count or correlation
+mismatch, an unaccepted baseline report, or a run in which no
+checksum-identified file was evaluated also refuses the run.
 
-**Durable output.** The `--json` report carries identities, checksums, counts,
-typed reason codes, outcomes, feature names, and member identities only.
+**Archiveable output.** The version-2 `--json` report carries identities,
+checksums, counts, typed reason codes, outcomes, feature names, member
+identities, and disclosed current and baseline provenance only.
 Assembly provenance is content-derived; path-derived labels such as a parent
 directory interpreted as a target framework are excluded. The report never
 carries an authored body, a Printer body, a diff, or a local path;
@@ -632,14 +645,17 @@ it classifies and serializes. The text card is the same data: input and
 denominator totals, status counts, the rejection-family and reason histograms,
 the baseline feature count, the ranked candidates with gain, total, and member
 counts, and the explicit unevaluable and unmapped counts. Data goes to stdout
-and diagnostics to stderr.
+and diagnostics to stderr. No parser or complete-report verifier promotes an
+archived candidate report into a new baseline or enrollment authorization; the
+omitted source, PDB, and baseline bodies prevent replaying its verdicts from the
+report alone.
 
 ```bash
 bash eng/restore-authored-source-corpus.sh
 bash eng/prepare-authored-source-oracles.sh /tmp/source-oracle-assemblies.txt
 mapfile -t oracle_assemblies < /tmp/source-oracle-assemblies.txt
 
-# 1. Produce the verified enrolled baseline the ranking is incremental to.
+# 1. Produce the accepted measured baseline the ranking is incremental to.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
   --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
@@ -2004,7 +2020,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --bind-check --max-examples 20
 
 # Which whole source files could be enrolled in the source oracle next, ranked by
-# the new C# syntax each one adds over a VERIFIED enrolled benchmark report.
+# the new C# syntax each one adds over an accepted measured benchmark report.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --source-oracle-candidates \
   --baseline-source-oracle-report /tmp/source-oracle-baseline.json \

@@ -41,6 +41,25 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
+### List versions from a folder feed
+
+Ordinary version listing also supports NuGet V2/V3 folder feeds, specified as a
+path, a `file://` URI, or a mapped source in `NuGet.Config`:
+
+```bash
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
+  --source ./feed --jsonl
+```
+
+Local and HTTP versions are combined and sorted before the result limit.
+Missing folders or invalid archives are source failures, not package absence;
+usable peer results carry an explicit partial warning on stderr. Local reads
+use bounded enumeration rather than treating filenames as version evidence.
+This applies to ordinary `--versions` without `--offline`, not yet
+`--versions-with-feed`, `--include-unlisted`, latest/range selection, or payload
+acquisition.
+
 ### Restrict package ids to feeds
 
 dotnet-inspect honors `<packageSourceMapping>` from the selected NuGet
@@ -121,10 +140,10 @@ coordinate only when `.nupkg.metadata.source` names an authorized producer.
 Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
-succeeds only from producer-authorized caches. Configured non-HTTP sources,
-including folder feeds, are skipped in every mode; `--verbose` reports the
-skip. Pass a local `.nupkg` path directly when the package is available as a
-file.
+succeeds only from producer-authorized caches. Outside ordinary online
+`--versions`, configured folder feeds remain on legacy paths that skip them;
+`--verbose` reports the skip. Pass a local `.nupkg` path directly for package
+inspection when the package is available as a file.
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 \

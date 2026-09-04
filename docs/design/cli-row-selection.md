@@ -590,7 +590,7 @@ The plural package-version adoption is enforced by:
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |
 | `PackageVersionListing_LimitOneStillReportsPartialEvidence` and `PackageVersionFeedListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress authenticated multi-source completion evidence in merged or feed-attributed listings. |
-| `SourceClassification_PlainDirectoryNeverConstructsHttpTransport` | A local-directory source remains outside HTTP/plugin authentication under semantic Head(1). |
+| `PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport` | Local-directory and file-URI sources enumerate versions without HTTP/plugin authentication under semantic Head(1). |
 
 The remaining implementation must satisfy:
 
