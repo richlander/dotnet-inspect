@@ -80,14 +80,15 @@ An authority can additionally have a durable cache key only when the package
 owner can project a stable key without credential-dependent input while still
 preserving every authority distinction.
 
-An HTTP declaration containing a query, fragment, or redacted credential-like
-path component cannot use a durable key derived from that text. Hashing the
-untreated value would retain a credential guess verifier, while using the
-credential-free producer key would collapse distinct authorities. Such an
-authority remains fully usable through its opaque runtime identity, but
-cross-process candidate and payload cache reuse is unavailable until an
-independent non-secret stable authority ID exists. A source name alone is not
-sufficient because the same name can later designate another endpoint.
+An HTTP declaration containing configured credentials, a query, fragment, or
+redacted credential-like path component cannot use a durable key derived from
+that text. Hashing the untreated value would retain a credential guess
+verifier, while using the credential-free producer key would collapse distinct
+authorities. Such an authority remains fully usable through its opaque runtime
+identity, but cross-process candidate and payload cache reuse is unavailable
+until an independent non-secret stable authority ID exists. A source name
+alone is not sufficient because the same name can later designate another
+endpoint.
 
 Portable browser source IDs and owner-issued canonical local identities may
 provide such an independent stable ID under their own contracts. The package
@@ -447,3 +448,31 @@ producer identity, transport kind, source order, or a healthy subset were
 mistakenly used as authority. Existing NuGetFetch and authentication gates
 remain evidence for their owners; they do not substitute for these
 package-composition gates.
+
+### Authority-resolution implementation
+
+The first implementation slice establishes package-owned configured authority
+objects, one opaque source association per authority, exact reverse lookup, and
+a versioned persistent cache key only when it can be formed without retained
+credentials. Alias mapping remains earlier than authority collapse, and local
+and HTTP declarations are classified without constructing a transport.
+An authority object and its association live for one authorization answer;
+result adoption uses that answer's reverse map. Host-supplied independently
+authorized sources remain distinct unless their policy owner has already
+selected and collapsed aliases with equivalent classification and policy.
+
+The Release gates
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`ConfiguredAuthority_CredentialPathRotationsDoNotShareAuthorityOrRetainSecret`,
+`SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
+`SourceClassification_FileUriNeverConstructsHttpTransport`,
+`SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`,
+`PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`, and
+`PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`
+enforce this slice.
+
+Typed route composition, result adoption, discovery aggregation, payload and
+cache authorization, and consumer migration remain later slices of
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). Legacy
+`Sources` projection remains available during those migrations; it is not an
+alternative authority identity.

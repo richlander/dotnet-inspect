@@ -199,7 +199,7 @@ public static class NuGetSourceResolver
             :
             [
                 .. activeDeclarations.Select(
-                    static declaration => declaration.Resolve()),
+                    ResolveSelectedDeclaration),
             ];
         AddExplicitSources(
             selected,
@@ -287,7 +287,7 @@ public static class NuGetSourceResolver
                     .. activeDeclarations
                         .Where(declaration =>
                             allowedNames.Contains(declaration.Name))
-                        .Select(static declaration => declaration.Resolve()),
+                        .Select(ResolveSelectedDeclaration),
                 ];
             AddExplicitSources(
                 selected,
@@ -551,12 +551,31 @@ public static class NuGetSourceResolver
         IReadOnlyList<NuGetSource> eligibleAliases,
         string packageId)
     {
-        List<NuGetSource> producers = [];
-        foreach (IGrouping<string, NuGetSource> aliases in eligibleAliases.GroupBy(
-            source => NuGetCache.GetSourceKey(source.Url),
-            StringComparer.Ordinal))
+        var groups = new List<(
+            ClassifiedPackageSourceIdentity Classification,
+            List<NuGetSource> Aliases)>();
+        foreach (NuGetSource alias in eligibleAliases)
         {
-            NuGetSource first = aliases.First();
+            ClassifiedPackageSourceIdentity classification =
+                ConfiguredPackageAuthority.Classify(alias);
+            int groupIndex = groups.FindIndex(
+                group => group.Classification == classification);
+            if (groupIndex < 0)
+            {
+                groups.Add((classification, [alias]));
+            }
+            else
+            {
+                groups[groupIndex].Aliases.Add(alias);
+            }
+        }
+
+        List<NuGetSource> producers = [];
+        foreach ((
+                     ClassifiedPackageSourceIdentity _,
+                     List<NuGetSource> aliases) in groups)
+        {
+            NuGetSource first = aliases[0];
             if (aliases.Any(alias => alias.Credential != first.Credential))
             {
                 throw new PackageSourceMappingException(
@@ -569,5 +588,23 @@ public static class NuGetSourceResolver
         }
 
         return producers;
+    }
+
+    private static NuGetSource ResolveSelectedDeclaration(
+        PackageSourceDeclaration declaration)
+    {
+        try
+        {
+            return declaration.Resolve();
+        }
+        catch (UnsupportedSourceException ex)
+        {
+            InertString alias = PackageSourceDisplay.ForDiagnostics(
+                declaration.Name,
+                url: null);
+            throw new UnsupportedSourceException(
+                $"Configured package source '{alias}' is unsupported: "
+                + ex.Message);
+        }
     }
 }

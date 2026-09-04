@@ -1493,6 +1493,197 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public void PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse()
+    {
+        string feed = Path.Combine(
+            Path.GetTempPath(),
+            $"mapped-local-feed-{Guid.NewGuid():N}");
+        using var config = new TempNuGetConfig(
+            [("path", feed), ("uri", new Uri(feed).AbsoluteUri)],
+            mappings:
+            [
+                ("path", "Path.*"),
+                ("uri", "Uri.*"),
+            ]);
+        var authorization = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        ConfiguredPackageAuthority path = Assert.Single(
+            authorization.AuthorizeSourcesFor("path.package").Authorities);
+        ConfiguredPackageAuthority uri = Assert.Single(
+            authorization.AuthorizeSourcesFor("uri.package").Authorities);
+
+        Assert.Equal("path", path.Source.Name);
+        Assert.Equal("uri", uri.Source.Name);
+        Assert.Equal(path.LocalIdentity, uri.LocalIdentity);
+    }
+
+    [Fact]
+    public void ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct()
+    {
+        using var config = new TempNuGetConfig(
+            [
+                ("tenant-a", "https://feed.example/v3/index.json?tenant=a"),
+                ("tenant-b", "https://feed.example/v3/index.json?tenant=b"),
+            ],
+            mappings: [("tenant-a", "*"), ("tenant-b", "*")]);
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions { ConfigFile = config.Path },
+                    "contoso.package"));
+        Assert.Collection(
+            authorization.Authorities,
+            first =>
+            {
+                Assert.Null(first.PersistentCacheKey);
+                Assert.True(
+                    authorization.TryGetAuthority(
+                        first.Association,
+                        out ConfiguredPackageAuthority? recovered));
+                Assert.Same(first, recovered);
+            },
+            second => Assert.Null(second.PersistentCacheKey));
+        ConfiguredPackageAuthority first = authorization.Authorities[0];
+        ConfiguredPackageAuthority second = authorization.Authorities[1];
+        using IPackageSourceClient firstClient =
+            PackageSourceClientFactory.Create(
+                first.Source,
+                first.Association);
+        using IPackageSourceClient secondClient =
+            PackageSourceClientFactory.Create(
+                second.Source,
+                second.Association);
+
+        Assert.Equal(
+            firstClient.Source.Producer,
+            secondClient.Source.Producer);
+        Assert.NotSame(first.Association, second.Association);
+        Assert.False(
+            authorization.TryGetAuthority(
+                PackageSourceAssociation.Create(),
+                out _));
+    }
+
+    [Fact]
+    public void ConfiguredAuthority_CredentialPathRotationsDoNotShareAuthorityOrRetainSecret()
+    {
+        const string firstSecret = "first-secret";
+        const string secondSecret = "second-secret";
+        using var config = new TempNuGetConfig(
+            [
+                ("first", $"https://feed.example/F/auth/{firstSecret}/api"),
+                ("second", $"https://feed.example/F/auth/{secondSecret}/api"),
+            ],
+            mappings: [("first", "*"), ("second", "*")]);
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                NuGetSourceResolver.ResolveSourcesForPackage(
+                    new NuGetSourceOptions { ConfigFile = config.Path },
+                    "contoso.package"));
+        ConfiguredPackageAuthority first = authorization.Authorities[0];
+        ConfiguredPackageAuthority second = authorization.Authorities[1];
+        using IPackageSourceClient firstClient =
+            PackageSourceClientFactory.Create(
+                first.Source,
+                first.Association);
+        using IPackageSourceClient secondClient =
+            PackageSourceClientFactory.Create(
+                second.Source,
+                second.Association);
+
+        Assert.Equal(
+            firstClient.Source.Producer,
+            secondClient.Source.Producer);
+        Assert.NotSame(first, second);
+        Assert.Null(first.PersistentCacheKey);
+        Assert.Null(second.PersistentCacheKey);
+    }
+
+    [Fact]
+    public void SourceClassification_PlainDirectoryNeverConstructsHttpTransport()
+    {
+        string feed = Path.Combine(
+            Path.GetTempPath(),
+            $"plain-local-feed-{Guid.NewGuid():N}");
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [new PackageSource("local", feed)]);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        Assert.Equal(
+            ConfiguredPackageAuthorityKind.LocalFolder,
+            authority.Kind);
+        Assert.Equal(feed, authority.LocalIdentity!.CanonicalPath);
+        Assert.Null(authority.HttpEndpoint);
+        Assert.NotNull(authority.PersistentCacheKey);
+    }
+
+    [Fact]
+    public void SourceClassification_FileUriNeverConstructsHttpTransport()
+    {
+        string feed = Path.Combine(
+            Path.GetTempPath(),
+            $"uri-local-feed-{Guid.NewGuid():N}");
+        PackageSourceAuthorization authorization =
+            PackageSourceAuthorization.Authorize(
+                [new PackageSource("local", new Uri(feed).AbsoluteUri)]);
+
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.Authorities);
+        Assert.Equal(
+            ConfiguredPackageAuthorityKind.LocalFolder,
+            authority.Kind);
+        Assert.Equal(feed, authority.LocalIdentity!.CanonicalPath);
+        Assert.Null(authority.HttpEndpoint);
+    }
+
+    [Fact]
+    public void SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest()
+    {
+        using var config = new TempNuGetConfig(
+            [("legacy", "ftp://feed.example/v3/index.json")]);
+        var policy = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        PackageSourceAuthorization authorization =
+            policy.AuthorizeSourcesFor("contoso.package");
+
+        Assert.Empty(authorization.Authorities);
+        Assert.Empty(authorization.Sources);
+        Assert.Contains(
+            "HTTP(S)",
+            authorization.DenialReason!,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "legacy",
+            authorization.DenialReason!,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation()
+    {
+        const string endpoint = "https://feed.example/v3/index.json";
+        using var config = new TempNuGetConfig(
+            [("anonymous", endpoint), ("authenticated", endpoint)],
+            credentialedSource: "authenticated",
+            mappings: [("anonymous", "*"), ("authenticated", "*")]);
+        var policy = new SourcePolicyPackageSourceAuthorization(
+            new NuGetSourceOptions { ConfigFile = config.Path });
+
+        PackageSourceAuthorization authorization =
+            policy.AuthorizeSourcesFor("contoso.package");
+
+        Assert.Empty(authorization.Authorities);
+        Assert.Contains(
+            "conflicting credentials",
+            authorization.DenialReason!,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ResolveSourcesForPackage_MappingSelectsConfiguredName()
     {
         using var config = new TempNuGetConfig(
