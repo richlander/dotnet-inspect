@@ -16,8 +16,10 @@ shipping sections over exact pinned inputs.
 The Package Set Registry and its Microsoft.Extensions and ASP.NET Core
 inventories are implemented. The pack registry, demo contribution, and their
 novel registry and application-adoption gates remain unimplemented. The
-assembly-friend tests, solution dependency-policy rule, and inspect-web facade
-boundary gate already landed with the application shell and remain applicable.
+assembly-friend tests and solution dependency-policy rule already landed with
+the application shell and remain applicable. The inspect-web facade boundary
+gate still names the former host facade; application adoption must retarget its
+sole ecosystem-catalog exception to the catalog facade.
 Existing product demos remain in the `DotnetInspector.Queries` donor registry
 until the transfer described here lands. Every asserted target property is
 unverified until its named Release gate lands; existing package membership,
@@ -203,12 +205,13 @@ The intended host-neutral application component is
 `DotnetInspector.Ecosystems`. It sits above Packages and
 Queries/Workspace Definitions and Metadata/Integrations and contains the
 application manifest and concrete pack source. Its only production consumers
-are the `dotnet-inspect` CLI front end and the `InspectWeb.Engine` managed
-browser facade. `InspectWeb.Engine.Core`, Packages, Metadata, Queries,
-Services, Presentation, Vocabulary, and other reusable infrastructure do not
-reference it. Selected owner-issued package, demo, or scanner currencies flow
-from the catalog or two front ends into existing infrastructure; the catalog
-itself does not flow downward.
+are the `dotnet-inspect` CLI front end and the
+`InspectWeb.Engine.CatalogExports` managed browser facade.
+`InspectWeb.Engine.Core`, the host and sibling export facades, Packages,
+Metadata, Queries, Services, Presentation, Vocabulary, and other reusable
+infrastructure do not reference it. Selected owner-issued package, demo, or
+scanner currencies flow from the catalog or two front ends into existing
+infrastructure; the catalog itself does not flow downward.
 
 ## Identity
 
@@ -305,15 +308,17 @@ The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately adds
 `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
 evaluated MSBuild `ProjectReference` and assembly `Reference` items for the
-inspect-web production projects and permits either reference only from the
-current managed front-end facade, `InspectWeb.Engine`.
-`InspectWeb.Engine.Core` and every other inspect-web production project reject
+inspect-web production projects. Its current implementation permits either
+reference only from the former managed host facade, `InspectWeb.Engine`;
+application adoption retargets that sole exception to
+`InspectWeb.Engine.CatalogExports`. `InspectWeb.Engine.Core`, the host and
+sibling export facades, and every other inspect-web production project reject
 it. Test projects and the focused
 `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
 catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
 
-Together, the solution dependency policy and browser project-graph gate provide
-full coverage for the current production dependency claim.
+Together, the solution dependency policy and retargeted browser project-graph
+gate provide full coverage for the production dependency claim.
 `DotnetInspector.Ecosystems` consumes package-coordinate, prefix, and scanner
 currencies through their public owner-issued surfaces. Demo adoption adds a
 normal public reference from `DotnetInspector.Ecosystems` to
@@ -332,10 +337,9 @@ application concepts in owner-domain records and evidence, and such a scan
 would conflate semantic content with an application-catalog dependency.
 
 `DotnetInspector.Ecosystems.csproj` declares exactly one friend,
-`DotnetInspector.Ecosystems.Tests`. The CLI, `InspectWeb.Engine`, the non-friend
+`DotnetInspector.Ecosystems.Tests`. The CLI, inspect-web facades, the non-friend
 canary, and all other production and test assemblies receive no friend access.
-Friendship is not an alternate registration, publication, or selection
-channel.
+Friendship is not an alternate registration, publication, or selection channel.
 
 ## Materialization
 
@@ -590,8 +594,9 @@ explicit selections.
 ## Host plan
 
 The static manifest is host-neutral application product data directly consumed
-only by the CLI and `InspectWeb.Engine` front ends. Neither copies the pack
-list, package-set identity, prefix metadata, or scanner availability.
+only by the CLI and `InspectWeb.Engine.CatalogExports` front ends. Neither
+copies the pack list, package-set identity, prefix metadata, or scanner
+availability.
 
 The CLI may later expose ecosystem discovery or map existing source selectors
 to pack capabilities. It retains token grammar, command policy, diagnostics,
@@ -605,9 +610,9 @@ and run plan through the existing type/member section pipeline. Product-facing
 title and summary come from the selected catalog descriptor, not from the
 resolved scenario's portable metadata.
 
-`InspectWeb.Engine` may project an ecosystem action surface from the same
-descriptors through its generated facade. The TypeScript front end retains
-interaction and browser presentation. Browser infrastructure retains
+`InspectWeb.Engine.CatalogExports` projects an ecosystem action surface from
+the same descriptors through its generated facade. The TypeScript front end
+retains interaction and browser presentation. Browser infrastructure retains
 asynchronous acquisition, budget reservation, workspace replacement, rollback,
 and disposal without referencing the ecosystem catalog.
 
@@ -624,14 +629,14 @@ Integration-owned orchestration. Browser Core may carry the Integration value
 through an Integration-typed parameter, but it does not reference the ecosystem
 catalog or rediscover the pack.
 
-The current browser exception names `InspectWeb.Engine`. If the proposed
-JSExport facade partition lands first, its owner must designate exactly one
-managed export facade as the replacement exception and assign the complete
-ecosystem discovery, selection, execution adaptation, and facade-local DTO
-closure to it. Sibling export facades neither consume that facade nor reference
-the catalog. The TypeScript application composes the separate facade result
-into its application model. Core and every other reusable browser project
-remain forbidden.
+The implemented
+[JSExport facade partition](inspect-web-jsexport-partitioning.md) designates
+`InspectWeb.Engine.CatalogExports` as the sole managed ecosystem-catalog
+consumer and assigns the complete discovery, selection, execution adaptation,
+and facade-local DTO closure to it. Sibling export facades neither consume that
+facade nor reference the catalog. The TypeScript application composes the
+separate facade result into its application model. Core and every other
+reusable browser project remain forbidden.
 
 The registry preserves typed data through both host boundaries. This design
 defines no broad report or output format; hosts render focused discovery and
@@ -779,7 +784,7 @@ ordinary non-friend consumer.
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
 | `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Evaluated inspect-web `ProjectReference` and assembly `Reference` items permit `DotnetInspector.Ecosystems` only in the current managed front-end facade and reject it from `InspectWeb.Engine.Core` and every other browser production project. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | After application adoption retargets the existing gate, evaluated inspect-web `ProjectReference` and assembly `Reference` items permit `DotnetInspector.Ecosystems` only in `InspectWeb.Engine.CatalogExports` and reject it from `InspectWeb.Engine.Core`, the host and sibling export facades, and every other browser production project. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
