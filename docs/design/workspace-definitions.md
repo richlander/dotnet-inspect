@@ -1980,13 +1980,19 @@ Definition records and product demos (this slice):
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
-- `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
-  demo-parity, section binding, CLI lowering, and real section output for the
-  product home demos; inspect-web's generated `RunHomeDemo` binding runs both
-  type-only Methods and member-bound Call Graph presets from their product
-  scenario ids. `BrowserProductHomeDemosTests` gates host-plan lowering and
-  unsupported bindings; `BrowserEngineBoundaryTests` gates nonempty Methods
-  projection and anchored Call Graph execution;
+- `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
+  `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
+  gate portable round-trip and record-kind separation.
+  `ProductDemoSourceBindingTests` gates source shape, selected-only dispatch,
+  exact scenario resolution, section admission, and visible failures.
+  `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
+  and `ProductEcosystemPackTests.EveryShippedDemoBindsAKnownProductSection`
+  gate donor parity and shipped section binding; `DemoCommandTests` gates CLI
+  lowering and real section output. Inspect-web's generated `RunHomeDemo`
+  binding runs both type-only Methods and member-bound Call Graph presets from
+  their product scenario ids. `BrowserProductHomeDemosTests` gates host-plan
+  lowering and unsupported bindings; `BrowserEngineBoundaryTests` gates
+  nonempty Methods projection and anchored Call Graph execution;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
   legacy prototype packets, malformed or non-canonical encoding and JSON,

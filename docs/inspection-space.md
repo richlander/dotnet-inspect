@@ -1103,10 +1103,9 @@ exists. CLI argv, definition plans, and browser engine operations (including a
 generated TypeScript binding of that engine surface) must be encodings of the
 same preset—not parallel demo systems. Ecosystem grouping does not select or
 activate the pack's package set, prefixes, or scanner, and is never inferred
-from package coordinates or display text. Residual: the ecosystem-catalog
-donor transfer, minted view-facet ids, `WorkspaceContextLoader` as the shared
-group-run owner, and Call Graph structured-JSON projection (see
-workspace-definitions). Detail:
+from package coordinates or display text. Residual: minted view-facet ids,
+`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
+structured-JSON projection (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 
