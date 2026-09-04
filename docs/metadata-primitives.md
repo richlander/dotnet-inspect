@@ -284,6 +284,18 @@ and lets a malformed row shadow a healthy same-name definition. Resolving
 leniently is worse than either: the malformed participant publishes, silently
 loses the edge, and answers with a certified-looking empty graph.
 
+The property this buys is bounded, and callers must not strengthen it.
+Staging excludes a participant whose relationship decoding *reports* a
+rejection. It does not establish that every malformed participant is excluded,
+because a participant is only as trustworthy as the decode that judged it.
+Where signature decoding answers with a plausible name instead of a rejection —
+notably a generic-parameter index outside the enclosing type's context, which
+materializes as a synthesized `T0` rather than a rejection — staging sees a
+resolved name and publishes. Such a participant can still shadow a healthy
+same-name definition, and the reported graph then depends on input order. This
+predates the admission contract and is unchanged by it; the decoder is
+MetadataPrimitives-owned, so closing it is tracked separately by #5856.
+
 **Behavior change, and its cost.** Because staging validates *every* public
 type, one malformed type rejects the whole participant even when the caller
 asked about an unrelated healthy type in the same file. Before this contract,
