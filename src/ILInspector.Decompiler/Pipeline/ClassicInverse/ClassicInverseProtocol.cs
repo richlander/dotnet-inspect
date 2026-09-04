@@ -81,42 +81,59 @@ internal static class ClassicInverseProtocol
             case TryCatch tryCatch when IsBuilderCompletionShell(tryCatch, shell):
                 return ClassicInverseProtocolRule.Container("builder-completion-try");
 
-            case CatchClause clause when IsBuilderCompletionCatch(clause, shell):
-                return ClassicInverseProtocolRule.Owned("builder-completion-catch");
+            case CatchClause clause when shell.Protocol.Proves(
+                clause,
+                ClassicInverseLoweringProof.CompletionCatch):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.CompletionCatch);
 
-            // The shell's copy of <>1__state into its dispatch local.
+            // The shell's copy of <>1__state into its dispatch local, proven as
+            // one role of the closed state protocol.
             case StoreLocal store
                 when store.Index == shell.StateLocal
                     && store.Index >= 0
-                    && store.Value is Constant
-                        or LoadStackSlot
-                        or LoadField { Field.Name: "<>1__state" }:
-                return ClassicInverseProtocolRule.Owned("state-local-store");
+                    && shell.Protocol.Proves(
+                        store,
+                        ClassicInverseLoweringProof.StateLocalStore):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.StateLocalStore);
 
-            case StoreField { Field.Name: "<>1__state", Value: Constant } state
+            case StoreField { Field.Name: "<>1__state" } state
                 when state.Instance is LoadArgument { Index: 0 }
-                    && ClassicInverseNodeFacts.IsMachineField(state.Field, machine):
-                return ClassicInverseProtocolRule.Owned("state-field-store");
+                    && ClassicInverseNodeFacts.IsMachineField(state.Field, machine)
+                    && shell.Protocol.Proves(
+                        state,
+                        ClassicInverseLoweringProof.StateFieldStore):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.StateFieldStore);
 
-            case StoreField { Value: LoadLocal awaiterValue } cache
-                when cache.Field.Name.StartsWith("<>u__", StringComparison.Ordinal)
-                    && cache.Instance is LoadArgument { Index: 0 }
-                    && ClassicInverseNodeFacts.IsMachineField(cache.Field, machine)
-                    && shell.AwaiterLocals.Contains(awaiterValue.Index):
-                return ClassicInverseProtocolRule.Owned("awaiter-cache-store");
+            // The import spills a state constant through the compiler's dup
+            // slot; the proof binds that slot to its state stores.
+            case StoreStackSlot spill when shell.Protocol.Proves(
+                spill,
+                ClassicInverseLoweringProof.StateSpill):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.StateSpill);
 
-            case StoreLocal { Value: LoadField cachedAwaiter } restore
-                when shell.AwaiterLocals.Contains(restore.Index)
-                    && cachedAwaiter.Field.Name.StartsWith("<>u__", StringComparison.Ordinal)
-                    && cachedAwaiter.Instance is LoadArgument { Index: 0 }
-                    && ClassicInverseNodeFacts.IsMachineField(cachedAwaiter.Field, machine):
-                return ClassicInverseProtocolRule.Owned("awaiter-restore");
+            // The awaiter transfer is protocol only where the proof bound this
+            // exact cache, restore, or clear to one suspension's state.
+            case StoreField cache when shell.Protocol.Proves(
+                cache,
+                ClassicInverseLoweringProof.AwaiterCacheStore):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.AwaiterCacheStore);
 
-            case InitObject { Address: LoadFieldAddress clear }
-                when clear.Field.Name.StartsWith("<>u__", StringComparison.Ordinal)
-                    && clear.Instance is LoadArgument { Index: 0 }
-                    && ClassicInverseNodeFacts.IsMachineField(clear.Field, machine):
-                return ClassicInverseProtocolRule.Owned("awaiter-clear");
+            case StoreLocal restore when shell.Protocol.Proves(
+                restore,
+                ClassicInverseLoweringProof.AwaiterRestore):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.AwaiterRestore);
+
+            case InitObject clear when shell.Protocol.Proves(
+                clear,
+                ClassicInverseLoweringProof.AwaiterClear):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.AwaiterClear);
 
             // stloc awaiter <- callvirt GetAwaiter(<user operand>).
             case StoreLocal { Value: Call { Callee.Name: "GetAwaiter" } getAwaiter } bind
@@ -131,15 +148,24 @@ internal static class ClassicInverseProtocol
                 return ClassicInverseProtocolRule.Frame("get-awaiter", 0);
 
             case ExpressionStatement { Expression: Call builderCall }
-                when IsBuilderCallback(builderCall, shell, candidate):
+                when IsProvenCompletionCallback(builderCall, shell, candidate):
                 return ClassicInverseProtocolRule.Owned(
-                    $"builder-{builderCall.Callee.Name}");
+                    shell.Protocol.RoleOf(builderCall)!);
 
             case Return { Value: null }:
                 return ClassicInverseProtocolRule.Owned("shell-return");
 
-            case ConditionalBranch stateBranch when IsStateDispatch(stateBranch.Condition, shell):
-                return ClassicInverseProtocolRule.Owned("state-dispatch");
+            case ConditionalBranch stateBranch when shell.Protocol.Proves(
+                stateBranch,
+                ClassicInverseLoweringProof.StateDispatch):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.StateDispatch);
+
+            case ConditionalBranch guard when shell.Protocol.Proves(
+                guard,
+                ClassicInverseLoweringProof.SuspensionGuard):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.SuspensionGuard);
 
             case ConditionalBranch { Condition: LoadProperty completed }
                 when completed.PropertyName == "IsCompleted"
@@ -179,93 +205,30 @@ internal static class ClassicInverseProtocol
         };
     }
 
-    static bool IsStateDispatch(IrExpression condition, ClassicInverseShellFacts shell)
-    {
-        if (shell.StateLocal < 0)
-            return false;
-        return condition switch
-        {
-            LogicalNot { Operand: LoadLocal load } => load.Index == shell.StateLocal,
-            Comparison { Left: LoadLocal load, Right: Constant } =>
-                load.Index == shell.StateLocal,
-            Comparison { Right: LoadLocal load, Left: Constant } =>
-                load.Index == shell.StateLocal,
-            LoadLocal load => load.Index == shell.StateLocal,
-            _ => false,
-        };
-    }
-
-    static bool IsBuilderCallback(
+    static bool IsProvenCompletionCallback(
         Call call,
         ClassicInverseShellFacts shell,
         ClassicInverseCandidate candidate)
-    {
-        if (!ClassicInverseNodeFacts.IsAsyncMethodBuilder(call.Callee.DeclaringType)
-            || call.Arguments.Count == 0
-            || !ClassicInverseNodeFacts.IsBuilderAccess(
-                call.Arguments[0],
-                shell.Machine))
+        => shell.Protocol.RoleOf(call) switch
         {
-            return false;
-        }
-
-        return call.Callee.Name switch
-        {
-            "AwaitUnsafeOnCompleted" =>
-                call.Arguments.Count == 3
-                && call.Arguments[1] is LoadLocalAddress awaiter
-                && shell.AwaiterLocals.Contains(awaiter.Index)
-                && call.Arguments[2] is LoadArgument { Index: 0 },
-            "SetException" =>
-                call.Arguments.Count == 2
-                && call.Arguments[1] is LoadLocal,
-            "SetResult" =>
+            ClassicInverseLoweringProof.AwaitCallback => true,
+            ClassicInverseLoweringProof.SetExceptionCallback => true,
+            // The recipe owns which local the completion result reads; the
+            // protocol proof owns that there is exactly one such callback.
+            ClassicInverseLoweringProof.SetResultCallback =>
                 call.Arguments.Count == 1
                 || (call.Arguments.Count == 2
                     && call.Arguments[1] is LoadLocal result
                     && result.Index == candidate.ResultLocal),
             _ => false,
         };
-    }
 
     static bool IsBuilderCompletionShell(
         TryCatch tryCatch,
         ClassicInverseShellFacts shell)
         => tryCatch.Children.Count == 2
             && tryCatch.Children[1] is CatchClause clause
-            && IsBuilderCompletionCatch(clause, shell);
-
-    /// <summary>
-    /// The compiler's <c>catch (Exception e) { state = -2; builder.SetException(e);
-    /// return; }</c> completion arm, matched exactly.
-    /// </summary>
-    static bool IsBuilderCompletionCatch(
-        CatchClause clause,
-        ClassicInverseShellFacts shell)
-    {
-        if (clause.Filter is not null)
-            return false;
-        if (clause.Body.Blocks is not [Block block])
-            return false;
-        if (block.Children is not
-            [
-                StoreField { Field.Name: "<>1__state", Value: Constant { Value: -2 } } state,
-                ExpressionStatement { Expression: Call setException },
-                Return { Value: null },
-            ])
-        {
-            return false;
-        }
-
-        return state.Instance is LoadArgument { Index: 0 }
-            && ClassicInverseNodeFacts.IsMachineField(state.Field, shell.Machine)
-            && setException.Callee.Name == "SetException"
-            && ClassicInverseNodeFacts.IsAsyncMethodBuilder(
-                setException.Callee.DeclaringType)
-            && setException.Arguments.Count == 2
-            && ClassicInverseNodeFacts.IsBuilderAccess(
-                setException.Arguments[0],
-                shell.Machine)
-            && setException.Arguments[1] is LoadLocal;
-    }
+            && shell.Protocol.Proves(
+                clause,
+                ClassicInverseLoweringProof.CompletionCatch);
 }

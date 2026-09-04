@@ -333,10 +333,20 @@ public sealed class ClassicInverseCoreTests
         using RequestScope with =
             OpenRequest("SequentialWithRealizedWithExpression");
 
+        // The ledger names the consumed member by canonical typed identity, so
+        // the expectation is the identity of the imported field itself rather
+        // than any rendering of it.
+        FieldRef boxValue = Assert.Single(
+            initializer.Request.ExecutionBody.Body.Descendants
+                .OfType<StoreField>()
+                .Select(store => store.Field)
+                .Distinct(),
+            field => field.Name == "Value");
         Assert.Contains(
             Reconstruct(initializer.Request).SemanticRealizations
                 .SelectMany(receipt => receipt.SourceEffects),
-            effect => effect == "store:Box.Value");
+            effect => effect
+                == $"store:{ClassicInverseTypedIdentity.Field(boxValue)}");
         Assert.Contains(
             Reconstruct(with.Request).SemanticRealizations
                 .SelectMany(receipt => receipt.SourceEffects),
@@ -600,6 +610,736 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseCompletionCallbacksAreProvenExactlyOnce()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInversePlan plan = Reconstruct(scope.Request);
+
+        Assert.Single(
+            plan.PhysicalPartition,
+            region => region.Rule == "raw:builder-SetResult");
+        Assert.Single(
+            plan.PhysicalPartition,
+            region => region.Rule == "raw:builder-SetException");
+        Assert.All(
+            plan.PhysicalPartition.Where(region => region.Rule.StartsWith(
+                "raw:builder-",
+                StringComparison.Ordinal)),
+            region =>
+            {
+                Assert.Equal(
+                    ClassicInverseRegionDisposition.Protocol,
+                    region.Disposition);
+                Assert.True(region.OwnsSubtree);
+            });
+
+        using RequestScope duplicated = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            DuplicateCompletionCallback);
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(duplicated.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "exactly one builder SetResult callback",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseCompletionCatchBindsItsExactHandler()
+    {
+        using RequestScope narrowed = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            static execution => execution.Regions =
+            [
+                .. execution.Regions.Select(static region =>
+                    region.Kind == HandlerKind.Catch
+                        ? region with
+                        {
+                            CatchType = TypeRef.CoreLib(
+                                "System",
+                                "ArgumentException"),
+                        }
+                        : region),
+            ]);
+        var typeDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(narrowed.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            typeDecline.Reason);
+        Assert.Contains(
+            "does not catch core-library System.Exception",
+            typeDecline.Detail,
+            StringComparison.Ordinal);
+
+        using RequestScope rebound = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            RebindCompletionException);
+        var bindingDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(rebound.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            bindingDecline.Reason);
+        Assert.Contains(
+            "completion catch variable is not the local SetException reads",
+            bindingDecline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseResumeStatesAreProvenAgainstTheirDispatch()
+    {
+        foreach (string methodName in new[]
+        {
+            "AwaitConditional",
+            "AwaitInLoop",
+            "AwaitInTryFinally",
+            "TwoSequentialAwaits",
+        })
+        {
+            using RequestScope accepted = OpenRequest(methodName);
+            ClassicInversePlan plan = Reconstruct(accepted.Request);
+
+            Assert.All(
+                plan.PhysicalPartition.Where(region => region.NodeForm.Contains(
+                    "<>1__state",
+                    StringComparison.Ordinal)),
+                region =>
+                {
+                    Assert.Equal(
+                        ClassicInverseRegionDisposition.Protocol,
+                        region.Disposition);
+                    Assert.Equal("raw:state-field-store", region.Rule);
+                });
+            Assert.Contains(
+                plan.PhysicalPartition,
+                region => region.Rule == "raw:state-local-store");
+            Assert.Contains(
+                plan.PhysicalPartition,
+                region => region.Rule == "raw:state-dispatch");
+            Assert.Contains(
+                plan.PhysicalPartition,
+                region => region.Rule == "raw:state-spill");
+            Assert.DoesNotContain(
+                plan.PhysicalPartition,
+                region => region.Rule == "raw:pure-structure"
+                    && region.NodeForm.Contains(
+                        "<>1__state",
+                        StringComparison.Ordinal));
+        }
+
+        using RequestScope altered = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            RetargetFirstSuspensionState);
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(altered.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "state 42 is stored at a suspension but 0 dispatch tests resume it",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseRawLocalValuesKeepPlanningCorrespondence()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInversePlan plan = Reconstruct(scope.Request);
+
+        Assert.Single(
+            plan.PhysicalPartition,
+            region => region.Rule == "raw:user-value"
+                && region.NodeForm.Contains("<x>5__2", StringComparison.Ordinal));
+        Assert.Single(
+            plan.PhysicalPartition,
+            region => region.Rule == "raw:user-value"
+                && region.NodeForm.StartsWith(
+                    "LoadLocal 1 ",
+                    StringComparison.Ordinal));
+
+        ClassicInverseRequest dropped = CopyRequest(
+            scope.Request,
+            runPasses: (body, passes) =>
+            {
+                scope.Request.RunPasses!(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                TupleExpression tuple = Assert.Single(
+                    body.Body.Descendants.OfType<TupleExpression>());
+                var replacement = new TupleExpression(
+                    tuple.TupleType,
+                    [(IrExpression)tuple.Children[0].Clone()]);
+                replacement.SetSourceOffset(tuple.SourceOffset);
+                tuple.ReplaceWith(replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(dropped));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+            decline.Reason);
+        Assert.Contains(
+            "different semantic value sequences",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseCallIdentityComparesTypedInstantiation()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInversePlan plan = Reconstruct(scope.Request);
+
+        string keepAlive = Assert.Single(
+            plan.SemanticRealizations.SelectMany(
+                receipt => receipt.SourceEffects),
+            effect => effect.Contains("KeepAlive", StringComparison.Ordinal));
+        MethodRef keepAliveCallee = Assert.Single(
+            scope.Request.ExecutionBody.Body.Descendants.OfType<Call>()
+                .Select(call => call.Callee),
+            callee => callee.Name == "KeepAlive");
+        Assert.Equal(
+            $"call:{ClassicInverseTypedIdentity.Method(keepAliveCallee)}:direct",
+            keepAlive);
+
+        // Only the generic instantiation changes; display text does not.
+        AssertRebindingCalleeDeclines(
+            scope.Request,
+            static callee => callee with
+            {
+                TypeArguments = [TypeRef.CoreLib("System", "String")],
+            });
+        // Only the declaring assembly changes; display text does not.
+        AssertRebindingCalleeDeclines(
+            scope.Request,
+            static callee => callee with
+            {
+                DeclaringType = TypeRef.Definition("Planted", "System", "GC"),
+            });
+        // Only the by-ref call-site facts change; display text does not.
+        AssertRebindingCalleeDeclines(
+            scope.Request,
+            static callee => callee with
+            {
+                ParameterRefKinds = [ArgumentRefKind.Ref],
+                ParameterRefKindsFacts = ParameterRefKindFacts.Known,
+            });
+        // Only the exact definition provenance changes.
+        AssertRebindingCalleeDeclines(
+            scope.Request,
+            static callee => callee with
+            {
+                ExactDefinitionAddress = new MetadataMethodAddress(
+                    Guid.Empty,
+                    System.Reflection.Metadata.Ecma335.MetadataTokens
+                        .MethodDefinitionHandle(1)),
+            });
+    }
+
+    static void AssertRebindingCalleeDeclines(
+        ClassicInverseRequest request,
+        Func<MethodRef, MethodRef> rebind)
+    {
+        ClassicInverseRequest rebound = CopyRequest(
+            request,
+            runPasses: (body, passes) =>
+            {
+                request.RunPasses!(body, passes);
+                if (body.Name != "MoveNext")
+                    return;
+
+                Call call = Assert.Single(
+                    body.Body.Descendants.OfType<Call>(),
+                    candidate => candidate.Callee.Name == "KeepAlive");
+                var statement = Assert.IsType<ExpressionStatement>(call.Parent);
+                var replacement = new Call(
+                    rebind(call.Callee),
+                    call.IsVirtual,
+                    call.Arguments.Select(
+                        argument => (IrExpression)argument.Clone()))
+                {
+                    ConstrainedTo = call.ConstrainedTo,
+                    ExtensionSyntaxConflict = call.ExtensionSyntaxConflict,
+                };
+                replacement.SetSourceOffset(call.SourceOffset);
+                statement.SetChild(0, replacement);
+            });
+
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(rebound));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+            decline.Reason);
+        Assert.Contains(
+            "different semantic effect sequences",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Adds a second, structurally identical completion callback whose nodes
+    /// carry fresh import offsets, so nothing but callback cardinality and
+    /// identity can reject it.
+    /// </summary>
+    static void DuplicateCompletionCallback(IrFunction execution)
+    {
+        ExpressionStatement completion = execution.Body.Descendants
+            .OfType<ExpressionStatement>()
+            .Last(statement =>
+                statement.Expression is Call { Callee.Name: "SetResult" });
+        var block = (Block)completion.Parent!;
+        IrNode duplicate = completion.Clone();
+        int offset = execution.Body.Descendants
+            .Select(node => node.SourceOffset)
+            .DefaultIfEmpty(0)
+            .Max() + 1;
+        foreach (IrNode node in duplicate.Descendants.Prepend(duplicate))
+            node.SetSourceOffset(offset++);
+
+        IReadOnlyList<IrNode> statements = block.DetachChildren();
+        foreach (IrNode statement in statements)
+        {
+            if (ReferenceEquals(statement, completion))
+                block.Add(duplicate);
+            block.Add(statement);
+        }
+    }
+
+    /// <summary>
+    /// Passes a different local to <c>SetException</c> than the handler bound.
+    /// </summary>
+    static void RebindCompletionException(IrFunction execution)
+    {
+        Call setException = Assert.Single(
+            execution.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "SetException");
+        var caught = Assert.IsType<LoadLocal>(setException.Arguments[1]);
+        var replacement = new LoadLocal(2, caught.Type);
+        replacement.SetSourceOffset(caught.SourceOffset);
+        caught.ReplaceWith(replacement);
+    }
+
+    /// <summary>
+    /// Replaces the first suspension's state constant with one no dispatcher
+    /// tests, leaving every other shape intact.
+    /// </summary>
+    static void RetargetFirstSuspensionState(IrFunction execution)
+    {
+        StoreStackSlot spill = execution.Body.Descendants
+            .OfType<StoreStackSlot>()
+            .First(store =>
+                store.Value is Pipeline.Constant { Value: 0 });
+        var zero = (Pipeline.Constant)spill.Value;
+        var replacement = new Pipeline.Constant(42, zero.Type);
+        replacement.SetSourceOffset(zero.SourceOffset);
+        zero.ReplaceWith(replacement);
+    }
+
+    [Fact]
+    public void ClassicInverseSuspensionsBindTheirExactAwaiterTransfer()
+    {
+        using RequestScope scope = OpenRequest("TwoSequentialAwaits");
+        ClassicInversePlan plan = Reconstruct(scope.Request);
+
+        foreach (string rule in new[]
+        {
+            "raw:awaiter-cache-store",
+            "raw:awaiter-restore",
+            "raw:awaiter-clear",
+        })
+        {
+            Assert.Equal(
+                2,
+                plan.PhysicalPartition.Count(region => region.Rule == rule));
+        }
+        Assert.All(
+            plan.PhysicalPartition.Where(region => region.Rule.StartsWith(
+                "raw:awaiter-",
+                StringComparison.Ordinal)),
+            region => Assert.Equal(
+                ClassicInverseRegionDisposition.Protocol,
+                region.Disposition));
+
+        // Same shapes, same awaiter local, same machine — only the cache field
+        // a suspension writes no longer matches the one its resume restores.
+        using RequestScope mismatched = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            RenameFirstAwaiterCacheField);
+        var decline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(mismatched.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            decline.Reason);
+        Assert.Contains(
+            "does not restore the exact awaiter its suspension cached",
+            decline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseBuilderCallbacksAreProvenByExactTypedSignature()
+    {
+        // A same-named builder outside the core library is a lookalike; its
+        // callbacks are not this machine's completion protocol.
+        using RequestScope lookalike = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            execution => RebindCompletionBuilder(
+                execution,
+                TypeRef.Definition(
+                    "Planted",
+                    "System.Runtime.CompilerServices",
+                    "AsyncTaskMethodBuilder"),
+                rebindBuilderField: true));
+        var lookalikeDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(lookalike.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            lookalikeDecline.Reason);
+        Assert.Contains(
+            "exactly one builder SetException callback; the body has 0",
+            lookalikeDecline.Detail,
+            StringComparison.Ordinal);
+
+        // A core-library builder callback that is not declared on the type the
+        // machine's own '<>t__builder' field carries.
+        using RequestScope unbound = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            execution => RebindCompletionBuilder(
+                execution,
+                TypeRef.CoreLib(
+                    "System.Runtime.CompilerServices",
+                    "AsyncValueTaskMethodBuilder"),
+                rebindBuilderField: false));
+        var unboundDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(unbound.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            unboundDecline.Reason);
+        Assert.Contains(
+            "not on the machine's own '<>t__builder' type",
+            unboundDecline.Detail,
+            StringComparison.Ordinal);
+
+        // Same callee name, same argument shape, different declared signature.
+        using RequestScope mistyped = OpenMutatedRequest(
+            "AwaitValue",
+            MistypeSetResultSignature);
+        var mistypedDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(mistyped.Request));
+        Assert.Equal(
+            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            mistypedDecline.Reason);
+        Assert.Contains(
+            "the SetResult callback is not 'void SetResult(T)'",
+            mistypedDecline.Detail,
+            StringComparison.Ordinal);
+
+        // Both spaces can independently prove a callback shape, but they must
+        // still agree on the exact callback and builder-field identities.
+        using RequestScope mismatched = OpenRequest("TwoSequentialAwaits");
+        Action<IrFunction, ImmutableArray<IIrPass>> runPasses =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                mismatched.Request.RunPasses);
+        var mismatchedDecision = ClassicInverseCore.Decide(
+            CopyRequest(
+                mismatched.Request,
+                runPasses: (body, passes) =>
+                {
+                    runPasses(body, passes);
+                    if (body.Body.Descendants.OfType<Call>().Any(
+                        call => call.Callee.Name == "SetException"))
+                    {
+                        RebindCompletionBuilder(
+                            body,
+                            TypeRef.CoreLib(
+                                "System.Runtime.CompilerServices",
+                                "AsyncValueTaskMethodBuilder"),
+                            rebindBuilderField: true);
+                    }
+                }));
+        var mismatchedDecline = Assert.IsType<ClassicInverseDecision.Decline>(
+            mismatchedDecision);
+        Assert.Contains(
+            "raw import and planning view complete through different SetException callbacks",
+            mismatchedDecline.Detail,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClassicInverseProofWorkStaysProportionalToItsChargedBudget()
+    {
+        // Every proof phase charges once per node it touches, so a rescan of
+        // the whole body per state would appear here as consumption growing
+        // with states x nodes rather than with nodes.
+        foreach (string methodName in new[]
+        {
+            "AwaitValue",
+            "AwaitInLoop",
+            "TwoSequentialAwaits",
+        })
+        {
+            using RequestScope scope = OpenRequest(methodName);
+            var budget = new ClassicInverseBudget();
+            ClassicInversePlanningView planning =
+                ClassicInversePlanningView.Derive(scope.Request);
+            ClassicInverseShellFacts shell = ClassicInverseShellFacts.Derive(
+                planning.ExecutionBody,
+                scope.Request.ExecutionBody,
+                budget);
+            Assert.Null(shell.Protocol.Failure);
+
+            int nodes = planning.ExecutionBody.Body.Descendants.Count() + 1
+                + scope.Request.ExecutionBody.Body.Descendants.Count() + 1;
+            Assert.InRange(budget.Consumed, nodes, 3 * nodes);
+
+            // The charges are load-bearing, not decoration: one unit short of
+            // what the proof consumed, it exhausts instead of proving.
+            var starved = new ClassicInverseBudget(budget.Consumed - 1);
+            ClassicInverseShellFacts starvedShell =
+                ClassicInverseShellFacts.Derive(
+                    ClassicInversePlanningView.Derive(scope.Request)
+                        .ExecutionBody,
+                    scope.Request.ExecutionBody,
+                    starved);
+            Assert.True(starved.Exhausted);
+            Assert.Contains(
+                "exhausted the planning budget",
+                Assert.IsType<string>(starvedShell.Protocol.Failure),
+                StringComparison.Ordinal);
+
+            // Exhaustion stays a visible failure, never a decline or a
+            // partial proof.
+            var failure = Assert.IsType<ClassicInverseDecision.Failed>(
+                ClassicInverseCore.Decide(
+                    scope.Request,
+                    new ClassicInverseBudget(budget.Consumed)));
+            Assert.Equal(
+                ClassicInverseFailureKind.BudgetExhausted,
+                failure.Failure.Kind);
+        }
+    }
+
+    [Fact]
+    public void ClassicInverseTypedIdentityIsCompleteAndPrefixFree()
+    {
+        // The encoder claims to mirror TypeRef equality exactly. Product
+        // construction cannot naturally form these close pairs, so the
+        // invariant is asserted directly against the compared facts.
+        MetadataTypeDefinitionName nested = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["Outer", "Inner"]))
+            .Name;
+
+        TypeRef[] samples =
+        [
+            TypeRef.Definition("A", "N", "X"),
+            TypeRef.Definition("A", "N", "Y"),
+            TypeRef.Definition("B", "N", "X"),
+            TypeRef.Definition("A", "M", "X"),
+            // Separator-shifted pairs whose joined renderings coincide.
+            TypeRef.Definition("A", "N.X", "Y"),
+            TypeRef.Definition("A", "N", "X.Y"),
+            TypeRef.Definition("A!N", "", "X"),
+            TypeRef.Definition("A", "", "N!X"),
+            // Same metadata name segments, different Name.
+            TypeRef.Definition("A", "N", "Outer+Inner"),
+            TypeRef.DefinitionWithResolution(
+                "A",
+                "N",
+                "Renamed",
+                ValueTypeHint.Unknown,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                definitionName: nested,
+                resolutionAssembly: null),
+            TypeRef.CoreLib("System", "Int32"),
+            TypeRef.CoreLib("System", "String"),
+            TypeRef.SzArray(TypeRef.CoreLib("System", "Int32")),
+            TypeRef.SzArray(TypeRef.CoreLib("System", "String")),
+            TypeRef.MdArray(TypeRef.CoreLib("System", "Int32"), 2),
+            TypeRef.MdArray(TypeRef.CoreLib("System", "Int32"), 3),
+            TypeRef.ByRef(TypeRef.CoreLib("System", "Int32")),
+            TypeRef.Pointer(TypeRef.CoreLib("System", "Int32")),
+            TypeRef.GenericParameter(0, "T"),
+            TypeRef.GenericParameter(1, "T"),
+            TypeRef.MethodGenericParameter(0, "T"),
+            TypeRef.GenericInstance(
+                TypeRef.Definition("A", "N", "G`1"),
+                [TypeRef.CoreLib("System", "Int32")]),
+            TypeRef.GenericInstance(
+                TypeRef.Definition("A", "N", "G`1"),
+                [TypeRef.CoreLib("System", "String")]),
+            // Unsupported reason and calling convention are both variable text.
+            TypeRef.Unsupported("a$b"),
+            TypeRef.Unsupported("a"),
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [TypeRef.CoreLib("System", "Int32")],
+                "unmanaged"),
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [TypeRef.CoreLib("System", "Int32")],
+                "unmanaged[Cdecl]"),
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"))],
+                ""),
+            TypeRef.FunctionPointer(
+                TypeRef.CoreLib("System", "Void"),
+                [TypeRef.ByRef(TypeRef.CoreLib("System", "Int32"))
+                    .WithCustomModifier(
+                        TypeRef.CoreLib(
+                            "System.Runtime.InteropServices",
+                            "OutAttribute"),
+                        isRequired: true)],
+                ""),
+        ];
+
+        MetadataTypeDefinitionName nestedX = Assert.IsType<
+            MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create("N", ["X", "Inner"]))
+            .Name;
+        samples =
+        [
+            .. samples,
+            TypeRef.DefinitionWithResolution(
+                "A",
+                "N",
+                "X",
+                ValueTypeHint.Unknown,
+                MetadataFactState.Unknown,
+                enclosingType: null,
+                definitionName: nestedX,
+                resolutionAssembly: null),
+        ];
+
+        foreach (TypeRef left in samples)
+        {
+            foreach (TypeRef right in samples)
+            {
+                Assert.Equal(
+                    left.Equals(right),
+                    ClassicInverseTypedIdentity.Type(left)
+                        == ClassicInverseTypedIdentity.Type(right));
+            }
+        }
+
+        // The member-level encodings length-prefix their own text too, so a
+        // member name cannot absorb its declaring type's or its own separator.
+        var box = TypeRef.Definition("A", "N", "Box");
+        Assert.NotEqual(
+            ClassicInverseTypedIdentity.Field(
+                new FieldRef(box, "Value", TypeRef.CoreLib("System", "Int32"))),
+            ClassicInverseTypedIdentity.Field(
+                new FieldRef(
+                    TypeRef.Definition("A", "N", "Box::Value"),
+                    "",
+                    TypeRef.CoreLib("System", "Int32"))));
+        var target = new MethodRef(
+            box,
+            "M",
+            TypeRef.CoreLib("System", "Void"),
+            [],
+            HasThis: true);
+        Assert.NotEqual(
+            ClassicInverseTypedIdentity.Method(target),
+            ClassicInverseTypedIdentity.Method(target with { Name = "M/instance" }));
+        Assert.NotEqual(
+            ClassicInverseTypedIdentity.Method(target),
+            ClassicInverseTypedIdentity.Method(target with { HasThis = false }));
+        Assert.NotEqual(
+            ClassicInverseTypedIdentity.Method(target),
+            ClassicInverseTypedIdentity.Method(
+                target with
+                {
+                    TypeArguments = [TypeRef.CoreLib("System", "Int32")],
+                }));
+        Assert.NotEqual(
+            ClassicInverseTypedIdentity.Method(target),
+            ClassicInverseTypedIdentity.Method(
+                target with { HasRefReadOnlyParameters = true }));
+    }
+
+    /// <summary>
+    /// Renames the field one suspension caches its awaiter into, leaving the
+    /// awaiter local, the resume restore, and the resume clear untouched.
+    /// </summary>
+    static void RenameFirstAwaiterCacheField(IrFunction execution)
+    {
+        StoreField cache = execution.Body.Descendants
+            .OfType<StoreField>()
+            .First(store =>
+                store.Field.Name.StartsWith("<>u__", StringComparison.Ordinal)
+                && store.Value is LoadLocal);
+        var replacement = new StoreField(
+            cache.Field with { Name = "<>u__9" },
+            (IrExpression?)cache.Instance?.Clone(),
+            (IrExpression)cache.Value.Clone());
+        replacement.SetSourceOffset(cache.SourceOffset);
+        cache.ReplaceWith(replacement);
+    }
+
+    /// <summary>
+    /// Re-declares the <c>SetException</c> callback on another builder type,
+    /// optionally moving the machine's own <c>&lt;&gt;t__builder</c> field type
+    /// with it so only the builder's assembly identity differs.
+    /// </summary>
+    static void RebindCompletionBuilder(
+        IrFunction execution,
+        TypeRef builder,
+        bool rebindBuilderField)
+    {
+        Call setException = Assert.Single(
+            execution.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "SetException");
+        var receiver = Assert.IsType<LoadFieldAddress>(setException.Arguments[0]);
+        var rebound = new LoadFieldAddress(
+            rebindBuilderField
+                ? receiver.Field with { Type = builder }
+                : receiver.Field,
+            (IrExpression?)receiver.Instance?.Clone());
+        rebound.SetSourceOffset(receiver.SourceOffset);
+
+        var replacement = new Call(
+            setException.Callee with { DeclaringType = builder },
+            setException.IsVirtual,
+            [
+                rebound,
+                .. setException.Arguments.Skip(1).Select(
+                    argument => (IrExpression)argument.Clone()),
+            ]);
+        replacement.SetSourceOffset(setException.SourceOffset);
+        setException.ReplaceWith(replacement);
+    }
+
+    /// <summary>
+    /// Declares <c>SetResult</c> over a parameter type the builder's own result
+    /// type is not, leaving the callee name, receiver, and argument shape — the
+    /// facts a shape-only rule reads — unchanged.
+    /// </summary>
+    static void MistypeSetResultSignature(IrFunction execution)
+    {
+        Call setResult = Assert.Single(
+            execution.Body.Descendants.OfType<Call>(),
+            call => call.Callee.Name == "SetResult");
+        var replacement = new Call(
+            setResult.Callee with
+            {
+                ParameterTypes = [TypeRef.CoreLib("System", "String")],
+            },
+            setResult.IsVirtual,
+            setResult.Arguments.Select(
+                argument => (IrExpression)argument.Clone()));
+        replacement.SetSourceOffset(setResult.SourceOffset);
+        setResult.ReplaceWith(replacement);
+    }
+
+    [Fact]
     public void ClassicInverseCorrelationBindsOwnerIssuedRolesExactly()
     {
         using RequestScope scope = OpenRequest("TwoSequentialAwaits");
@@ -677,15 +1417,16 @@ public sealed class ClassicInverseCoreTests
         ClassicInverseShellFacts Shell)
         Candidate(ClassicInverseRequest request)
     {
+        var budget = new ClassicInverseBudget();
         ClassicInversePlanningView planning =
             ClassicInversePlanningView.Derive(request);
         ClassicInverseShellFacts shell =
-            ClassicInverseShellFacts.Derive(planning.ExecutionBody);
+            ClassicInverseShellFacts.Derive(
+                planning.ExecutionBody,
+                request.ExecutionBody,
+                budget);
         ClassicInverseCandidate candidate = Assert.Single(
-            ClassicInverseRecipes.Match(
-                planning,
-                shell,
-                new ClassicInverseBudget()));
+            ClassicInverseRecipes.Match(planning, shell, budget));
         return (planning, candidate, shell);
     }
 
@@ -740,6 +1481,21 @@ public sealed class ClassicInverseCoreTests
     static RequestScope OpenRequest(string methodName)
         => OpenRequest(OpenClassicFixture(), methodName, ownsSource: true);
 
+    /// <summary>
+    /// Opens a request whose unmodified execution snapshot is mutated first, so
+    /// the mutation reaches both the import snapshot and the planning view the
+    /// core derives from it — exactly what a differently lowered compiler body
+    /// would present at the boundary.
+    /// </summary>
+    static RequestScope OpenMutatedRequest(
+        string methodName,
+        Action<IrFunction> mutateExecution)
+        => OpenRequest(
+            OpenClassicFixture(),
+            methodName,
+            ownsSource: true,
+            mutateExecution);
+
     static RequestScope OpenRequest(
         MetadataSource source,
         string methodName)
@@ -748,7 +1504,8 @@ public sealed class ClassicInverseCoreTests
     static RequestScope OpenRequest(
         MetadataSource source,
         string methodName,
-        bool ownsSource)
+        bool ownsSource,
+        Action<IrFunction>? mutateExecution = null)
     {
         IrFunction kickoff = Assert.IsType<IrFunction>(
             IrImporter.Import(source, FixtureType, methodName));
@@ -766,6 +1523,7 @@ public sealed class ClassicInverseCoreTests
 
         IrFunction execution = Assert.IsType<IrFunction>(
             IrImporter.Import(source, seed.ExecutionMethod.Handle));
+        mutateExecution?.Invoke(execution);
         ImmutableHashSet<int> importOffsets =
             ClassicInverseRequest.OffsetsOf(execution);
 

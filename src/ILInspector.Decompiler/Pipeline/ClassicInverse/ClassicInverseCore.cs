@@ -63,7 +63,16 @@ internal static class ClassicInverseCore
         ClassicInversePlanningView planning =
             ClassicInversePlanningView.Derive(request);
         ClassicInverseShellFacts shell =
-            ClassicInverseShellFacts.Derive(planning.ExecutionBody);
+            ClassicInverseShellFacts.Derive(
+                planning.ExecutionBody,
+                request.ExecutionBody,
+                budget);
+        if (budget.Exhausted)
+        {
+            return ClassicInverseDecision.FailWith(
+                ClassicInverseFailureKind.BudgetExhausted,
+                "lowering-protocol proof exhausted the planning budget");
+        }
 
         List<ClassicInverseCandidate> candidates =
             ClassicInverseRecipes.Match(planning, shell, budget);

@@ -95,6 +95,16 @@ internal sealed class ClassicInverseAccountant
                 $"recipe '{_candidate.Recipe}' produced an unsound claim set");
         }
 
+        // Scaffolding is protocol only under the closed lowering proof. Without
+        // it no completion callback, completion catch, or state constant has a
+        // role, and nothing may be treated as compiler-owned.
+        if (_shell.Protocol.Failure is { } protocolFailure)
+        {
+            return Decline(
+                ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+                $"the lowering shell protocol is not proven: {protocolFailure}");
+        }
+
         _output = BuildOutputContainer();
         IndexPaths(_output, _outputPaths);
         IndexPaths(_planning.ExecutionBody.Body, _executionPaths);
@@ -369,8 +379,8 @@ internal sealed class ClassicInverseAccountant
                 .Where(node =>
                     planningOffsets.Contains(node.SourceOffset)
                     || IsMappedMachineValue(node)
-                    || (node is not LoadLocal
-                        && HasRawSemanticOwner(node)))
+                    || (HasRawSemanticOwner(node)
+                        && !IsProvenRecipeTemporaryRead(node)))
                 .ToImmutableArray();
         if (_terminal is not null)
             return false;
@@ -403,6 +413,27 @@ internal sealed class ClassicInverseAccountant
 
         return true;
     }
+
+    /// <summary>
+    /// A raw local read the recipe positively realizes as one of its own
+    /// transfers, so it carries no separate planning-space value. Today that is
+    /// exactly the compiler's hoist of a recipe temporary into the state
+    /// machine: <c>stfld &lt;x&gt;5__N &lt;- ldloc temp</c>, where the recipe
+    /// mapped both the field and the local onto the same output local. Every
+    /// other raw local use keeps its planning correspondence, so a value the
+    /// planning view drops is visible rather than silently exempt.
+    /// </summary>
+    bool IsProvenRecipeTemporaryRead(IrNode node)
+        => node is LoadLocal read
+            && read.Parent is StoreField hoist
+            && ReferenceEquals(hoist.Value, read)
+            && hoist.Instance is LoadArgument { Index: 0 }
+            && ClassicInverseNodeFacts.IsMachineField(hoist.Field, _shell.Machine)
+            && _candidate.HoistedLocals.TryGetValue(
+                hoist.Field.Name,
+                out int hoisted)
+            && _candidate.LocalRemap.TryGetValue(read.Index, out int mapped)
+            && mapped == hoisted;
 
     bool IsMappedMachineValue(IrNode node)
     {
@@ -786,10 +817,7 @@ internal sealed class ClassicInverseAccountant
     string NormalizeRawEffect(IrNode node, string signature)
     {
         if (node is Call call && IsConsumedInitializerMethod(call.Callee))
-        {
-            return $"call:{call.Callee.DeclaringType.ToDisplayString()}."
-                + $"{call.Callee.Name}/{call.Callee.ParameterTypes.Length}";
-        }
+            return $"call:{ClassicInverseTypedIdentity.Method(call.Callee)}";
         return ClassicInverseRealizationRules.NormalizeEffect(
             node,
             signature,
@@ -1814,14 +1842,13 @@ internal sealed class ClassicInverseAccountant
             if (entry.ConsumedMethod is { } method)
             {
                 string effect =
-                    $"call:{method.DeclaringType.ToDisplayString()}."
-                        + $"{method.Name}/{method.ParameterTypes.Length}";
+                    $"call:{ClassicInverseTypedIdentity.Method(method)}";
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
             if (entry.ConsumedField is { } field)
             {
                 string effect =
-                    $"store:{field.DeclaringType.ToDisplayString()}.{field.Name}";
+                    $"store:{ClassicInverseTypedIdentity.Field(field)}";
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
         }

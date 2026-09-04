@@ -11,11 +11,13 @@ internal sealed class ClassicInverseShellFacts
     ClassicInverseShellFacts(
         TypeRef machine,
         int stateLocal,
-        ImmutableHashSet<int> awaiterLocals)
+        ImmutableHashSet<int> awaiterLocals,
+        ClassicInverseLoweringProof protocol)
     {
         Machine = machine;
         StateLocal = stateLocal;
         AwaiterLocals = awaiterLocals;
+        Protocol = protocol;
     }
 
     /// <summary>The state-machine definition type that owns the execution body.</summary>
@@ -27,7 +29,24 @@ internal sealed class ClassicInverseShellFacts
     /// <summary>Local slots proven to hold a compiler awaiter.</summary>
     internal ImmutableHashSet<int> AwaiterLocals { get; }
 
-    internal static ClassicInverseShellFacts Derive(IrFunction execution)
+    /// <summary>
+    /// The completion-callback, completion-catch, and resume-state protocol
+    /// proven over both the raw import and the planning view. When it carries a
+    /// <see cref="ClassicInverseLoweringProof.Failure"/>, no node has a protocol
+    /// role and the accountant declines.
+    /// </summary>
+    internal ClassicInverseLoweringProof Protocol { get; }
+
+    /// <summary>
+    /// Derives the shell facts from the planning view and the unmodified import
+    /// snapshot it was derived from. Both bodies are required: the import owns
+    /// the exception-region facts the planning view consumes into structure, and
+    /// the two must describe the same protocol before any node is scaffolding.
+    /// </summary>
+    internal static ClassicInverseShellFacts Derive(
+        IrFunction execution,
+        IrFunction rawExecution,
+        ClassicInverseBudget budget)
     {
         TypeRef machine = ClassicInverseNodeFacts.Definition(execution.DeclaringType);
         int stateLocal = -1;
@@ -64,7 +83,17 @@ internal sealed class ClassicInverseShellFacts
             }
         }
 
-        return new ClassicInverseShellFacts(machine, stateLocal, awaiters.ToImmutable());
+        return new ClassicInverseShellFacts(
+            machine,
+            stateLocal,
+            awaiters.ToImmutable(),
+            ClassicInverseLoweringProof.Derive(
+                execution,
+                rawExecution,
+                machine,
+                stateLocal,
+                awaiters.ToImmutable(),
+                budget));
     }
 }
 
@@ -98,26 +127,43 @@ internal static class ClassicInverseNodeFacts
             _ => false,
         };
 
+    /// <summary>
+    /// One of the four core-library async method builders, by exact core-library
+    /// identity rather than namespace and name. A same-named type in another
+    /// assembly is a lookalike, not the builder whose callbacks the lowering
+    /// protocol models.
+    /// </summary>
     internal static bool IsAsyncMethodBuilder(TypeRef type)
     {
         TypeRef definition = Definition(type);
-        return definition is
-        {
-            Namespace: "System.Runtime.CompilerServices",
-            Name: "AsyncTaskMethodBuilder"
+        return definition.Name is
+                "AsyncTaskMethodBuilder"
                 or "AsyncTaskMethodBuilder`1"
                 or "AsyncValueTaskMethodBuilder"
-                or "AsyncValueTaskMethodBuilder`1",
-        };
+                or "AsyncValueTaskMethodBuilder`1"
+            && MemberIdentity.IsCoreLibraryType(
+                definition,
+                "System.Runtime.CompilerServices",
+                definition.Name);
     }
 
     internal static bool IsBuilderAccess(IrExpression expression, TypeRef machine)
+        => BuilderField(expression, machine) is not null;
+
+    /// <summary>
+    /// The machine's own <c>&lt;&gt;t__builder</c> field behind a builder
+    /// callback receiver, or <c>null</c>. The field's declared type is the only
+    /// authority for which builder a callback may be declared on.
+    /// </summary>
+    internal static FieldRef? BuilderField(IrExpression expression, TypeRef machine)
         => expression is LoadFieldAddress
         {
             Field: { Name: "<>t__builder" } field,
             Instance: LoadArgument { Index: 0 },
         }
-            && IsMachineField(field, machine);
+            && IsMachineField(field, machine)
+            ? field
+            : null;
 
     /// <summary>The kickoff's builder access: <c>ldflda &lt;&gt;t__builder</c> on the state-machine local.</summary>
     internal static bool IsBuilderAccessOnLocal(
@@ -151,17 +197,30 @@ internal static class ClassicInverseNodeFacts
         => node switch
         {
             AwaitExpression => "await",
-            Call call => $"call:{call.Callee.DeclaringType.ToDisplayString()}"
-                + $".{call.Callee.Name}/{call.Callee.ParameterTypes.Length}"
-                + $":{(call.IsVirtual ? "virt" : "direct")}",
-            CallIndirect => "calli",
+            Call call => $"call:{ClassicInverseTypedIdentity.Method(call.Callee)}"
+                + $":{(call.IsVirtual ? "virt" : "direct")}"
+                + (call.ConstrainedTo is { } constrained
+                    ? $":constrained({ClassicInverseTypedIdentity.Type(constrained)})"
+                    : ""),
+            CallIndirect indirect =>
+                $"calli:{ClassicInverseTypedIdentity.Type(indirect.ReturnType)}"
+                + $"({string.Join(
+                    ",",
+                    indirect.ParameterTypes.Select(
+                        ClassicInverseTypedIdentity.Type))})"
+                + $":{indirect.CallingConvention}"
+                + $":{string.Join(",", indirect.ParameterRefKinds)}"
+                + $":{(indirect.IsInstance ? "instance" : "static")}",
             LocalFunctionInvocation invocation =>
                 $"localfn:{invocation.Name}",
             NewObject creation when !IsEffectFreeTuple(creation) =>
-                $"newobj:{creation.Constructor.DeclaringType.ToDisplayString()}"
-                + $"/{creation.Constructor.ParameterTypes.Length}",
-            LoadProperty property => $"call:{property.PropertyName}",
-            StoreProperty property => $"store:{property.PropertyName}",
+                $"newobj:{ClassicInverseTypedIdentity.Method(creation.Constructor)}",
+            LoadProperty property =>
+                $"call:{ClassicInverseTypedIdentity.Method(property.Accessor)}"
+                + $":{(property.IsVirtual ? "virt" : "direct")}",
+            StoreProperty property =>
+                $"store:{ClassicInverseTypedIdentity.Method(property.Accessor)}"
+                + $":{(property.IsVirtual ? "virt" : "direct")}",
             ArrayLength => "throw:array-length",
             LoadElement => "throw:element-access",
             LoadElementAddress => "throw:element-address",
@@ -178,11 +237,11 @@ internal static class ClassicInverseNodeFacts
                 Kind: BinaryKind.Divide or BinaryKind.Remainder,
             } binary => $"throw:{binary.Kind}",
             LoadField load when !IsMachineRead(load, machine) =>
-                $"read:{load.Field.DeclaringType.ToDisplayString()}.{load.Field.Name}",
+                $"read:{ClassicInverseTypedIdentity.Field(load.Field)}",
             LoadFieldAddress load when !IsMachineRead(load, machine) =>
-                $"readref:{load.Field.DeclaringType.ToDisplayString()}.{load.Field.Name}",
+                $"readref:{ClassicInverseTypedIdentity.Field(load.Field)}",
             StoreField store when !IsMachineField(store.Field, machine) =>
-                $"store:{store.Field.DeclaringType.ToDisplayString()}.{store.Field.Name}",
+                $"store:{ClassicInverseTypedIdentity.Field(store.Field)}",
             StoreElement => "store:element",
             StoreIndirect => "store:indirect",
             StoreArgument => "store:argument",

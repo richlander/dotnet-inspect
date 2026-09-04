@@ -320,10 +320,71 @@ cannot reorder or exchange a raw-backed value, or drop, duplicate, or reorder
 an effect. Every compared typed value retains an imported offset; a synthesized
 raised wrapper can be structural only under an explicit closed rule whose
 children and separately consumed effects remain accounted.
-Shell-owned state and awaiter locals are protocol, not user values. Raw local
-reads explicitly realized as recipe temporaries are excluded from the
-cross-space value stream; their typed planning-to-output realization remains
-owned by the recipe lockstep.
+Shell-owned state and awaiter locals are protocol, not user values. A raw local
+read leaves the cross-space value stream only when the recipe positively
+realizes it as one of its own transfers — today, exactly the compiler's hoist of
+a recipe temporary into the state machine, where the recipe mapped both the
+hoisted field and the local onto one output local. Every other raw local use
+keeps its planning correspondence and its semantic receipt, so a value a
+prerequisite pass drops is visible rather than silently exempt; the typed
+planning-to-output realization remains owned by the recipe lockstep.
+
+### Proven lowering protocol
+
+Scaffolding is protocol only under one closed proof the core discharges over
+the unmodified import snapshot **and** the planning view before any candidate is
+accounted. The proof binds, as a single protocol rather than a set of
+independently recognizable shapes:
+
+- **completion callbacks** — exactly one builder `SetResult` and exactly one
+  builder `SetException`, each in statement position with its exact argument
+  shape, plus the `AwaitUnsafeOnCompleted` callbacks whose awaiter slots are
+  proven. A callback is authenticated by identity, not by name: its builder must
+  be a core-library async method builder, its declaring type must be exactly the
+  type the machine's own `<>t__builder` field carries, and its signature must be
+  the exact typed one — instance, void-returning,
+  `SetException(System.Exception)`, `SetResult()` or `SetResult(T)` for the
+  builder's own result type, and the imported
+  `AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter, ref
+  TStateMachine)` by-ref generic definition instantiated over this machine. Any
+  additional, nested, lookalike, or unmodeled builder callback fails the proof;
+- **the completion catch** — the import's single catch region with its exact
+  core-library `System.Exception` type, no filter, a handler range that contains
+  `SetException` and excludes `SetResult`, and a handler-entry variable that is
+  the local `SetException` receives; the planning view's structured clause must
+  agree on type, variable, and the compiler's state/`SetException`/return arm;
+- **the resume-state protocol** — every state constant bound to its role: the
+  dispatch-local initialization, each suspension constant stored into both the
+  machine field and the dispatch local before its await callback, exactly one
+  dispatcher test per suspension state resuming a distinct block, and exactly
+  two completion stores of `-2` immediately preceding the two completion
+  callbacks. The import's stack-slot spill of a state constant is proven with
+  the store it feeds, and no other use of that slot is admitted; and
+- **the awaiter transfer** — each suspension binds `(state, awaiter local,
+  cache field)`: the block must cache, into one named `<>u__N` field and before
+  the callback runs, exactly the awaiter local that callback registers, and that
+  state's resume block must restore *that* field into *that* local and clear
+  *that* field, each exactly once. Restoring some awaiter from some cache field
+  would leave two suspensions free to exchange awaiters and stay protocol, so
+  every cache, restore, and clear the body contains must belong to a proven
+  suspension or resume.
+
+Both spaces must describe the same protocol at the same IL offsets, including
+the exact callback and builder-field identities and the awaiter-transfer
+identity each suspension and resume carries. A body that fails any part of the
+proof carries *no* protocol roles, so its scaffolding is unaccounted and the
+recipe declines. A state store or awaiter transfer is protocol only under this
+proof; it is never preserved merely for matching a compiler-generated name or
+lacking an effect signature.
+
+The proof's work is proportional to the budget it charges. One charged pass
+builds every index the later phases need — builder callbacks, state stores and
+awaiter transfers grouped by block, blocks by start offset, dispatch tests by
+tested state, spill stores by slot, and each node's position in its parent — and
+every later phase charges once per element it touches, including each step of an
+ancestor walk. No phase rescans the body per state, so an adversarial body
+cannot buy quadratic planning work at a linear charge. Exhaustion remains
+`Failed(BudgetExhausted)`: never a decline, never a partial proof.
 
 ## Proof-carrying plan
 
@@ -378,6 +439,20 @@ nodes may carry ordering or structure but may not duplicate the effect.
 Conversely, every output effect cites the input effect or authenticated
 protocol fact that licenses it. No output effect is synthesized from display
 text, field names, block order, or an unrelated preserved region.
+
+An effect names its member by canonical typed identity, never by display text:
+declaring-type identity including assembly, name, instance-ness, the full
+signature, the generic instantiation and generic definition signature, the
+by-ref parameter facts and calling-convention facts, and the exact definition
+provenance where the importer recovered it. Two callees that render the same
+text but differ in any of those dimensions are different effects.
+
+That identity encoding is injective, not merely readable. Metadata strings are
+attacker-controlled, so a separator-joined encoding lets one identity be
+composed from two different decompositions — a namespace ending where a name
+begins, for example. Every variable text component is length-prefixed and every
+variable-length sequence count-prefixed, and every dimension `TypeRef` equality
+compares is written, so equal identity text implies equal compared facts.
 
 The realization relation preserves:
 
@@ -494,10 +569,28 @@ Release gates:
 | `ClassicInversePlanningUsesTheProvidedPassContext` | Detached view derivation drops the host's cross-method import and type-proof context. |
 | `ClassicInversePlanningFailuresRemainFailures` | Invalid correlation or core-owned budget exhaustion becomes decline, reconstruction, or empty success. |
 | `ClassicInverseCorrelationBindsOwnerIssuedRolesExactly` | The request mixes a relationship kind, kickoff, or execution MethodDef from different owner-issued evidence. |
+| `ClassicInverseCompletionCallbacksAreProvenExactlyOnce` | A second, nested, or unmodeled builder completion callback is treated as protocol instead of failing the exactly-one `SetResult`/`SetException` proof. |
+| `ClassicInverseCompletionCatchBindsItsExactHandler` | The completion catch's exact catch type, filter absence, handler range, or handler-variable binding to `SetException` is not proven. |
+| `ClassicInverseResumeStatesAreProvenAgainstTheirDispatch` | A suspension state constant has no matching dispatcher and resume block, or a state store or its spill is preserved rather than proven protocol. |
+| `ClassicInverseRawLocalValuesKeepPlanningCorrespondence` | A raw local value the planning view drops leaves the cross-space value stream without a positively proven recipe realization. |
+| `ClassicInverseCallIdentityComparesTypedInstantiation` | A callee's generic instantiation, signature, by-ref facts, declaring assembly, or definition provenance changes while its display text does not. |
+| `ClassicInverseSuspensionsBindTheirExactAwaiterTransfer` | A resume block restores or clears a cache field or awaiter local other than the one its own suspension wrote, or an awaiter transfer is protocol without a proven suspension or resume role. |
+| `ClassicInverseBuilderCallbacksAreProvenByExactTypedSignature` | A non-core-library lookalike builder, a callback declared off the machine's own `<>t__builder` type, a mutated callback signature, or a raw/planning callback-identity mismatch is erased as protocol. |
+| `ClassicInverseProofWorkStaysProportionalToItsChargedBudget` | Proof work stops being linear in the body, charges stop being load-bearing, or exhaustion stops being `Failed(BudgetExhausted)`. |
+| `ClassicInverseTypedIdentityIsCompleteAndPrefixFree` | The typed identity encoding drops a dimension `TypeRef` equality compares, or two distinct members collide through separator-joined attacker-controlled text. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 
 The first five gates need compiler-produced positives plus synthetic close
-negatives. The
+negatives. Two later gates are deliberately narrower.
+`ClassicInverseTypedIdentityIsCompleteAndPrefixFree` asserts the encoder
+invariant directly — identity-text equality matches `TypeRef` equality over
+constructed close pairs — because product construction cannot naturally form a
+pair that differs only in where a separator falls.
+`ClassicInverseProofWorkStaysProportionalToItsChargedBudget` bounds the units
+the proof *charges*, which measures its work only under the proof's own rule
+that every node touch charges; that rule is a contract of the proof, not
+something the gate can itself observe.
+The
 [exact-head PR #5002 reproduction reconciliation](https://github.com/richlander/dotnet-inspect/pull/5002#issuecomment-5469908350)
 records the effectful-condition and nested sequential/loop-store evidence. It
 demonstrates the defect class; it is not itself an implementation gate.

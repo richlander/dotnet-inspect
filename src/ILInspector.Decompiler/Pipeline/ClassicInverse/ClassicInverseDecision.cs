@@ -146,6 +146,12 @@ internal sealed class ClassicInverseBudget
 
     internal int Total { get; }
 
+    /// <summary>
+    /// Units charged so far. Every proof phase charges for each node it
+    /// touches, so this measures the planning work a body actually bought.
+    /// </summary>
+    internal int Consumed => Total - _remaining;
+
     internal bool Exhausted { get; private set; }
 
     /// <summary>Charges one unit of traversal; returns false once exhausted.</summary>
