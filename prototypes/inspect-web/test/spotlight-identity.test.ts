@@ -3048,6 +3048,9 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
   assert.match(
     appSource,
+    /state\.packageQueryReturnFocus === "application-query"[\s\S]*data-application-scope="query"[\s\S]*focusRenderedElement\(queryScope\)[\s\S]*else if \(focusLevelOneHeading\(\)\)/);
+  assert.match(
+    appSource,
     /function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
   assert.match(
     appSource,
@@ -3085,10 +3088,19 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /id="package-query-announcement"[\s\S]*class="query-announcement"[\s\S]*role="alert"[\s\S]*aria-live="assertive"[\s\S]*aria-atomic="true"/);
   assert.match(
     appSource,
-    /workspaceHref: packageQueryWorkspaceHref\(\)/);
+    /workspaceAvailable: state\.package !== null/);
   assert.match(
     appSource,
-    /function packageQueryWorkspaceHref\(\): string \{[\s\S]*lastCanonicalWorkspaceHref[\s\S]*buildPackageRootStateUrl/);
+    /renderApplicationScopeBar\(\s*activeScope === "workspace" \? "workspace" : null,\s*true,\s*escapeHtml\)/);
+  assert.match(
+    appSource,
+    /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
+  assert.match(
+    appSource,
+    /function selectWorkspaceApplicationScope\(fromPackageQuery = false\) \{\s*const pkg = state\.package;\s*if \(!pkg\) return;\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*if \(fromPackageQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+  assert.match(
+    appSource,
+    /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*selectWorkspaceApplicationScope\(\)/);
   assert.match(
     appSource,
     /const focusWorkspaceAfterQuery = state\.packageQueryOpen;\s*if \(focusWorkspaceAfterQuery\) \{\s*state\.packageQueryOpen = false;\s*packageQueryController\.cancel\(\);\s*state\.packageQueryNavigationError = "";\s*\}\s*const navigationSeq = navigationSequence\.begin\(\);\s*if \(focusWorkspaceAfterQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push/);
@@ -3097,7 +3109,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function restorePackageQueryWorkspaceFocus\(\) \{\s*const navigationSeq = packageQueryWorkspaceFocusNavigationSeq;[\s\S]*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*afterCurrentNavigationFrame\(\(\) => \{\s*if \(!focusLevelOneHeading\(\)\) \{\s*document\.querySelector<HTMLElement>\("#type-list"\)\?\.focus\(\)/);
   assert.match(
     appSource,
-    /bindEvents\(\);[\s\S]*if \(scopeBarOwnsFocus\) \{\s*let restored = false;\s*if \(scopeBarFocus\) \{\s*scopeBarBinding\?\.revealFocusTarget\(scopeBarFocus\);\s*restored = restoreScopeBarFocus\(document, scopeBarFocus\);\s*\}\s*if \(!restored\) \{\s*document\.querySelector<HTMLElement>\("\.brand"\)\s*\?\.focus\(\{ preventScroll: true \}\);\s*\}\s*app\.removeAttribute\("tabindex"\);\s*\}\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
+    /closest\("\[data-scope-bar\], \[data-application-scope-strip\]"\)[\s\S]*bindEvents\(\);[\s\S]*if \(scopeBarOwnsFocus\) \{\s*let restored = false;\s*if \(scopeBarFocus\) \{\s*scopeBarBinding\?\.revealFocusTarget\(scopeBarFocus\);\s*restored = restoreScopeBarFocus\(document, scopeBarFocus\);\s*\}\s*if \(!restored\) \{\s*document\.querySelector<HTMLElement>\("\.brand"\)\s*\?\.focus\(\{ preventScroll: true \}\);\s*\}\s*app\.removeAttribute\("tabindex"\);\s*\}\s*restorePackageQueryReturnFocus\(\);\s*restorePackageQueryWorkspaceFocus\(\)/);
   assert.match(
     popstate,
     /leftPackageQueryForWorkspaceSuccessor =\s*!state\.packageQueryReturnFocusPending;[\s\S]*if \(leftPackageQueryForWorkspaceSuccessor\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq/);
