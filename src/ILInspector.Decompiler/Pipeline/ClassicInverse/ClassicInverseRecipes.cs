@@ -572,6 +572,8 @@ internal static class ClassicInverseRecipes
                 Value: Binary
                 {
                     Kind: BinaryKind.Add,
+                    IsChecked: false,
+                    IsUnsigned: false,
                     Left: LoadField advanceRead,
                     Right: Constant { Value: 1 },
                 },
@@ -580,7 +582,14 @@ internal static class ClassicInverseRecipes
                 && advance.Field == loopIndex
                 && advanceRead.Field == loopIndex
                 && advanceRead.Instance is LoadArgument { Index: 0 })];
+        List<IrNode> indexWrites = [.. execution.Body.Descendants
+            .Where(node => IsLoopIndexWrite(node, loopIndex, shell.Machine))];
+        List<StoreField> indexInitializers = [.. indexWrites
+            .OfType<StoreField>()
+            .Where(static store => store.Value is Constant { Value: 0 })];
         if (advances is not [StoreField advance]
+            || indexInitializers is not [StoreField indexInitializer]
+            || indexWrites.Count != 2
             || EnclosingBlock(elementSpill) is not { } bodyBlock
             || EnclosingBlock(advance) is not { } advanceBlock)
         {
@@ -593,19 +602,26 @@ internal static class ClassicInverseRecipes
                 branch.TargetOffset == boundTestBlock.StartOffset)];
         if (entries is not [Branch entry]
             || entry.Parent is not Block entryBlock
+            || !ReferenceEquals(indexInitializer.Parent, entryBlock)
+            || indexInitializer.ChildIndex >= entry.ChildIndex
             || !TryGetForeachControlIdentity(
                 boundTestBlock,
                 boundTest,
                 entryBlock,
                 bodyBlock,
                 advanceBlock,
+                indexInitializer,
+                budget,
                 out string planningControl)
             || !TryGetRawForeachControlIdentity(
                 rawExecution,
+                shell.Machine,
+                storage,
                 boundTest.SourceOffset,
                 entry.SourceOffset,
                 elementSpill.SourceOffset,
                 advance.SourceOffset,
+                indexInitializer.SourceOffset,
                 budget,
                 out string rawControl)
             || planningControl != rawControl)
@@ -692,12 +708,6 @@ internal static class ClassicInverseRecipes
         {
             switch (node)
             {
-                case StoreField { Value: Constant { Value: 0 } } index
-                    when index.Field == loopIndex
-                        && index.Instance is LoadArgument { Index: 0 }:
-                    candidate.DeclareProtocol(index, "foreach-index-init");
-                    break;
-
                 case StoreField { Value: Constant { Value: null } } release
                     when release.Field == hoistedCollection
                         && release.Instance is LoadArgument { Index: 0 }:
@@ -713,6 +723,7 @@ internal static class ClassicInverseRecipes
 
             }
         }
+        candidate.DeclareProtocol(indexInitializer, "foreach-index-init");
         candidate.DeclareProtocol(advance, "foreach-index-advance");
         candidate.DeclareProtocol(boundTest, "foreach-bound-test");
         candidate.DeclareProtocol(entry, "foreach-entry");
@@ -741,6 +752,8 @@ internal static class ClassicInverseRecipes
         Block entry,
         Block body,
         Block advance,
+        StoreField indexInitializer,
+        ClassicInverseBudget budget,
         out string identity)
     {
         identity = "";
@@ -748,6 +761,9 @@ internal static class ClassicInverseRecipes
             || !ReferenceEquals(entry.Parent, container)
             || !ReferenceEquals(body.Parent, container)
             || !ReferenceEquals(advance.Parent, container)
+            || !ReferenceEquals(indexInitializer.Parent, entry)
+            || indexInitializer.ChildIndex < 0
+            || indexInitializer.ChildIndex >= entry.Children.Count - 1
             || bound.Children is not [.., var terminator]
             || !ReferenceEquals(terminator, test))
         {
@@ -767,8 +783,8 @@ internal static class ClassicInverseRecipes
             return false;
         }
 
-        IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges =
-            Cfg.Build(blocks);
+        if (!ClassicInverseCfg.TryBuild(blocks, budget, out var edges))
+            return false;
         if (!HasOnlySuccessors(edges[entryIndex], boundIndex)
             || !HasOnlySuccessors(edges[advanceIndex], boundIndex)
             || edges[boundIndex].Successors.Count != 2
@@ -794,7 +810,8 @@ internal static class ClassicInverseRecipes
         }
 
         identity =
-            $"entry:{entry.StartOffset}->{bound.StartOffset};"
+            $"init:{indexInitializer.SourceOffset}@{entry.StartOffset};"
+            + $"entry:{entry.StartOffset}->{bound.StartOffset};"
             + $"advance:{advance.StartOffset}->{bound.StartOffset};"
             + $"bound:{bound.StartOffset}/{test.SourceOffset}"
             + $"->{body.StartOffset}|{blocks[exitIndex].StartOffset};"
@@ -837,10 +854,13 @@ internal static class ClassicInverseRecipes
 
     static bool TryGetRawForeachControlIdentity(
         IrFunction raw,
+        TypeRef machine,
+        ClassicInverseLoopStorage storage,
         int boundSourceOffset,
         int entrySourceOffset,
         int bodySourceOffset,
         int advanceSourceOffset,
+        int initializerSourceOffset,
         ClassicInverseBudget budget,
         out string identity)
     {
@@ -848,7 +868,8 @@ internal static class ClassicInverseRecipes
         if (boundSourceOffset < 0
             || entrySourceOffset < 0
             || bodySourceOffset < 0
-            || advanceSourceOffset < 0)
+            || advanceSourceOffset < 0
+            || initializerSourceOffset < 0)
         {
             return false;
         }
@@ -857,6 +878,8 @@ internal static class ClassicInverseRecipes
         var entries = new List<Branch>();
         var bodyAnchors = new List<StoreStackSlot>();
         var advances = new List<StoreField>();
+        var initializers = new List<StoreField>();
+        var indexWrites = new List<IrNode>();
         foreach (IrNode node in raw.Body.Descendants)
         {
             if (!budget.Charge())
@@ -864,7 +887,8 @@ internal static class ClassicInverseRecipes
             switch (node)
             {
                 case ConditionalBranch branch
-                    when branch.SourceOffset == boundSourceOffset:
+                    when branch.SourceOffset == boundSourceOffset
+                        && IsExactLoopBound(branch.Condition, storage, machine):
                     bounds.Add(branch);
                     break;
                 case Branch branch
@@ -872,19 +896,55 @@ internal static class ClassicInverseRecipes
                     entries.Add(branch);
                     break;
                 case StoreStackSlot store
-                    when store.SourceOffset == bodySourceOffset:
+                    when store.SourceOffset == bodySourceOffset
+                        && storage.IsElementLoad(store.Value, machine):
                     bodyAnchors.Add(store);
                     break;
-                case StoreField store
-                    when store.SourceOffset == advanceSourceOffset:
+                case StoreField
+                {
+                    Field: var advanceField,
+                    Instance: LoadArgument { Index: 0 },
+                    Value: Binary
+                    {
+                        Kind: BinaryKind.Add,
+                        IsChecked: false,
+                        IsUnsigned: false,
+                        Left: LoadField
+                        {
+                            Field: var advanceRead,
+                            Instance: LoadArgument { Index: 0 },
+                        },
+                        Right: Constant { Value: 1 },
+                    },
+                } store
+                    when store.SourceOffset == advanceSourceOffset
+                        && advanceField == storage.Index
+                        && advanceRead == storage.Index
+                        && ClassicInverseNodeFacts.IsMachineField(
+                            advanceField,
+                            machine):
                     advances.Add(store);
                     break;
+            }
+            if (IsLoopIndexWrite(node, storage.Index, machine))
+            {
+                indexWrites.Add(node);
+                if (node is StoreField
+                    {
+                        Value: Constant { Value: 0 },
+                    } indexInitializer
+                    && indexInitializer.SourceOffset == initializerSourceOffset)
+                {
+                    initializers.Add(indexInitializer);
+                }
             }
         }
         if (bounds is not [ConditionalBranch bound]
             || entries is not [Branch entry]
             || bodyAnchors is not [StoreStackSlot bodyAnchor]
             || advances is not [StoreField advance]
+            || initializers is not [StoreField initializer]
+            || indexWrites.Count != 2
             || bound.Parent is not Block boundBlock
             || entry.Parent is not Block entryBlock
             || bodyAnchor.Parent is not Block bodyBlock
@@ -899,7 +959,83 @@ internal static class ClassicInverseRecipes
             entryBlock,
             bodyBlock,
             advanceBlock,
+            initializer,
+            budget,
             out identity);
+    }
+
+    static bool IsLoopIndexWrite(
+        IrNode node,
+        FieldRef loopIndex,
+        TypeRef machine)
+        => node switch
+        {
+            StoreField
+            {
+                Field: var field,
+                Instance: LoadArgument { Index: 0 },
+            } => field == loopIndex
+                && ClassicInverseNodeFacts.IsMachineField(field, machine),
+            InitObject
+            {
+                Address: LoadFieldAddress
+                {
+                    Field: var field,
+                    Instance: LoadArgument { Index: 0 },
+                },
+            } => field == loopIndex
+                && ClassicInverseNodeFacts.IsMachineField(field, machine),
+            _ => false,
+        };
+
+    static bool IsExactLoopBound(
+        IrExpression expression,
+        ClassicInverseLoopStorage storage,
+        TypeRef machine)
+    {
+        if (expression is not Comparison
+            {
+                Kind: ComparisonKind.LessThan,
+                IsUnsigned: false,
+                Left: LoadField
+                {
+                    Field: var index,
+                    Instance: LoadArgument { Index: 0 },
+                },
+            } comparison
+            || index != storage.Index
+            || !ClassicInverseNodeFacts.IsMachineField(index, machine))
+        {
+            return false;
+        }
+
+        IrExpression length = comparison.Right;
+        if (length is Convert
+            {
+                Target: var target,
+                IsChecked: false,
+                IsUnsigned: false,
+                Operand: var converted,
+            })
+        {
+            if (!MemberIdentity.IsCoreLibraryType(
+                    target,
+                    "System",
+                    "Int32"))
+                return false;
+            length = converted;
+        }
+
+        return length is ArrayLength
+            {
+                Array: LoadField
+                {
+                    Field: var collection,
+                    Instance: LoadArgument { Index: 0 },
+                },
+            }
+            && collection == storage.Collection
+            && ClassicInverseNodeFacts.IsMachineField(collection, machine);
     }
 
     /// <summary>

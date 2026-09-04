@@ -811,16 +811,8 @@ internal sealed class ClassicInverseAccountant
             && storage.IsElementLoad(node, _shell.Machine);
 
     bool IsRawExecutionProtocolEffect(IrNode node)
-        => node switch
-        {
-            Call { Callee.Name: "get_IsCompleted" } call =>
-                call.Arguments.Count == 1
-                && call.Arguments[0] is LoadLocalAddress awaiter
-                && _shell.AwaiterLocals.Contains(awaiter.Index),
-            ArrayLength =>
-                _candidate.Recipe == "classic-await-foreach-array",
-            _ => false,
-        };
+        => node is ArrayLength
+            && _candidate.Recipe == "classic-await-foreach-array";
 
     string NormalizeRawEffect(IrNode node, string signature)
     {

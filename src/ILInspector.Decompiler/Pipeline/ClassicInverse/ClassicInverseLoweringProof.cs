@@ -46,6 +46,7 @@ internal sealed class ClassicInverseLoweringProof
     internal const string AwaiterClear = "awaiter-clear";
     internal const string AwaiterBind = "awaiter-bind";
     internal const string GetAwaiterCall = "get-awaiter";
+    internal const string AwaitCompletionBranch = "awaiter-completed-branch";
 
     const string BudgetFailure =
         "the lowering-protocol proof exhausted the planning budget";
@@ -139,6 +140,8 @@ internal sealed class ClassicInverseLoweringProof
             return "the raw import and planning view restore different awaiter transfers";
         if (!planning.AwaiterBinds.SequenceEqual(raw.AwaiterBinds))
             return "the raw import and planning view bind different GetAwaiter members";
+        if (!planning.AwaitCompletions.SequenceEqual(raw.AwaitCompletions))
+            return "the raw import and planning view route await completion differently";
         if (!planning.ResumeOffsets.SequenceEqual(raw.ResumeOffsets))
             return "the raw import and planning view resume at different state stores";
         if (!planning.CompletionOffsets.SequenceEqual(raw.CompletionOffsets))
@@ -158,6 +161,7 @@ internal sealed class ClassicInverseLoweringProof
         ImmutableArray<string> Dispatchers,
         ImmutableArray<string> Resumes,
         ImmutableArray<AwaiterBindIdentity> AwaiterBinds,
+        ImmutableArray<AwaitCompletionIdentity> AwaitCompletions,
         ImmutableArray<int> ResumeOffsets,
         ImmutableArray<int> CompletionOffsets,
         int GuardCount);
@@ -176,6 +180,25 @@ internal sealed class ClassicInverseLoweringProof
         bool IsVirtual,
         string ConstrainedTo,
         string ReceiverType);
+
+    /// <summary>
+    /// One await's exact completion test and the two paths that join at its
+    /// <c>GetResult</c> continuation.
+    /// </summary>
+    readonly record struct AwaitCompletionIdentity(
+        int State,
+        int BranchOffset,
+        int TestOffset,
+        int Local,
+        string TestMethod,
+        bool TestIsVirtual,
+        int SuspensionOffset,
+        int ResumeOffset,
+        int ContinuationOffset,
+        int ResultOffset,
+        string ResultMethod,
+        bool ResultIsVirtual,
+        string ResultConstrainedTo);
 
     /// <summary>One suspension's proven awaiter transfer.</summary>
     readonly record struct AwaiterTransfer(int Local, string CacheField);
@@ -705,6 +728,7 @@ internal sealed class ClassicInverseLoweringProof
         var resumeOffsets = ImmutableArray.CreateBuilder<int>();
         var completionOffsets = ImmutableArray.CreateBuilder<int>();
         var claimed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        var resumeBlocksByState = new Dictionary<int, Block>();
 
         StoreLocal? init = null;
         foreach (StoreLocal store in stateLocalStores)
@@ -848,6 +872,7 @@ internal sealed class ClassicInverseLoweringProof
                 failure = "two dispatch tests resume into the same block";
                 return null;
             }
+            resumeBlocksByState[state] = resume;
 
             // The resume block must undo exactly this state's suspension: the
             // same awaiter local, restored from and cleared in the same cache
@@ -911,6 +936,19 @@ internal sealed class ClassicInverseLoweringProof
             resumeOffsets.Add(resumeField.SourceOffset);
             resumeOffsets.Add(resumeLocal.SourceOffset);
         }
+
+        ImmutableArray<AwaitCompletionIdentity>? awaitCompletions =
+            ProveAwaitCompletionPaths(
+                index,
+                isRawImport,
+                suspensionStates,
+                suspensionAwaiters,
+                resumeBlocksByState,
+                roles,
+                budget,
+                out failure);
+        if (awaitCompletions is null)
+            return null;
 
         // Every awaiter transfer in the body belongs to a proven suspension or
         // resume; an unbound cache, restore, or clear is not protocol.
@@ -1034,6 +1072,7 @@ internal sealed class ClassicInverseLoweringProof
             [.. dispatchers.Order(StringComparer.Ordinal)],
             [.. resumes.Order(StringComparer.Ordinal)],
             awaiterBinds,
+            awaitCompletions.Value,
             [.. resumeOffsets.Order()],
             [.. completionOffsets.Order()],
             guardCount);
@@ -1048,6 +1087,188 @@ internal sealed class ClassicInverseLoweringProof
                 ClassicInverseTypedIdentity.Field(builderField));
         }
     }
+
+    /// <summary>
+    /// Closes each await's fast and suspended paths around the exact
+    /// <c>IsCompleted</c> test. The completed edge and the restored edge must
+    /// join at the matching <c>GetResult</c>; the incomplete edge must enter
+    /// the suspension block that owns the matching callback.
+    /// </summary>
+    static ImmutableArray<AwaitCompletionIdentity>? ProveAwaitCompletionPaths(
+        BodyIndex index,
+        bool isRawImport,
+        IReadOnlyDictionary<int, Block> suspensionBlocks,
+        IReadOnlyDictionary<int, AwaiterTransfer> suspensionAwaiters,
+        IReadOnlyDictionary<int, Block> resumeBlocks,
+        Dictionary<IrNode, string> roles,
+        ClassicInverseBudget budget,
+        out string? failure)
+    {
+        var identities = ImmutableArray.CreateBuilder<AwaitCompletionIdentity>();
+        var claimedBranches = new HashSet<ConditionalBranch>(
+            ReferenceEqualityComparer.Instance);
+
+        foreach ((int state, Block suspension) in suspensionBlocks.OrderBy(
+            static pair => pair.Key))
+        {
+            if (!budget.Charge())
+            {
+                failure = BudgetFailure;
+                return null;
+            }
+            AwaiterTransfer transfer = suspensionAwaiters[state];
+            Block resume = resumeBlocks[state];
+            if (index.PredecessorsOf(suspension) is not [Block completionBlock]
+                || completionBlock.Children is not
+                    [.., ConditionalBranch completion]
+                || !TryGetAwaitCompletionTest(
+                    completion.Condition,
+                    isRawImport,
+                    transfer.Local,
+                    out MethodRef completionMethod,
+                    out bool completionIsVirtual,
+                    out int completionOffset)
+                || index.BlocksStartingAt(completion.TargetOffset)
+                    is not [Block continuation]
+                || !index.HasOnlySuccessors(
+                    completionBlock,
+                    continuation,
+                    suspension)
+                || !index.HasOnlyPredecessors(
+                    suspension,
+                    completionBlock)
+                || !index.IsSuspensionExit(suspension)
+                || !index.HasOnlySuccessors(resume, continuation)
+                || !index.HasOnlyPredecessors(
+                    continuation,
+                    completionBlock,
+                    resume))
+            {
+                failure = $"state {state} does not carry one closed "
+                    + "IsCompleted/suspension/GetResult continuation";
+                return null;
+            }
+
+            List<Call> results =
+            [
+                .. index.GetResultsIn(continuation).Where(
+                    call => IsAwaiterGetResult(
+                        call,
+                        transfer.Local,
+                        completionMethod.DeclaringType)),
+            ];
+            if (results is not [Call getResult])
+            {
+                failure = $"state {state} does not join at exactly one "
+                    + "GetResult on its proven awaiter";
+                return null;
+            }
+
+            roles[completion] = AwaitCompletionBranch;
+            claimedBranches.Add(completion);
+            identities.Add(new(
+                state,
+                completion.SourceOffset,
+                completionOffset,
+                transfer.Local,
+                ClassicInverseTypedIdentity.Method(completionMethod),
+                completionIsVirtual,
+                suspension.StartOffset,
+                resume.StartOffset,
+                continuation.StartOffset,
+                getResult.SourceOffset,
+                ClassicInverseTypedIdentity.Method(getResult.Callee),
+                getResult.IsVirtual,
+                ClassicInverseTypedIdentity.Type(getResult.ConstrainedTo)));
+        }
+
+        if (claimedBranches.Count != index.AwaitCompletionBranches.Count)
+        {
+            failure = "an await completion branch has no proven suspension "
+                + "and GetResult continuation";
+            return null;
+        }
+
+        failure = null;
+        return [.. identities];
+    }
+
+    static bool TryGetAwaitCompletionTest(
+        IrExpression condition,
+        bool isRawImport,
+        int expectedLocal,
+        out MethodRef method,
+        out bool isVirtual,
+        out int sourceOffset)
+    {
+        method = null!;
+        isVirtual = false;
+        sourceOffset = -1;
+
+        LoadLocalAddress? awaiter;
+        if (isRawImport
+            && condition is Call
+            {
+                Callee:
+                {
+                    Name: "get_IsCompleted",
+                    HasThis: true,
+                    ParameterTypes.IsDefaultOrEmpty: true,
+                } callee,
+                Arguments: [LoadLocalAddress rawAddress],
+                ConstrainedTo: null,
+            } call)
+        {
+            method = callee;
+            awaiter = rawAddress;
+            isVirtual = call.IsVirtual;
+            sourceOffset = call.SourceOffset;
+        }
+        else if (!isRawImport
+            && condition is LoadProperty
+            {
+                Accessor:
+                {
+                    Name: "get_IsCompleted",
+                    HasThis: true,
+                    ParameterTypes.IsDefaultOrEmpty: true,
+                } accessor,
+                Instance: LoadLocalAddress planningAddress,
+                IndexArguments.Count: 0,
+            } property)
+        {
+            method = accessor;
+            awaiter = planningAddress;
+            isVirtual = property.IsVirtual;
+            sourceOffset = property.SourceOffset;
+        }
+        else
+        {
+            return false;
+        }
+
+        return awaiter.Index == expectedLocal
+            && awaiter.Type.Equals(method.DeclaringType)
+            && MemberIdentity.IsCoreLibraryType(
+                method.ReturnType,
+                "System",
+                "Boolean");
+    }
+
+    static bool IsAwaiterGetResult(
+        Call call,
+        int expectedLocal,
+        TypeRef awaiterType)
+        => call.Callee is
+            {
+                Name: "GetResult",
+                HasThis: true,
+                ParameterTypes.IsDefaultOrEmpty: true,
+            }
+            && call.Arguments is [LoadLocalAddress awaiter]
+            && awaiter.Index == expectedLocal
+            && awaiter.Type.Equals(awaiterType)
+            && call.Callee.DeclaringType.Equals(awaiterType);
 
     /// <summary>
     /// Every use of a state-constant spill slot must reach a proven state store.
@@ -1217,6 +1438,7 @@ internal sealed class ClassicInverseLoweringProof
         static readonly List<Block> s_noBlocks = [];
         static readonly List<ConditionalBranch> s_noBranches = [];
         static readonly List<StoreStackSlot> s_noSlotStores = [];
+        static readonly List<Call> s_noCalls = [];
 
         readonly Dictionary<IrNode, List<StoreField>> _stateFieldStoresByBlock =
             new(ReferenceEqualityComparer.Instance);
@@ -1231,8 +1453,19 @@ internal sealed class ClassicInverseLoweringProof
         readonly Dictionary<int, List<Block>> _blocksByStart = [];
         readonly Dictionary<int, List<ConditionalBranch>> _stateTests = [];
         readonly Dictionary<int, List<StoreStackSlot>> _slotStores = [];
+        readonly Dictionary<IrNode, List<Call>> _getResultsByBlock =
+            new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, int> _positions =
             new(ReferenceEqualityComparer.Instance);
+        readonly List<BlockContainer> _containers = [];
+        readonly Dictionary<Block, List<Block>> _successors =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<Block, List<Block>> _predecessors =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<Block, ILInspector.ControlFlow.BlockEdges>
+            _controlFlow =
+                new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<int, List<Block>> _externalPredecessors = [];
 
         BodyIndex(TypeRef machine, bool isRawImport)
         {
@@ -1259,6 +1492,8 @@ internal sealed class ClassicInverseLoweringProof
         internal List<LoadStackSlot> SlotLoads { get; } = [];
 
         internal List<StoreStackSlot> AllSlotStores { get; } = [];
+
+        internal List<ConditionalBranch> AwaitCompletionBranches { get; } = [];
 
         /// <summary>Every awaiter cache, restore, and clear in the body.</summary>
         internal List<IrNode> AwaiterTransfers { get; } = [];
@@ -1292,6 +1527,47 @@ internal sealed class ClassicInverseLoweringProof
         internal List<StoreStackSlot> SlotStoresFor(int slot)
             => _slotStores.GetValueOrDefault(slot, s_noSlotStores);
 
+        internal List<Call> GetResultsIn(Block block)
+            => _getResultsByBlock.GetValueOrDefault(block, s_noCalls);
+
+        internal IReadOnlyList<Block> PredecessorsOf(Block block)
+            => _predecessors.GetValueOrDefault(block, s_noBlocks);
+
+        internal bool HasOnlySuccessors(Block block, params Block[] expected)
+            => _controlFlow.TryGetValue(block, out var edges)
+                && !edges.ExitsMethod
+                && !edges.LeavesRegion
+                && edges.ExternalTargets.Count == 0
+                && HasOnlyBlocks(
+                    _successors.GetValueOrDefault(block, s_noBlocks),
+                    expected);
+
+        internal bool HasOnlyPredecessors(Block block, params Block[] expected)
+        {
+            IReadOnlyList<Block> local =
+                _predecessors.GetValueOrDefault(block, s_noBlocks);
+            IReadOnlyList<Block> external =
+                _externalPredecessors.GetValueOrDefault(
+                    block.StartOffset,
+                    s_noBlocks);
+            return local.Count + external.Count == expected.Length
+                && expected.All(candidate =>
+                    local.Any(block => ReferenceEquals(block, candidate))
+                    || external.Any(
+                        block => ReferenceEquals(block, candidate)));
+        }
+
+        internal bool IsSuspensionExit(Block block)
+        {
+            if (IsRawImport)
+            {
+                return block.Children.LastOrDefault() is Leave leave
+                    && BlocksStartingAt(leave.TargetOffset) is [Block target]
+                    && target.Children is [Return { Value: null }];
+            }
+            return block.Children.LastOrDefault() is Return { Value: null };
+        }
+
         /// <summary>This node's index among its parent's children, or -1.</summary>
         internal int PositionOf(IrNode node)
             => _positions.GetValueOrDefault(node, -1);
@@ -1324,6 +1600,8 @@ internal sealed class ClassicInverseLoweringProof
                 index.Add(node, stateLocal, awaiterLocals);
             }
 
+            if (!index.BuildControlFlow(budget))
+                return null;
             return index;
         }
 
@@ -1331,6 +1609,10 @@ internal sealed class ClassicInverseLoweringProof
         {
             switch (node)
             {
+                case BlockContainer container:
+                    _containers.Add(container);
+                    return;
+
                 case TryFinally when !IsRawImport:
                     HasFinallyContext = true;
                     return;
@@ -1414,6 +1696,20 @@ internal sealed class ClassicInverseLoweringProof
                     AwaiterBinds.Add(bind);
                     return;
 
+                case ConditionalBranch branch
+                    when IsAwaitCompletionCondition(branch.Condition):
+                    AwaitCompletionBranches.Add(branch);
+                    return;
+
+                case Call
+                {
+                    Callee.Name: "GetResult",
+                    Arguments: [LoadLocalAddress awaiter],
+                } getResult when awaiterLocals.Contains(awaiter.Index):
+                    if (ContainingBlock(getResult) is { } resultBlock)
+                        Group(_getResultsByBlock, resultBlock, getResult);
+                    return;
+
                 case InitObject { Address: LoadFieldAddress cleared } clear
                     when IsAwaiterCacheField(cleared.Field)
                         && cleared.Instance is LoadArgument { Index: 0 }
@@ -1445,6 +1741,90 @@ internal sealed class ClassicInverseLoweringProof
             }
         }
 
+        bool BuildControlFlow(ClassicInverseBudget budget)
+        {
+            foreach (BlockContainer container in _containers)
+            {
+                IReadOnlyList<Block> blocks = container.Blocks;
+                if (!ClassicInverseCfg.TryBuild(blocks, budget, out var edges))
+                    return false;
+                for (int i = 0; i < blocks.Count; i++)
+                {
+                    if (!budget.Charge())
+                        return false;
+                    Block block = blocks[i];
+                    _controlFlow[block] = edges[i];
+                    var successors = new List<Block>(edges[i].Successors.Count);
+                    _successors[block] = successors;
+                    _predecessors.TryAdd(block, []);
+                    foreach (int successorIndex in edges[i].Successors)
+                    {
+                        if (!budget.Charge())
+                            return false;
+                        Block successor = blocks[successorIndex];
+                        successors.Add(successor);
+                        if (!_predecessors.TryGetValue(
+                                successor,
+                                out List<Block>? predecessors))
+                        {
+                            _predecessors[successor] = predecessors = [];
+                        }
+                        predecessors.Add(block);
+                    }
+                    foreach (int target in edges[i].ExternalTargets)
+                    {
+                        if (!budget.Charge())
+                            return false;
+                        Group(_externalPredecessors, target, block);
+                    }
+                    if (block.Children.LastOrDefault() is Leave leave)
+                    {
+                        if (!budget.Charge())
+                            return false;
+                        Group(
+                            _externalPredecessors,
+                            leave.TargetOffset,
+                            block);
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        bool IsAwaitCompletionCondition(IrExpression condition)
+            => IsRawImport
+                ? condition is Call
+                {
+                    Callee.Name: "get_IsCompleted",
+                    Arguments: [LoadLocalAddress],
+                }
+                : condition is LoadProperty
+                {
+                    PropertyName: "IsCompleted",
+                    Instance: LoadLocalAddress,
+                    IndexArguments.Count: 0,
+                };
+
+        static Block? ContainingBlock(IrNode node)
+        {
+            for (IrNode? current = node.Parent;
+                current is not null;
+                current = current.Parent)
+            {
+                if (current is Block block)
+                    return block;
+            }
+            return null;
+        }
+
+        static bool HasOnlyBlocks(
+            IReadOnlyList<Block> actual,
+            IReadOnlyList<Block> expected)
+            => actual.Count == expected.Count
+                && expected.All(candidate => actual.Any(
+                    block => ReferenceEquals(block, candidate)));
+
         static bool IsAwaiterCacheField(FieldRef field)
             => field.Name.StartsWith("<>u__", StringComparison.Ordinal);
 
@@ -1458,5 +1838,43 @@ internal sealed class ClassicInverseLoweringProof
                 map[key] = bucket = [];
             bucket.Add(value);
         }
+    }
+}
+
+/// <summary>
+/// Budget admission for the shared CFG builder. The preflight pays for its own
+/// scan and for the bounded block/target work that <see cref="Cfg.Build"/> will
+/// perform before that work begins.
+/// </summary>
+internal static class ClassicInverseCfg
+{
+    internal static bool TryBuild(
+        IReadOnlyList<Block> blocks,
+        ClassicInverseBudget budget,
+        out IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges)
+    {
+        edges = [];
+        foreach (Block block in blocks)
+        {
+            // Preflight visit, offset-map insertion, block dispatch, and at
+            // most one non-switch successor.
+            for (int charge = 0; charge < 4; charge++)
+            {
+                if (!budget.Charge())
+                    return false;
+            }
+
+            if (block.Children.LastOrDefault() is not SwitchBranch branch)
+                continue;
+            foreach (int _ in branch.TargetOffsets)
+            {
+                // One preflight visit and one target lookup/add.
+                if (!budget.Charge() || !budget.Charge())
+                    return false;
+            }
+        }
+
+        edges = Cfg.Build(blocks);
+        return true;
     }
 }

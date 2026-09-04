@@ -171,11 +171,11 @@ internal static class ClassicInverseProtocol
                 return ClassicInverseProtocolRule.Owned(
                     ClassicInverseLoweringProof.SuspensionGuard);
 
-            case ConditionalBranch { Condition: LoadProperty completed }
-                when completed.PropertyName == "IsCompleted"
-                    && completed.Instance is LoadLocalAddress awaiter
-                    && shell.AwaiterLocals.Contains(awaiter.Index):
-                return ClassicInverseProtocolRule.Owned("awaiter-completed-branch");
+            case ConditionalBranch completed when shell.Protocol.Proves(
+                completed,
+                ClassicInverseLoweringProof.AwaitCompletionBranch):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.AwaitCompletionBranch);
 
             // Reading the state-machine reference itself carries no behavior;
             // MoveNext's argument 0 is the compiler-owned machine.

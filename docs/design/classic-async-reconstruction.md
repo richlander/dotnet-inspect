@@ -367,7 +367,16 @@ independently recognizable shapes:
   *that* field, each exactly once. Restoring some awaiter from some cache field
   would leave two suspensions free to exchange awaiters and stay protocol, so
   every cache, restore, and clear the body contains must belong to a proven
-  suspension or resume.
+  suspension or resume; and
+- **the await completion path** — each exact typed `IsCompleted` accessor and
+  its dispatch bind one conditional branch to the same awaiter local as its
+  suspension and `GetResult`. The completed edge reaches that `GetResult`
+  continuation, the incomplete edge reaches the matching suspension block, and
+  the matching resume block reaches the same continuation. The suspension must
+  leave to the method's exact return in the raw import and normalize to a return
+  in the planning view. Those predecessor, successor, and nonlocal-transfer
+  sets are closed, and the complete identity must agree between raw and
+  planning spaces.
 
 Both spaces must describe the same protocol at the same IL offsets, including
 the exact callback and builder-field identities and the awaiter-transfer
@@ -380,10 +389,11 @@ lacking an effect signature.
 The proof's work is proportional to the budget it charges. One charged pass
 builds every index the later phases need — builder callbacks, state stores and
 awaiter transfers grouped by block, blocks by start offset, dispatch tests by
-tested state, spill stores by slot, and each node's position in its parent — and
-every later phase charges once per element it touches, including each step of an
-ancestor walk. No phase rescans the body per state, so an adversarial body
-cannot buy quadratic planning work at a linear charge. Exhaustion remains
+tested state, spill stores by slot, each node's position in its parent, and
+container-local predecessor/successor maps — and every later phase charges once
+per element it touches, including each step of an ancestor walk. No phase
+rescans the body per state, so an adversarial body cannot buy quadratic
+planning work at a linear charge. Exhaustion remains
 `Failed(BudgetExhausted)`: never a decline, never a partial proof.
 
 ## Proof-carrying plan
@@ -454,7 +464,7 @@ begins, for example. Every variable text component is length-prefixed and every
 variable-length sequence count-prefixed, and every dimension `TypeRef` equality
 compares is written, so equal identity text implies equal compared facts.
 
-The same exactness governs the four places a recipe may retire or rewrite an
+The same exactness governs the five places a recipe may retire or rewrite an
 effect rather than realize it one-to-one:
 
 - **an awaiter bind.** `operand.GetAwaiter()` is protocol only when it is the
@@ -469,16 +479,23 @@ effect rather than realize it one-to-one:
   all agree on. The awaiter family is not enumerated, so a compiler-produced
   custom awaiter normalizes on the same terms; a same-named helper taking the
   awaiter by reference is an ordinary user call and stays in the ledger.
+- **an await completion test.** `awaiter.IsCompleted` is protocol only when its
+  exact accessor and dispatch are part of the proven completion, suspension,
+  resume, and `GetResult` topology for that await. Retargeting the completed
+  edge to skip `GetResult` or a user effect leaves the branch unaccounted.
 - **a loop element.** A recipe that realizes an array read as a `foreach`
   binding must first bind the hoisted collection, the loop index its own bound
   test compares, and the accumulator it folds into, each by exact `FieldRef`
   identity. The compiler's `<>7__wrap` names label three different storage
   locations and authorize nothing beyond selecting a candidate hoist, so the
   element-access effect is retired only for a read of that exact array at that
-  exact index. The recipe also proves the entry and advance edges reach the
-  bound test, its taken edge enters the body, its fall-through exits, and no
-  other predecessor enters either arm. That exact CFG identity must agree in
-  the raw import and derived planning view.
+  exact index. Exactly one zero initialization and one unchecked signed
+  `index + 1` advance may write that index; an extra direct or in-place
+  initialization is not protocol. The recipe also proves the exact
+  `index < collection.Length` bound, that the entry and advance edges reach its
+  test, that its taken edge enters the body, that its fall-through exits, and
+  that no other predecessor enters either arm. That exact storage, expression,
+  and CFG identity must agree in the raw import and derived planning view.
 - **a consumed initializer member.** A setter, `Add`, or getter a prerequisite
   pass folded into an initializer, `with`, or nested-initializer entry keeps its
   call-site dispatch alongside its typed identity. `with` syntax specifically
@@ -619,6 +636,10 @@ Release gates:
 | `ClassicInverseTypedIdentityIsCompleteAndPrefixFree` | The typed identity encoding drops a dimension `TypeRef` equality compares, or two distinct members collide through separator-joined attacker-controlled text. |
 | `ClassicInverseLoopElementBindsItsExactStorage` | A loop recipe reads its element from a machine field other than the hoisted collection it proved, or at an index other than the loop index its own bound test proved, or the element-access effect is suppressed for any other array read. |
 | `ClassicInverseLoopBindsItsExactControlFlow` | Raw and planning loop CFG identities differ, the loop entry or advance does not reach the bound test, the bound test does not branch to the body and fall through to the exit, or another predecessor enters either arm. |
+| `ClassicInverseAwaitCompletionBindsItsExactControlFlow` | An `IsCompleted` branch's exact accessor, dispatch, completed edge, suspension edge, resume edge, or matching `GetResult` continuation is unproven or differs between raw and planning spaces. |
+| `ClassicInverseAwaitSuspensionBindsItsExactExit` | A suspension leave does not target the method's exact return, or a planning view repairs only its detached copy of that nonlocal transfer. |
+| `ClassicInverseLoopIndexWritesBindExactRoles` | The proven loop index has anything other than one zero initialization in the entry block and one `index + 1` advance, including an extra direct or in-place reset hidden only from the planning view. |
+| `ClassicInverseLoopRawRolesCannotBeHealedByPlanning` | The raw loop bound, index initializer, or index advance differs from the exact role accepted in the planning view, even when a planning runner repairs only its detached clone. |
 | `ClassicInverseAwaitBindsItsExactGetAwaiterMember` | A same-named helper, direct dispatch, or a raw/planning member or call-site mismatch is erased as the `GetAwaiter` protocol for an emitted `await`. |
 | `ClassicInverseAwaitResultBindsItsExactAwaiterMember` | A call normalizes to `await` without being the exact instance, parameterless `GetResult` member of the type its suspension's local, `GetAwaiter` bind, and cache field all carry. |
 | `ClassicInverseWithCloneBindsItsExactDispatch` | A record clone's typed identity or dispatch is erased, or direct clone dispatch on an open receiver raises into a `with` expression that restores virtual dispatch. |
