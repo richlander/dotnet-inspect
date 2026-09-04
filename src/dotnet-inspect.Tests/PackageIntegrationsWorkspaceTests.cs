@@ -1,16 +1,335 @@
 using System.Collections.Immutable;
+using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using DotnetInspector.Artifacts;
 using DotnetInspector.Core;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Tests;
 
 [Collection("Console")]
 public sealed class PackageIntegrationsWorkspaceTests
 {
+    [Fact]
+    public async Task ArtifactBackedCreate_RetainsArtifactUntilActiveQueryCompletes()
+    {
+        const string packagePath =
+            "ref/net11.0/Artifact.Package.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-integrations-").FullName;
+        string selectedPath = Path.Combine(
+            directory,
+            packagePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
+        byte[] surfaceImage = IntegrationAssembly(
+            "Artifact.Package.Sample",
+            "SurfaceOnlyMarker");
+        byte[] implementationImage = IntegrationAssembly(
+            "Artifact.Package.Sample",
+            "ImplementationOnlyMarker");
+        File.WriteAllBytes(selectedPath, surfaceImage);
+        PackageRootBinding binding = await CreateBindingAsync(
+            ("ref/net11.0/Artifact.Package.Sample.dll", surfaceImage),
+            ("lib/net11.0/Artifact.Package.Sample.dll",
+                implementationImage));
+        var workspace =
+            await PackageIntegrationsWorkspace.CreateArtifactBackedAsync(
+                [new(selectedPath, "net11.0")],
+                directory,
+                binding,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        var callbackEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackResume = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        ResolvedAssemblyReference? retainedAssembly = null;
+
+        try
+        {
+            Task<bool> query = workspace.UseAssemblyAsync(
+                selectedPath,
+                async (retained, integrations, _) =>
+                {
+                    retainedAssembly = Assert.IsType<
+                        ResolvedAssemblyReference>(retained);
+                    Assert.IsType<ArtifactAcquisitionRegistration>(
+                        retainedAssembly.Registration
+                            .ArtifactRegistration);
+                    var available = Assert.IsType<
+                        AssemblyIntegrationsEntry.Available>(
+                        integrations);
+                    Assert.NotSame(
+                        retainedAssembly.Registration,
+                        available.Subject.Registration);
+                    callbackEntered.SetResult();
+                    await callbackResume.Task;
+                    using Stream stream = retainedAssembly.OpenRead();
+                    Assert.Equal(surfaceImage.Length, stream.Length);
+                    Assert.True(ContainsType(stream, "SurfaceOnlyMarker"));
+                    using Stream implementationProbe =
+                        retainedAssembly.OpenRead();
+                    Assert.False(
+                        ContainsType(
+                            implementationProbe,
+                            "ImplementationOnlyMarker"));
+                    return true;
+                });
+
+            await callbackEntered.Task;
+            Task close = workspace.DisposeAsync().AsTask();
+            Assert.False(close.IsCompleted);
+
+            callbackResume.SetResult();
+            Assert.True(await query);
+            await close;
+            await Assert.ThrowsAsync<ObjectDisposedException>(
+                () => workspace.UseAssemblyAsync(
+                    selectedPath,
+                    static (_, _, _) => Task.FromResult(true)));
+        }
+        finally
+        {
+            callbackResume.TrySetResult();
+            await workspace.DisposeAsync();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ArtifactBackedImplementationRejection_PreservesSurfaceWithoutPathFallback()
+    {
+        const string surfacePath =
+            "ref/net11.0/Artifact.Rejected.Sample.dll";
+        const string implementationPath =
+            "lib/net11.0/Artifact.Rejected.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-rejection-").FullName;
+        string selectedPath = Path.Combine(
+            directory,
+            surfacePath.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(selectedPath)!);
+        byte[] surface = IntegrationAssembly(
+            "Artifact.Rejected.Sample",
+            "SurfaceOnlyMarker");
+        byte[] malformed = [1, 2, 3];
+        File.WriteAllBytes(selectedPath, surface);
+        DateTime selectedTimestamp =
+            new(2024, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(selectedPath, selectedTimestamp);
+        PackageRootBinding binding = await CreateBindingAsync(
+            (surfacePath, surface),
+            (implementationPath, malformed));
+        PackageIntegrationsWorkspace? workspace =
+            await PackageIntegrationsWorkspace.TryCreateArtifactBackedAsync(
+                [new(selectedPath, "net11.0")],
+                directory,
+                binding,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        Assert.NotNull(workspace);
+        List<(string FileName, string Reason)> failures = [];
+        int inspectionCount = 0;
+
+        try
+        {
+            LibraryInspection? inspection =
+                await Commands.PackageCommand
+                    .InspectGroupedAssemblyAsync(
+                        workspace,
+                        selectedPath,
+                        surfacePath,
+                        failures,
+                        (retained, integrations, _) =>
+                        {
+                            inspectionCount++;
+                            Assert.IsType<
+                                ArtifactAcquisitionRegistration>(
+                                Assert.IsType<
+                                        ResolvedAssemblyReference>(
+                                        retained)
+                                    .Registration
+                                    .ArtifactRegistration);
+                            Assert.IsType<
+                                AssemblyIntegrationsEntry.Rejected>(
+                                integrations);
+                            return Task.FromResult<
+                                LibraryInspection?>(new());
+                        });
+
+            Assert.NotNull(inspection);
+            Assert.Equal(selectedTimestamp, inspection.LastModified);
+            Assert.Equal(1, inspectionCount);
+            var failure = Assert.Single(failures);
+            Assert.Equal(surfacePath, failure.FileName);
+            Assert.NotEmpty(failure.Reason);
+        }
+        finally
+        {
+            await workspace.DisposeAsync();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, null, "net11.0", "producer", "ref/net11.0/Test.dll", true)]
+    [InlineData(false, null, "net11.0", "producer", "lib/net11.0/Test.dll", true)]
+    [InlineData(true, null, "net11.0", "producer", "lib/net11.0/Test.dll", false)]
+    [InlineData(false, "net11.0", "net11.0", "producer", "lib/net11.0/Test.dll", false)]
+    [InlineData(false, null, null, "producer", "lib/net11.0/Test.dll", false)]
+    [InlineData(false, null, "net11.0", null, "lib/net11.0/Test.dll", false)]
+    [InlineData(false, null, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
+    public void ArtifactBackedSelection_IsTheRemoteDefaultTfmPath(
+        bool isLocalFile,
+        string? requestedTargetFramework,
+        string? selectedTargetFramework,
+        string? selectedProducerKey,
+        string selectedPackagePath,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            Commands.PackageCommand
+                .ShouldUseArtifactBackedPackageIntegrations(
+                    isLocalFile,
+                    requestedTargetFramework,
+                    selectedTargetFramework,
+                    selectedProducerKey,
+                    [selectedPackagePath]));
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RequiresExactVisibleSurfaceSelection()
+    {
+        const string surfacePath =
+            "lib/net11.0/Artifact.Surface.Sample.dll";
+        const string nestedPath =
+            "lib/net11.0/x64/Artifact.Native.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-surface-").FullName;
+        byte[] image = IntegrationAssembly(
+            "Artifact.Surface.Sample",
+            "SurfaceMarker");
+        PackageRootBinding binding = await CreateBindingAsync(
+            (surfacePath, image),
+            (nestedPath, image));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, surfacePath),
+                                "net11.0"),
+                            new(
+                                Path.Combine(directory, nestedPath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RejectsEmptyCompileGroup()
+    {
+        const string selectedPath =
+            "lib/net11.0/Artifact.Empty.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-empty-").FullName;
+        byte[] image = IntegrationAssembly(
+            "Artifact.Empty.Sample",
+            "ImplementationMarker");
+        PackageRootBinding binding = await CreateBindingAsync(
+            ("ref/net11.0/_._", []),
+            (selectedPath, image));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, selectedPath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RejectsIdentityMismatch()
+    {
+        const string surfacePath =
+            "ref/net11.0/Artifact.Mismatch.Sample.dll";
+        const string implementationPath =
+            "lib/net11.0/Artifact.Mismatch.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-mismatch-").FullName;
+        PackageRootBinding binding = await CreateBindingAsync(
+            (
+                surfacePath,
+                IntegrationAssembly(
+                    "Artifact.Surface.Identity",
+                    "SurfaceMarker")),
+            (
+                implementationPath,
+                IntegrationAssembly(
+                    "Artifact.Implementation.Identity",
+                    "ImplementationMarker")));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, surfacePath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void Create_PartitionsNonNetFrameworkFolders()
     {
@@ -581,5 +900,84 @@ public sealed class PackageIntegrationsWorkspaceTests
             error.Split(
                 "Integrations inspection failed",
                 StringSplitOptions.None).Length - 1);
+    }
+
+    static async Task<PackageRootBinding> CreateBindingAsync(
+        params (string Path, byte[] Content)[] entries)
+    {
+        var store = new InMemoryPackageStore();
+        await using var archive = new MemoryStream(Archive(entries));
+        IPackageContent content = await store.CommitAsync(
+            "Artifact.Package.Sample",
+            "1.0.0",
+            "tests",
+            archive,
+            TestContext.Current.CancellationToken);
+        var payload = new AcquiredPackageSourcePayload(
+            PackageSourceCoordinate.Create(
+                "Artifact.Package.Sample",
+                "1.0.0"),
+            content,
+            "tests",
+            PackagePayloadOrigin.Cache);
+        return PackageRootBinding.CreateFromSource(
+            payload,
+            "net11.0");
+    }
+
+    static byte[] IntegrationAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            new AssemblyName(assemblyName),
+            typeof(object).Assembly);
+        ModuleBuilder module =
+            assemblyBuilder.DefineDynamicModule(assemblyName);
+        TypeBuilder type = module.DefineType(
+            typeName,
+            TypeAttributes.Public | TypeAttributes.Class);
+        type.DefineDefaultConstructor(MethodAttributes.Public);
+        type.CreateType();
+
+        using var stream = new MemoryStream();
+        assemblyBuilder.Save(stream);
+        return stream.ToArray();
+    }
+
+    static bool ContainsType(
+        Stream stream,
+        string typeName)
+    {
+        using (var pe = new PEReader(
+                   stream,
+                   PEStreamOptions.LeaveOpen))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            return reader.TypeDefinitions.Any(handle =>
+                reader.GetString(
+                    reader.GetTypeDefinition(handle).Name)
+                == typeName);
+        }
+    }
+
+    static byte[] Archive(
+        params (string Path, byte[] Content)[] entries)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(
+                   stream,
+                   ZipArchiveMode.Create,
+                   leaveOpen: true))
+        {
+            foreach ((string path, byte[] content) in entries)
+            {
+                ZipArchiveEntry entry = archive.CreateEntry(path);
+                using Stream output = entry.Open();
+                output.Write(content);
+            }
+        }
+
+        return stream.ToArray();
     }
 }
