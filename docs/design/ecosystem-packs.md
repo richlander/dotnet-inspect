@@ -75,7 +75,8 @@ The exact claim is:
 > The host-neutral application catalog defines how one ecosystem contribution
 > is described, discovered, and selected. Source in that catalog defines which
 > static contributions ship and supplies their data and scanner
-> implementations. Lower package-set, query, and Integration infrastructure
+> implementations. The co-located Package Set Registry remains a separate
+> owner, while lower package-coordinate, query, and Integration infrastructure
 > remains independent and subject to its owners' separate contracts.
 
 ## Why a pack is the product unit
@@ -546,7 +547,6 @@ ordinary non-friend consumer.
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
 | `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | After the prefix owner issues its currency, selecting a prefix returns that typed request unchanged and does not expand, combine, count, or execute it. |
 | `EcosystemPackRegistryTests.PackageSetSelectionPreservesExactTypedIdentity` | Selecting a curated set returns only its `PackageSetId` and does not copy membership or activate another pack capability. |
-| `ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity` | Compiled shipped pack registration fields and construction paths carry `PackageSetId` but no package-set descriptor, registration, coordinate sequence, registry lookup, or registry-enumeration reference. |
 | `EcosystemPackConsumerTests.PublicSurfaceSupportsStaticDiscoveryAndSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
@@ -556,9 +556,13 @@ ordinary non-friend consumer.
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
-descriptor and reference expectations. Integration adoption owns scanner
-invocation and witness gates. Generic catalog tests use synthetic pack names
-and do not establish built-in ecosystem policy.
+descriptor and reference expectations, plus
+`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity` to
+prove compiled shipped pack fields and construction paths carry no package-set
+descriptor, registration, coordinate sequence, registry lookup, or
+registry-enumeration reference. Integration adoption owns scanner invocation
+and witness gates. Generic catalog tests use synthetic pack names and do not
+establish built-in ecosystem policy.
 
 The implementation must also retain existing NativeAOT and Browser/Wasm build
 coverage. Static binding values root their target methods in published output.
