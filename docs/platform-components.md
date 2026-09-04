@@ -144,8 +144,8 @@ Search commands support scope flags to control where to search:
 | ---- | ---------------- |
 | *(no flags)* | Implicit platform scope (runtime, aspnetcore, netstandard) |
 | `--platform` | All platform frameworks (runtime, aspnetcore, netstandard) |
-| `--extensions` | Curated Microsoft.Extensions.* NuGet packages |
-| `--aspnetcore` | Curated Microsoft.AspNetCore.* NuGet packages |
+| `--extensions` | Current Microsoft.Extensions.* packages that add APIs beyond the shared frameworks |
+| `--aspnetcore` | Current Microsoft.AspNetCore.* packages that add APIs beyond the shared frameworks |
 
 [Search scope resolution](design/search-scope-resolution.md) defines when the
 implicit scope activates and how explicit source selectors compose.

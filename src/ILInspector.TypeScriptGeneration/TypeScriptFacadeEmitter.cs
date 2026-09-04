@@ -13,8 +13,10 @@ internal static class TypeScriptFacadeEmitter
     [
         "dotnet",
         "RuntimeAPI",
+        "JsExportRuntime",
         "then",
         "undefined",
+        "createRuntime",
         "initializeRuntime",
         "runEntryPoint",
         "$ManagedExports",
@@ -66,7 +68,7 @@ internal static class TypeScriptFacadeEmitter
         }
 
         var sb = new StringBuilder();
-        sb.Append("import { dotnet, type RuntimeAPI } from ")
+        sb.Append("import { dotnet } from ")
             .Append(Quote(runtimeModule))
             .Append(";\n\n");
         sb.Append(DtsEmitter.EmitWireDeclarations(
@@ -214,8 +216,16 @@ internal static class TypeScriptFacadeEmitter
     {
         sb.Append(
             """
+            export interface JsExportRuntime {
+              readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+              readonly runMain: (
+                mainAssemblyName?: string,
+                args?: string[],
+              ) => Promise<number>;
+            }
+
             const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
-            let $runtime: RuntimeAPI | undefined;
+            let $runtime: JsExportRuntime | undefined;
             let $managedExports: $ManagedExports | undefined;
             let $initialization: Promise<void> | undefined;
             let $initializationFailure: { readonly error: unknown } | undefined;
@@ -231,7 +241,7 @@ internal static class TypeScriptFacadeEmitter
               return descriptor.value;
             }
 
-            function $requireRuntime(): RuntimeAPI {
+            function $requireRuntime(): JsExportRuntime {
               if ($initializationFailure !== undefined) throw $initializationFailure.error;
               if ($runtime === undefined) {
                 throw $notInitializedError;
@@ -279,8 +289,9 @@ internal static class TypeScriptFacadeEmitter
             """
             }
 
-            async function $initializeRuntimeCore(): Promise<void> {
-              const runtime = await dotnet.create();
+            async function $initializeRuntimeCore(
+              runtime: JsExportRuntime,
+            ): Promise<void> {
               const exports: unknown = await runtime.getAssemblyExports(
             """)
             .Append(Quote(assemblyName))
@@ -292,9 +303,16 @@ internal static class TypeScriptFacadeEmitter
               $managedExports = exports;
             }
 
-            export function initializeRuntime(): Promise<void> {
+            export function createRuntime(): Promise<JsExportRuntime> {
+              return dotnet.create();
+            }
+
+            export function initializeRuntime(
+              runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,
+            ): Promise<void> {
               if ($initialization === undefined) {
                 $initialization = Promise.resolve()
+                  .then(() => runtime === undefined ? createRuntime() : runtime)
                   .then($initializeRuntimeCore)
                   .catch((error: unknown) => {
                     $initializationFailure = { error };

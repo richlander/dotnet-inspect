@@ -1,7 +1,7 @@
 import type {
   BrowserCallGraphTarget,
   BrowserAnnotatedSourceViewerCatalog,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-source.d.ts";
 
 export const sampleInvocationTarget = {
   id: "n1",

@@ -1,5 +1,7 @@
 using System.Runtime.Versioning;
 
+using InspectWeb.Engine.CatalogFacade;
+
 namespace InspectWeb.Engine.Tests;
 
 [SupportedOSPlatform("browser")]

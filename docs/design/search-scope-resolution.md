@@ -113,13 +113,14 @@ package set does not authorize duplicate acquisition. A versioned coordinate
 and an unversioned coordinate remain distinct.
 
 Named package-set membership is owned by the
-[Package Set Registry](package-set-registry.md). The current implementation
-still stores its two inventories in CLI-owned `ScopeConstants` until registry
-adoption. Adding, removing, or reordering members is observable because it can
-change network work, source order, results, and failures; such changes require
-the package-set owner's contract evidence and the classification defined by the
-CLI change-classification design. Neither design duplicates the inventory in
-prose.
+[Package Set Registry](package-set-registry.md). The CLI resolves its two
+well-known typed identities through the front-end-only application registry
+and projects their versionless coordinates back to this normalizer's existing
+package-ID currency. Adding, removing, or reordering members is observable
+because it can change network work, source order, results, and failures; such
+changes require the package-set owner's contract evidence and the
+classification defined by the CLI change-classification design. Neither design
+duplicates the inventory in prose.
 
 ## Command participation
 

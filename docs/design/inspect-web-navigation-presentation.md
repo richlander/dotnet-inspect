@@ -15,11 +15,13 @@ browser history; that model belongs to
 
 This owner defines:
 
-- the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line inspected-target region, and the second-row Slideable Subject
-  Strip that first adopts the reusable
+- the application-scope strip that composes the presentation-owned Query route
+  entry with the product-issued Workspace subject entry;
+- the Package, Library, Type, and Member subject hierarchy, the inspected-target
+  rendering, and the Slideable Subject Strip that first adopts the reusable
   [SlideStrip](inspect-web-slide-strip.md) control;
-- the Workspace subject that owns retained-coordinate management;
+- the separately presented Workspace subject that owns retained-coordinate
+  management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
   status presentation;
 - the subject/hierarchy menu and coordinate menu, including their
@@ -77,12 +79,22 @@ This document consumes, without redefining:
   [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md)
   validates before this document's rendered focus targets receive focus.
 
-## Subject hierarchy, inspectors, and target selection
+## Application scopes, subject hierarchy, and target selection
 
-Workspace, Package, Library, Type, and Member are progressively narrower
-inspection subjects:
+The application-scope strip composes two entries with different semantic
+owners:
 
-- **Workspace** means the retained set of open inspection coordinates.
+- **Query** is a presentation-owned route entry for package discovery and
+  bounded streamed evaluation without an active inspection coordinate.
+- **Workspace** is the product-issued Workspace subject presented as the entry
+  to retained-coordinate management.
+
+Inspection Subject Navigation continues to own Workspace, Package or
+non-package Root, Library, Type, and Member identity. Inspect Web presents
+Workspace separately because it manages retained coordinates, while Package,
+Library, Type, and Member form the progressively narrower active-coordinate
+subject strip:
+
 - **Package** means one selected package-adapter coordinate.
 - **Library** means all admitted libraries or one library in that coordinate.
 - **Type** means one selected type in the active Library subject.
@@ -96,16 +108,44 @@ Type, or Member is active. This document does not invent package lenses for it.
 
 ### Persistent navigation composition
 
-An inspection workspace has two persistent lines before its primary content:
+Surface Composition places this owner's two persistent navigation
+presentations before the primary content:
 
-1. The title line begins with `dotnet-inspect`, then renders the icon-backed
-   ordered active subject path, Search, and browser-history actions.
-2. The **subject zone** renders the Slideable Subject Strip before the
-   working-content grid.
+1. Row one renders the application-scope strip followed by the Slideable
+   Subject Strip between the product control and the Shell Interaction-owned
+   history, Search, and Application menu controls.
+2. Row two renders the icon-backed ordered active subject path before any
+   page-level contextual working-surface actions.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
 navigation stay inside the working surface.
+
+### Application scope strip
+
+The leading application-scope strip renders `Query` and `Workspace` as one
+presentation composition. Query remains semantically separate from Inspection
+Subject Navigation; Workspace retains its product-issued subject identity and
+action even though it is rendered outside the inspection-subject strip. Query
+is selected only on `/query`; Workspace is selected only while
+retained-coordinate management is visible. Neither remains selected merely
+because an inspection coordinate was reached through it.
+The strip is navigation rather than a tablist: the current Query or Workspace
+surface uses `aria-current="page"`, and ordinary Package, Library, Type, or
+Member inspection leaves both entries without `aria-current`.
+
+Selecting Query enters the routed query surface through Navigation Consumer's
+history and focus contract. A return without a new seed restores the current
+session's request and outcome rather than resetting them. Selecting Workspace
+submits the product-issued Workspace action and shows retained-coordinate
+management. The Query entry issues no product subject identity, and the strip
+issues no Package, Library, Type, Member, or lens identity.
+
+The application-scope strip uses a quieter treatment than the subject and
+inspector strips. Surface Composition gives it lower responsive priority: it
+yields before either inspection strip reduces required identity. A selected or
+focused control is not removed without the focus transfer and alternate access
+owned by the composing surface.
 
 ### Slideable Subject Strip
 
@@ -117,12 +157,12 @@ tablists:
 [ subject SlideStrip ] [allocation controls] [ inspector SlideStrip ]
 ```
 
-The subject tablist begins with the presentation-owned Workspace entry into
-retained-coordinate management, then renders the ordered root, Library, Type,
-and Member subject descriptors supplied by Inspection Subject Navigation. The
-prototype establishes `Workspace`, `Package`, `Type`, and `Member` now;
-Library joins when its product descriptor and behavior are ready. The current
-subject is selected programmatically and is not conveyed by color alone.
+The subject tablist renders the ordered root, Library, Type, and Member subject
+descriptors supplied by Inspection Subject Navigation. The prototype
+establishes `Package`, `Type`, and `Member` now; Library joins when its product
+descriptor and behavior are ready. While Workspace is selected, Package is the
+roving-tab entry without being selected. The current subject is selected
+programmatically and is not conveyed by color alone.
 
 The inspector tablist follows the subjects and contains the active subject's
 owner-ordered lenses or, for Member, its applicable sections. Subject changes
@@ -232,11 +272,9 @@ of Label or Index content.
 
 An empty inspector inventory omits the inspector strip and both allocation
 controls. The subject strip then receives the composite's complete width and
-renders the largest full-Label window that fits. The subject inventory is never
-empty because Workspace remains its presentation-owned root entry. If that
-width is below the subject fallback-visibility floor, the subject-only
-composite retains the floor in an internally scrolling viewport inside its
-assigned page boundary.
+renders the largest full-Label window that fits. If that width is below the
+subject fallback-visibility floor, the subject-only composite retains the floor
+in an internally scrolling viewport inside its assigned page boundary.
 
 On initial or reset inspector-first placement, when the inspector viewport can
 fit two Labels, the window contains the effective inspector and one adjacent
@@ -316,8 +354,9 @@ width.
 
 ### Inspected target
 
-The inspected target follows the product root in the first shell row. It is not
-part of either pane. Its primary advertisement is an ordered typed path:
+The inspected target occupies the leading allocation of the second shell row
+owned by Surface Composition. It is not part of either pane. Its primary
+advertisement is an ordered typed path:
 
 ```text
 System.Text.Json > System.Text.Json.JsonSerializer > DeserializeSync
@@ -328,11 +367,13 @@ identities supplied by their owners. Workspace renders `Workspace`. The
 presentation does not parse one display string to derive another, and the
 segments are orientation rather than inert navigation breadcrumbs.
 
-The Package segment receives the strongest visual emphasis, following
-npmx.dev's useful emphasis and direct-copy treatment for current package
-identity. Narrower segments follow in order and the current leaf remains
-visually identifiable with the shared accent. The complete path remains in the
-accessible name and title when visible segments elide.
+The root segment uses a strong neutral treatment. Intermediate ancestors are
+muted and yield width before the current leaf. The current leaf uses the shared
+purple accent and stronger weight while remaining bounded so it cannot consume
+the complete row. When the root is the only segment, root treatment wins rather
+than recoloring or artificially capping that identity as a descendant leaf.
+The complete path remains in the accessible name and title when visible
+segments elide.
 
 Each product-issued Package, Library, Type, or Member segment is an individually
 copyable control. Activating one copies that segment's owner-issued canonical
@@ -359,29 +400,26 @@ source-attribution affordance:
 identity, not a package icon, and must not replace either an owner-issued
 package icon or the default package fallback.
 
-The title line gives the inspected target priority over its trailing
-Search/history cluster. That cluster yields space before the target path and
-may not become another persistent tab strip, coordinate selector, or
-independently reconstructed identity.
+Separating the inspected target into row two prevents a long path from changing
+row-one Search or history allocation. The target yields only to page-level
+contextual actions supplied in its own row.
 
-The subject zone contains no Share or separate `Copy name` action. Copy belongs
+The Subject and Inspector region contains no Share or separate `Copy name`
+action. Copy belongs
 to the segment whose typed identity is being copied; the shell-owned
 Application menu exposes canonical workspace Share outside both SlideStrips as
 placed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#shell-navigation-and-application-actions).
 
-Browser Back and Forward own navigation history. Compact Back and Forward
-buttons sit immediately to the left of the visible Spotlight Search control.
-Search terminates the title line flush with its right edge. The controls are
-outside the typed target and do not become breadcrumbs. The right-side cluster
-yields space when the target grows: the input-like Search control first becomes
-a `Search` button, then disappears while the arrows remain flush right, and
-finally the arrows disappear.
+Browser Back, Forward, Search, and the Application menu remain outside the
+typed target and do not become breadcrumbs. Shell Interaction owns their
+behavior; Surface Composition owns their row-one placement and pressure order.
 
 ### Workspace surface
 
-Workspace is the first subject and the persistent entry point for workspace
-packet inspection and retained-coordinate management. The primary inventory is
+Workspace is the product-issued subject presented as the persistent
+application-scope entry point for workspace packet inspection and
+retained-coordinate management. The primary inventory is
 the set of product-issued packets, not the deduplicated runtime workspaces that
 realize them. A packet composes its Workspace, navigation, and initial view as
 defined by [Workspace Definitions](workspace-definitions.md); two packets remain
@@ -417,7 +455,9 @@ when their display package IDs and complete coordinate sets match.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve the Workspace subject and its retained coordinates.
+returned successor while remaining in Workspace. Share and refresh preserve
+the Workspace subject, its application-scope presentation, and its retained
+coordinates.
 The home-demo packet inventory is session-scoped until scenario identity is
 part of the share format; after refresh, the generic current Workspace remains
 viewable without reconstructing a demo identity from matching coordinates.
@@ -513,7 +553,7 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The Workspace subject, second-row subject/inspector region, title-line
+The Workspace application scope, row-one subject/inspector region, row-two
 inspected target, and content region all render the same returned navigation
 snapshot.
 The UI does not infer initial, fallback, or reconciliation policy from
@@ -621,7 +661,7 @@ or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
-If a colliding Type is selected, the subject zone also shows its
+If a colliding Type is selected, the Subject and Inspector region also shows its
 defining library. API and Source continue to rely on that line for the complete
 identity; disambiguation does not restore the removed metadata block.
 
@@ -648,14 +688,15 @@ The old full-width `PACKAGE` row remains removed. Package version and TFM
 controls render in the Package working surface:
 
 ```text
-dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
-Workspace Package Type Member | Overview Dependencies Metadata        ☰
+dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
+⬡ System.Text.Json
 
 Package coordinate
 Version 10.0.0   Framework net10.0
 ```
 
-The trailing Application menu occupies its own Surface Composition-owned slot;
+The trailing Application menu occupies its own row-one Surface
+Composition-owned slot;
 it is not a subject or inspector item.
 
 The coordinate editor is available while Package is selected, across its
@@ -802,13 +843,14 @@ are proved by the gates in
    menu-button invoker.
 8. Confirm that every copyable inspected-target segment copies its own
    product-issued canonical identity rather than display text and that no
-   separate `Copy target` action occupies the subject zone.
+   separate `Copy target` action occupies the Subject and Inspector region.
 
 ### Slideable strip allocation
 
-1. Render Workspace, Package, Library, Type, and Member with five Member
-   inspectors at a width where every Label fits. Confirm that both tablists use
-   natural-width Label mode and the allocation controls are absent.
+1. Render the Query/Workspace application scopes, Package, Library, Type, and
+   Member with five Member inspectors at a width where every Label fits.
+   Confirm that both inspection tablists use natural-width Label mode and the
+   allocation controls are absent.
 2. Narrow through subject windows containing five, four, three, two, and one
    complete Label. Confirm that no subject is replaced by `[W]`, another short
    form, or Index. Slide an interior two-subject window by one position and
