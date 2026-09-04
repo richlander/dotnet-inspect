@@ -263,7 +263,7 @@ jobs:
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60
+        run: dotnet run --project tests/ILInspector.Metadata.Tests -c Release -- --long-running 60 --xunit-diagnostics on
 
       - name: Run services tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
