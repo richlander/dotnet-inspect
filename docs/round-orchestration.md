@@ -332,19 +332,23 @@ or variable input, the boundary through which it reaches the claim, trusted
 parties and excluded scenarios, the user purpose, baseline and any divergence,
 relevant analogous evidence, pathological case and gate, current slice,
 residual work, demo and neighboring case, the observable consequence, and the
-evidence that would falsify the claim. For an applicable capability, substrate,
-host, or broad rendering change, candidate formation must also supply the
-complexity basis, named consumer, focused issue, overall end-to-end tracker,
-host-enablement plan, any recorded single-consumer or single-host approval and
-its exact scope, and the rendering strategy. Reviewers judge the visible
-design's consistency with those supplied facts; they do not grant approvals or
-invent roadmap decisions. State the facts directly in the self-contained
-prompt; links may support them but do not replace them. For a correctness
-review without an untrusted actor, name the ordinary supported caller and input
-instead. Candidate formation must make every non-applicability explanation
-judgeable from the normative owner, changed surfaces, and exact-head diff. If
-required fields cannot be filled or non-applicability cannot be established,
-return to design or scope clarification before spending a review round.
+evidence that would falsify the claim. For an applicable architecture,
+capability, substrate, host, or broad rendering change, candidate formation
+must also supply the complexity basis, named consumer, focused issue, overall
+end-to-end tracker, enumerated production-host adoption path and total step
+count, any applicable existing-architecture retirement plan, any recorded
+single-consumer or single-host approval and its exact scope, and the rendering
+strategy. Host-neutral components still require the counted path to observable
+host behavior; test infrastructure may name its harness as the production
+host. Reviewers judge the visible design's consistency with those supplied
+facts; they do not grant approvals or invent roadmap decisions. State the facts
+directly in the self-contained prompt; links may support them but do not
+replace them. For a correctness review without an untrusted actor, name the
+ordinary supported caller and input instead. Candidate formation must make
+every non-applicability explanation judgeable from the normative owner,
+changed surfaces, and exact-head diff. If required fields cannot be filled or
+non-applicability cannot be established, return to design or scope
+clarification before spending a review round.
 
 Give every seat the same completed prompt except for its worktree path. State
 candidate facts rather than rewarding findings; the canonical prompt already
