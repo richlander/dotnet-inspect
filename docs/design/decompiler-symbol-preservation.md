@@ -319,7 +319,7 @@ inspect_member() {
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass KeywordParam "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass GreaterAsByte "$CFG"
-inspect_member ILInspector.Decompiler.Tests.CfgSampleClass StackAllocGenericNameCollision "$CFG"
+inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StackAllocGenericNameCollision "$CFG"
 
 dotnet run --project src/dotnet-inspect -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
@@ -344,7 +344,7 @@ surface is gated by `MetadataDeclarationQueryTests`.
 
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass ReverseCopy "$CFG"
-inspect_member ILInspector.Decompiler.Tests.CfgSampleClass StoreElementNamedReceiverTemp "$CFG"
+inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StoreElementNamedReceiverTemp "$CFG"
 ```
 
 Expected: `ReverseCopy` declarations and uses are named `i` and `j`, not `V_0`

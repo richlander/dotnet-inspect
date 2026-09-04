@@ -2954,11 +2954,11 @@ public class RaisingPassTests
     [Fact]
     public void StackAlloc_SyntheticHelperAvoidsMethodGenericParameter()
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(NamePreservationSamples).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.StackAllocGenericNameCollision));
+            typeof(NamePreservationSamples).FullName!,
+            nameof(NamePreservationSamples.StackAllocGenericNameCollision));
         Assert.NotNull(function);
 
         string output = CSharpPrinter.PrintRaised(function).Output!;
@@ -2972,11 +2972,11 @@ public class RaisingPassTests
     [Fact]
     public void StoreElement_PreservesExactNamedReceiverTemp()
     {
-        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        using var source = MetadataSource.Open(typeof(NamePreservationSamples).Assembly.Location);
         var function = IrImporter.Import(
             source,
-            typeof(CfgSampleClass).FullName!,
-            nameof(CfgSampleClass.StoreElementNamedReceiverTemp));
+            typeof(NamePreservationSamples).FullName!,
+            nameof(NamePreservationSamples.StoreElementNamedReceiverTemp));
         Assert.NotNull(function);
         Assert.Contains("trimmed", function.LocalNames);
 
