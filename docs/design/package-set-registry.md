@@ -472,7 +472,7 @@ Archive and API inspection demonstrates the intended breadth and boundaries:
 
 | Package | Disposition |
 | --- | --- |
-| `Aspire.Hosting` | Include: application-model foundation with 379 public types. |
+| `Aspire.Hosting` | Include: application-model foundation with public consumer APIs. |
 | `Aspire.Hosting.Testing` | Include: first-party application-model testing APIs. |
 | `Aspire.TypeSystem` | Include: first-party polyglot and code-generation APIs. |
 | `Aspire.Hosting.Azure` | Include: first-party hosting integration APIs. |
