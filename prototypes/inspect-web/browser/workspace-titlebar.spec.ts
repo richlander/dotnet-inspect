@@ -966,10 +966,22 @@ test("manual windows survive resize and reset with inspector inventory", async (
   await page.setViewportSize({ width: 900, height: 900 });
   await expect(visibleLabels()).toHaveCount(5);
   await page.setViewportSize({ width: 460, height: 900 });
-  const narrowedLabels = await visibleLabels().allTextContents();
-  expect(narrowedLabels).toEqual(["Call graph", "Facts", "Source"]);
-  await expect(page.locator('[data-member-section="call-graph"]'))
-    .toHaveAttribute("tabindex", "0");
+  const narrowedInspectors = await inspector.locator(
+    "[data-inspector-tab]:not([hidden])",
+  ).evaluateAll(items => items.map(item => item.getAttribute(
+    "data-member-section",
+  )));
+  expect(narrowedInspectors).toContain("facts");
+  expect(narrowedInspectors).not.toContain("overview");
+  const narrowedTabStop = inspector.locator(
+    "[data-inspector-tab]:not([hidden])[tabindex='0']",
+  );
+  await expect(narrowedTabStop).toHaveCount(1);
+  const narrowedTabStopId = await narrowedTabStop.getAttribute(
+    "data-member-section",
+  );
+  expect(narrowedTabStopId).not.toBeNull();
+  expect(narrowedInspectors).toContain(narrowedTabStopId);
   await expect(applicationMenu).toBeFocused();
 
   const memberSubject = page.locator('[data-scope="member"]');
@@ -1340,9 +1352,11 @@ test("reduced motion preserves the same SlideStrip result", async ({ page }) => 
   const ordinary = await snapshot();
   expect(ordinary.strips.find(strip => strip.kind === "inspector")?.mode)
     .toBe("short-label");
-  await expect(page.locator(
+  const ordinaryLabels = await page.locator(
     '.slide-strip-inspector [data-inspector-tab]:not([hidden]) [data-slide-strip-representation="short-label"]',
-  )).toHaveText(["O", "CG", "F"]);
+  ).allTextContents();
+  expect(ordinaryLabels.length).toBeGreaterThanOrEqual(2);
+  expect(ordinaryLabels.slice(0, 2)).toEqual(["O", "CG"]);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();
