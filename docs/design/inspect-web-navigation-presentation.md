@@ -394,9 +394,7 @@ separate explicit **Open demo** action. Activating that action resolves only the
 selected definition and uses its existing replace-and-restore or product-run
 path to replace the sole live Workspace. A failed Open demo action keeps the
 catalog and prior Workspace available, surfaces a retryable failure there, and
-returns focus to the selected demo action. Browser history commits the demo's
-canonical Workspace destination only after replacement succeeds, so failure
-does not consume or rewrite the source entry.
+returns focus to the selected demo action.
 
 Available definitions and runtime state remain separate. A demo title does not
 rename the Workspace, claim that the definition uniquely owns the loaded
