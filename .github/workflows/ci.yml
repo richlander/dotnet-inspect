@@ -698,14 +698,18 @@ jobs:
       - name: Run JSExport runtime-async wire gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/jsexport-runtime-async-wire-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="jsexport-runtime-async-wire-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
-            -method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
-            -method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
-            -method '*RuntimeAsync*' \
-            -xml "$results"
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForDirectSerializerResult*' \
+            --filter-method '*Build_ProducesEqualWireFactsAcrossAsyncLoweringsForSerializerStoredAcrossSuspension*' \
+            --filter-method '*Build_RejectsConditionalSerializerStoreAcrossAsyncLowerings*' \
+            --filter-method '*RuntimeAsync*' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           if ! grep -Eq 'total="[1-9][0-9]*"' "$results"; then
             echo "::error::JSExport runtime-async wire test filters selected no tests." >&2
             exit 1
@@ -724,15 +728,19 @@ jobs:
       - name: Run ts-jsexport generator acceptance gates
         run: |
           set -euo pipefail
-          results="$RUNNER_TEMP/ts-jsexport-generator-tests.xml"
+          results_dir="$RUNNER_TEMP"
+          results_name="ts-jsexport-generator-tests.xml"
+          results="$results_dir/$results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
-            -class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
-            -class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
-            -xml "$results"
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TypeScriptFacadeEmitterTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportContractsTests' \
+            --filter-class 'ILInspector.JsExportSurface.Tests.TsJsExportCommandTests' \
+            --report-xunit \
+            --report-xunit-filename "$results_name" \
+            --results-directory "$results_dir"
           for class in \
             ILInspector.JsExportSurface.Tests.JsonNamingPoliciesTests \
             ILInspector.JsExportSurface.Tests.JsExportContextLoaderTests \
@@ -745,13 +753,16 @@ jobs:
               exit 1
             fi
           done
-          negative_results="$RUNNER_TEMP/ts-jsexport-negative-tests.xml"
+          negative_results_name="ts-jsexport-negative-tests.xml"
+          negative_results="$results_dir/$negative_results_name"
           dotnet run --project tests/ILInspector.JsExportSurface.Tests \
             -c Release --no-build -- \
-            -method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
-            -method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
-            -method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
-            -xml "$negative_results"
+            --filter-method '*Emit_DoesNotApplyDictionarySemanticsToLookalikeType*' \
+            --filter-method '*Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling*' \
+            --filter-method '*GeneratorLoader_ReadsOneImageForMetadataAndBodyEvidence*' \
+            --report-xunit \
+            --report-xunit-filename "$negative_results_name" \
+            --results-directory "$results_dir"
           for method in \
             Emit_DoesNotApplyDictionarySemanticsToLookalikeType \
             Emit_RejectsUnresolvedStructuredProducerWithIntrinsicSpelling \
