@@ -1971,16 +1971,19 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageWorkspace.OpenScope(
             [Coordinate("Large.A", Package(image, "lib/net11.0/Large.A.dll", 60 * MiB))]);
+        long expectedResidentBytes = 0;
         foreach (string id in new[] { "Small.B", "Small.C", "Small.D" })
         {
+            byte[] package = Package(image, $"lib/net11.0/{id}.dll", 25 * MiB);
+            expectedResidentBytes += package.LongLength;
             BrowserPackageWorkspace.OpenScope(
-                [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll", 25 * MiB))]);
+                [Coordinate(id, package)]);
         }
 
         BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
         Assert.Equal(3, stats.Workspaces);
         Assert.Equal(3, stats.Resident);
-        Assert.InRange(stats.ResidentBytes, 75L * MiB, 76L * MiB);
+        Assert.Equal(expectedResidentBytes, stats.ResidentBytes);
 
         using (BrowserPackageWorkspace.ReservePackageDownload(
             "pending.package@1.0.0",
