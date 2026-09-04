@@ -691,8 +691,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#unsubscribeClock();
-    this.#unsubscribeLifecycle();
+    this.#invokeCleanup(this.#unsubscribeClock);
+    this.#invokeCleanup(this.#unsubscribeLifecycle);
     const epoch = this.#current;
     if (epoch !== null && epoch.phase !== "closed")
       this.restart();
@@ -966,11 +966,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
 
-    if (epoch.phase === "starting" || epoch.phase === "flushing") {
+    if (epoch.phase === "starting") {
       this.#receiveStarting(epoch, decoded.value);
       return;
     }
-    if (epoch.phase === "ready" || epoch.phase === "suspect") {
+    if (epoch.phase === "flushing"
+      || epoch.phase === "ready"
+      || epoch.phase === "suspect") {
       this.#receiveReady(epoch, decoded.value);
       return;
     }
@@ -1751,9 +1753,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     draining = false,
   ): void {
     const record = this.#findOperation(epoch, envelope.operation);
-    if (record === null
-      || record.phase !== "awaiting-admission"
-      || !sameAllowance(record.registration.allowance, envelope.allowance)) {
+    if (record === null || record.phase !== "awaiting-admission") {
       if (!draining) this.#protocolFailure(epoch, envelope);
       return;
     }
@@ -1762,6 +1762,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     record.phase = "accepted";
+    if (!sameAllowance(record.registration.allowance, envelope.allowance)) {
+      if (!draining) this.#protocolFailure(epoch, envelope);
+      return;
+    }
     if (!draining) {
       this.#recordTaskEvidence(epoch);
       this.#topologyChanged(epoch);
@@ -2278,6 +2282,14 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     });
   }
 
+  #invokeCleanup(cleanup: () => void): void {
+    try {
+      cleanup();
+    } catch (error: unknown) {
+      this.#reportCallbackError(error);
+    }
+  }
+
   #reportOperationQuiescence(
     record: MainOperationRecord<TDiagnostic>,
   ): void {
@@ -2318,21 +2330,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   ): void {
     if (epoch.phase !== "closed") {
       epoch.phase = "closed";
-      epoch.detach?.();
+      const detach = epoch.detach;
       epoch.detach = null;
-      try {
-        epoch.source.terminate();
-      } catch (error: unknown) {
-        const diagnostic = this.#options.createDiagnostic(
-          "callback-error",
-          error,
-        );
-        this.#reportDiagnostic({
-          kind: "callback-error",
-          diagnostic,
-          error,
-        });
-      }
+      if (detach !== null) this.#invokeCleanup(detach);
+      this.#invokeCleanup(() => epoch.source.terminate());
       epoch.held.length = 0;
       epoch.commands.clear();
       epoch.probe = null;

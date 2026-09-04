@@ -29,9 +29,12 @@ import {
   type WorkerRuntimeBoundaryErrors,
   type WorkerRuntimeFailure,
   type WorkerRuntimeFailureKind,
+  type WorkerRuntimeLifecycleListeners,
   type WorkerRuntimeOperationRegistration,
   type WorkerRuntimePreparationError,
+  type WorkerRuntimeSource,
   type WorkerRuntimeTransportBinding,
+  type WorkerRuntimeTransportHandlers,
 } from "../src/worker-runtime-core.ts";
 import {
   type BoundedPayloadDecodeResult,
@@ -101,6 +104,10 @@ interface HarnessOptions {
   readonly encodeInput?: (
     input: string,
   ) => BoundedPayloadDecodeResult<unknown>;
+  readonly clockUnsubscribeError?: Error;
+  readonly lifecycleUnsubscribeError?: Error;
+  readonly detachError?: Error;
+  readonly synchronousAccepted?: boolean;
   readonly invoke?: (
     input: string,
     context: FakeWorkerOperationContext,
@@ -352,10 +359,85 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const failures: WorkerRuntimeFailure<TestDiagnostic>[] = [];
   const runtimeDiagnostics: TestDiagnostic[] = [];
   const releasedEpochs: number[] = [];
+  const detachError = options.detachError;
+  const clockUnsubscribeError = options.clockUnsubscribeError;
+  const lifecycleUnsubscribeError = options.lifecycleUnsubscribeError;
+  const queuedTransport = new QueueWorkerRuntimeTransportFactory(workers);
+  const transport = detachError === undefined
+    && options.synchronousAccepted !== true
+    ? queuedTransport
+    : {
+        create: (): WorkerRuntimeTransportBinding => {
+          const binding = queuedTransport.create();
+          let handlers: WorkerRuntimeTransportHandlers | null = null;
+          const source: WorkerRuntimeSource = {
+            send: message => {
+              binding.source.send(message);
+              if (options.synchronousAccepted !== true
+                || typeof message !== "object"
+                || message === null
+                || ownDataProperty(message, "kind") !== "start") {
+                return;
+              }
+              const epochToken = ownDataProperty(message, "epochToken");
+              if (typeof epochToken !== "number") return;
+              handlers?.message(source, workerEnvelope(epochToken, {
+                kind: "accepted",
+                operation: ownDataProperty(message, "operation"),
+                allowance,
+              }));
+            },
+            terminate: () => binding.source.terminate(),
+          };
+          return {
+            source,
+            bind: nextHandlers => {
+              handlers = nextHandlers;
+              const detach = binding.bind({
+                message: (_source, data) =>
+                  nextHandlers.message(source, data),
+                error: (_source, diagnostic) =>
+                  nextHandlers.error(source, diagnostic),
+                messageError: (_source, diagnostic) =>
+                  nextHandlers.messageError(source, diagnostic),
+              });
+              return () => {
+                handlers = null;
+                detach();
+                if (detachError !== undefined)
+                  throw detachError;
+              };
+            },
+          };
+        },
+      };
+  const clock = clockUnsubscribeError === undefined
+    ? environment
+    : {
+        now: () => environment.now(),
+        subscribe: (listener: () => void) => {
+          const unsubscribe = environment.subscribe(listener);
+          return () => {
+            unsubscribe();
+            throw clockUnsubscribeError;
+          };
+        },
+      };
+  const lifecycle = lifecycleUnsubscribeError === undefined
+    ? environment
+    : {
+        subscribe: (listeners: WorkerRuntimeLifecycleListeners) => {
+          const unsubscribe = environment.subscribe(listeners);
+          return () => {
+            unsubscribe();
+            throw lifecycleUnsubscribeError;
+          };
+        },
+      };
   const host = new WorkerRuntimeHost<string, TestDiagnostic>({
-    transport: new QueueWorkerRuntimeTransportFactory(workers),
-    clock: environment,
-    lifecycle: environment,
+    transport,
+    clock,
+    lifecycle,
     bootstrap: {
       encode: options.encodeBootstrap
         ?? (bootstrap => ({ kind: "decoded", value: bootstrap })),
@@ -1074,6 +1156,37 @@ test("held cancellation is local and readiness flushes remaining starts in seque
     Promise.resolve("pending"),
   ]), "pending");
   void thirdHandle;
+});
+
+test("readiness flush accepts a synchronous response to an emitted held start", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    omitResponse: kind => kind === "accepted",
+    synchronousAccepted: true,
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const operationSession = session(harness.adapter);
+  const handle = started(
+    operationSession.session.start("input", harness.adapter),
+  );
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.host.snapshot().activeOperations, 1);
+  assert.equal(harness.failures.length, 0);
+  settlement.resolve({ kind: "succeeded", value: "output" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await handle.outcome, {
+    kind: "succeeded",
+    value: "output",
+  });
+  await handle.quiesced;
 });
 
 test("a warm activation cannot overtake a start activated during readiness flush", async () => {
@@ -2334,6 +2447,19 @@ test("allowance mismatch fails instead of silently narrowing liveness", async ()
   }));
   assert.equal(harness.failures[0]?.kind, "protocol");
   assert.equal(harness.host.snapshot().phase, "draining");
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "settled",
+    operation: { operationId: handle.id, operationSequence: 1 },
+    settlement: { kind: "succeeded", value: "late" },
+  }));
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.equal(harness.workers[0]!.terminateCount, 1);
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(await handle.outcome, {
+    kind: "failed",
+    error: "boundary:protocol",
+  });
+  await handle.quiesced;
 });
 
 test("Settled maps unexpected diagnostic, terminal, then quiescence atomically", async () => {
@@ -3594,6 +3720,40 @@ test("disposed hosts reject restart and remain quiescent", async () => {
   });
   harness.environment.advanceActive(1_000);
   assert.equal(harness.failures.length, 0);
+});
+
+test("teardown callback failures do not interrupt mandatory shutdown", async () => {
+  const clockError = new Error("clock unsubscribe failed");
+  const lifecycleError = new Error("lifecycle unsubscribe failed");
+  const disposing = createHarness({
+    clockUnsubscribeError: clockError,
+    lifecycleUnsubscribeError: lifecycleError,
+  });
+  await startReady(disposing);
+
+  assert.doesNotThrow(() => disposing.host.dispose());
+
+  assert.equal(disposing.host.snapshot().phase, "closed");
+  assert.equal(disposing.workers[0]!.terminateCount, 1);
+  assert.deepEqual(disposing.releasedEpochs, [1]);
+  assert.deepEqual(
+    disposing.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [clockError, lifecycleError],
+  );
+
+  const detachError = new Error("transport detach failed");
+  const restarting = createHarness({ detachError });
+  await startReady(restarting);
+
+  assert.doesNotThrow(() => restarting.host.restart());
+
+  assert.equal(restarting.host.snapshot().phase, "closed");
+  assert.equal(restarting.workers[0]!.terminateCount, 1);
+  assert.deepEqual(restarting.releasedEpochs, [1]);
+  assert.deepEqual(
+    restarting.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [detachError],
+  );
 });
 
 test("first closure identity and producer outcome survive later faults and draining crash", async () => {

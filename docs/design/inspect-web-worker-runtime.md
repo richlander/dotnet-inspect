@@ -407,6 +407,11 @@ Held records are ordered by operation sequence. A held cancellation removes
 the record without sending `Start` or `Cancel`, reports the supplied canceled
 outcome, and reports quiescence. Matching readiness posts every remaining held
 start in sequence order before the ready epoch accepts a new warm activation.
+A response delivered synchronously by `send(Start)` during that internal flush
+uses the ordinary post-readiness operation and control protocol. The host keeps
+the flush barrier closed to warm activation until every held start has been
+posted; it does not misclassify a response to an already-posted start as
+pre-readiness traffic.
 A held record never becomes an accepted worker record merely because the realm
 became ready; it remains awaiting the worker's explicit `Accepted` response.
 
@@ -517,9 +522,12 @@ managed code. `Accepted` means the operation passed worker admission. The same
 serialized Start command then synchronously enters the managed bridge before a
 later command can run. The worker checks that the operation kind's registered
 allowance exactly matches the advertised allowance. The main host performs the
-same comparison against its feature adapter. A mismatch fails the epoch and
-uses the registered allowance while draining; it never silently narrows the
-liveness set.
+same comparison against its feature adapter. A matching operation identity and
+sequence records physical acceptance before that comparison. A mismatch then
+fails the epoch and uses the host registration's allowance while draining, so
+a later valid settlement can still release the realm naturally; it never
+silently narrows the liveness set or erases evidence that managed execution was
+admitted.
 
 `Progress` and `Settled` are legal only after `Accepted`. `Rejected` is legal
 only before acceptance. Duplicate acceptance, rejection after acceptance,
@@ -854,6 +862,12 @@ Hard termination:
 4. releases held, active, control-response, probe, and epoch-work records; and
 5. reports quiescence for every assigned producer not already quiescent.
 
+Clock unsubscription, lifecycle unsubscription, and transport detachment are
+fallible external callbacks. Each failure reports one callback diagnostic but
+cannot interrupt the remaining mandatory cleanup steps. In particular, a
+throwing detach callback cannot prevent the host from attempting
+`Worker.terminate()` or permit `realmReleased` before that attempt.
+
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
 release wait until the outermost epoch producer callout returns and the
@@ -879,6 +893,8 @@ deferred; the later notification retains the old epoch token.
 Disposing the runtime host is terminal. It closes any current epoch, revokes
 its clock and lifecycle subscriptions, and rejects every later epoch start
 rather than creating work whose deadlines can no longer be evaluated.
+Failure from one subscription's unsubscribe callback does not prevent revoking
+the other subscription or closing the current epoch.
 
 Creating a replacement worker is explicit retry policy. It allocates a new
 epoch and new operation assignments. Messages and identities from the old
@@ -1016,7 +1032,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   mappings and diagnostic codecs, and fail closed on an absent record while
   another differently typed kind remains live;
 - preparation, abandonment, activation, held starts, sequence-order readiness
-  flush without warm-start overtaking, held cancellation,
+  flush without warm-start overtaking, synchronous `Accepted` delivery from an
+  emitted held start during that flush, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
   failure without posting `Start`, including cross-session preparation
@@ -1040,7 +1057,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   never-accepted closure, exact registered allowance comparison, and explicit
   fail-closed receipt tests for duplicate acceptance, rejection after
   acceptance, progress before acceptance, duplicate settlement, absent-record
-  messages, including an absent ID while another record remains live;
+  messages, including an absent ID while another record remains live, plus
+  allowance-mismatched physical acceptance followed by natural settlement and
+  realm release during failed draining;
 - atomic `Settled` mapping to diagnostic, terminal, and quiescence call order;
 - managed Promise rejection entering epoch failure rather than becoming a
   feature result;
@@ -1085,8 +1104,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   stale no-ops;
 - failure-complete sink notification and record release when sink callbacks
   throw, compiler-complete boundary-error tables that require no closure-time
-  mapper callout, plus synchronous fake-worker admission aborting before
-  invocation when its response reentrantly terminates the realm; and
+  mapper callout, clock and lifecycle unsubscribe plus transport-detach
+  failures that cannot skip termination or realm-release ordering, plus
+  synchronous fake-worker admission aborting before invocation when its
+  response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
   depend on the worker adapter.
 
