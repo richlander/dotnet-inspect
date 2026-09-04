@@ -203,6 +203,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
+  committed logical Root membership and order, closed-by-default selective
+  dependency expansion, scope revisions, logical limits, and complete
+  scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.

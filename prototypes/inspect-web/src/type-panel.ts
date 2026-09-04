@@ -3,7 +3,7 @@ import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
 // The type selector (the "PUBLIC TYPES" / "MEMBERS" nav pane) and the type viewer (the
-// type heading, metadata, and source sections shown for the "type" scope) as pure,
+// type heading, metadata working surface, and source sections shown for the "type" scope) as pure,
 // dependency-injected render functions. This module also binds the controls that its nav pane
 // renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
 // state transitions behind explicit callbacks. Shared text helpers
@@ -510,21 +510,44 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   } = options;
   const current = typeMetadataSignature(item, packageContext);
   const fresh = metadataState.typeMetadataKey === current;
+  const meta = fresh ? metadataState.typeMetadata : null;
+  const renderSurface = (content: string) => {
+    const kind = [
+      ...(meta?.modifiers || []),
+      meta?.kind || item.kind,
+    ].filter(part => part.length > 0).join(" ");
+    const accessibility = meta?.accessibility || item.accessibility || "public";
+    const coordinate =
+      `${packageContext.activeFramework} · ${item.assembly} · ${packageContext.id}@${packageContext.version}`;
+    return `
+      <section class="metadata-surface" aria-labelledby="metadata-surface-title">
+        <header class="metadata-surface-head">
+          <h1 id="metadata-surface-title">Metadata</h1>
+          <p>${escapeHtml(kind)} <span>· ${escapeHtml(accessibility)}</span></p>
+        </header>
+        <div class="metadata-surface-scroll">
+          ${content}
+        </div>
+        <footer class="metadata-surface-footer">
+          <span title="${escapeHtml(item.id)}">${escapeHtml(item.id)}</span>
+          <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+        </footer>
+      </section>`;
+  };
   if (metadataState.typeMetadataLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`);
   }
   if (fresh && metadataState.typeMetadataError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(metadataState.typeMetadataError)}</p></section>`);
   }
-  const meta = fresh ? metadataState.typeMetadata : null;
   if (!meta) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderSurface(`<section class="document-section metadata-surface-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`);
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
-    ["Accessibility", meta.accessibility || "public"],
-    ["Namespace", meta.namespace || "global"],
+    ["Kind", [...(meta.modifiers || []), meta.kind || item.kind].join(" ")],
+    ["Accessibility", meta.accessibility || item.accessibility || "public"],
+    ["Namespace", meta.namespace || item.namespace || "global"],
     ["Assembly", meta.assembly || item.assembly],
   ];
   if (meta.baseType) shape.push(["Base type", meta.baseType]);
@@ -574,8 +597,8 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures!.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
     : "";
 
-  return `
-    <section class="document-section">
+  return renderSurface(`
+    <section class="document-section metadata-shape-section">
       <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
       ${factRows(shape)}
     </section>
@@ -584,7 +607,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${derived}
     ${attributes}
     ${graph}
-    ${failures}`;
+    ${failures}`);
 }
 
 export function typeSourceSignature(
