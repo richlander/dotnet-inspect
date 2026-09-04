@@ -103,6 +103,25 @@ without invoking either imported owner. Once forwarding reaches `Terminal`,
 Queries either selects the pre-existing attempt, reports typed non-success, or
 detects binding-version drift as a contract fault.
 
+`BindingAdvanceStep` remains enabled through the resolving phase, and every
+resolving-phase publication transition requires `BindingReady` in the same
+transition that publishes success or typed non-success. The model therefore
+places the final version check at the publication linearization point rather
+than only after Metadata resolution. The product gate
+`WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows`
+exercises the corresponding post-resolution, pre-publication window across
+success, Metadata non-success, outer query rejection, and association or
+attempt rejection paths.
+
+The product refines the model's one atomic `liveBinding` read with a final
+participant sweep. Group admission requires every participant to begin on the
+same token, and the binding owner never reuses a retired token. If every sweep
+read succeeds, all participants still exposed the captured state at the first
+read, so that first read is the publication linearization point. After the
+sweep begins, product code consults only participant version properties and
+already-materialized inert locals; no later Research, Metadata, group, or
+caller callback can move the logical publication point.
+
 ## Checked properties
 
 The safety and exact scenario configurations check that:
@@ -232,7 +251,8 @@ closed composition-result type graph; TLC intentionally does not substitute
 for that structural implementation gate. It likewise does not prove
 field-level fidelity of the capability-free projection; the product design
 assigns that claim to
-`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`.
+`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`,
+including recursive closed-set coverage for nested Metadata evidence unions.
 
 ## Running TLC
 

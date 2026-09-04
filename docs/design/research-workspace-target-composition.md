@@ -17,8 +17,9 @@ The exact claim is:
 > Given one complete Research target resolution over exactly the population
 > represented by one sealed Queries-to-Research receipt, Queries may replace
 > the caller-designated root as the effective target only by joining Metadata's
-> terminal definition registration through that receipt to the exact
-> participant's resolved attempt in the requested Research selection scope.
+> terminal definition registration by live reference identity to the exact
+> sealed Queries input represented in that receipt, then to the participant's
+> resolved attempt in the requested Research selection scope.
 
 The composition retains the caller-designated root attempt and a
 capability-free projection of the complete Metadata forwarding outcome. It
@@ -71,12 +72,12 @@ selection scope.
 | The root defines the declaring type and its Research attempt is `Resolved`. | The root attempt remains the effective endpoint. Metadata forwarding hops are empty. |
 | The root forwards the declaring type, Metadata reaches a terminal definition in an already admitted participant, and that participant's exact Research attempt is `Resolved`. | The terminal attempt becomes the effective endpoint. The root's `Unavailable/DeclaringTypeForwarded` attempt and the complete ordered forwarding path remain visible evidence. |
 | Metadata cannot reach a terminal definition. | Composition is typed unavailable and retains a capability-free projection of the exact Metadata outcome. No effective endpoint is published. |
-| `AssemblyContextTypeResolutionQuery` cannot retain one participant image and returns query-level `Rejected`. | Composition is typed unavailable and retains a capability-free projection of the failing participant and `CandidateOpenFailure`. Metadata forwarding and endpoint selection do not begin. |
+| `AssemblyContextTypeResolutionQuery` cannot retain one participant image and returns query-level `Rejected`. | Composition is typed unavailable and retains the failing participant's sealed Queries input id plus a capability-free projection of `CandidateOpenFailure`. Metadata forwarding and endpoint selection do not begin. |
 | Metadata reaches a definition whose acquisition registration is not one sealed input in this group and side. | Composition is rejected as a correspondence failure. A same-named participant cannot substitute. |
 | The terminal participant is admitted only as reference evidence, or its Research attempt is not `Resolved`. | Composition is typed unavailable and retains that exact attempt. |
 | The terminal attempt's Research domain-side census is blocked. | Composition is typed unavailable. Queries consumes Research's owner-derived attempt and census together; it does not synthesize a resolved attempt inside a blocked same-side census. |
 | Population receipt, scope, side, domain, module, or terminal-definition evidence does not agree. | Composition is rejected. No partial endpoint is published. |
-| The binding-policy version changes during one synchronous composition. | The query throws `InvalidOperationException`, matching existing assembly-context query behavior. No typed result is published. |
+| A binding-policy version leaves the captured state before the composition publication linearization point. | The query throws `InvalidOperationException`, matching existing assembly-context query behavior. No typed result is published. |
 
 `NotFound` does not gain a forwarding meaning. Input-local absence and
 unavailability remain Research facts. This owner chooses only among attempts
@@ -110,7 +111,9 @@ well-formed.
 The caller-designated root participates by exact
 `AssemblyAcquisitionRegistration` reference. Assembly name, path, MVID,
 provenance text, list position, and rendered labels are evidence rather than
-membership identity.
+membership identity. The sealed Queries population immediately maps that live
+registration occurrence to its existing Queries input id. Published
+composition evidence retains the input id, not the registration object.
 
 All group participants intended to supply implementation or reference evidence
 must already be members of the sealed Queries population before Research
@@ -137,9 +140,10 @@ The composition validates one owner-issued association chain:
 ```text
 query operation / question / selection scope / side
   -> exact workspace group occurrence and captured binding-policy version
-  -> root acquisition registration
+  -> root acquisition registration [live validation only]
+  -> root sealed Queries input id
   -> Metadata TypeResolutionOutcome
-  -> terminal definition acquisition registration
+  -> terminal definition acquisition registration [live validation only]
   -> sealed Queries input id
   -> admitted Research input id
   -> terminal Research domain id and healthy side census
@@ -160,7 +164,8 @@ remains represented:
 - the exact group occurrence and binding-policy version prevent combining
   evidence from different workspace realizations or policy snapshots;
 - acquisition registrations identify the root and terminal physical
-  participants;
+  participants during live validation; the receipt represents each occurrence
+  only by its sealed Queries input id;
 - the exact Metadata outcome is consumed while the group is live, and its
   capability-free projection retains the classification, catalog-local
   definition evidence, and complete forwarding path;
@@ -174,11 +179,11 @@ a Queries-owned `WorkspaceTypeResolutionEvidence` projection, and the exact
 root and effective Research attempts. That projection is a closed union:
 
 - `Available` preserves the Metadata outcome arm and the facts needed by this
-  contract: terminal acquisition registration and durable definition
-  identity/address for success, ordered forwarding-hop source registrations
-  and typed declaration/target/scope evidence, or materialized typed
+  contract: terminal Queries input id and durable definition identity/address
+  for success, ordered forwarding-hop source input ids and typed
+  declaration/target/scope evidence, or materialized typed
   non-success evidence.
-- `QueryRejected` preserves the failing participant's acquisition registration,
+- `QueryRejected` preserves the failing participant's sealed Queries input id,
   `CandidateOpenFailureKind`, and inert failure detail when
   `AssemblyContextTypeResolutionQuery` cannot retain one participant image.
 
@@ -186,23 +191,133 @@ The `Available` projection preserves this closed set of Metadata arms:
 
 | Metadata arm | Required capability-free evidence |
 | --- | --- |
-| `Resolved` | `Resolved` classification, terminal acquisition registration, durable assembly/module/type-definition identity and address, and every ordered forwarding hop. |
-| `NotFound` | `NotFound` classification, the last readable participant's registration and durable assembly identity, and every ordered forwarding hop. |
+| `Resolved` | `Resolved` classification, terminal Queries input id, durable assembly/module/type-definition identity and address, and every ordered forwarding hop. |
+| `NotFound` | `NotFound` classification, the last readable participant's Queries input id and durable assembly identity, and every ordered forwarding hop. |
 | `UnboundBinding` | `UnboundBinding` classification plus materialized binding, target, origin, and resolution-scope evidence, and every ordered forwarding hop. |
 | `Unavailable` | `Unavailable` classification plus the same binding evidence and materialized binding-failure kind/detail, and every ordered forwarding hop. |
 | `Ambiguous` | `Ambiguous` classification, ambiguity kind, and the complete materialized candidate or declaration evidence supplied by that arm, and every ordered forwarding hop. |
 | `Rejected` | `Rejected` classification, failure kind, and every materialized typed field supplied by that failure arm, and every ordered forwarding hop. |
 
 `WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`
-discovers every concrete `TypeResolutionOutcome` arm, requires the discovered
-set to equal the projection's handled source-arm set, and exercises one
-product-query result for each arm. For every case it compares the source
-outcome with the projected classification, ordered hop sequence, and the
-arm-specific evidence above while the group is live. Adding a Metadata arm
-therefore fails the gate until Queries defines and tests its inert projection;
-an implementation cannot satisfy the gate by mapping several arms to one
-generic unavailable value. `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
-separately compares every field of the outer `QueryRejected` projection.
+starts at `TypeResolutionOutcome` and recursively walks the public instance
+property graph, decomposing arrays, nullable values, and generic arguments.
+Naming a materializer does not stop property discovery: for every reached
+`ILInspector.Metadata` source reference type, reflection discovers its complete
+public instance property set and requires exact equality with the manifest's
+property set. Values owned by a supporting component may be treated as atomic
+only when that owner's contract defines them as identity or correspondence
+currency and this design lists the exact type and operation-scoped projection.
+At every reached Metadata abstract closed union, the gate discovers all
+concrete arms and requires the discovered set to equal the projection's handled
+source-arm set.
+
+The current recursive closure is exactly:
+
+| Metadata union | Concrete arms |
+| --- | --- |
+| `TypeResolutionOutcome` | six |
+| `TypeResolutionFailure` | sixteen |
+| `TypeResolutionAmbiguity` | two |
+| `ResolutionPlanRequest` | two |
+| `TypeResolutionStart` | four |
+| `AssemblyBindingTarget` | two |
+| `AssemblyBindingOrigin` | two |
+| `TypeDeclarationCandidate` | three |
+| `AssemblyResolutionProvenance` | six |
+
+The gate maintains an exact property-disposition map for every concrete arm,
+including inherited public properties. Each discovered source property must be
+one of:
+
+- copied exactly into an inert Queries field;
+- projected through the same Queries-owned closed-union projector at every
+  occurrence site;
+- converted into a named capability-free field or operation-scoped opaque id
+  with an exact source/projected comparator;
+- proved equal as a deterministic derivation from retained fields; or
+- excluded by one exact structural deny rule named by this design.
+
+The only excluded public source property is
+`ResolvedAssemblyReference.OpenRead`, whose declared delegate type is
+prohibited by the structural gate. The manifest names that property and deny
+rule exactly. No other property may be ignored, converted only to display text,
+or absorbed into a generic unavailable value. Collection cardinality and order
+are part of field fidelity. The discovered source-type, public-property,
+excluded-property, union, arm, and occurrence-site sets must exactly equal the
+manifest sets, so any addition fails the gate until Queries defines and tests
+its inert projection.
+
+Manifest equality is bidirectional. Reflection also discovers every published
+projection field and property, and each must be claimed by exactly one source
+disposition or named deterministic derivation. The discovered projected-member
+set must exactly equal the manifest's destination set; no extra string,
+`InertString`, opaque id, or other allowed field may carry unclaimed data.
+Excluding a source property means its getter is never invoked and its value is
+never inspected, not merely that its declared type is absent from the result.
+
+The current materializers have these binding rules:
+
+- Every `AssemblyAcquisitionRegistration` becomes a
+  Queries-owned operation-scoped acquisition-occurrence id. Its
+  `ArtifactRegistration`, when present, becomes a nullable operation-scoped
+  artifact occurrence id by exact reference identity; this supporting-owner
+  correspondence value is the only non-Metadata source type treated as an
+  atomic input to the projection. `ModuleVersionId` is copied, and exact
+  reference correspondence with the sealed population becomes a nullable
+  Queries input id. The ordinary participant case has one input id.
+  `TypeResolutionFailure.UnregisteredAssembly` may instead carry the typed
+  no-sealed-input state plus its acquisition-occurrence id; it never invents an
+  input id or retains the registration.
+- `ResolvedAssemblyReference` maps `Registration` through that occurrence
+  materializer, copies `Identity`, converts nullable `Path` to inert text,
+  projects all six `Provenance` arms and their complete textual fields as
+  `InertString` values in a Queries-owned union, copies `LastWriteTimeUtc`, and
+  excludes only `OpenRead`.
+- Opaque Metadata handles that expose no public value semantics, including
+  `UnresolvedBindingReference`, become operation-scoped Queries ids.
+  `ResolvedTypeDefinitionKey` additionally projects its public catalog handle
+  to an operation-scoped Queries catalog id. These ids preserve equality and
+  inequality only within the composition operation and cannot recover the
+  owner object.
+- `ModuleFileReference.Hash` becomes canonical inert hexadecimal text; the
+  gate decodes it and requires exact byte-for-byte equality. The raw byte
+  collection never enters the result type graph.
+- Every other reached Metadata source type uses the reflected exact-property
+  rule above; a manifest entry cannot designate the whole type as
+  "capability-bearing", "identity-bearing", or "provenance-bearing" to bypass
+  one of its properties or nested unions.
+
+The gate lives in `src/dotnet-inspect.Tests`, which already has Metadata friend
+access and can invoke the physical Queries-to-Research adapter. Its fixture
+matrix obtains at least one owner-produced result for every concrete arm by
+driving `TypeResolutionContext.Resolve` or
+`AssemblyContextTypeResolutionQuery`; directly constructing an outcome arm
+does not count. It compares the source with the projected classification,
+ordered hop sequence, nested-arm classification, and every
+disposition-mapped field while the group is live. One `Rejected` or
+`Ambiguous` fixture cannot stand in for its nested arms, and one occurrence of
+a shared nested union cannot stand in for another occurrence unless both call
+the same projector.
+
+Arm coverage is not value-shape coverage. For every disposition-mapped
+property, the fixture matrix uses two distinguishable owner-produced values
+whenever the owner contract admits them. Nullable values cover null and
+non-null, booleans cover both values, enums cover every admitted member, and
+collections cover empty and at least two distinct elements in each observable
+order. Every top-level outcome arm that can follow forwarding includes a
+non-empty multi-hop witness. If an owner invariant makes one of those shapes
+impossible, the gate names that invariant and asserts its exact bound rather
+than silently omitting the shape.
+
+`WorkspaceResearchTarget_ImageOpenFailureIsUnavailable` separately compares
+every field of the outer `QueryRejected` projection.
+
+The implementation has one Queries-owned projection manifest containing the
+source containers, closed unions, source and destination property
+dispositions, materializers, deterministic derivations, exclusions, and
+permitted owner-issued identity leaves. The fidelity and structural gates
+consume that same manifest; they do not maintain parallel hand-written type
+lists that can drift apart.
 
 Neither arm retains the `TypeResolutionOutcome`, `TypeForwardingHop`,
 `ResolvedAssemblyCandidate`, or `ResolvedAssemblyReference` objects, because
@@ -221,10 +336,26 @@ the declared instance fields, including non-public backing fields, and exposed
 property signatures of composition-owned types reachable from the composition
 result, receipt, `WorkspaceTypeResolutionEvidence`, and every closed-union arm.
 The walk includes base and derived arms and decomposes arrays, nullable values,
-and generic arguments. It fails if that closure reaches:
+and generic arguments. Field signatures must use a strict positive allow list:
+primitives, enums, `Guid`, `DateTime`, `Version`, `string`, `InertString`,
+immutable collections of allowed elements, Queries-owned sealed values and
+closed unions, the exact inert Research identities/results named by this
+contract, and `AssemblyReferenceIdentity`. The walk rejects `object`,
+interfaces, delegates, open generic carriers, and abstract or non-sealed
+reference types other than a Queries-owned or Research-owned closed union
+whose complete sealed arm set it also traverses. It fails if that closure
+reaches:
 
+- any reference type declared by `ILInspector.Metadata` except the sealed,
+  field-walked `AssemblyReferenceIdentity`; in particular, the receipt never
+  retains `AssemblyAcquisitionRegistration`, which can transitively retain
+  artifact-generation authority;
 - `AssemblyContextTypeResolutionResult`, `TypeResolutionOutcome`,
-  `TypeForwardingHop`, `ResolvedTypeDefinition`,
+  `TypeResolutionFailure`, `TypeResolutionAmbiguity`,
+  `ResolutionPlanRequest`, `TypeResolutionStart`, `AssemblyBindingTarget`,
+  `AssemblyBindingOrigin`, `TypeDeclarationCandidate`, any further
+  Metadata-owned abstract evidence union discovered by the recursive fidelity
+  walk, `TypeForwardingHop`, `ResolvedTypeDefinition`,
   `ResolvedAssemblyCandidate`, `ResolvedAssemblyReference`,
   `CandidateOpenFailure`, `AssemblyImageSnapshotResult`, or
   `AssemblyImageSnapshot`;
@@ -239,11 +370,16 @@ and generic arguments. It fails if that closure reaches:
 The gate is non-vacuous: it separately proves that the closure reaches the
 composition receipt and both `Available` and `QueryRejected` evidence arms,
 then demonstrates that the same walk detects test-only prohibited exposures
-for both `AssemblyImageSnapshot` and `MetadataReader`, not only disposable or
-callback types. A new composition-result or evidence arm must enter the
-closed-union walk without an allow-list edit. This gate covers retained
-object-graph authority; the behavioral gates below separately prove projection
-fidelity and failure-atomic publication.
+for `AssemblyImageSnapshot`, `MetadataReader`,
+`AssemblyAcquisitionRegistration`, and erased `object` or interface carriers,
+not only disposable or callback types. The projection gate supplies a
+`ResolvedAssemblyReference` whose `OpenRead` throws a sentinel exception and
+proves that projection never invokes it. It also rejects a test-only
+destination schema with an unclaimed `InertString` field containing encoded
+sentinel image bytes. A new composition-result or evidence arm must enter the
+closed-union walk without an allow-list edit. These gates cover retained and
+laundered object-graph authority; the behavioral gates below separately prove
+field fidelity and failure-atomic publication.
 
 ## Validation order
 
@@ -268,7 +404,7 @@ Composition validates one side in this order:
    `Rejected` arm becomes `Unavailable` with capability-free `QueryRejected`
    evidence before Metadata forwarding or endpoint selection;
 8. every participant policy used by resolution still exposes that exact
-   captured version after resolution;
+   captured version immediately after resolution;
 9. a resolved terminal definition maps by acquisition registration to exactly
    one participant and sealed Queries input in the same group and side;
 10. the population receipt maps that Queries input to exactly one Research
@@ -279,18 +415,46 @@ Composition validates one side in this order:
 13. that attempt's physical assembly, MVID-scoped address, declaring type, and
     relationship role agree with the terminal definition and selection intent;
     and
-14. the root attempt has the matching direct or forwarded shape below.
+14. the root attempt has the matching direct or forwarded shape below; and
+15. immediately before any post-query result or receipt publication, every
+    group participant's live `BindingPolicy.Version` is still
+    reference-identical to the captured version.
 
-The first failed check determines the typed composition result. Later checks
-do not run, and no partial receipt escapes. A binding-policy version mismatch
-throws `InvalidOperationException`, following
-`AssemblyContextSourceQuery`'s existing frozen-policy convention rather than
-turning a violated group invariant into a user-data outcome.
+Checks 1-5 may publish their typed input rejection without invoking either
+owner. A mismatch at check 6 throws before query invocation. Once check 7
+invokes the query, composition holds any success or typed non-success as a
+pending result. A mismatch observed by the query or at check 8 throws and
+latches an irrevocable contract fault; a later equal read cannot clear it.
+Checks 9-14 run only when applicable to the pending arm, but every post-query
+branch, including `QueryRejected`, a non-resolved Metadata outcome, and an
+association or attempt rejection, passes through one publication operation
+that performs check 15. No post-query branch returns a result directly. The
+first failed applicable non-version check among 1-5, 7, and 9-14 determines
+the pending typed result; a mismatch at check 15 supersedes it and throws
+`InvalidOperationException`. No typed result or partial receipt escapes. This
+follows `AssemblyContextSourceQuery`'s existing frozen-policy convention rather
+than turning a violated group invariant into a user-data outcome.
 `AssemblyContextTypeResolutionQuery` must enforce the same check around the
 complete participant set it consumes. An implementation must not substitute a
 comparison of the group's captured get-only property with itself for those
-live participant checks. Other unexpected programming errors are not converted
-to unavailable outcomes.
+live participant checks. All live group, participant, Research, and Metadata
+evidence reads needed for projection complete before check 15. Check 15 and
+publication form one synchronous, callback-free operation. During its final
+sweep the only live reads are exactly one `Version` read per participant; after
+the sweep begins, no group, Research, Metadata, or caller callback is consulted.
+After the final version read, code may only construct immutable Queries values
+from already materialized inert locals and return them.
+
+The sweep relies on the binding owner's non-reusable-token contract: every
+participant began on the same captured token, and a policy that leaves that
+state never exposes that token as current again. If every final read succeeds,
+all participants still exposed the captured state at the first read, which is
+the operation's linearization point; a later policy change is logically after
+publication even when immutable result allocation has not physically returned.
+If any read fails, nothing publishes. This is the product correspondence for
+the model's atomic `BindingReady` publication transition; it does not require
+a new cross-owner group freeze operation. Other unexpected programming errors
+are not converted to unavailable outcomes.
 
 ## Direct and forwarded shapes
 
@@ -523,13 +687,51 @@ Research inputs from file paths or replace a typed outcome with display text.
 3. Add the Queries-owned composition request, result, receipt, and validator in
    `DotnetInspector.ResearchQueries`, consuming
    `AssemblyContextTypeResolutionQuery` and the complete Research target
-   result.
+   result. Recheck every live participant version at the callback-free
+   publication point after all association validation.
 4. Add the public file-based app demo and focused Release gates.
 5. Let the later #4706 direct-member and publication efforts consume the inert
    effective-target receipt.
 6. Wire CLI and inspect-web in their host-owned slices.
 
 The implementation is not complete until these Release gates exist:
+
+`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`
+must enumerate every closed union in the recursive Metadata evidence closure,
+assert exact source-arm/handled-arm equality for each union, and exercise field
+fidelity for every concrete arm. Its fixture matrix cannot count a top-level
+`Rejected` or `Ambiguous` value as coverage for all nested failure or ambiguity
+arms.
+
+`WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows` and
+`WorkspaceResearchTarget_NonRootBindingPolicyVersionDriftThrows` each exercise
+the pre-query check 6 and immediate post-query check 8. Every observed mismatch
+must throw and remain latched even if a later test-policy read would expose the
+captured token again.
+
+`WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows` must
+exercise root and non-root participants across every distinct post-query
+publication path. The required matrix includes successful endpoint selection,
+a non-resolved Metadata outcome, outer `QueryRejected`, and every distinct
+association or attempt rejection return site. In each case the participant
+policy exposes the captured version through query execution and all applicable
+intermediate validation, then exposes a different version when its final-sweep
+read occurs. Composition must throw `InvalidOperationException` and publish
+neither a typed result nor any partial receipt.
+
+The gate discovers every concrete Queries composition-result arm and every
+closed rejection-reason member, requires exact equality with its handled
+fixture set, and classifies each member as pre-query or post-query. Every
+post-query member has both root- and non-root-drift fixtures. Adding a new
+post-query arm or reason therefore fails until it passes through the common
+publisher and gains the drift cases.
+
+`WorkspaceResearchTarget_PublicationTailUsesOnlyInertLocals` records the final
+publication trace. After the sweep begins, it permits exactly one
+`BindingPolicy.Version` read per participant and rejects every group, Research,
+Metadata, or caller-callback access; after the last version read, it rejects
+every live access. The success case still publishes from the already
+materialized inert locals.
 
 - `WorkspaceResearchTarget_DirectDefinitionRetainsRootAttempt`
 - `WorkspaceResearchTarget_ForwardedDefinitionSelectsExactTerminalAttempt`
@@ -554,6 +756,8 @@ The implementation is not complete until these Release gates exist:
 - `AssemblyContextTypeResolutionQuery_NonRootBindingPolicyVersionDriftThrows`
 - `WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows`
 - `WorkspaceResearchTarget_NonRootBindingPolicyVersionDriftThrows`
+- `WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows`
+- `WorkspaceResearchTarget_PublicationTailUsesOnlyInertLocals`
 - `WorkspaceResearchTarget_RequiresTerminalAssemblyModuleAndAddressAgreement`
 - `WorkspaceResearchTarget_DivergentTerminalDomainsDoNotPair`
 - `WorkspaceResearchTarget_PublishesNoPartialReceiptOnFailure`
