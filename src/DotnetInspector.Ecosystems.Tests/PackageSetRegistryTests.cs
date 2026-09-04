@@ -30,6 +30,16 @@ public sealed class PackageSetRegistryTests
                     aspNetCore.Summary);
                 Assert.Equal(200, aspNetCore.Order);
                 Assert.Equal(ExpectedAspNetCorePackages, PackageIds(aspNetCore));
+            },
+            aspire =>
+            {
+                Assert.Equal(PackageSetIds.Aspire, aspire.Id);
+                Assert.Equal("Aspire", aspire.Title);
+                Assert.Equal(
+                    "Current aspire-co-owned Aspire packages with public managed APIs.",
+                    aspire.Summary);
+                Assert.Equal(300, aspire.Order);
+                Assert.Equal(ExpectedAspirePackages, PackageIds(aspire));
             });
     }
 
@@ -171,10 +181,13 @@ public sealed class PackageSetRegistryTests
             "package-set.microsoft-extensions",
             PackageSetIds.MicrosoftExtensions.Value);
         Assert.Equal("package-set.aspnetcore", PackageSetIds.AspNetCore.Value);
+        Assert.Equal("package-set.aspire", PackageSetIds.Aspire.Value);
         Assert.IsType<PackageSetLookupResult.Known>(
             PackageSetCatalog.Lookup(PackageSetIds.MicrosoftExtensions));
         Assert.IsType<PackageSetLookupResult.Known>(
             PackageSetCatalog.Lookup(PackageSetIds.AspNetCore));
+        Assert.IsType<PackageSetLookupResult.Known>(
+            PackageSetCatalog.Lookup(PackageSetIds.Aspire));
     }
 
     [Fact]
@@ -197,6 +210,7 @@ public sealed class PackageSetRegistryTests
 
         Assert.Equal(44, ExpectedExtensionsPackages.Length);
         Assert.Equal(53, ExpectedAspNetCorePackages.Length);
+        Assert.Equal(82, ExpectedAspirePackages.Length);
         Assert.Equal(
             ExpectedExtensionsPackages,
             PackageIds(descriptors[0]));
@@ -204,11 +218,17 @@ public sealed class PackageSetRegistryTests
             ExpectedAspNetCorePackages,
             PackageIds(descriptors[1]));
         Assert.Equal(
+            ExpectedAspirePackages,
+            PackageIds(descriptors[2]));
+        Assert.Equal(
             ExpectedExtensionsPackages.Order(StringComparer.Ordinal),
             ExpectedExtensionsPackages);
         Assert.Equal(
             ExpectedAspNetCorePackages.Order(StringComparer.Ordinal),
             ExpectedAspNetCorePackages);
+        Assert.Equal(
+            ExpectedAspirePackages.Order(StringComparer.Ordinal),
+            ExpectedAspirePackages);
         Assert.All(
             descriptors.SelectMany(descriptor => descriptor.Members),
             member =>
@@ -256,6 +276,29 @@ public sealed class PackageSetRegistryTests
         Assert.DoesNotContain(
             "Microsoft.AspNetCore.SignalR",
             ExpectedAspNetCorePackages);
+        Assert.All(
+            ExpectedAspirePackages,
+            packageId => Assert.StartsWith(
+                "Aspire.",
+                packageId,
+                StringComparison.Ordinal));
+        Assert.Contains("Aspire.Hosting", ExpectedAspirePackages);
+        Assert.Contains("Aspire.Hosting.Testing", ExpectedAspirePackages);
+        Assert.Contains("Aspire.TypeSystem", ExpectedAspirePackages);
+        Assert.Contains("Aspire.Hosting.AWS", ExpectedAspirePackages);
+        Assert.Contains("Aspire.Hosting.Python", ExpectedAspirePackages);
+        Assert.Contains("Aspire.MongoDB.Driver.v2", ExpectedAspirePackages);
+        Assert.Contains("Aspire.RabbitMQ.Client.v6", ExpectedAspirePackages);
+        Assert.DoesNotContain("Aspire.Hosting.AppHost", ExpectedAspirePackages);
+        Assert.DoesNotContain(
+            "Aspire.Hosting.CodeGeneration.TypeScript",
+            ExpectedAspirePackages);
+        Assert.DoesNotContain(
+            "Aspire.Dashboard.Sdk.linux-x64",
+            ExpectedAspirePackages);
+        Assert.DoesNotContain(
+            "Aspire.Hosting.Orchestration.linux-x64",
+            ExpectedAspirePackages);
     }
 
     private static PackageSetRegistry Registry(
@@ -383,5 +426,91 @@ public sealed class PackageSetRegistryTests
         "Microsoft.AspNetCore.SpaServices.Extensions",
         "Microsoft.AspNetCore.TestHost",
         "Microsoft.AspNetCore.Testing",
+    ];
+
+    internal static string[] ExpectedAspirePackages { get; } =
+    [
+        "Aspire.Azure.Data.Tables",
+        "Aspire.Azure.Messaging.EventHubs",
+        "Aspire.Azure.Messaging.ServiceBus",
+        "Aspire.Azure.Messaging.WebPubSub",
+        "Aspire.Azure.Npgsql",
+        "Aspire.Azure.Npgsql.EntityFrameworkCore.PostgreSQL",
+        "Aspire.Azure.Search.Documents",
+        "Aspire.Azure.Security.KeyVault",
+        "Aspire.Azure.Storage.Blobs",
+        "Aspire.Azure.Storage.Queues",
+        "Aspire.Confluent.Kafka",
+        "Aspire.Elastic.Clients.Elasticsearch",
+        "Aspire.Hosting",
+        "Aspire.Hosting.AWS",
+        "Aspire.Hosting.Azure",
+        "Aspire.Hosting.Azure.AppConfiguration",
+        "Aspire.Hosting.Azure.AppContainers",
+        "Aspire.Hosting.Azure.AppService",
+        "Aspire.Hosting.Azure.ApplicationInsights",
+        "Aspire.Hosting.Azure.CognitiveServices",
+        "Aspire.Hosting.Azure.ContainerRegistry",
+        "Aspire.Hosting.Azure.CosmosDB",
+        "Aspire.Hosting.Azure.EventHubs",
+        "Aspire.Hosting.Azure.Functions",
+        "Aspire.Hosting.Azure.KeyVault",
+        "Aspire.Hosting.Azure.Network",
+        "Aspire.Hosting.Azure.OperationalInsights",
+        "Aspire.Hosting.Azure.PostgreSQL",
+        "Aspire.Hosting.Azure.Redis",
+        "Aspire.Hosting.Azure.Search",
+        "Aspire.Hosting.Azure.ServiceBus",
+        "Aspire.Hosting.Azure.SignalR",
+        "Aspire.Hosting.Azure.Sql",
+        "Aspire.Hosting.Azure.Storage",
+        "Aspire.Hosting.Azure.WebPubSub",
+        "Aspire.Hosting.DevTunnels",
+        "Aspire.Hosting.Docker",
+        "Aspire.Hosting.Elasticsearch",
+        "Aspire.Hosting.Garnet",
+        "Aspire.Hosting.GitHub.Models",
+        "Aspire.Hosting.JavaScript",
+        "Aspire.Hosting.Kafka",
+        "Aspire.Hosting.Milvus",
+        "Aspire.Hosting.MongoDB",
+        "Aspire.Hosting.MySql",
+        "Aspire.Hosting.Nats",
+        "Aspire.Hosting.OpenAI",
+        "Aspire.Hosting.Oracle",
+        "Aspire.Hosting.Orleans",
+        "Aspire.Hosting.PostgreSQL",
+        "Aspire.Hosting.Python",
+        "Aspire.Hosting.Qdrant",
+        "Aspire.Hosting.RabbitMQ",
+        "Aspire.Hosting.Redis",
+        "Aspire.Hosting.Seq",
+        "Aspire.Hosting.SqlServer",
+        "Aspire.Hosting.Testing",
+        "Aspire.Hosting.Valkey",
+        "Aspire.Hosting.Yarp",
+        "Aspire.Microsoft.Azure.Cosmos",
+        "Aspire.Microsoft.Azure.StackExchangeRedis",
+        "Aspire.Microsoft.Data.SqlClient",
+        "Aspire.Microsoft.EntityFrameworkCore.Cosmos",
+        "Aspire.Microsoft.EntityFrameworkCore.SqlServer",
+        "Aspire.Microsoft.Extensions.Configuration.AzureAppConfiguration",
+        "Aspire.MongoDB.Driver",
+        "Aspire.MongoDB.Driver.v2",
+        "Aspire.MongoDB.EntityFrameworkCore",
+        "Aspire.MySqlConnector",
+        "Aspire.NATS.Net",
+        "Aspire.Npgsql",
+        "Aspire.Npgsql.EntityFrameworkCore.PostgreSQL",
+        "Aspire.Oracle.EntityFrameworkCore",
+        "Aspire.Pomelo.EntityFrameworkCore.MySql",
+        "Aspire.Qdrant.Client",
+        "Aspire.RabbitMQ.Client",
+        "Aspire.RabbitMQ.Client.v6",
+        "Aspire.Seq",
+        "Aspire.StackExchange.Redis",
+        "Aspire.StackExchange.Redis.DistributedCaching",
+        "Aspire.StackExchange.Redis.OutputCaching",
+        "Aspire.TypeSystem",
     ];
 }
