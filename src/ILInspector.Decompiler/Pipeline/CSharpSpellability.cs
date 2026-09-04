@@ -70,7 +70,8 @@ internal static class CSharpSpellability
 
         return node switch
         {
-            IrFunction function => ParameterNamesIssue(
+            IrFunction function => LocalFunctionDeclarationIssue(function)
+                ?? ParameterNamesIssue(
                 function.Signature.Parameters,
                 ParameterReservedNames(
                     function,
@@ -131,6 +132,30 @@ internal static class CSharpSpellability
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
+    }
+
+    static NameIssue? LocalFunctionDeclarationIssue(IrFunction function)
+    {
+        if (function.Signature.GenericParameterNames.IsEmpty)
+            return null;
+
+        var genericParameterNames = function.Signature.GenericParameterNames
+            .ToHashSet(StringComparer.Ordinal);
+        // Nested local-function raising is unsupported, so every declaration
+        // this pipeline can emit belongs to the host function's declaration space.
+        foreach (var localFunction in function
+            .DescendantsOutsideNestedFunctions
+            .OfType<LocalFunctionStatement>())
+        {
+            if (genericParameterNames.Contains(localFunction.Name))
+            {
+                return Issue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalFunctionName,
+                    $"local function name '{localFunction.Name}' conflicts with a method generic parameter");
+            }
+        }
+
+        return null;
     }
 
     static IEnumerable<string> ParameterReservedNames(

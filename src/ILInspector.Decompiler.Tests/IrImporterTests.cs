@@ -2952,6 +2952,42 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StackAlloc_SyntheticHelperAvoidsMethodGenericParameter()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.StackAllocGenericNameCollision));
+        Assert.NotNull(function);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("byte* __stackalloc0 = stackalloc byte[4];", output);
+        Assert.Contains("return (int*)__stackalloc0;", output);
+        Assert.DoesNotContain("byte* __stackalloc =", output);
+    }
+
+    [Fact]
+    public void StoreElement_PreservesExactNamedReceiverTemp()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(CfgSampleClass).FullName!,
+            nameof(CfgSampleClass.StoreElementNamedReceiverTemp));
+        Assert.NotNull(function);
+        Assert.Contains("trimmed", function.LocalNames);
+
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Contains("ReadOnlySpan<char> trimmed = MemoryExtensions.Trim(item);", output);
+        Assert.Contains("items[i] = trimmed.ToString();", output);
+    }
+
+    [Fact]
     public void GenericInstanceNullCheck_RendersIsNull()
     {
         // A brtrue/brfalse operand can never be a struct value, so a generic

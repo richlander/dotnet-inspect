@@ -1985,10 +1985,28 @@ public static class MemberBodyProducer
             || adderHandle is not { } adder
             || removerHandle is not { } remover
             || reader.GetMethodDefinition(adder).RelativeVirtualAddress == 0
-            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0
-            || HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
+            || reader.GetMethodDefinition(remover).RelativeVirtualAddress == 0)
+        {
+            sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
+            return;
+        }
+
+        var declarationParameterNames = DeclarationParameterNames(member);
+        if (HasMethodImplementationAccessor(reader, typeHandle, adder, remover)
             || HasSameNamedEventField(reader, typeHandle, member))
         {
+            ValidateAccessorParameterNames(
+                pipelineSource,
+                adder,
+                $"add_{member.Name}",
+                AccessorRole.Adder,
+                declarationParameterNames);
+            ValidateAccessorParameterNames(
+                pipelineSource,
+                remover,
+                $"remove_{member.Name}",
+                AccessorRole.Remover,
+                declarationParameterNames);
             sb.AppendLf($"    {terminatedDeclarationFormatter.FormatMember(type, member)}");
             return;
         }
@@ -1999,7 +2017,7 @@ public static class MemberBodyProducer
             type.FullName,
             $"add_{member.Name}",
             AccessorRole.Adder,
-            DeclarationParameterNames(member),
+            declarationParameterNames,
             bodyNamespaces,
             out bool adderRequiresUnsafe,
             out bool adderRequiresAsync,
@@ -2012,7 +2030,7 @@ public static class MemberBodyProducer
             type.FullName,
             $"remove_{member.Name}",
             AccessorRole.Remover,
-            DeclarationParameterNames(member),
+            declarationParameterNames,
             bodyNamespaces,
             out bool removerRequiresUnsafe,
             out bool removerRequiresAsync,
@@ -2355,6 +2373,69 @@ public static class MemberBodyProducer
         throw new InvalidOperationException(
             $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
                 + "which accessor declaration composition cannot yet coordinate (issue #5778).");
+    }
+
+    static void ValidateAccessorParameterNames(
+        Pipeline.MetadataSource pipelineSource,
+        MethodDefinitionHandle accessorHandle,
+        string accessorName,
+        AccessorRole role,
+        IReadOnlyList<string> declarationParameterNames)
+    {
+        var reader = pipelineSource.Reader;
+        var method = reader.GetMethodDefinition(accessorHandle);
+        var declaringType = reader.GetTypeDefinition(method.GetDeclaringType());
+        var methodGenericParameterNames =
+            Pipeline.MethodDefinitionFacts.GenericParameterNames(
+                reader,
+                method.GetGenericParameters());
+        var scope = new Pipeline.GenericScope(
+            Pipeline.MethodDefinitionFacts.GenericParameterNames(
+                reader,
+                declaringType.GetGenericParameters()),
+            methodGenericParameterNames);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+            reader,
+            method.Signature,
+            SignatureBlobGuard.Kind.Method))
+        {
+            throw new InvalidOperationException(
+                $"Accessor '{accessorName}' signature cannot be decoded.");
+        }
+        var signature = Pipeline.GuardedDecode.MethodSignature(
+            reader,
+            method,
+            scope);
+
+        MetadataParameterNames.ResolvedName[] parameters =
+            MetadataParameterNames.ResolveWithProvenance(
+                reader,
+                method.GetParameters(),
+                signature.ParameterTypes.Length,
+                methodGenericParameterNames);
+        int implicitParameterCount = role.HasImplicitValueBinder() ? 1 : 0;
+        bool incompatibleImplicitValueBinder = role.HasImplicitValueBinder()
+            && (parameters.Length == 0
+                || parameters[^1].IsSynthesized
+                || parameters[^1].Name != "value");
+        int explicitParameterCount = Math.Max(
+            0,
+            parameters.Length - implicitParameterCount);
+        bool incompatibleDeclarationParameters =
+            explicitParameterCount != declarationParameterNames.Count
+            || !parameters
+                .Take(explicitParameterCount)
+                .Select(parameter => parameter.Name)
+                .SequenceEqual(
+                    declarationParameterNames,
+                    StringComparer.Ordinal);
+        if (incompatibleImplicitValueBinder
+            || incompatibleDeclarationParameters)
+        {
+            throw new InvalidOperationException(
+                $"Accessor '{accessorName}' requires incompatible body-owned parameter names, "
+                    + "which accessor declaration composition cannot yet coordinate (issue #5778).");
+        }
     }
 
     static IReadOnlyList<string> DeclarationParameterNames(ApiMember member)

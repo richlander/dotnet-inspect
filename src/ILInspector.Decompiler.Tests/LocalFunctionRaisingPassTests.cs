@@ -221,6 +221,57 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void LocalFunctionNameCollidingWithMethodGeneric_DegradesToPartial()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var method = new MethodRef(
+            TypeRef.Definition("UserAssembly", "Samples", "Owner"),
+            "<M>g__T|0_0",
+            intType,
+            [intType],
+            HasThis: false)
+        {
+            CompilerGenerated = MetadataFactState.Yes,
+        };
+        var parameter = new Parameter("value", intType);
+        var block = new Block();
+        block.Add(new Return(new Call(
+            method,
+            isVirtual: false,
+            [new LoadArgument(0, parameter)])));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            method.DeclaringType,
+            new MethodSignature(
+                intType,
+                [parameter],
+                HasThis: false,
+                GenericParameterCount: 1)
+            {
+                GenericParameterNames = ["T"],
+            },
+            [],
+            body);
+        var result = CSharpPrinter.PrintRaised(
+            function,
+            imported => imported == method
+                ? LocalFunctionBody(method, intType)
+                : null);
+        var issue = CSharpSpellability
+            .InspectUnrepresentableMetadataName(function);
+
+        Assert.Contains("static int T(int x)", result.Output);
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalFunctionName,
+            issue?.Discriminator);
+        Assert.Contains("method generic parameter", issue?.Reason);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void EnclosingMethodNameContainingGMarker_DemanglesLocalFunctionName()
     {
         var intType = TypeRef.CoreLib("System", "Int32");

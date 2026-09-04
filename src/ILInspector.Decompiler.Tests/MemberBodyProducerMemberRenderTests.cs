@@ -259,6 +259,91 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Theory]
+    [InlineData("value", "value", MemberBodyProductionStatus.Complete)]
+    [InlineData(null, null, MemberBodyProductionStatus.Failed)]
+    [InlineData("handler", "otherHandler", MemberBodyProductionStatus.Failed)]
+    public void ProduceMember_FieldLikeEventParameterNames_RequireImplicitValue(
+        string? adderParameterName,
+        string? removerParameterName,
+        MemberBodyProductionStatus expectedStatus)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-field-like-event-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var (assemblyPath, type) = CreateFieldLikeEventAssembly(
+                directory,
+                adderParameterName,
+                removerParameterName);
+            var eventMember = Assert.Single(
+                type.Members,
+                member => member.Name == "Changed");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                eventMember,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(expectedStatus, rendered.Status);
+            if (expectedStatus == MemberBodyProductionStatus.Complete)
+            {
+                Assert.Contains(
+                    "public event Action Changed;",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains(
+                    "issue #5778",
+                    rendered.Text,
+                    StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Project_IncompatibleFieldLikeEventValueName_FailsWholeTypeVisibly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-field-like-event-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var (assemblyPath, type) = CreateFieldLikeEventAssembly(
+                directory,
+                adderParameterName: "handler",
+                removerParameterName: "otherHandler");
+
+            var rendered = MemberBodyProducer.Project(
+                type,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Contains(
+                "DEC0001: type source unavailable",
+                rendered.Output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "issue #5778",
+                rendered.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
     [InlineData(
         "index",
         "index",
@@ -979,6 +1064,72 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Contains("using @event.Models;", listing);
         Assert.DoesNotContain("using System.event.Models;", listing);
         Assert.DoesNotContain("using event.Models;", listing);
+    }
+
+    static (string AssemblyPath, ApiType Type) CreateFieldLikeEventAssembly(
+        string directory,
+        string? adderParameterName,
+        string? removerParameterName)
+    {
+        var assemblyName = new AssemblyName("FieldLikeEventValueNames");
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = module.DefineType(
+            "FieldLikeEventValueNamesSample",
+            TypeAttributes.Public | TypeAttributes.Class);
+        _ = typeBuilder.DefineField(
+            "Changed",
+            typeof(Action),
+            FieldAttributes.Private);
+        var eventBuilder = typeBuilder.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        var adder = typeBuilder.DefineMethod(
+            "add_Changed",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        if (adderParameterName is not null)
+        {
+            adder.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                adderParameterName);
+        }
+        adder.GetILGenerator().Emit(OpCodes.Ret);
+        eventBuilder.SetAddOnMethod(adder);
+        var remover = typeBuilder.DefineMethod(
+            "remove_Changed",
+            MethodAttributes.Public
+                | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        if (removerParameterName is not null)
+        {
+            remover.DefineParameter(
+                1,
+                ParameterAttributes.None,
+                removerParameterName);
+        }
+        remover.GetILGenerator().Emit(OpCodes.Ret);
+        eventBuilder.SetRemoveOnMethod(remover);
+        typeBuilder.CreateType();
+
+        string assemblyPath = Path.Combine(
+            directory,
+            "FieldLikeEventValueNames.dll");
+        assemblyBuilder.Save(assemblyPath);
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate => candidate.FullName == "FieldLikeEventValueNamesSample");
+        return (assemblyPath, type);
     }
 }
 

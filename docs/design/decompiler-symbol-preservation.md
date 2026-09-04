@@ -61,13 +61,15 @@ would bind to another symbol.
 Parameter-name provenance survives metadata import independently of its initial
 fallback spelling. Argument IR nodes retain their exact parameter or implicit
 receiver binder rather than treating a reusable argument index as identity.
-After nested functions
-have raised, final allocation keeps every exact parameter identity fixed and
-renames only synthesized fallbacks around exact enclosing and descendant
-binders, exact retained locals, generic binders, and flattened local-function
-declarations. When allocation changes a spelling, full-source hosts consume the
-complete resulting parameter-name override for both the method or constructor
-declaration and its body.
+After nested functions have raised, final allocation keeps every exact
+parameter identity fixed and renames only synthesized fallbacks and
+printer-generated local helpers around exact enclosing and descendant binders,
+exact retained locals, generic binders, and flattened local-function
+declarations. An authenticated flattened local-function declaration that
+collides with an exact method generic binder lowers typed fidelity rather than
+retaining `Full`. When allocation changes a spelling, full-source hosts consume
+the complete resulting parameter-name override for both the method or
+constructor declaration and its body.
 
 Property, indexer, and event accessors require one declaration-level allocation
 across sibling bodies and C#'s implicit `value` binder. Until
@@ -78,12 +80,16 @@ when sibling bodies disagree about an explicit parameter name, an accessor body
 needs a changed parameter spelling, or its final implicit value binder is not
 exactly `value`, rather than omitting the body or emitting a declaration/body
 mismatch.
+Field-like and MethodImpl event shortcuts validate both semantic accessor
+signatures before omitting their bodies.
 
 Retained local allocation similarly uses one printer-owned collision relation
 for output and fidelity. Exact names in sibling arms of the same raised switch
 expression may be reused because their scopes are disjoint. Two bindings in
 one arm, an enclosing reservation, or a flattened local-function declaration
 still collides and lowers fidelity when the exact local cannot be emitted.
+Printer-only receiver recomposition does not elide a slot carrying an exact PDB
+name; an unnamed receiver slot that is elided reserves no presentation name.
 
 ### Portable PDB boundary
 
@@ -156,8 +162,8 @@ to runnable fixture commands under [Fixture probes](#fixture-probes).
 
 | Scenario | Current contract | Probe | Regression gate |
 | -------- | ---------------- | ----- | --------------- |
-| Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. For body-bearing methods, parameter and retained-local identities without a lossless C# spelling or binding lower body fidelity; this includes an exact parameter colliding with a flattened local-function declaration. Type self-declarations can return a typed refusal. A synthesized method parameter yields to an exact nested binder, and its final spelling is shared by the declaration and body. Until #5778, an accessor whose sibling body disagrees about an explicit parameter name or whose body cannot use C#'s implicit `value` binder fails visibly; MethodSemantics supplies that role independently of the accessor MethodDef name. Static argument zero named `this` and bodyless-member refusal remain explicit gaps (P29 and P30). Full Unicode admission remains incomplete (P28). | P1, P25, P26, P28, P29, P30 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `MetadataExtensionFindingsTests.GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `UnspeakableNameFidelityTests.SynthesizedOuterParameterYieldsToExactCapturedLambdaParameter`, `UnspeakableNameFidelityTests.ExactParameterConflictingWithFlattenedLocalFunction_DegradesToPartial`, `MemberBodyProducerMemberRenderTests.ProduceMember_MissingSetterValueName_FailsVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_RenamedEventValueNames_FailVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_IndexerAccessorParameterNames_RequireSharedDeclaration`, `ApiOutputFormatterTests.FormatSourceWithDeclaration_UsesBodyOwnedParameterNames`, and `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`. |
-| PDB local variables | Prefer an admitted Portable PDB local name associated with the exact IL slot and scope when the current per-slot model and collision allocation can represent it. Sibling arms of one raised switch expression may preserve the same exact name; same-arm reuse, wider reservations, and flattened local-function declarations still collide. Eliminated or unreferenced slots do not reserve names from surviving binders. P24 and P27 record the remaining general scope-reuse gaps. | P2, P24, P27 | `RaisingPassTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`, `PatternSwitchExpressionPassTests.ProductTargetMethod_SelfRaisesToPatternSwitchExpression`, `UnspeakableNameFidelityTests.EliminatedDuplicateLocal_DoesNotReserveSurvivingExactName`, `UnspeakableNameFidelityTests.RaisedLambdaUnreferencedDuplicateLocal_DoesNotReserveSurvivingExactName`, and the remaining local-collision gates in `UnspeakableNameFidelityTests`; P24 is manually probed, while `PdbLocalNameScopeTests.ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss` pins P27's artifact shape and current loss. |
+| Metadata declarations | Preserve ordinary and keyword artifact namespace, type, field, property, event, method, parameter, and generic-parameter names. Escape C# keywords without changing identifier identity. For body-bearing methods, parameter and retained-local identities without a lossless C# spelling or binding lower body fidelity; this includes an exact parameter or authenticated flattened local-function declaration colliding with a method generic or flattened declaration. Type self-declarations can return a typed refusal. Synthesized method parameters and printer-generated helpers yield to exact binders. Until #5778, an accessor whose sibling body disagrees about an explicit parameter name or whose body cannot use C#'s implicit `value` binder fails visibly; MethodSemantics supplies that role independently of the accessor MethodDef name, and field-like/MethodImpl shortcuts do not bypass validation. Static argument zero named `this` and bodyless-member refusal remain explicit gaps (P29 and P30). Full Unicode admission remains incomplete (P28). | P1, P25, P26, P28, P29, P30 | `KeywordIdentifierTests.KeywordParameter_IsEscaped`, `MetadataDeclarationQueryTests`, `MetadataExtensionFindingsTests.GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback`, `PipelineImporterTests.Import_MissingParameterName_SynthesizesOrdinalName`, `RaisingPassTests.StackAlloc_SyntheticHelperAvoidsMethodGenericParameter`, `LocalFunctionRaisingPassTests.LocalFunctionNameCollidingWithMethodGeneric_DegradesToPartial`, `UnspeakableNameFidelityTests.SynthesizedOuterParameterYieldsToExactCapturedLambdaParameter`, `UnspeakableNameFidelityTests.ExactParameterConflictingWithFlattenedLocalFunction_DegradesToPartial`, `MemberBodyProducerMemberRenderTests.ProduceMember_MissingSetterValueName_FailsVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_RenamedEventValueNames_FailVisibly`, `MemberBodyProducerMemberRenderTests.ProduceMember_FieldLikeEventParameterNames_RequireImplicitValue`, `MemberBodyProducerMemberRenderTests.ProduceMember_IndexerAccessorParameterNames_RequireSharedDeclaration`, `MemberBodyProducerMemberRenderTests.Project_IncompatibleFieldLikeEventValueName_FailsWholeTypeVisibly`, `ApiOutputFormatterTests.FormatSourceWithDeclaration_UsesBodyOwnedParameterNames`, and `TypeShellProducerTests.HostileMetadataSelfNameIsNotRendered`. |
+| PDB local variables | Prefer an admitted Portable PDB local name associated with the exact IL slot and scope when the current per-slot model and collision allocation can represent it. Sibling arms of one raised switch expression may preserve the same exact name; same-arm reuse, wider reservations, and flattened local-function declarations still collide. Eliminated, unreferenced, or unnamed printer-elided slots do not reserve names from surviving binders; receiver recomposition does not elide an exact named slot. P24 and P27 record the remaining general scope-reuse gaps. | P2, P24, P27 | `RaisingPassTests.LocalNames_RecoveredFromPdb_RenderSourceNamesNotVSlots`, `StructReceiverInliningPassTests.ExactNamedReceiver_IsNotFolded`, `RaisingPassTests.StoreElement_PreservesExactNamedReceiverTemp`, `PatternSwitchExpressionPassTests.ProductTargetMethod_SelfRaisesToPatternSwitchExpression`, `UnspeakableNameFidelityTests.EliminatedDuplicateLocal_DoesNotReserveSurvivingExactName`, `UnspeakableNameFidelityTests.RaisedLambdaUnreferencedDuplicateLocal_DoesNotReserveSurvivingExactName`, and the remaining local-collision gates in `UnspeakableNameFidelityTests`; P24 is manually probed, while `PdbLocalNameScopeTests.ReusedSlotWithDifferentScopeNames_ExposesCurrentLastNameLoss` pins P27's artifact shape and current loss. |
 | Lambda parameters and captures | When an authenticated lambda raise succeeds, preserve generated-method parameter names and substitute authenticated captured-field names back to their source identifiers. Current C# permits nested parameters and locals to reuse enclosing parameter or local names; same-list duplicates and collisions with an actually referenced enclosing binder lower fidelity. | P3, P26 | `LambdaRaisingPassTests.NonCapturingExpressionBody_RaisesSimpleLambda`, `CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda`, the `*ReusingOuter*` gates, and `UnspeakableNameFidelityTests` |
 | Expression-tree lambda parameters | When the fully owned expression-tree factory shape raises, preserve each `Expression.Parameter` string as the lambda parameter identity. | P23 | `ExpressionTreeFidelityTests.SimpleArithmeticLambda_RecoversLambda_StaysFull` |
 | Dynamic member names | When the authenticated runtime-binder call-site shape raises, preserve its member-name string as the dynamic member identity. | P23 | `DynamicCallSitePassTests.CanonicalPositive_PrintsDynamicMemberAccess` |
@@ -313,6 +319,7 @@ inspect_member() {
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass KeywordParam "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass GreaterAsByte "$CFG"
+inspect_member ILInspector.Decompiler.Tests.CfgSampleClass StackAllocGenericNameCollision "$CFG"
 
 dotnet run --project src/dotnet-inspect -c Release --no-build -- \
   type ILInspector.Metadata.Tests.TupleSampleClass \
@@ -325,6 +332,7 @@ Expected name observations:
 ```csharp
 public static int KeywordParam(int @delegate)
 public static bool GreaterAsByte<T>(T left, T right)
+byte* __stackalloc0 = stackalloc byte[4];
 ```
 
 The type command additionally shows the metadata namespace and type plus field
@@ -336,10 +344,12 @@ surface is gated by `MetadataDeclarationQueryTests`.
 
 ```bash
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass ReverseCopy "$CFG"
+inspect_member ILInspector.Decompiler.Tests.CfgSampleClass StoreElementNamedReceiverTemp "$CFG"
 ```
 
-Expected: the declarations and uses are named `i` and `j`, not `V_0` and
-`V_1`.
+Expected: `ReverseCopy` declarations and uses are named `i` and `j`, not `V_0`
+and `V_1`. `StoreElementNamedReceiverTemp` retains the declaration and use of
+`trimmed` rather than inlining it away.
 
 ### P3: lambda parameter and capture names
 

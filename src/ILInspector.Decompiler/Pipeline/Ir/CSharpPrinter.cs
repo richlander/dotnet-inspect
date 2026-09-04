@@ -1822,6 +1822,11 @@ public sealed partial class CSharpPrinter
     {
         if (store.Type.Kind == TypeRefKind.ByRef)
             return false;
+        if (store.Index < function.LocalNames.Length
+            && function.LocalNames[store.Index] is not null)
+        {
+            return false;
+        }
         if (store.OwnsSourceLabel
             && store.SourceOffset >= 0
             && _labelTargets.Contains(store.SourceOffset))
@@ -4994,11 +4999,7 @@ public sealed partial class CSharpPrinter
 
     string FreshSyntheticLocalName(string baseName)
     {
-        var used = new HashSet<string>(
-            _function.Signature.Parameters.Select(p => p.DisplayName)
-                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
-                .Concat(_syntheticLocalNames),
-            StringComparer.Ordinal);
+        var used = CurrentScopeNames();
         string chosen = baseName;
         if (used.Contains(baseName))
         {
@@ -5996,11 +5997,19 @@ public sealed partial class CSharpPrinter
     HashSet<int>? _retainedLocalSlots;
 
     IReadOnlySet<int> RetainedLocalSlots()
-        => _retainedLocalSlots ??=
-            ExactLocalNameAllocation.RetainedLocalSlots(
-                _function,
-                _function.Locals.Length,
-                _function.EliminatedLocalSlots);
+    {
+        if (_retainedLocalSlots is null)
+        {
+            _retainedLocalSlots =
+                ExactLocalNameAllocation.RetainedLocalSlots(
+                    _function,
+                    _function.Locals.Length,
+                    _function.EliminatedLocalSlots);
+            _retainedLocalSlots.ExceptWith(_inlineReceiverTempLocals);
+        }
+
+        return _retainedLocalSlots;
+    }
 
     /// <summary>
     /// The display name for local slot <paramref name="index"/>: the PDB source
