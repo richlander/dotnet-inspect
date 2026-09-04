@@ -313,17 +313,17 @@ sequence plus subject-policy version. The inspector strip's key is the active
 subject identity, ordered inspector identity sequence, and inspector-policy
 version. Width and focus movement do not replace either key.
 
-The subject tablist uses one tab stop and manual activation. Left and Right
-Arrow move focus through the complete installed subject order, sliding the
-window by the smallest amount needed when focus reaches a hidden item. Home and
-End move to the first and last subject. Focus movement does not select a
-subject until Enter or Space activates it. Every subject references the shared
-subject panel, which is labelled by the active subject. The inspector tablist
-retains the equivalent lens semantics below. Allocation-button activation
-changes only allocation and focus remains on the button. Each strip's leading
-and trailing highlights disclose hidden items but add no tab stop. Any sliding
-animation preserves the focused element and is omitted when reduced motion is
-requested.
+The subject tablist uses one tab stop and automatic keyboard activation. Left
+and Right Arrow move focus through the complete installed subject order and
+activate the destination, sliding the window by the smallest amount needed when
+focus reaches a hidden item. Home and End move to and activate the first and
+last subject. Enter or Space also activates the focused subject. Every subject
+references the shared subject panel, which is labelled by the active subject.
+The inspector tablist retains the manual lens semantics below.
+Allocation-button activation changes only allocation and focus remains on the
+button. Each strip's leading and trailing highlights disclose hidden items but
+add no tab stop. Any sliding animation preserves the focused element and is
+omitted when reduced motion is requested.
 
 When a window, mode, or allocation change excludes the sole roving-tab-stop
 holder while that tablist is unfocused, the adopter moves `tabindex="0"` without
@@ -425,20 +425,27 @@ realize them. A packet composes its Workspace, navigation, and initial view as
 defined by [Workspace Definitions](workspace-definitions.md); two packets remain
 separately selectable when they reuse the same underlying Workspace. The first
 browser adoption retains resolved product demo scenarios for the current
-session.
+session. Inspect Web has exactly one live runtime Workspace. The home page
+exposes one **Demos** entry that opens this subject; it does not expose one
+button per demo or create a Workspace switcher.
 
-Selecting a packet is observational: it changes the packet detail shown in the
-content pane and starts no acquisition or inspection work. The detail shows its
-owner-issued title and summary, declared workspace members, initial navigation
-target, and initial view. A separate, explicit `Open workspace` action executes
-the selected packet. The selected packet's title replaces the generic
-`Workspace` content heading and inspected-target label.
+The `/demos` application route presents every entry exposed by the application
+product demo catalog, in product order. Listing carries its owner-issued stable
+ID as action identity, renders its title and summary, and starts no demo
+resolution, acquisition, inspection, or graph work. Each entry exposes a
+separate explicit **Open demo** action. Activating that action resolves only the
+selected definition and uses its existing replace-and-restore or product-run
+path to replace the sole live Workspace. A failed Open demo action keeps the
+catalog and prior Workspace available, surfaces a retryable failure there, and
+returns focus to the selected demo action.
 
-Selection and runtime state remain separate. The selected packet title orients
-the packet viewer; it does not claim that the packet uniquely owns the loaded
-Workspace or that its initial view is active. The loaded Workspace section
-reports runtime state without inferring packet identity from matching
-coordinates. Packet selection preserves focus on the selected inventory entry.
+Available definitions and runtime state remain separate. A demo title does not
+rename the Workspace, claim that the definition uniquely owns the loaded
+coordinates, or imply that its initial view is still active. The loaded
+Workspace section reports runtime state without inferring demo identity from
+matching coordinates. Categories, filtering, and separate Aspire or
+performance-demo entry points are residual; the first adoption lists every
+current demo.
 
 The same content pane separately lists the runtime Workspace's loaded
 coordinates with:
@@ -448,24 +455,28 @@ coordinates with:
 - loading, ready, or failed state; and
 - an explicit Close action.
 
-Opening a packet or closing a coordinate submits its opaque identity and
+Opening a demo or closing a coordinate submits its owner-issued identity and
 renders the returned workspace outcome. The UI does not choose a subject, lens,
-successor, or fallback for the product. Separate packets remain separate even
-when their display package IDs and complete coordinate sets match.
+successor, or fallback for the product.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve
-the Workspace subject, its application-scope presentation, and its retained
-coordinates.
-The home-demo packet inventory is session-scoped until scenario identity is
-part of the share format; after refresh, the generic current Workspace remains
-viewable without reconstructing a demo identity from matching coordinates.
+returned successor while remaining in Workspace. The `/demos` entry route is an
+in-session catalog view: it preserves currently loaded coordinates while open,
+but a direct visit or refresh starts with an empty Workspace. After an Open demo
+or coordinate action returns to a canonical Workspace URL, Share and refresh
+preserve the Workspace subject, its application-scope presentation, and its
+retained coordinates. The home-demo packet inventory is session-scoped until
+scenario identity is part of the share format; after refresh, the generic
+current Workspace remains viewable without reconstructing a demo identity from
+matching coordinates.
 
-Workspace renders stable focus targets for its heading, every packet entry, and
+Workspace renders stable focus targets for its heading, every demo entry, and
 every coordinate action. Post-result focus and failure
 handling are owned by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
+Its content panel is labelled by the active Workspace application-scope
+control, including when a cold catalog has no inspection-subject entries.
 
 Workspace also exposes the same Search and Open actions as the shell. It does
 not infer source identity, package equivalence, local-file correspondence, or
@@ -787,6 +798,7 @@ add and pass these named Inspect Web tests:
 - `scope-bar.test.ts` and `workspace-titlebar.spec.ts`:
   `slideable subject strip composes reusable strips without losing navigation`
   cover the separate subject and inspector whole-strip mode policies,
+  automatic subject activation with destination focus restoration,
   contiguous windows and edge indicators, inspector-first width allocation,
   stable Pareto-ladder construction, duplicate and dominated result removal,
   exact selected-window slack return, adjacent non-no-op allocation controls,
@@ -885,12 +897,13 @@ are proved by the gates in
    result. Confirm that focus remains on the allocation button. At each bound,
    confirm that the corresponding mounted button is `aria-disabled="true"` and
    activation has no effect.
-7. Rove focus to an inactive subject and inspector and replace the shell
-   asynchronously. Confirm that the focused typed tab remains the sole tab
-   stop in its tablist, each retained window still contains its focus, and
-   allocation bias survives while the subject and ordered inspector identity
-   sequence remain installed. Change that sequence without changing the
-   subject and confirm that allocation resets to inspector-first.
+7. Use Arrow navigation to focus and activate another subject, then rove focus
+   to an inactive inspector and replace the shell asynchronously. Confirm that
+   each focused typed tab remains the sole tab stop in its tablist, each
+   retained window still contains its focus, and allocation bias survives while
+   the subject and ordered inspector identity sequence remain installed.
+   Change that sequence without changing the subject and confirm that
+   allocation resets to inspector-first.
    Then move focus outside each tablist and change its window so the previous
    tab-stop holder is hidden. Confirm that focus and selection do not move and
    that the active visible tab, or otherwise the nearest visible item, becomes
