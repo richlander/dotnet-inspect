@@ -95,7 +95,8 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
-const packageMode = params.has("package");
+const packageMetadataMode = params.has("package-metadata");
+const packageMode = params.has("package") || packageMetadataMode;
 const memberMode = params.has("member");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
@@ -209,7 +210,7 @@ let activeScope: WorkspaceScope = workspaceMode
     : memberMode
       ? "member"
       : "type";
-let activePackageLens: PackageLens = "overview";
+let activePackageLens: PackageLens = packageMetadataMode ? "metadata" : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -332,6 +333,20 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (packageMetadataMode) {
+    return `<section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
+      <header class="metadata-surface-head package-metadata-surface-head">
+        <h1 id="package-metadata-surface-title">Metadata images</h1>
+        <p>1 assembly</p>
+      </header>
+      <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
+      <div class="package-metadata-scroll"></div>
+      <footer class="metadata-surface-footer package-metadata-surface-footer">
+        <span>System.Text.Json@10.0.0</span>
+        <span>net10.0</span>
+      </footer>
+    </section>`;
+  }
   if (metadataMode) {
     return `<section class="metadata-surface" aria-labelledby="metadata-surface-title">
       <header class="metadata-surface-head">
@@ -576,11 +591,11 @@ app.innerHTML = `
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
-        : packageMode || sourceMode
+        : sourceMode || (packageMode && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>

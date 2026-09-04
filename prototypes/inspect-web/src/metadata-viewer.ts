@@ -391,9 +391,11 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
   isPlatform: boolean;
   /** The scoped platform library name, or "" when the platform lens has no selection yet. */
   scopedLibrary: string;
+  packageId: string;
+  packageVersion: string;
   activeFramework: string;
-  /** The shared `platformLensPicker` markup, rendered by `dotnet-inspect.ts` for the platform lens. */
-  pickerHtml: string;
+  /** Compact coordinate controls rendered by `dotnet-inspect.ts`. */
+  controlsHtml: string;
   /** True when the loaded metadata (or in-flight load) belongs to the current scope. */
   fresh: boolean;
   loading: boolean;
@@ -410,32 +412,59 @@ export interface PackageMetadataOptions extends MetadataTextHelpers {
  */
 export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const {
-    isPlatform, scopedLibrary, activeFramework, pickerHtml, fresh, loading, error, metadata,
-    escapeHtml, fmtBytes,
+    isPlatform, scopedLibrary, packageId, packageVersion, activeFramework,
+    controlsHtml, fresh, loading, error, metadata, escapeHtml, fmtBytes,
   } = options;
-  const picker = isPlatform ? pickerHtml : "";
+  const data = fresh ? metadata : null;
+  const context = scopedLibrary
+    ? `${activeFramework} · ${scopedLibrary}`
+    : activeFramework;
+  const renderSurface = (content: string, status: string) => `
+    <section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
+      <header class="metadata-surface-head package-metadata-surface-head">
+        <h1 id="package-metadata-surface-title">Metadata images</h1>
+        <p>${escapeHtml(status)}</p>
+      </header>
+      ${controlsHtml}
+      <div class="package-metadata-scroll">
+        ${content}
+      </div>
+      <footer class="metadata-surface-footer package-metadata-surface-footer">
+        <span title="${escapeHtml(`${packageId}@${packageVersion}`)}">${escapeHtml(`${packageId}@${packageVersion}`)}</span>
+        <span title="${escapeHtml(context)}">${escapeHtml(context)}</span>
+      </footer>
+    </section>`;
   if (isPlatform && !scopedLibrary) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`;
+    return renderSurface(
+      `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Pick a library to inspect</h2><p>Choose a .NET platform library above to read its metadata image — format version, heaps, tables, and PE/CLI headers.</p></section>`,
+      "library required");
   }
   const scanScope = isPlatform
     ? `${escapeHtml(scopedLibrary)} · ${escapeHtml(activeFramework)}`
     : escapeHtml(activeFramework);
   if (loading && fresh) {
-    return `${picker}<section class="document-section source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`;
+    return renderSurface(
+      `<section class="document-section package-metadata-state source-progress"><span class="loader"></span><h2>Reading metadata…</h2><p>Describing the metadata image — heaps, tables, and headers.</p></section>`,
+      "reading");
   }
   if (fresh && error) {
-    return `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p><button type="button" data-package-metadata-retry>retry</button></section>`;
+    return renderSurface(
+      `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(error)}</p><button type="button" data-package-metadata-retry>retry</button></section>`,
+      "read failed");
   }
-  const data = fresh ? metadata : null;
   if (!data) {
-    return `${picker}<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderSurface(
+      `<section class="document-section package-metadata-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
+      "loading");
   }
 
   const assemblies = data.assemblies || [];
   if (!assemblies.length) {
-    return data.inspectionError
-      ? `${picker}<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
-      : `${picker}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`;
+    return renderSurface(
+      data.inspectionError
+        ? `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">△</span><h2>Metadata read failed</h2><p>${escapeHtml(data.inspectionError)}</p></section>`
+        : `<section class="document-section package-metadata-state empty-document"><span class="large-glyph">◇</span><h2>No metadata images</h2><p>None of the assemblies in ${scanScope} carry ECMA-335 metadata (they may be native or resource-only).</p></section>`,
+      data.inspectionError ? "read failed" : "no images");
   }
 
   const warning = data.inspectionError
@@ -444,13 +473,9 @@ export function renderPackageMetadata(options: PackageMetadataOptions): string {
   const blocks = assemblies
     .map(asm => renderAssemblyMetadataBlock(asm, { escapeHtml, fmtBytes }))
     .join("");
-  const summary = `
-    <section class="document-section">
-      <div class="section-title"><h2>Metadata image</h2><span>${assemblies.length} assembl${assemblies.length === 1 ? "y" : "ies"} · ${scanScope}</span></div>
-      <p class="lens-note">The physical shape of each assembly's metadata — format stamp, heap sizes, populated ECMA-335 tables, and PE/CLI headers. This describes the container, not the API surface.</p>
-    </section>`;
-
-  return `${picker}${warning}${summary}${blocks}`;
+  return renderSurface(
+    `${warning}${blocks}`,
+    `${assemblies.length} assembl${assemblies.length === 1 ? "y" : "ies"}`);
 }
 
 /**
