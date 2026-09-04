@@ -108,6 +108,25 @@ public class SwapIdiomPassTests
     }
 
     [Fact]
+    public void MaterializedNamedSlot_IsNotReclassifiedAsHiddenCarrier()
+    {
+        var function = BuildBlock(
+            SaveSlot(0, Arg(0)),
+            StoreArg(0, Arg(1)),
+            StoreArg(1, LoadSlot(0)));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal([null], function.LocalNames);
+        Assert.Equal(["S_0"], function.SynthesizedLocalNames);
+
+        new SwapIdiomPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<DeconstructionAssignment>());
+    }
+
+    [Fact]
     public void SameArgumentIndexWithDistinctBinders_RemainsDistinct()
     {
         var outer = new Parameter("outer", Int);

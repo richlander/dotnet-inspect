@@ -256,7 +256,9 @@ public sealed class SwapIdiomPass : IIrPass
     static bool IsHiddenLocal(IrFunction function, int index)
         => index >= 0
             && index < function.LocalNames.Length
-            && function.LocalNames[index] is null;
+            && function.LocalNames[index] is null
+            && (index >= function.SynthesizedLocalNames.Length
+                || function.SynthesizedLocalNames[index] is null);
 
     // A place type is swappable only when it is a spellable, boxable-or-plain
     // by-value type that is legal as a ValueTuple element. Mirrors the

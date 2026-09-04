@@ -122,8 +122,11 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Contains("Delegate.Remove(_changed, value)", rendered.Text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void ProduceMember_MissingSetterValueName_FailsVisibly()
+    [Theory]
+    [InlineData("set_Value")]
+    [InlineData("assign_Value")]
+    public void ProduceMember_MissingSetterValueName_FailsVisibly(
+        string setterName)
     {
         string directory = Path.Combine(
             Path.GetTempPath(),
@@ -144,7 +147,7 @@ public sealed class MemberBodyProducerMemberRenderTests
                 typeof(int),
                 FieldAttributes.Private);
             var setter = typeBuilder.DefineMethod(
-                "set_Value",
+                setterName,
                 MethodAttributes.Public
                     | MethodAttributes.SpecialName
                     | MethodAttributes.HideBySig,
@@ -175,6 +178,74 @@ public sealed class MemberBodyProducerMemberRenderTests
             var rendered = MemberBodyProducer.ProduceMember(
                 type,
                 property,
+                assemblyPath,
+                pdbPath: null);
+
+            Assert.Equal(MemberBodyProductionStatus.Failed, rendered.Status);
+            Assert.Contains("issue #5778", rendered.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ProduceMember_RenamedEventValueNames_FailVisibly()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"member-render-renamed-event-name-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var assemblyName = new AssemblyName("RenamedEventValueNames");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName,
+                typeof(object).Assembly);
+            var module = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+            var typeBuilder = module.DefineType(
+                "RenamedEventValueNamesSample",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var eventBuilder = typeBuilder.DefineEvent(
+                "Changed",
+                EventAttributes.None,
+                typeof(Action));
+            var adder = typeBuilder.DefineMethod(
+                "attach_Changed",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(Action)]);
+            adder.GetILGenerator().Emit(OpCodes.Ret);
+            eventBuilder.SetAddOnMethod(adder);
+            var remover = typeBuilder.DefineMethod(
+                "detach_Changed",
+                MethodAttributes.Public
+                    | MethodAttributes.SpecialName
+                    | MethodAttributes.HideBySig,
+                typeof(void),
+                [typeof(Action)]);
+            remover.GetILGenerator().Emit(OpCodes.Ret);
+            eventBuilder.SetRemoveOnMethod(remover);
+            typeBuilder.CreateType();
+
+            string assemblyPath = Path.Combine(
+                directory,
+                "RenamedEventValueNames.dll");
+            assemblyBuilder.Save(assemblyPath);
+            using var pe = new PEReader(File.OpenRead(assemblyPath));
+            var type = Assert.Single(
+                ApiSurfaceExtractor.Extract(pe).Types,
+                candidate => candidate.FullName == "RenamedEventValueNamesSample");
+            var eventMember = Assert.Single(
+                type.Members,
+                member => member.Name == "Changed");
+
+            var rendered = MemberBodyProducer.ProduceMember(
+                type,
+                eventMember,
                 assemblyPath,
                 pdbPath: null);
 
