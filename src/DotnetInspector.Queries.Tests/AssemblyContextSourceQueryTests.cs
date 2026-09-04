@@ -654,6 +654,36 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task MemberComparison_ForeignBindingSnapshotFails()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        assembly.Policy.SnapshotVersion =
+            new AssemblyBindingPolicyVersion();
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                assembly.MemberRequest(
+                    nameof(SourceFixture.Describe)),
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<AssemblyMemberSourceComparisonEntry.Failed>(
+                result);
+        Assert.IsType<InvalidOperationException>(
+            failed.Failure.Error);
+    }
+
+    [Fact]
     public async Task PathlessType_AcquiresVerifiedPdbDocument()
     {
         TestAssembly assembly = TestAssembly.Create();

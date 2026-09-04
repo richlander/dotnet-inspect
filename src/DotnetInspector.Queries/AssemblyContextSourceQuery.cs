@@ -1215,6 +1215,7 @@ public static class AssemblyContextSourceQuery
         : IAssemblyBindingPolicy
     {
         ExceptionDispatchInfo? _cancellation;
+        ExceptionDispatchInfo? _inspectionFailure;
         readonly Dictionary<
             AssemblyAcquisitionRegistration,
             ResolvedAssemblyReference> _observedAssemblies =
@@ -1261,10 +1262,18 @@ public static class AssemblyContextSourceQuery
                 ObserveCancellation(ex);
                 throw;
             }
+            catch (Exception ex) when (IsInspectionFailure(ex))
+            {
+                ObserveInspectionFailure(ex);
+                throw;
+            }
         }
 
-        internal void ThrowIfObserved() =>
+        internal void ThrowIfObserved()
+        {
             Volatile.Read(ref _cancellation)?.Throw();
+            Volatile.Read(ref _inspectionFailure)?.Throw();
+        }
 
         void EnsureVersion()
         {
@@ -1316,6 +1325,12 @@ public static class AssemblyContextSourceQuery
         void ObserveCancellation(OperationCanceledException error) =>
             Interlocked.CompareExchange(
                 ref _cancellation,
+                ExceptionDispatchInfo.Capture(error),
+                comparand: null);
+
+        void ObserveInspectionFailure(Exception error) =>
+            Interlocked.CompareExchange(
+                ref _inspectionFailure,
                 ExceptionDispatchInfo.Capture(error),
                 comparand: null);
     }
