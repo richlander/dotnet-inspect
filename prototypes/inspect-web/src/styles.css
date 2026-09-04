@@ -1115,7 +1115,7 @@ kbd {
 .package-metadata-scroll > .meta-assembly + .meta-assembly { margin-top: 24px; border-top: 1px solid var(--line); }
 .package-dependencies-state,
 .package-metadata-state { min-height: 100%; align-content: center; }
-.package-dependencies-surface-footer,
+.api-surface-footer.package-dependencies-surface-footer,
 .package-metadata-surface-footer { justify-content: space-between; }
 .api-surface-controls { margin: 0; border: 0; border-bottom: 1px solid var(--line); }
 .api-surface-controls .member-filter-disclosure { border-top: 0; }

@@ -358,6 +358,20 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toHaveClass(/content-navigation-integrated/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
     .toHaveText("Dependencies");
+  const packageDependenciesFooter = await box(
+    page,
+    ".package-dependencies-surface-footer");
+  const packageDependenciesCoordinate = await box(
+    page,
+    ".package-dependencies-surface-footer span:first-child");
+  const packageDependenciesFramework = await box(
+    page,
+    ".package-dependencies-surface-footer span:last-child");
+  expect(packageDependenciesCoordinate.x)
+    .toBeLessThan(packageDependenciesFooter.x + packageDependenciesFooter.width / 3);
+  expect(packageDependenciesFramework.x + packageDependenciesFramework.width)
+    .toBeGreaterThan(
+      packageDependenciesFooter.x + packageDependenciesFooter.width * 2 / 3);
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth
     - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
