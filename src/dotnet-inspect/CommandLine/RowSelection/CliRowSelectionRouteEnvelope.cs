@@ -238,6 +238,19 @@ internal static class CliRowSelectionRouteEnvelope
         // earlier request.
         foreach (RequestToken request in scan.Requests)
         {
+            if (request.MeaningsDiffer)
+            {
+                if (!hasUnexpectedCommand)
+                {
+                    return CliRowSelectionRouteEnvelopeResult
+                        .ExplicitCommandRequired(
+                            null,
+                            request.Position);
+                }
+
+                continue;
+            }
+
             if (request.Declared.All(
                     declared => !declared))
             {
@@ -249,17 +262,14 @@ internal static class CliRowSelectionRouteEnvelope
                         scan.LineSelection));
             }
 
-            if (request.MeaningsDiffer
-                || request.Declared.Any(
+            if (request.Declared.Any(
                     declared => !declared))
             {
                 if (!hasUnexpectedCommand)
                 {
                     return CliRowSelectionRouteEnvelopeResult
                         .ExplicitCommandRequired(
-                            request.MeaningsDiffer
-                                ? null
-                                : request.Kind,
+                            request.Kind,
                             request.Position);
                 }
 
