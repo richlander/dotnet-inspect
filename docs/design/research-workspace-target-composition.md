@@ -26,6 +26,9 @@ adds no participant and changes no Research attempt.
 
 The supporting contracts have these roles:
 
+- [Workspace scope and expansion](workspace-scope-and-expansion.md) owns
+  committed logical Root membership and dependency-expansion eligibility; this
+  composition neither mutates that scope nor requests expansion.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
   owns group admission, participant registrations, binding-policy versions,
   immutable image access, and group lifetime.
@@ -474,6 +477,7 @@ This design does not:
 
 - change workspace admission, binding selection, forwarding resolution,
   Queries population sealing, or Research target semantics;
+- change committed Workspace scope or request dependency expansion;
 - define supplemental acquisition or authorize a missing implementation;
 - compare whole assembly surfaces through per-type forwarding;
 - run a Research producer or publish an Implementation Diff result;
