@@ -10732,6 +10732,12 @@ async function restoreWorkspaceFromLocation(
     return;
   }
   if (!loc.package) return;
+  const retryRestore = () => restoreWorkspaceFromLocation(
+    loc,
+    deep,
+    undefined,
+    undefined,
+    focusResult);
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
@@ -10831,7 +10837,8 @@ async function restoreWorkspaceFromLocation(
           : canonicalTabCountPreserved
             ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
             : "The shared workspace coordinates did not remain distinct after resolution."),
-      canonicalSnapshot);
+      canonicalSnapshot,
+      retryRestore);
     return;
   }
 
@@ -10861,7 +10868,8 @@ async function restoreWorkspaceFromLocation(
             loc,
             deep,
             `The shared Platform library '${loc.library}' could not be restored.`,
-            canonicalSnapshot);
+            canonicalSnapshot,
+            retryRestore);
         }
         return;
       }
@@ -10874,7 +10882,8 @@ async function restoreWorkspaceFromLocation(
           loc,
           deep,
           libraryFailure,
-          canonicalSnapshot);
+          canonicalSnapshot,
+          retryRestore);
         return;
       }
     }
@@ -10887,7 +10896,8 @@ async function restoreWorkspaceFromLocation(
         loc,
         deep,
         viewFailure,
-        canonicalSnapshot);
+        canonicalSnapshot,
+        retryRestore);
       return;
     }
     applyDeepLink(deep);
@@ -10901,11 +10911,18 @@ async function restoreWorkspaceFromLocation(
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
-    await loadPackage(target.id, target.version, target.framework, {
-      deepLink: deep,
-      navigationSeq,
-      queryNotice: state.queryNotice
-    });
+    const loaded = await loadPackage(
+      target.id,
+      target.version,
+      target.framework,
+      {
+        deepLink: deep,
+        navigationSeq,
+        queryNotice: state.queryNotice
+      });
+    if (loaded && focusResult && navigationSequence.isCurrent(navigationSeq)) {
+      focusInspectionResult(navigationSeq);
+    }
   } else {
     state.loading = false;
     const failure =
@@ -10916,12 +10933,7 @@ async function restoreWorkspaceFromLocation(
       ? `${state.queryNotice} ${failure}`
       : failure;
     state.errorTitle = "Platform failed";
-    state.retryAction = () => restoreWorkspaceFromLocation(
-      loc,
-      deep,
-      undefined,
-      undefined,
-      focusResult);
+    state.retryAction = retryRestore;
     render();
   }
 }

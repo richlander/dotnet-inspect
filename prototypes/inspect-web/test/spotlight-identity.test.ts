@@ -2819,10 +2819,16 @@ test("home demos restore the complete parsed location", () => {
     /await loadSelectionData\(\);\s*if \(focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*focusInspectionResult\(navigationSeq\);/);
   assert.match(
     restoreWorkspace,
+    /const retryRestore = \(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*undefined,\s*focusResult\)/);
+  assert.match(
+    restoreWorkspace,
+    /failCanonicalWorkspaceRestore\([\s\S]*canonicalSnapshot,\s*retryRestore\)/);
+  assert.match(
+    restoreWorkspace,
     /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot,\s*focusResult\)/);
   assert.match(
     restoreWorkspace,
-    /state\.retryAction = \(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*undefined,\s*focusResult\)/);
+    /const loaded = await loadPackage\([\s\S]*if \(loaded && focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*focusInspectionResult\(navigationSeq\);[\s\S]*state\.retryAction = retryRestore/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
