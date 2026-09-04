@@ -107,6 +107,8 @@ interface HarnessOptions {
   readonly clockUnsubscribeError?: Error;
   readonly lifecycleUnsubscribeError?: Error;
   readonly detachError?: Error;
+  readonly detach?: () => void;
+  readonly terminate?: () => void;
   readonly bindMessage?: unknown;
   readonly synchronousInitializeMessages?: (
     epochToken: number,
@@ -139,6 +141,7 @@ interface HarnessOptions {
   readonly controlResponseGraceMilliseconds?: number;
   readonly drainBudgetMilliseconds?: number;
   readonly failure?: (failure: WorkerRuntimeFailure<TestDiagnostic>) => void;
+  readonly diagnostic?: (diagnostic: TestDiagnostic) => void;
   readonly realmReleased?: (epochToken: number) => void;
   readonly workerProducerClassIdleAllowanceMilliseconds?: number;
   readonly workerAllowance?: WorkerLivenessAllowance;
@@ -367,6 +370,8 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const runtimeDiagnostics: TestDiagnostic[] = [];
   const releasedEpochs: number[] = [];
   const detachError = options.detachError;
+  const detachCallback = options.detach;
+  const terminateCallback = options.terminate;
   const clockUnsubscribeError = options.clockUnsubscribeError;
   const lifecycleUnsubscribeError = options.lifecycleUnsubscribeError;
   const bindMessage = options.bindMessage;
@@ -378,6 +383,8 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     options.synchronousStartActiveAdvanceMilliseconds;
   const queuedTransport = new QueueWorkerRuntimeTransportFactory(workers);
   const transport = detachError === undefined
+    && detachCallback === undefined
+    && terminateCallback === undefined
     && bindMessage === undefined
     && synchronousInitializeMessages === undefined
     && synchronousAcceptedAllowance === undefined
@@ -416,7 +423,10 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
                 }));
               }
             },
-            terminate: () => binding.source.terminate(),
+            terminate: () => {
+              terminateCallback?.();
+              binding.source.terminate();
+            },
           };
           return {
             source,
@@ -433,6 +443,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
               if (bindMessage !== undefined)
                 nextHandlers.message(source, bindMessage);
               return () => {
+                detachCallback?.();
                 handlers = null;
                 detach();
                 if (detachError !== undefined)
@@ -483,6 +494,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
       },
       diagnostic: diagnostic => {
         runtimeDiagnostics.push(diagnostic.diagnostic);
+        options.diagnostic?.(diagnostic.diagnostic);
         return undefined;
       },
       realmReleased: epochToken => {
@@ -3842,6 +3854,155 @@ test("epoch closure commits siblings before observer failure and publishes failu
   await Promise.all([firstHandle.quiesced, secondHandle.quiesced]);
 });
 
+for (const physicalResponse of ["settled", "rejected"] as const) {
+  for (const outstandingCancellation of [false, true] as const) {
+    const cancellationCase = outstandingCancellation
+      ? " and cancellation acknowledgment"
+      : "";
+    test(`closure publication survives reentrant sibling ${physicalResponse}${cancellationCase}`, async () => {
+      const settlement = deferred<TestSettlement>();
+      const order: string[] = [];
+      let harness: TestHarness;
+      let secondHandle: OperationHandle<string, string> | null = null;
+      harness = createHarness({
+        invoke: () => settlement.promise,
+        failure: failure => {
+          order.push(`runtime-failure:${failure.kind}`);
+        },
+        omitResponse: kind =>
+          (outstandingCancellation && kind === "cancel-acknowledged")
+          || (physicalResponse === "rejected" && kind === "accepted"),
+      });
+      await startReady(harness);
+      const authority = createOperationAuthorityPage({
+        allocation: {
+          createId: (() => {
+            let id = 1;
+            return () => `reentrant-physical-${id++}`;
+          })(),
+        },
+      });
+      const firstSession = authority.createSession<
+        string,
+        string,
+        string,
+        string,
+        WorkerRuntimePreparationError
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind !== "terminal") return undefined;
+            order.push("first-terminal");
+            const second = secondHandle;
+            assert.notEqual(second, null);
+            if (second === null) return undefined;
+            harness.workers[0]!.emitRaw(workerEnvelope(1,
+              physicalResponse === "settled"
+                ? {
+                    kind: "settled",
+                    operation: {
+                      operationId: second.id,
+                      operationSequence: 2,
+                    },
+                    settlement: { kind: "succeeded", value: "late" },
+                  }
+                : {
+                    kind: "rejected",
+                    operation: {
+                      operationId: second.id,
+                      operationSequence: 2,
+                    },
+                    error: "late",
+                    diagnostic: { code: "late", detail: null },
+                  }));
+            if (outstandingCancellation) {
+              harness.workers[0]!.emitRaw(workerEnvelope(1, {
+                kind: "cancel-acknowledged",
+                operation: {
+                  operationId: second.id,
+                  operationSequence: 2,
+                },
+                status: "not-active",
+              }));
+            }
+            return undefined;
+          },
+        },
+        diagnostic: { report: () => undefined },
+      });
+      const secondSession = authority.createSession<
+        string,
+        string,
+        string,
+        string,
+        WorkerRuntimePreparationError
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "terminal") order.push("second-terminal");
+            return undefined;
+          },
+        },
+        diagnostic: { report: () => undefined },
+      });
+      const firstHandle = started(
+        firstSession.start("first", harness.adapter),
+      );
+      secondHandle = started(
+        secondSession.start("second", harness.adapter),
+      );
+      if (outstandingCancellation) {
+        assert.deepEqual(secondHandle.cancel("user"), { kind: "applied" });
+      }
+      let secondQuiesced = false;
+      void secondHandle.quiesced.then(() => {
+        secondQuiesced = true;
+        return undefined;
+      });
+      await harness.environment.flushAsync();
+
+      harness.workers[0]!.emitRaw({ malformed: true });
+      await Promise.resolve();
+
+      assert.deepEqual(order, outstandingCancellation
+        ? [
+            "first-terminal",
+            "runtime-failure:protocol",
+          ]
+        : [
+            "first-terminal",
+            "second-terminal",
+            "runtime-failure:protocol",
+          ]);
+      assert.equal(secondQuiesced, true);
+      assert.equal(harness.host.snapshot().phase, "draining");
+
+      harness.workers[0]!.emitRaw(workerEnvelope(1,
+        physicalResponse === "settled"
+          ? {
+              kind: "settled",
+              operation: {
+                operationId: firstHandle.id,
+                operationSequence: 1,
+              },
+              settlement: { kind: "succeeded", value: "late" },
+            }
+          : {
+              kind: "rejected",
+              operation: {
+                operationId: firstHandle.id,
+                operationSequence: 1,
+              },
+              error: "late",
+              diagnostic: { code: "late", detail: null },
+            }));
+      assert.equal(harness.host.snapshot().phase, "closed");
+      assert.deepEqual(harness.releasedEpochs, [1]);
+      await firstHandle.quiesced;
+    });
+  }
+}
+
 test("synchronous fake admission cannot invoke after restart releases the realm", async () => {
   let harness: TestHarness;
   let invokeCount = 0;
@@ -3969,6 +4130,114 @@ test("teardown callback failures do not interrupt mandatory shutdown", async () 
     restarting.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
     [detachError],
   );
+});
+
+test("teardown diagnostics observe closed admission and completed termination", async () => {
+  const clockError = new Error("clock unsubscribe failed");
+  let disposalAdmission: ReturnType<TestSession["start"]> | null = null;
+  let disposalTerminated = false;
+  let disposing: TestHarness;
+  let disposalSession: ReturnType<typeof session>;
+  disposing = createHarness({
+    clockUnsubscribeError: clockError,
+    diagnostic: diagnostic => {
+      if (diagnostic.detail !== clockError) return;
+      disposalTerminated = disposing.workers[0]!.terminated;
+      disposalAdmission = disposalSession.session.start(
+        "late",
+        disposing.adapter,
+      );
+    },
+  });
+  await startReady(disposing);
+  disposalSession = session(disposing.adapter);
+
+  disposing.host.dispose();
+
+  assert.equal(disposalTerminated, true);
+  assert.deepEqual(disposalAdmission, {
+    kind: "rejected",
+    reason: {
+      kind: "producer-rejected",
+      error: { kind: "epoch-unavailable" },
+    },
+  });
+  assert.deepEqual(
+    operationMessages(disposing.workers[0]!),
+    ["initialize"],
+  );
+
+  const reentrantClockError = new Error("reentrant clock unsubscribe failed");
+  let subscriptionCleanupAfterTermination = false;
+  let reentrantDisposal: TestHarness;
+  reentrantDisposal = createHarness({
+    detach: () => {
+      reentrantDisposal.host.dispose();
+    },
+    clockUnsubscribeError: reentrantClockError,
+    diagnostic: diagnostic => {
+      if (diagnostic.detail !== reentrantClockError) return;
+      subscriptionCleanupAfterTermination =
+        reentrantDisposal.workers[0]!.terminated;
+    },
+  });
+  await startReady(reentrantDisposal);
+
+  reentrantDisposal.host.restart();
+
+  assert.equal(subscriptionCleanupAfterTermination, true);
+  assert.equal(reentrantDisposal.workers[0]!.terminateCount, 1);
+  assert.deepEqual(reentrantDisposal.releasedEpochs, [1]);
+
+  let detachRetry: ReturnType<TestHarness["host"]["start"]> | null = null;
+  let terminateRetry: ReturnType<TestHarness["host"]["start"]> | null = null;
+  let barrier: TestHarness;
+  barrier = createHarness({
+    detach: () => {
+      detachRetry = barrier.host.start("during-detach");
+    },
+    terminate: () => {
+      terminateRetry = barrier.host.start("during-terminate");
+    },
+  });
+  await startReady(barrier);
+
+  barrier.host.restart();
+
+  assert.deepEqual(detachRetry, {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+  assert.deepEqual(terminateRetry, {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+  assert.equal(barrier.workers[0]!.terminateCount, 1);
+  assert.deepEqual(barrier.releasedEpochs, [1]);
+
+  const detachError = new Error("transport detach failed");
+  let retry: ReturnType<TestHarness["host"]["start"]> | null = null;
+  let oldTerminatedAtDiagnostic = false;
+  let restarting: TestHarness;
+  restarting = createHarness({
+    workerCount: 2,
+    detachError,
+    diagnostic: diagnostic => {
+      if (diagnostic.detail !== detachError) return;
+      oldTerminatedAtDiagnostic = restarting.workers[0]!.terminated;
+      retry = restarting.host.start("replacement");
+    },
+  });
+  await startReady(restarting);
+
+  restarting.host.restart();
+
+  assert.equal(oldTerminatedAtDiagnostic, true);
+  assert.deepEqual(retry, { kind: "started", epochToken: 2 });
+  assert.deepEqual(restarting.releasedEpochs, [1]);
+  await restarting.environment.flushAsync();
+  assert.equal(restarting.host.snapshot().phase, "ready");
+  assert.equal(restarting.host.snapshot().epochToken, 2);
 });
 
 test("first closure identity and producer outcome survive later faults and draining crash", async () => {

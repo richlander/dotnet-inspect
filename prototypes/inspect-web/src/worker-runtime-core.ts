@@ -336,6 +336,7 @@ interface MainEpoch<TDiagnostic> {
     string,
     MainOperationRecord<TDiagnostic>
   >;
+  readonly deferredPhysicalClosures: Set<MainOperationRecord<TDiagnostic>>;
   readonly held: MainOperationRecord<TDiagnostic>[];
   readonly commands: Map<string, DeferredCommand>;
   readonly probeSequences: WorkerProbeSequenceAllocator;
@@ -609,6 +610,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   #current: MainEpoch<TDiagnostic> | null = null;
   #disposed = false;
   #startPending = false;
+  #terminationPending = false;
+  #subscriptionsReleased = false;
 
   constructor(
     options: WorkerRuntimeHostOptions<TBootstrap, TDiagnostic>,
@@ -692,11 +695,12 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#invokeCleanup(this.#unsubscribeClock);
-    this.#invokeCleanup(this.#unsubscribeLifecycle);
     const epoch = this.#current;
     if (epoch !== null && epoch.phase !== "closed")
       this.restart();
+    if (this.#terminationPending) return;
+    for (const error of this.#releaseSubscriptions())
+      this.#reportCallbackError(error);
   }
 
   registerOperation<
@@ -748,7 +752,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   start(bootstrap: TBootstrap): WorkerRuntimeEpochStartResult {
     if (this.#disposed)
       return { kind: "rejected", reason: "host-disposed" };
-    if (this.#startPending)
+    if (this.#startPending || this.#terminationPending)
       return { kind: "rejected", reason: "epoch-active" };
     const current = this.#current;
     if (current !== null && current.phase !== "closed")
@@ -834,6 +838,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       preparedOperations: new Map(),
       flushingPreparedOperations: false,
       operations: new Map(),
+      deferredPhysicalClosures: new Set(),
       held: [],
       commands: new Map(),
       probeSequences,
@@ -1076,6 +1081,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       kind: "rejected",
       error: registration.mapPreparationError(error),
     });
+    if (this.#disposed)
+      return reject({ kind: "epoch-unavailable" });
     const epoch = this.#current;
     if (epoch === null
       || (epoch.phase !== "starting"
@@ -1797,12 +1804,12 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     record.phase = "physically-closed";
-    this.#reportOperationQuiescence(record);
-    this.#releaseOperationPayload(record);
     if (!draining) this.#recordTaskEvidence(epoch);
-    this.#retireOperationIfComplete(epoch, record);
-    this.#topologyChanged(epoch);
-    this.#closeDrainedRealmIfReleased(epoch);
+    if (epoch.closurePublicationActive) {
+      epoch.deferredPhysicalClosures.add(record);
+      return;
+    }
+    this.#completePhysicalOperationClosure(epoch, record);
   }
 
   #receiveCancelAcknowledged(
@@ -1829,6 +1836,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (epoch.phase === "closed") return;
     record.cancelAcknowledged = true;
     if (!draining) this.#recordTaskEvidence(epoch);
+    if (epoch.closurePublicationActive) {
+      if (record.phase === "physically-closed")
+        epoch.deferredPhysicalClosures.add(record);
+      return;
+    }
     this.#retireOperationIfComplete(epoch, record);
     this.#closeDrainedRealmIfReleased(epoch);
   }
@@ -1865,11 +1877,11 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       return;
     }
     record.phase = "physically-closed";
-    this.#reportOperationQuiescence(record);
-    this.#releaseOperationPayload(record);
-    this.#retireOperationIfComplete(epoch, record);
-    this.#topologyChanged(epoch);
-    this.#closeDrainedRealmIfReleased(epoch);
+    if (epoch.closurePublicationActive) {
+      epoch.deferredPhysicalClosures.add(record);
+      return;
+    }
+    this.#completePhysicalOperationClosure(epoch, record);
   }
 
   #receiveEpochWorkStarted(
@@ -2227,12 +2239,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.drainDeadline = this.#options.clock.now()
       + this.#options.drainBudgetMilliseconds;
     epoch.closurePublicationActive = true;
+    const records = [...epoch.operations.values()];
     try {
-      for (const record of epoch.operations.values())
+      for (const record of records)
         this.#sealOperationClosure(record, closure);
-      for (const record of epoch.operations.values())
+      for (const record of records)
         this.#commitOperationClosure(record);
-      for (const record of epoch.operations.values())
+      for (const record of records)
         this.#publishOperationClosure(record);
       if (closure.kind === "unexpected-failure")
         this.#reportFailure(closure.failure);
@@ -2244,6 +2257,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       this.#closeDrainedRealmIfReleased(epoch);
     } finally {
       epoch.closurePublicationActive = false;
+      this.#completeDeferredPhysicalOperationClosures(epoch);
       this.#finalizeHardTerminationIfReady(epoch);
     }
   }
@@ -2288,12 +2302,21 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     });
   }
 
-  #invokeCleanup(cleanup: () => void): void {
-    try {
-      cleanup();
-    } catch (error: unknown) {
-      this.#reportCallbackError(error);
+  #releaseSubscriptions(): readonly unknown[] {
+    if (this.#subscriptionsReleased) return [];
+    this.#subscriptionsReleased = true;
+    const errors: unknown[] = [];
+    for (const unsubscribe of [
+      this.#unsubscribeClock,
+      this.#unsubscribeLifecycle,
+    ]) {
+      try {
+        unsubscribe();
+      } catch (error: unknown) {
+        errors.push(error);
+      }
     }
+    return errors;
   }
 
   #reportOperationQuiescence(
@@ -2306,6 +2329,32 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     record: MainOperationRecord<TDiagnostic>,
   ): void {
     record.release();
+  }
+
+  #completePhysicalOperationClosure(
+    epoch: MainEpoch<TDiagnostic>,
+    record: MainOperationRecord<TDiagnostic>,
+  ): void {
+    this.#reportOperationQuiescence(record);
+    this.#releaseOperationPayload(record);
+    this.#retireOperationIfComplete(epoch, record);
+    this.#topologyChanged(epoch);
+    this.#closeDrainedRealmIfReleased(epoch);
+  }
+
+  #completeDeferredPhysicalOperationClosures(
+    epoch: MainEpoch<TDiagnostic>,
+  ): void {
+    const records = [...epoch.deferredPhysicalClosures];
+    epoch.deferredPhysicalClosures.clear();
+    for (const record of records) {
+      this.#reportOperationQuiescence(record);
+      this.#releaseOperationPayload(record);
+      this.#retireOperationIfComplete(epoch, record);
+    }
+    if (records.length === 0) return;
+    this.#topologyChanged(epoch);
+    this.#closeDrainedRealmIfReleased(epoch);
   }
 
   #retireOperationIfComplete(
@@ -2335,16 +2384,36 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch: MainEpoch<TDiagnostic>,
   ): void {
     if (epoch.phase !== "closed") {
-      epoch.phase = "closed";
-      const detach = epoch.detach;
-      epoch.detach = null;
-      if (detach !== null) this.#invokeCleanup(detach);
-      this.#invokeCleanup(() => epoch.source.terminate());
-      epoch.held.length = 0;
-      epoch.commands.clear();
-      epoch.probe = null;
-      epoch.deferredControlProbe = false;
-      epoch.epochWork.clear();
+      const cleanupErrors: unknown[] = [];
+      this.#terminationPending = true;
+      try {
+        epoch.phase = "closed";
+        const detach = epoch.detach;
+        epoch.detach = null;
+        if (detach !== null) {
+          try {
+            detach();
+          } catch (error: unknown) {
+            cleanupErrors.push(error);
+          }
+        }
+        try {
+          epoch.source.terminate();
+        } catch (error: unknown) {
+          cleanupErrors.push(error);
+        }
+        epoch.held.length = 0;
+        epoch.commands.clear();
+        epoch.probe = null;
+        epoch.deferredControlProbe = false;
+        epoch.epochWork.clear();
+      } finally {
+        this.#terminationPending = false;
+      }
+      if (this.#disposed)
+        cleanupErrors.push(...this.#releaseSubscriptions());
+      for (const error of cleanupErrors)
+        this.#reportCallbackError(error);
     }
     this.#finalizeHardTerminationIfReady(epoch);
   }
@@ -2358,6 +2427,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
   #finalizeHardTerminationIfReady(epoch: MainEpoch<TDiagnostic>): void {
     if (epoch.phase !== "closed"
+      || this.#terminationPending
       || epoch.producerCallouts !== 0
       || epoch.closurePublicationActive
       || epoch.terminationFinalizing
@@ -2373,6 +2443,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         this.#releaseOperationPayload(record);
       }
       epoch.operations.clear();
+      epoch.deferredPhysicalClosures.clear();
     } finally {
       epoch.terminationFinalizing = false;
     }

@@ -848,6 +848,13 @@ unexpected `Settled` result; multiplying one realm failure across every
 operation diagnostic observer would reintroduce cross-operation authority and
 duplicate the same boundary evidence.
 
+A synchronous physical `Settled` or `Rejected` received while those committed
+publications are being exercised records physical closure but cannot report
+quiescence, release the retained sink, or retire the record until every
+operation in the closure snapshot has published. Physical response reentrancy
+therefore cannot erase a sibling publication capability or let realm release
+overtake a committed terminal event.
+
 Ordinary success, failure, progress, or cancellation messages arriving after
 that commit cannot replace the fixed closure. They may still prove physical
 release while the realm drains.
@@ -882,7 +889,10 @@ Clock unsubscription, lifecycle unsubscription, and transport detachment are
 fallible external callbacks. Each failure reports one callback diagnostic but
 cannot interrupt the remaining mandatory cleanup steps. In particular, a
 throwing detach callback cannot prevent the host from attempting
-`Worker.terminate()` or permit `realmReleased` before that attempt.
+`Worker.terminate()` or permit `realmReleased` before that attempt. Detach and
+termination errors are reported only after both mandatory callbacks have been
+attempted, and replacement startup remains reserved through that physical
+shutdown barrier.
 
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
@@ -910,7 +920,9 @@ Disposing the runtime host is terminal. It closes any current epoch, revokes
 its clock and lifecycle subscriptions, and rejects every later epoch start
 rather than creating work whose deadlines can no longer be evaluated.
 Failure from one subscription's unsubscribe callback does not prevent revoking
-the other subscription or closing the current epoch.
+the other subscription. Disposal closes operation admission and physically
+terminates the current epoch before invoking either unsubscribe callback, so a
+cleanup diagnostic cannot activate work in the disposing realm.
 
 Creating a replacement worker is explicit retry policy. It allocates a new
 epoch and new operation assignments. Messages and identities from the old
@@ -1068,7 +1080,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   observer attempts to cancel a committed sibling and requests termination:
   sibling cancellation is a no-op, both selected boundary outcomes remain
   final, exactly one runtime failure publishes, and old-epoch `realmReleased`
-  follows that runtime failure;
+  follows that runtime failure, plus synchronous sibling `Settled` and
+  `Rejected` responses that cannot erase the sibling's committed publication
+  or quiescence;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent
@@ -1130,7 +1144,11 @@ deterministic scheduling rather than a real browser worker. It includes:
 - failure-complete sink notification and record release when sink callbacks
   throw, compiler-complete boundary-error tables that require no closure-time
   mapper callout, clock and lifecycle unsubscribe plus transport-detach
-  failures that cannot skip termination or realm-release ordering, plus
+  failures that cannot admit disposed work or a replacement before physical
+  termination, direct reentrant starts from detach or terminate callbacks
+  rejecting until that barrier completes, disposal reentered from teardown
+  deferring subscription cleanup through that barrier, cleanup diagnostics
+  observing the completed barrier, and preserved realm-release ordering, plus
   synchronous fake-worker admission aborting before invocation when its
   response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
