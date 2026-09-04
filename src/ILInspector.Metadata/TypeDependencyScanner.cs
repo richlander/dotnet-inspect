@@ -160,6 +160,17 @@ public static class TypeDependencyScanner
                             var ns = mdReader.GetString(typeDef.Namespace);
                             var fullName = TypeResolver.GetFullName(ns, name);
 
+                            // Decode the relationship facts the tree will need
+                            // while still inside this participant's rejection
+                            // scope. Names alone are not enough: a malformed
+                            // base-type or interface token throws only when the
+                            // tree is built, which happens after every
+                            // participant has published and is therefore
+                            // unscoped. Reaching them here keeps a relationship
+                            // failure attributable to the participant that
+                            // caused it.
+                            ValidateRelationships(mdReader, typeDef);
+
                             // Index by ECMA name for lookup
                             staged.TryAdd(fullName, (peReader, mdReader, typeDef));
                         }
@@ -295,6 +306,29 @@ public static class TypeDependencyScanner
         {
             foreach (var pr in peReaders)
                 pr.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Touches the base-type and interface tokens a dependency tree reads, so
+    /// a malformed relationship surfaces while the owning participant is still
+    /// in scope. Resolution results are discarded; only reachability matters
+    /// here, and <see cref="BuildNode"/> re-reads them for the small subset it
+    /// actually visits.
+    /// </summary>
+    private static void ValidateRelationships(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        var context = GenericContext.ForType(reader, typeDef);
+
+        if (!typeDef.BaseType.IsNil)
+            _ = TypeResolver.GetTypeName(reader, typeDef.BaseType, context);
+
+        foreach (var ifaceHandle in typeDef.GetInterfaceImplementations())
+        {
+            var iface = reader.GetInterfaceImplementation(ifaceHandle);
+            _ = TypeResolver.GetTypeName(reader, iface.Interface, context);
         }
     }
 

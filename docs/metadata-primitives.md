@@ -272,7 +272,8 @@ bounded, explicit relaxation of the partial-rows prohibition above, and it
 applies only to a dependency scan: the emitted edges are sound, but
 completeness is unknown, so the result carries its rejections rather than
 claiming either a complete graph or a certified absence. How a command
-presents a scan that carries rejections is a separate, CLI-owned concern.
+presents a scan that carries rejections is a separate, CLI-owned concern,
+whose named consumer is #5632.
 
 The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires
@@ -356,14 +357,14 @@ no managed metadata is still not an assembly and is still skipped, so ordinary
 native libraries shipped beside managed ones are unaffected.
 
 An explicitly named malformed library gains the same exactness. At this head
-`type ./junk.dll` on a four-byte non-PE file exits 1 with
+`type` on a PE image whose CLI metadata directory size is zeroed exits 1 with
 `Error: The assembly metadata root is malformed (UnmappableMetadataDirectory).`
 where the base exited 1 with `Error: Could not extract API from library.` The
 exit code is unchanged; only the classification becomes exact. The generic
 message remains for extraction failures that carry no named rejection.
 
 What remains partial is therefore narrower than the base gap, and it is these
-two things rather than the explicit-name case:
+four things rather than the explicit-name case:
 
 - **The mechanism is flattened on some surfaces.** `library <winmd>` reports
   only `Could not read library`; the typed mechanism is lost to a broad catch
@@ -374,6 +375,15 @@ two things rather than the explicit-name case:
   Research, ILDiff, and the remaining Queries and CLI sites reach
   `MetadataReader` without admission, so a `.winmd` supplied directly to one of
   their APIs is still admitted. See the `MDP017` note below.
+- **A dependency scan's rejections are recorded but not presented.** The
+  scanner carries each rejection on its result, and no command renders them
+  yet, so `depends` answers a scan that excluded a candidate with a bare "not
+  found" — a certified absence the result itself does not claim. Presentation
+  is the CLI-owned concern named above, and #5632 is its named consumer.
+- **Input that is not a PE image is reported as a malformed metadata root.** A
+  non-PE file has no metadata root to malform, so the reason code overstates
+  what was observed. The failure stays visible and the exit code is correct;
+  only the classification is imprecise.
 
 Two claims follow, and callers must not strengthen either. Windows Metadata is
 unsupported, so any value derived from it is unsupported output even when it is
