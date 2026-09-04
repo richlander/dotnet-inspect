@@ -95,8 +95,11 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
-const packageMode = params.has("package");
+const packageMetadataMode = params.has("package-metadata");
+const packageMode = params.has("package") || packageMetadataMode;
 const memberMode = params.has("member");
+const memberDocumentationMode = params.get("member-docs") ?? "missing";
+const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
@@ -192,8 +195,10 @@ function workspaceDetailHtml(): string {
         framework: item.activeFramework,
       })),
     packages: coordinates,
-    loading: false,
-    error: "",
+      demos: [],
+      demoError: "",
+      loading: false,
+      error: "",
     escapeHtml,
   });
 }
@@ -205,7 +210,7 @@ let activeScope: WorkspaceScope = workspaceMode
     : memberMode
       ? "member"
       : "type";
-let activePackageLens: PackageLens = "overview";
+let activePackageLens: PackageLens = packageMetadataMode ? "metadata" : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -328,6 +333,20 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (packageMetadataMode) {
+    return `<section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
+      <header class="metadata-surface-head package-metadata-surface-head">
+        <h1 id="package-metadata-surface-title">Metadata images</h1>
+        <p>1 assembly</p>
+      </header>
+      <section class="package-metadata-controls" aria-label="Metadata coordinate"></section>
+      <div class="package-metadata-scroll"></div>
+      <footer class="metadata-surface-footer package-metadata-surface-footer">
+        <span>System.Text.Json@10.0.0</span>
+        <span>net10.0</span>
+      </footer>
+    </section>`;
+  }
   if (metadataMode) {
     return `<section class="metadata-surface" aria-labelledby="metadata-surface-title">
       <header class="metadata-surface-head">
@@ -346,6 +365,16 @@ function detailHtml() {
     </section>`;
   }
   if (memberMode) {
+    const signature = longSignatureMode
+      ? "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)"
+      : "public static object? DeserializeSync(string json)";
+    const documentation = memberDocumentationMode === "summary"
+      ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
+      : memberDocumentationMode === "loading"
+        ? '<p class="docs-loading">Loading package documentation…</p>'
+        : memberDocumentationMode === "error"
+          ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
+          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     return `<section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">DeserializeSync</h1>
@@ -354,11 +383,41 @@ function detailHtml() {
       <div class="member-surface-scroll">
         <article class="learn-overview">
           <section class="learn-section member-overview-intro">
-            <p class="docs-unavailable">No summary was found in the package XML documentation.</p>
-            <div class="signature-panel">
-              <div class="signature-language"><span>C#</span><small>declaration</small></div>
-              <pre class="language-csharp signature-code"><code>public static object? DeserializeSync(string json)</code></pre>
-            </div>
+            <section class="signature-panel" aria-labelledby="member-declaration-title">
+              <div class="signature-language">
+                <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
+                <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+              </div>
+              <pre class="language-csharp signature-code"><code>${escapeHtml(signature)}</code></pre>
+            </section>
+            <section class="member-documentation" aria-labelledby="member-documentation-title">
+              <div class="member-documentation-heading">
+                <h2 id="member-documentation-title">Summary</h2>
+              </div>
+              ${documentation}
+            </section>
+            <section class="member-identity" aria-labelledby="member-identity-title">
+              <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
+              <dl>
+                <div><dt>Stable selector</dt><dd><code>M:System.Text.Json.JsonSerializer.DeserializeSync(System.String)</code><button type="button" aria-label="Copy stable selector">copy</button></dd></div>
+                <div><dt>Digest</dt><dd><code>sha256:14c82d85903d</code><button type="button" aria-label="Copy digest">copy</button></dd></div>
+                <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>System.Object System.Text.Json.JsonSerializer::DeserializeSync(System.String)</code><button type="button" aria-label="Copy canonical signature">copy</button></dd></div>
+              </dl>
+              <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
+            </section>
+          </section>
+          <section class="learn-section member-parameters">
+            <h2>Parameters</h2>
+            <dl class="parameter-docs">
+              <div>
+                <dt><code>json</code></dt>
+                <dd><a>string</a><p>The JSON payload to deserialize into the requested return type.</p></dd>
+              </div>
+            </dl>
+          </section>
+          <section class="learn-section member-returns">
+            <h2>Returns</h2>
+            <p class="api-summary">The value produced by deserializing the supplied JSON payload.</p>
           </section>
         </article>
       </div>
@@ -532,11 +591,11 @@ app.innerHTML = `
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
-        : packageMode || sourceMode
+        : sourceMode || (packageMode && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>
@@ -716,7 +775,7 @@ function renderHarnessWorkspace() {
     throw new Error("The workspace packet harness is incomplete.");
   navigation.outerHTML = workspaceNavigationHtml();
   detail.innerHTML = workspaceDetailHtml();
-  const title = "Default Workspace";
+  const title = "Workspace";
   path.setAttribute("aria-label", title);
   path.title = title;
   pathSegment.textContent = title;
@@ -757,6 +816,7 @@ function bindHarnessWorkspace() {
       document.body.dataset.workspaceExecutionCount = String(count + 1);
       document.body.dataset.workspaceExecution = action;
     },
+    onDemo: () => {},
     onRetry: () => {},
   });
 }
