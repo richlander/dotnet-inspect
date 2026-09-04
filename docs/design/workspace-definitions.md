@@ -796,16 +796,18 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web**
-loads flattened home-demo metadata and exact scenario IDs from the application
-ecosystem catalog through the browser engine (`ListHomeDemos` /
-`ResolveHomeDemo` / `RunHomeDemo`). `RunHomeDemo` accepts both
-type-only `Methods` and member-bound `Call Graph` presets: the engine resolves
-the workspace, focus, section, and optional member anchor, opens one aggregate
-browser workspace, and returns its package surfaces plus exact activation
-identity. The focused `BrowserTypeSurface.Api` rows are the browser's ordinary
-Methods-section output; a member-bound run additionally returns the ordinary
-Call Graph projection. The engine rejects other product sections,
+package members as `--caller-package` for the call-graph demo. **inspect-web** currently loads home-demo metadata and exact scenario IDs from
+`ProductInspectionDemos` through the browser engine (`ListHomeDemos` /
+`ResolveHomeDemo` / `RunHomeDemo`). The transfer replaces only that
+application-inventory source with the ecosystem catalog's flattened
+descriptors and exact selection; Workspace Definitions execution remains
+unchanged. `RunHomeDemo` accepts both type-only `Methods` and member-bound
+`Call Graph` presets: the engine resolves the workspace, focus, section, and
+optional member anchor, opens one aggregate browser workspace, and returns its
+package surfaces plus exact activation identity. The focused
+`BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
+output; a member-bound run additionally returns the ordinary Call Graph
+projection. The engine rejects other product sections,
 library-scoped views, and runtime-identifier-scoped package workspaces until
 Browser has explicit execution support rather than silently dropping those
 bindings. These properties are gated by
