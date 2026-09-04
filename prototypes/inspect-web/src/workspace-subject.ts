@@ -1,7 +1,7 @@
 import type { PackageControlPackage } from "./package-controls.ts";
 import type {
   BrowserWorkspacePackageOccurrence,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-package.d.ts";
 
 export interface WorkspaceSubjectRenderOptions {
   packageCount: number;

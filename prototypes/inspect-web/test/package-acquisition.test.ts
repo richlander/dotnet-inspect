@@ -18,7 +18,7 @@ import type {
   BrowserMemberSurface,
   BrowserPackageSurface,
   BrowserTypeSurface,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-package.d.ts";
 
 function assembly(
   id: string,
