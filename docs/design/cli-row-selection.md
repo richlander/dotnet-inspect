@@ -369,6 +369,8 @@ require platform or package resolution.
 Before an implicit router performs observable resolution, it uses a pure
 route-independent envelope over candidate command declarations:
 
+- `-n N` has the same default meaning for every adopting command: select the
+  first *N* declared semantic items; rendered lines require explicit `--lines`;
 - the required-value arity union protects a following negative token whenever
   any candidate route must consume it as that option's value;
 - an invocation with no row-selection request follows ordinary routing;
@@ -402,6 +404,15 @@ Envelope activation is evaluated per owned row-selection request: a semantic
 gesture or one of its direction/unit modifiers. A candidate that does not
 declare the request makes the candidate set non-uniform; L3 does not infer
 support from shared option objects or display behavior.
+
+Bare `-N` is the one declaration-sensitive exception because it has no explicit
+option identity until normalization. It is route-independent only when every
+candidate binds `-n`; mixed binding defers the shorthand to the authoritative
+child rather than manufacturing an explicit-command requirement. When no
+candidate binds `-n`, bare `-N` is not a route-envelope request at all.
+Explicit `-n N` already carries option identity, so mixed declaration remains
+a non-uniform request and uniform non-declaration remains a common unsupported
+gesture.
 
 ## L3 conflicts and failure
 

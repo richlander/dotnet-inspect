@@ -79,6 +79,7 @@ internal sealed class CliRowSelectionArgumentResult
 {
     private readonly ReadOnlyCollection<string> _arguments;
     private readonly ReadOnlyCollection<ParseError> _parseErrors;
+    private readonly ReadOnlyCollection<int> _requiredValuePositions;
     private readonly ReadOnlyCollection<
         CliRowSelectionOccurrence<string>> _occurrences;
 
@@ -86,24 +87,30 @@ internal sealed class CliRowSelectionArgumentResult
         string[] arguments,
         ParseResult parseResult,
         IReadOnlyList<ParseError> parseErrors,
+        IReadOnlyList<int> requiredValuePositions,
         IReadOnlyList<CliRowSelectionOccurrence<string>> occurrences,
         CliRowSelectionArgumentFailure? argumentFailure,
-        CliRowSelectionLoweringResult<string>? loweringResult)
+        CliRowSelectionLoweringResult<string>? loweringResult,
+        int? selectedCommandPosition)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(parseResult);
         ArgumentNullException.ThrowIfNull(parseErrors);
+        ArgumentNullException.ThrowIfNull(requiredValuePositions);
         ArgumentNullException.ThrowIfNull(occurrences);
 
         _arguments =
             Array.AsReadOnly((string[])arguments.Clone());
         _parseErrors =
             Array.AsReadOnly(parseErrors.ToArray());
+        _requiredValuePositions =
+            Array.AsReadOnly(requiredValuePositions.ToArray());
         _occurrences =
             Array.AsReadOnly(occurrences.ToArray());
         ParseResult = parseResult;
         ArgumentFailure = argumentFailure;
         LoweringResult = loweringResult;
+        SelectedCommandPosition = selectedCommandPosition;
     }
 
     public IReadOnlyList<string> Arguments => _arguments;
@@ -119,9 +126,14 @@ internal sealed class CliRowSelectionArgumentResult
 
     public bool HasParseErrors => _parseErrors.Count > 0;
 
+    public IReadOnlyList<int> RequiredValuePositions =>
+        _requiredValuePositions;
+
     public CliRowSelectionArgumentFailure? ArgumentFailure { get; }
 
     public CliRowSelectionLoweringResult<string>? LoweringResult { get; }
+
+    public int? SelectedCommandPosition { get; }
 }
 
 internal static class CliRowSelectionArgumentAdapter
@@ -139,6 +151,30 @@ internal static class CliRowSelectionArgumentAdapter
         string[] arguments,
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities)
+        => AnalyzeExplicit(
+            command,
+            arguments,
+            bindings,
+            capabilities,
+            preserveRowEvidenceAcrossParseErrors: false);
+
+    internal static CliRowSelectionArgumentResult InspectExplicit(
+        Command command,
+        string[] arguments,
+        CliRowSelectionOptionBindings bindings)
+        => AnalyzeExplicit(
+            command,
+            arguments,
+            bindings,
+            CliRowSelectionCapabilities.All,
+            preserveRowEvidenceAcrossParseErrors: true);
+
+    private static CliRowSelectionArgumentResult AnalyzeExplicit(
+        Command command,
+        string[] arguments,
+        CliRowSelectionOptionBindings bindings,
+        CliRowSelectionCapabilities capabilities,
+        bool preserveRowEvidenceAcrossParseErrors)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -153,6 +189,12 @@ internal static class CliRowSelectionArgumentAdapter
             MapArguments(
                 ownershipParse,
                 arguments);
+        int[] requiredValuePositions =
+            preserveRowEvidenceAcrossParseErrors
+                ? FindRequiredValuePositions(
+                    ownershipParse,
+                    ownershipArguments)
+                : [];
         NormalizedArguments normalized =
             NormalizeShortLimitForms(
                 ownershipParse,
@@ -172,6 +214,12 @@ internal static class CliRowSelectionArgumentAdapter
                 : MapArguments(
                     authoritativeParse,
                     normalized.Arguments);
+        int? selectedCommandPosition =
+            FindTokenPosition(
+                authoritativeArguments,
+                normalized,
+                authoritativeParse.CommandResult
+                    .IdentifierToken);
         ParseError[] parseErrors =
             authoritativeParse.Errors.ToArray();
         CliRowSelectionArgumentFailure? argumentFailure =
@@ -181,33 +229,99 @@ internal static class CliRowSelectionArgumentAdapter
                 normalized,
                 bindings);
 
-        if (parseErrors.Length > 0
-            || argumentFailure is not null)
+        if (!preserveRowEvidenceAcrossParseErrors
+            && (parseErrors.Length > 0
+                || argumentFailure is not null))
         {
             return new(
                 normalized.Arguments,
                 authoritativeParse,
                 parseErrors,
+                requiredValuePositions,
                 Array.Empty<
                     CliRowSelectionOccurrence<string>>(),
                 argumentFailure,
-                null);
+                null,
+                selectedCommandPosition);
         }
 
         CliRowSelectionOccurrence<string>[] occurrences =
             ExtractOccurrences(
                 authoritativeArguments,
                 normalized,
-                bindings);
+                bindings,
+                preserveRowEvidenceAcrossParseErrors
+                    ? argumentFailure?.Position
+                    : null);
         return new(
             normalized.Arguments,
             authoritativeParse,
             parseErrors,
+            requiredValuePositions,
             occurrences,
-            null,
+            argumentFailure,
             CliRowSelectionLowerer.Lower(
                 occurrences,
-                capabilities));
+                capabilities),
+            selectedCommandPosition);
+    }
+
+    internal static bool IsBareLimitShorthand(string token) =>
+        IsBareShorthand(token);
+
+    internal static bool HasShortLimitAlias(
+        CliRowSelectionOptionBindings bindings) =>
+        Aliases(bindings.Limit).Any(
+            alias =>
+                alias.Equals(
+                    "-n",
+                    StringComparison.Ordinal));
+
+    internal static bool TryClassifyExplicitRowToken(
+        string token,
+        CliRowSelectionOptionBindings bindings,
+        out CliRowSelectionOccurrenceKind kind)
+    {
+        foreach (BoundOption bound in BoundOptions(bindings))
+        {
+            if (IsOptionToken(
+                    token,
+                    bound.Option,
+                    bindings.Limit))
+            {
+                kind = bound.Kind;
+                return true;
+            }
+        }
+
+        kind = default;
+        return false;
+    }
+
+    internal static bool IsDeclared(
+        ParseResult parseResult,
+        CliRowSelectionOptionBindings bindings,
+        CliRowSelectionOccurrenceKind kind)
+    {
+        Option option =
+            BoundOptions(bindings)
+                .Single(bound => bound.Kind == kind)
+                .Option;
+        for (CommandResult? command = parseResult.CommandResult;
+            command is not null;
+            command = command.Parent as CommandResult)
+        {
+            if (command.Command.Options.Any(
+                    candidate =>
+                        ReferenceEquals(
+                            candidate,
+                            option)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static ParseResult ParseExplicit(
@@ -483,6 +597,65 @@ internal static class CliRowSelectionArgumentAdapter
                                     ReferenceEquals(
                                         token,
                                         candidate))));
+    }
+
+    private static int[] FindRequiredValuePositions(
+        ParseResult parseResult,
+        IReadOnlyList<ParsedArgument> parsedArguments)
+    {
+        IReadOnlyList<OptionResult> optionResults =
+            GetOptionResults(parseResult);
+        var positions = new List<int>();
+        for (int index = 0;
+            index < parsedArguments.Count;
+            index++)
+        {
+            ParsedArgument argument =
+                parsedArguments[index];
+            if (optionResults.Any(
+                    option =>
+                        option.Option.Arity.MinimumNumberOfValues > 0
+                        && argument.Tokens.Any(
+                            candidate =>
+                                candidate.Type == TokenType.Argument
+                                && option.Tokens.Any(
+                                    token =>
+                                        ReferenceEquals(
+                                            token,
+                                            candidate)))))
+            {
+                positions.Add(index);
+            }
+        }
+
+        return [.. positions];
+    }
+
+    private static int? FindTokenPosition(
+        IReadOnlyList<ParsedArgument> parsedArguments,
+        NormalizedArguments normalized,
+        Token? target)
+    {
+        if (target is null)
+        {
+            return null;
+        }
+
+        for (int index = 0;
+            index < parsedArguments.Count;
+            index++)
+        {
+            if (parsedArguments[index].Tokens.Any(
+                    token =>
+                        ReferenceEquals(
+                            token,
+                            target)))
+            {
+                return normalized.Positions[index];
+            }
+        }
+
+        return null;
     }
 
     private static IReadOnlyList<OptionResult> GetOptionResults(
@@ -890,7 +1063,8 @@ internal static class CliRowSelectionArgumentAdapter
         ExtractOccurrences(
             IReadOnlyList<ParsedArgument> parsedArguments,
             NormalizedArguments normalized,
-            CliRowSelectionOptionBindings bindings)
+            CliRowSelectionOptionBindings bindings,
+            int? stopBeforePosition = null)
     {
         var occurrences =
             new List<CliRowSelectionOccurrence<string>>();
@@ -909,6 +1083,12 @@ internal static class CliRowSelectionArgumentAdapter
 
             int position =
                 normalized.Positions[index];
+            if (stopBeforePosition is not null
+                && position >= stopBeforePosition.Value)
+            {
+                break;
+            }
+
             foreach (BoundOption bound in boundOptions)
             {
                 int valueIndex = index;
@@ -919,6 +1099,7 @@ internal static class CliRowSelectionArgumentAdapter
                         ref valueIndex,
                         token,
                         bound.Option,
+                        bindings.Limit,
                         out string? value))
                 {
                     occurrences.Add(
@@ -1006,11 +1187,13 @@ internal static class CliRowSelectionArgumentAdapter
         ref int index,
         string token,
         Option option,
+        Option limit,
         out string value)
     {
         if (!TryClassifyValueToken(
                 token,
                 option,
+                limit,
                 out bool consumesNext,
                 out string? attachedValue,
                 out string? alias)
@@ -1035,18 +1218,7 @@ internal static class CliRowSelectionArgumentAdapter
     private static bool TryClassifyValueToken(
         string token,
         Option option,
-        out bool consumesNext,
-        out string? matchedAlias) =>
-        TryClassifyValueToken(
-            token,
-            option,
-            out consumesNext,
-            out _,
-            out matchedAlias);
-
-    private static bool TryClassifyValueToken(
-        string token,
-        Option option,
+        Option limit,
         out bool consumesNext,
         out string? attachedValue,
         out string? matchedAlias)
@@ -1079,7 +1251,15 @@ internal static class CliRowSelectionArgumentAdapter
                     return true;
                 }
 
-                if (IsShortAlias(alias))
+                if (ReferenceEquals(
+                        option,
+                        limit)
+                    && alias.Equals(
+                        "-n",
+                        StringComparison.Ordinal)
+                    && IsCompactShortLimitToken(
+                        token,
+                        alias))
                 {
                     consumesNext = false;
                     attachedValue =
@@ -1130,9 +1310,6 @@ internal static class CliRowSelectionArgumentAdapter
             }
         }
     }
-
-    private static bool IsShortAlias(string alias) =>
-        alias is ['-', not '-'];
 
     private readonly record struct NormalizedArguments(
         string[] Arguments,
