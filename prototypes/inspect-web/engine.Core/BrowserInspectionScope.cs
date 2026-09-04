@@ -52,18 +52,61 @@ internal sealed record BrowserWorkspaceParticipant(
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserInspectionScope : IDisposable
+internal sealed class BrowserInspectionScope : IAsyncDisposable
 {
     /// <summary>The retained-image budget one browser workspace may hold across its groups.</summary>
     internal const long MaxRetainedImageBytes = 64L * 1024 * 1024;
     internal const int MaxAssembliesPerRole = 256;
 
-    readonly InspectionWorkspace _workspace = new();
+    readonly InspectionWorkspace _workspace;
     readonly PackageAssemblyContextRealization _realization;
     readonly BrowserWorkspaceRole? _surface;
     readonly BrowserWorkspaceRole? _implementation;
 
-    public BrowserInspectionScope(IReadOnlyList<BrowserPackageCoordinate> coordinates)
+    BrowserInspectionScope(
+        ImmutableArray<BrowserPackageCoordinate> coordinates,
+        InspectionWorkspace workspace,
+        PackageAssemblyContextRealization realization,
+        bool artifactBacked)
+    {
+        Coordinates = coordinates;
+        _workspace = workspace;
+        _realization = realization;
+        ArtifactBacked = artifactBacked;
+        _surface = realization.HasAssemblyContexts
+            ? new BrowserWorkspaceRole(
+                realization.SurfaceGroup,
+                realization.SurfaceParticipants,
+                coordinates)
+            : null;
+        _implementation = realization.ImplementationGroup is null
+            ? null
+            : realization.SharesGroup
+                ? Surface
+                : new BrowserWorkspaceRole(
+                    realization.ImplementationGroup,
+                    realization.ImplementationParticipants,
+                    coordinates);
+    }
+
+    /// <summary>
+    /// Opens one browser workspace over an exact coordinate set.
+    /// </summary>
+    /// <remarks>
+    /// One acquisition-bound coordinate is realized through the shared
+    /// artifact-backed path, which retains its selected assets in one artifact
+    /// generation whose session the product workspace owns until
+    /// <see cref="DisposeAsync"/> closes it. A composite workspace over several
+    /// coordinates still uses the synchronous binding-consistent realization,
+    /// which is the only shape that composes several package Roots into one
+    /// group.
+    /// <c>BrowserWorkspace_SingleCoordinateScopeIsArtifactBacked</c> and
+    /// <c>BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles</c> gate
+    /// that split.
+    /// </remarks>
+    public static async ValueTask<BrowserInspectionScope> CreateAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
         if (coordinates
@@ -75,41 +118,83 @@ internal sealed class BrowserInspectionScope : IDisposable
                 nameof(coordinates));
         }
 
-        Coordinates = [.. coordinates];
+        ImmutableArray<BrowserPackageCoordinate> exact = [.. coordinates];
+        return exact is [{ Binding: { } binding }]
+            ? await CreateArtifactBackedAsync(
+                    exact,
+                    binding,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : CreateComposite(exact);
+    }
 
+    static async ValueTask<BrowserInspectionScope> CreateArtifactBackedAsync(
+        ImmutableArray<BrowserPackageCoordinate> coordinates,
+        PackageRootBinding binding,
+        CancellationToken cancellationToken)
+    {
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
         PackageAssemblyContextRealization? realization = null;
         try
         {
-            realization = _workspace.RealizePackageAssemblyContextRoles(
-                Coordinates.Select(coordinate => coordinate.Root),
-                new PackageAssemblyContextRealizationOptions
-                {
-                    MaxAssembliesPerRole = MaxAssembliesPerRole,
-                    MaxAggregateRetainedImageBytes = MaxRetainedImageBytes,
-                    MaxAssemblyEntryBytes = MaxRetainedImageBytes,
-                    RequireDeclaredEntryLengths = true,
-                });
-            _realization = realization;
-                _surface = realization.HasAssemblyContexts
-                    ? new BrowserWorkspaceRole(
-                        realization.SurfaceGroup,
-                        realization.SurfaceParticipants,
-                        Coordinates)
-                    : null;
-                _implementation = realization.ImplementationGroup is null
-                    ? null
-                    : realization.SharesGroup
-                        ? Surface
-                        : new BrowserWorkspaceRole(
-                        realization.ImplementationGroup,
-                        realization.ImplementationParticipants,
-                        Coordinates);
+            realization =
+                await workspace.RealizePackageAssemblyContextRolesAsync(
+                        binding,
+                        RealizationOptions,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            return new BrowserInspectionScope(
+                coordinates,
+                workspace,
+                realization,
+                artifactBacked: true);
+        }
+        catch (Exception creationFailure)
+        {
+            List<Exception> cleanupFailures = [];
+            try
+            {
+                realization?.Dispose();
+            }
+            catch (Exception roleFailure)
+            {
+                cleanupFailures.Add(roleFailure);
+            }
+
+            await TryCloseAsync(workspace, cleanupFailures)
+                .ConfigureAwait(false);
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    [creationFailure, .. cleanupFailures]);
+            }
+
+            throw;
+        }
+    }
+
+    static BrowserInspectionScope CreateComposite(
+        ImmutableArray<BrowserPackageCoordinate> coordinates)
+    {
+        var workspace = new InspectionWorkspace();
+        PackageAssemblyContextRealization? realization = null;
+        try
+        {
+            realization = workspace.RealizePackageAssemblyContextRoles(
+                coordinates.Select(coordinate => coordinate.Root),
+                RealizationOptions);
+            return new BrowserInspectionScope(
+                coordinates,
+                workspace,
+                realization,
+                artifactBacked: false);
         }
         catch (Exception creationFailure)
         {
             List<Exception>? cleanupFailures = null;
             TryDispose(realization, ref cleanupFailures);
-            TryDispose(_workspace, ref cleanupFailures);
+            TryDispose(workspace, ref cleanupFailures);
             if (cleanupFailures is not null)
             {
                 throw new AggregateException(
@@ -119,6 +204,21 @@ internal sealed class BrowserInspectionScope : IDisposable
             throw;
         }
     }
+
+    static PackageAssemblyContextRealizationOptions RealizationOptions =>
+        new()
+        {
+            MaxAssembliesPerRole = MaxAssembliesPerRole,
+            MaxAggregateRetainedImageBytes = MaxRetainedImageBytes,
+            MaxAssemblyEntryBytes = MaxRetainedImageBytes,
+            RequireDeclaredEntryLengths = true,
+        };
+
+    /// <summary>
+    /// Whether this workspace retains its selected assets in a shared artifact
+    /// generation whose session the product workspace releases on close.
+    /// </summary>
+    public bool ArtifactBacked { get; }
 
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
@@ -275,32 +375,61 @@ internal sealed class BrowserInspectionScope : IDisposable
                 is true);
     }
 
-    public void Dispose()
+    /// <summary>
+    /// Releases this workspace's role groups, then awaits the product
+    /// workspace's terminal close so its retained artifact bytes are actually
+    /// released before the registry counts the room as free. Close-report
+    /// cleanup failures are surfaced, never swallowed.
+    /// </summary>
+    public async ValueTask DisposeAsync()
     {
-        Exception? roleFailure = null;
+        List<Exception> failures = [];
         try
         {
             _realization.Dispose();
         }
-        catch (Exception ex)
+        catch (Exception roleFailure)
         {
-            roleFailure = ex;
+            failures.Add(roleFailure);
         }
 
+        if (ArtifactBacked)
+        {
+            await TryCloseAsync(_workspace, failures).ConfigureAwait(false);
+        }
+        else
+        {
+            try
+            {
+                _workspace.Dispose();
+            }
+            catch (Exception workspaceFailure)
+            {
+                failures.Add(workspaceFailure);
+            }
+        }
+
+        if (failures.Count == 1)
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures.Count > 1)
+            throw new AggregateException(failures);
+    }
+
+    static async ValueTask TryCloseAsync(
+        InspectionWorkspace workspace,
+        List<Exception> failures)
+    {
         try
         {
-            _workspace.Dispose();
+            InspectionWorkspaceCloseReport report =
+                await workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+                failures.AddRange(report.ArtifactSessionCleanupFailures);
         }
-        catch (Exception workspaceFailure)
-            when (roleFailure is not null)
+        catch (Exception closeFailure)
         {
-            throw new AggregateException(
-                roleFailure,
-                workspaceFailure);
+            failures.Add(closeFailure);
         }
-
-        if (roleFailure is not null)
-            ExceptionDispatchInfo.Capture(roleFailure).Throw();
     }
 
     static void TryDispose(

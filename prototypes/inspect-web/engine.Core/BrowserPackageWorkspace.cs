@@ -144,6 +144,10 @@ internal static class BrowserPackageWorkspace
     static readonly Dictionary<string, int> Leases = new(StringComparer.Ordinal);
     static readonly Dictionary<PendingAcquisitionKey, Task<AcquiredPackageSourcePayload>>
         PendingAcquisitions = [];
+    static readonly Dictionary<string, Task<BrowserInspectionScope>> PendingScopeOpens =
+        new(StringComparer.Ordinal);
+    static readonly Dictionary<string, Task> PendingPackageEvictions =
+        new(StringComparer.Ordinal);
     static readonly HashSet<string> Downloaded = new(StringComparer.Ordinal);
     static long _clock;
 
@@ -188,12 +192,12 @@ internal static class BrowserPackageWorkspace
     }
 
     sealed record ScopeEntry(
-        IDisposable Scope,
+        IAsyncDisposable Scope,
         ImmutableHashSet<string> PackageKeys,
         long LastAccess,
         int ActiveLeases,
         bool RemovalRequested,
-        Action<IDisposable>? OnDisposed);
+        Action<IAsyncDisposable>? OnDisposed);
 
     public static BrowserPackageCacheSnapshot Stats() =>
         new(
@@ -394,43 +398,139 @@ internal static class BrowserPackageWorkspace
     /// later query over the same coordinate set and disposed when the registry evicts it. Callers
     /// must not dispose it, and must not run a query that releases a participant terminally.
     /// </remarks>
-    public static BrowserInspectionScope OpenScope(
-        IReadOnlyList<BrowserPackageCoordinate> coordinates)
+    public static async Task<BrowserInspectionScope> OpenScopeAsync(
+        IReadOnlyList<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(coordinates);
         if (coordinates.Count == 0)
             throw new ArgumentException("A workspace requires at least one package coordinate.");
 
         string key = PackageScopeKey(coordinates);
-        if (Scopes.TryGetValue(key, out ScopeEntry? entry))
+        if (TryReuseScope(key, coordinates) is { } reused)
+            return reused;
+
+        if (!PendingScopeOpens.TryGetValue(
+                key,
+                out Task<BrowserInspectionScope>? pending))
         {
-            if (entry.Scope is not BrowserInspectionScope retained)
-            {
-                throw new InvalidOperationException(
-                    "The browser scope registry key names a different scope kind.");
-            }
-            if (!retained.ContainsExactCoordinates(coordinates))
-            {
-                throw new InvalidOperationException(
-                    "The retained browser workspace does not match the exact requested "
-                    + "package content.");
-            }
-            Scopes[key] = entry with { LastAccess = ++_clock };
-            TouchPackages(entry.PackageKeys);
-            return retained;
+            pending = OpenScopeCoreAsync(key, [.. coordinates]);
+            PendingScopeOpens.Add(key, pending);
+            ObserveAndRemovePendingScopeOpen(key, pending);
         }
 
-        ImmutableHashSet<string> packageKeys = RetainCoordinatePackages(coordinates);
-        var scope = new BrowserInspectionScope(coordinates);
-        return RegisterScope(key, scope, packageKeys);
+        BrowserInspectionScope opened =
+            await WaitForSharedAcquisitionAsync(pending, cancellationToken)
+                .ConfigureAwait(false);
+        if (!opened.ContainsExactCoordinates(coordinates))
+        {
+            throw new InvalidOperationException(
+                "The retained browser workspace does not match the exact requested "
+                + "package content.");
+        }
+
+        TouchScope(opened);
+        return opened;
     }
 
-    internal static T RegisterScope<T>(
+    /// <summary>
+    /// Builds one workspace for an exact coordinate set. The coordinates' archives stay leased
+    /// for the whole construction, so a concurrent acquisition cannot evict the content this
+    /// scope is being realized from, and registration re-validates that content before the
+    /// completed scope is published.
+    /// </summary>
+    static async Task<BrowserInspectionScope> OpenScopeCoreAsync(
+        string key,
+        ImmutableArray<BrowserPackageCoordinate> coordinates)
+    {
+        using var construction = new PackageLeaseSet();
+        ImmutableHashSet<string> requested =
+            RetainCoordinatePackages(coordinates);
+        foreach (string packageKey in requested)
+            construction.Lease(packageKey);
+
+        BrowserInspectionScope scope =
+            await BrowserInspectionScope.CreateAsync(coordinates)
+                .ConfigureAwait(false);
+        try
+        {
+            ImmutableHashSet<string> packageKeys =
+                RetainCoordinatePackages(coordinates);
+            return await RegisterScopeAsync(key, scope, packageKeys)
+                .ConfigureAwait(false);
+        }
+        catch (Exception registrationFailure)
+        {
+            try
+            {
+                await scope.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(
+                    registrationFailure,
+                    cleanupFailure);
+            }
+
+            throw;
+        }
+    }
+
+    static BrowserInspectionScope? TryReuseScope(
+        string key,
+        IReadOnlyList<BrowserPackageCoordinate> coordinates)
+    {
+        if (!Scopes.TryGetValue(key, out ScopeEntry? entry))
+            return null;
+        if (entry.Scope is not BrowserInspectionScope retained)
+        {
+            throw new InvalidOperationException(
+                "The browser scope registry key names a different scope kind.");
+        }
+        if (!retained.ContainsExactCoordinates(coordinates))
+        {
+            throw new InvalidOperationException(
+                "The retained browser workspace does not match the exact requested "
+                + "package content.");
+        }
+
+        Scopes[key] = entry with { LastAccess = ++_clock };
+        TouchPackages(entry.PackageKeys);
+        return retained;
+    }
+
+    static void ObserveAndRemovePendingScopeOpen(
+        string key,
+        Task<BrowserInspectionScope> open)
+    {
+        _ = open.ContinueWith(
+            completed =>
+            {
+                if (PendingScopeOpens.TryGetValue(
+                        key,
+                        out Task<BrowserInspectionScope>? current)
+                    && ReferenceEquals(current, completed))
+                {
+                    PendingScopeOpens.Remove(key);
+                }
+
+                _ = completed.Exception;
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Admits one built scope into the bounded registry, awaiting the disposal of any scope it
+    /// evicts so the evicted workspace's retained bytes are released before this one is counted.
+    /// </summary>
+    internal static async ValueTask<T> RegisterScopeAsync<T>(
         string key,
         T scope,
         ImmutableHashSet<string> packageKeys,
         Action<T>? onDisposed = null)
-        where T : class, IDisposable
+        where T : class, IAsyncDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(scope);
@@ -441,13 +541,13 @@ internal static class BrowserPackageWorkspace
         }
         catch
         {
-            scope.Dispose();
+            await scope.DisposeAsync().ConfigureAwait(false);
             throw;
         }
 
         if (Scopes.TryGetValue(key, out ScopeEntry? retained))
         {
-            scope.Dispose();
+            await scope.DisposeAsync().ConfigureAwait(false);
             if (retained.Scope is not T typed)
             {
                 throw new InvalidOperationException(
@@ -475,11 +575,20 @@ internal static class BrowserPackageWorkspace
                 .FirstOrDefault();
             if (oldest is null)
             {
-                scope.Dispose();
+                await scope.DisposeAsync().ConfigureAwait(false);
                 throw new InvalidOperationException(
                     "The browser workspace limit cannot evict an active inspection.");
             }
-            DisposeRegisteredScope(oldest, Scopes[oldest]);
+            await DisposeRegisteredScopeAsync(oldest, Scopes[oldest])
+                .ConfigureAwait(false);
+        }
+
+        if (Scopes.ContainsKey(key))
+        {
+            await scope.DisposeAsync().ConfigureAwait(false);
+            throw new InvalidOperationException(
+                "The browser scope registry admitted another workspace for this coordinate set "
+                + "while capacity was being released.");
         }
 
         Scopes[key] = new ScopeEntry(
@@ -494,13 +603,13 @@ internal static class BrowserPackageWorkspace
         return scope;
     }
 
-    internal static bool IsScopeRetained(IDisposable scope)
+    internal static bool IsScopeRetained(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
         return Scopes.Values.Any(entry => ReferenceEquals(entry.Scope, scope));
     }
 
-    internal static void TouchScope(IDisposable scope)
+    internal static void TouchScope(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
@@ -518,23 +627,23 @@ internal static class BrowserPackageWorkspace
         TouchPackages(registered.Value.PackageKeys);
     }
 
-    internal static void RemoveScope(IDisposable scope)
+    internal static ValueTask RemoveScopeAsync(IAsyncDisposable scope)
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
             .SingleOrDefault(candidate => ReferenceEquals(candidate.Value.Scope, scope));
         if (registered.Value is null)
-            return;
+            return ValueTask.CompletedTask;
         if (registered.Value.ActiveLeases != 0)
         {
             Scopes[registered.Key] = registered.Value with
             {
                 RemovalRequested = true,
             };
-            return;
+            return ValueTask.CompletedTask;
         }
 
-        DisposeRegisteredScope(registered.Key, registered.Value);
+        return DisposeRegisteredScopeAsync(registered.Key, registered.Value);
     }
 
     /// <summary>
@@ -542,7 +651,7 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     internal static BrowserScopeLease<TScope> LeaseScope<TScope>(
         TScope scope)
-        where TScope : class, IDisposable
+        where TScope : class, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(scope);
         KeyValuePair<string, ScopeEntry> registered = Scopes
@@ -562,12 +671,12 @@ internal static class BrowserPackageWorkspace
         };
         return new BrowserScopeLease<TScope>(
             scope,
-            () => ReleaseScopeLease(registered.Key, scope));
+            () => ReleaseScopeLeaseAsync(registered.Key, scope));
     }
 
-    static void ReleaseScopeLease(
+    static async ValueTask ReleaseScopeLeaseAsync(
         string scopeKey,
-        IDisposable scope)
+        IAsyncDisposable scope)
     {
         if (!Scopes.TryGetValue(scopeKey, out ScopeEntry? entry)
             || !ReferenceEquals(entry.Scope, scope)
@@ -580,7 +689,9 @@ internal static class BrowserPackageWorkspace
         int activeLeases = entry.ActiveLeases - 1;
         if (activeLeases == 0 && entry.RemovalRequested)
         {
-            DisposeRegisteredScope(scopeKey, entry);
+            Scopes[scopeKey] = entry with { ActiveLeases = activeLeases };
+            await DisposeRegisteredScopeAsync(scopeKey, entry)
+                .ConfigureAwait(false);
         }
         else
         {
@@ -635,7 +746,8 @@ internal static class BrowserPackageWorkspace
                     coordinates.Add(coordinate);
             }
 
-            BrowserInspectionScope scope = OpenScope(coordinates);
+            BrowserInspectionScope scope =
+                await OpenScopeAsync(coordinates, cancellationToken);
             return new BrowserScopeResolution(scope, [.. coordinates]);
         }
         finally
@@ -962,8 +1074,7 @@ internal static class BrowserPackageWorkspace
                 when (exception is OperationCanceledException
                     or TimeoutException)
             {
-                if (result is IDisposable owned)
-                    owned.Dispose();
+                await DisposeLateResultAsync(result).ConfigureAwait(false);
                 throw;
             }
             return result;
@@ -981,6 +1092,23 @@ internal static class BrowserPackageWorkspace
             when (deadline.HasExpired)
         {
             throw deadline.Timeout(exception);
+        }
+    }
+
+    /// <summary>
+    /// Releases a result the deadline rejected after the operation already produced it, awaiting
+    /// asynchronous cleanup instead of dropping it.
+    /// </summary>
+    static async ValueTask DisposeLateResultAsync<T>(T result)
+    {
+        switch (result)
+        {
+            case IAsyncDisposable asyncOwned:
+                await asyncOwned.DisposeAsync().ConfigureAwait(false);
+                break;
+            case IDisposable owned:
+                owned.Dispose();
+                break;
         }
     }
 
@@ -1169,7 +1297,12 @@ internal static class BrowserPackageWorkspace
         TouchPackages(packageKeys);
     }
 
-    static void MakeCacheRoom(
+    /// <summary>
+    /// Frees bounded cache capacity by evicting least-recently-used unleased packages, awaiting
+    /// each eviction so the retained bytes are actually released before the caller's reservation
+    /// is admitted.
+    /// </summary>
+    static async ValueTask MakeCacheRoomAsync(
         long additionalBytes,
         int additionalEntries)
     {
@@ -1190,25 +1323,66 @@ internal static class BrowserPackageWorkspace
                     "The browser package-cache limit cannot accommodate the requested workspace.");
             }
 
-            EvictPackage(oldest);
+            await EvictPackageAsync(oldest).ConfigureAwait(false);
         }
     }
 
-    static void EvictPackage(string packageKey)
+    /// <summary>
+    /// Disposes every scope that retains one package and then drops its archive. A concurrent
+    /// evictor of the same package joins the in-flight eviction instead of racing it, and a
+    /// dependent scope that acquired an active lease during the awaited disposal keeps its
+    /// archive: that package is leased again, so the next candidate is chosen instead.
+    /// </summary>
+    static Task EvictPackageAsync(string packageKey)
     {
-        string[] retainedScopes =
-        [
-            .. Scopes
-                .Where(entry => entry.Value.PackageKeys.Contains(packageKey))
-                .Select(entry => entry.Key),
-        ];
-        foreach (string scopeKey in retainedScopes)
-            DisposeRegisteredScope(scopeKey, Scopes[scopeKey]);
+        if (PendingPackageEvictions.TryGetValue(packageKey, out Task? pending))
+            return pending;
+
+        Task eviction = EvictPackageCoreAsync(packageKey);
+        if (!eviction.IsCompleted)
+        {
+            PendingPackageEvictions[packageKey] = eviction;
+            _ = eviction.ContinueWith(
+                completed =>
+                {
+                    if (PendingPackageEvictions.TryGetValue(
+                            packageKey,
+                            out Task? current)
+                        && ReferenceEquals(current, completed))
+                    {
+                        PendingPackageEvictions.Remove(packageKey);
+                    }
+
+                    _ = completed.Exception;
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        return eviction;
+    }
+
+    static async Task EvictPackageCoreAsync(string packageKey)
+    {
+        while (true)
+        {
+            KeyValuePair<string, ScopeEntry> dependent = Scopes
+                .FirstOrDefault(entry =>
+                    entry.Value.PackageKeys.Contains(packageKey));
+            if (dependent.Value is null)
+                break;
+            if (dependent.Value.ActiveLeases != 0)
+                return;
+
+            await DisposeRegisteredScopeAsync(dependent.Key, dependent.Value)
+                .ConfigureAwait(false);
+        }
 
         Cache.Remove(packageKey);
     }
 
-    static void DisposeRegisteredScope(
+    static async ValueTask DisposeRegisteredScopeAsync(
         string scopeKey,
         ScopeEntry entry)
     {
@@ -1219,13 +1393,14 @@ internal static class BrowserPackageWorkspace
         }
         finally
         {
-            entry.Scope.Dispose();
+            await entry.Scope.DisposeAsync().ConfigureAwait(false);
         }
     }
 
-    internal static PackageDownloadReservation ReservePackageDownload(
-        string packageKey,
-        long declaredLength)
+    internal static async ValueTask<PackageDownloadReservation>
+        ReservePackageDownloadAsync(
+            string packageKey,
+            long declaredLength)
     {
         if (declaredLength < 0 || declaredLength > MaxCachedPackageBytes)
         {
@@ -1235,7 +1410,11 @@ internal static class BrowserPackageWorkspace
         if (Reservations.ContainsKey(packageKey))
             throw new InvalidOperationException("The package download is already reserved.");
 
-        MakeCacheRoom(declaredLength, additionalEntries: 1);
+        await MakeCacheRoomAsync(declaredLength, additionalEntries: 1)
+            .ConfigureAwait(false);
+        if (Reservations.ContainsKey(packageKey))
+            throw new InvalidOperationException("The package download is already reserved.");
+
         var reservation = new PackageDownloadReservation(
             packageKey,
             declaredLength);
@@ -1299,12 +1478,16 @@ internal static class BrowserPackageWorkspace
         }
     }
 
-    internal static void RegisterAcquiredPackage(BrowserPackage package)
+    internal static async ValueTask RegisterAcquiredPackageAsync(
+        BrowserPackage package)
     {
         ArgumentNullException.ThrowIfNull(package);
         string key = PackageKey(package.PackageId, package.Version);
         Cache.Remove(key);
-        MakeCacheRoom(package.RetainedBytes.LongLength, additionalEntries: 1);
+        await MakeCacheRoomAsync(
+                package.RetainedBytes.LongLength,
+                additionalEntries: 1)
+            .ConfigureAwait(false);
         Cache[key] = new CacheEntry(
             package.RetainedBytes,
             package.Content,
@@ -1435,7 +1618,7 @@ internal static class BrowserPackageWorkspace
             return content;
         }
 
-        public ValueTask<IPackagePayloadReservation> ReserveAsync(
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
             PackagePayloadTransfer transfer,
             CancellationToken cancellationToken = default)
         {
@@ -1446,12 +1629,12 @@ internal static class BrowserPackageWorkspace
                     $"Package '{transfer.Coordinate.PackageId}' "
                     + $"{transfer.Coordinate.Version} did not declare its byte length, "
                     + "so the Browser cannot reserve its package-cache budget before download.");
-            return ValueTask.FromResult<IPackagePayloadReservation>(
-                ReservePackageDownload(
+            return await ReservePackageDownloadAsync(
                     PackageKey(
                         transfer.Coordinate.PackageId,
                         transfer.Coordinate.Version),
-                    declaredLength));
+                    declaredLength)
+                .ConfigureAwait(false);
         }
     }
 

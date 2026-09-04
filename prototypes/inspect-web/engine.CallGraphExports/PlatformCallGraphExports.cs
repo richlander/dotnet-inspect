@@ -32,7 +32,7 @@ public static partial class CallGraphExports
         int metadataToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(selectorKey);
-        using PlatformGraphBuild build =
+        await using PlatformGraphBuild build =
             await BuildPlatformGraphAsync(
                 targetFramework,
                 platformVersion,
@@ -135,7 +135,7 @@ public static partial class CallGraphExports
                 StringComparison.OrdinalIgnoreCase)
             ? assembly
             : $"{assembly}.dll";
-        using var owner = new PlatformScopeOwner(
+        await using var owner = new PlatformScopeOwner(
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
@@ -216,7 +216,7 @@ public static partial class CallGraphExports
                         targetPack);
                 }),
             ];
-            owner.Replace(
+            await owner.ReplaceAsync(
                 await BrowserPlatformWorkspace.OpenAssembliesAsync(
                     targetFramework,
                     platformVersion,
@@ -367,7 +367,7 @@ public static partial class CallGraphExports
                     $"Platform assembly '{target.Name}' is required to "
                     + $"resolve '{typeFullName}', but no authorized "
                     + "platform pack supplies it.");
-            owner.Replace(
+            await owner.ReplaceAsync(
                 await BrowserPlatformWorkspace.OpenAssemblyAsync(
                     targetFramework,
                     platformVersion,
@@ -504,7 +504,7 @@ public static partial class CallGraphExports
         Analysis.CallGraphMemberResolution Member);
 
     sealed class PlatformScopeOwner(
-        BrowserPlatformScopeResolution current) : IDisposable
+        BrowserPlatformScopeResolution current) : IAsyncDisposable
     {
         BrowserPlatformScopeResolution? _current = current;
 
@@ -512,13 +512,13 @@ public static partial class CallGraphExports
             _current
             ?? throw new ObjectDisposedException(nameof(PlatformScopeOwner));
 
-        internal void Replace(
+        internal async ValueTask ReplaceAsync(
             BrowserPlatformScopeResolution replacement)
         {
             ArgumentNullException.ThrowIfNull(replacement);
             BrowserPlatformScopeResolution previous = Current;
             _current = replacement;
-            previous.Dispose();
+            await previous.DisposeAsync().ConfigureAwait(false);
         }
 
         internal BrowserPlatformScopeResolution Detach()
@@ -528,20 +528,21 @@ public static partial class CallGraphExports
             return result;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             BrowserPlatformScopeResolution? current = _current;
             _current = null;
-            current?.Dispose();
+            if (current is not null)
+                await current.DisposeAsync().ConfigureAwait(false);
         }
     }
 
     sealed record PlatformGraphBuild(
         BrowserPlatformScopeResolution Resolution,
         MemberCallGraphView View,
-        CallGraphProjection Projection) : IDisposable
+        CallGraphProjection Projection) : IAsyncDisposable
     {
-        public void Dispose() => Resolution.Dispose();
+        public ValueTask DisposeAsync() => Resolution.DisposeAsync();
     }
 
 }

@@ -18,7 +18,7 @@ namespace InspectWeb.Engine;
 internal sealed class BrowserPlatformScope(
     InspectionWorkspace workspace,
     WorkspaceContextLoadOutcome.Loaded context,
-    IReadOnlyDictionary<string, string> platformPacks) : IDisposable
+    IReadOnlyDictionary<string, string> platformPacks) : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace = workspace;
     readonly ImmutableDictionary<string, string> _platformPacks =
@@ -89,13 +89,14 @@ internal sealed class BrowserPlatformScope(
     internal string? PlatformPackForAssembly(string assembly) =>
         _platformPacks.GetValueOrDefault(assembly);
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
         if (_context is null)
-            return;
+            return ValueTask.CompletedTask;
 
         _context = null;
         _workspace.Dispose();
+        return ValueTask.CompletedTask;
     }
 }
 
@@ -104,9 +105,9 @@ internal sealed record BrowserPlatformScopeResolution(
     BrowserPlatformScope Scope,
     WorkspaceContextMember Participant,
     RealizedMemberCoordinate.Platform Coordinate,
-    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IDisposable
+    BrowserScopeLease<BrowserPlatformScope> ScopeLease) : IAsyncDisposable
 {
-    public void Dispose() => ScopeLease.Dispose();
+    public ValueTask DisposeAsync() => ScopeLease.DisposeAsync();
 }
 
 internal sealed record BrowserPlatformAssemblyRequest(
@@ -463,7 +464,7 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
-        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+        await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
         return await OpenCoreAsync(
             targetKey,
@@ -490,7 +491,7 @@ internal static class BrowserPlatformWorkspace
             new BrowserPackageWorkspace.PackageLeaseSet();
         Targets.TryGetValue(targetKey, out TargetState? state);
         state ??= new TargetState();
-        using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
+        await using BrowserScopeLease<BrowserPlatformScope>? retainedLease =
             LeaseRetainedScope(state);
 
         RealizedMemberCoordinate.Platform[] known =
@@ -538,7 +539,7 @@ internal static class BrowserPlatformWorkspace
                 state: state).ConfigureAwait(false);
         }
 
-        using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
+        await using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -553,7 +554,7 @@ internal static class BrowserPlatformWorkspace
             throw Failure(runtime.Failure);
         }
 
-        using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
+        await using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -595,13 +596,13 @@ internal static class BrowserPlatformWorkspace
         }
 
         if (ReferenceEquals(selected, runtime))
-            aspNetCore.Dispose();
+            await aspNetCore.DisposeAsync().ConfigureAwait(false);
         else
-            runtime.Dispose();
+            await runtime.DisposeAsync().ConfigureAwait(false);
         bool useDeclaration = !state.Coordinates.Any(coordinate =>
             coordinate.Family.Equals(family, StringComparison.Ordinal));
         if (!useDeclaration)
-            selected.Dispose();
+            await selected.DisposeAsync().ConfigureAwait(false);
 
         return await OpenCoreAsync(
             targetKey,
@@ -746,7 +747,7 @@ internal static class BrowserPlatformWorkspace
                             coordinate.Assembly,
                             selection.Assembly,
                             StringComparison.OrdinalIgnoreCase)) == true;
-                using PlatformLoadAttempt? loaded = !usesDeclaration
+                await using PlatformLoadAttempt? loaded = !usesDeclaration
                     ? await LoadDeclaredAttemptAsync(
                         targetFramework,
                         platformVersion,
@@ -806,11 +807,12 @@ internal static class BrowserPlatformWorkspace
                 StringComparison.OrdinalIgnoreCase));
         string scopeKey = ScopeKey(coordinates);
         BrowserPlatformScope registered =
-            BrowserPackageWorkspace.RegisterScope(
-                scopeKey,
-                candidate,
-                packageKeys,
-                ForgetScope);
+            await BrowserPackageWorkspace.RegisterScopeAsync(
+                    scopeKey,
+                    candidate,
+                    packageKeys,
+                    ForgetScope)
+                .ConfigureAwait(false);
         WorkspaceContextMember participant =
             registered.Participant(
                 selected.Family,
@@ -825,7 +827,8 @@ internal static class BrowserPlatformWorkspace
         if (previous is not null
             && !ReferenceEquals(previous, registered))
         {
-            BrowserPackageWorkspace.RemoveScope(previous);
+            await BrowserPackageWorkspace.RemoveScopeAsync(previous)
+                .ConfigureAwait(false);
         }
 
         return new BrowserPlatformScopeResolution(
@@ -1314,7 +1317,7 @@ internal static class BrowserPlatformWorkspace
     sealed class PlatformLoadAttempt(
         BrowserPlatformScope? scope,
         ImmutableHashSet<string> packageKeys,
-        WorkspaceContextLoadOutcome.Failed? failure) : IDisposable
+        WorkspaceContextLoadOutcome.Failed? failure) : IAsyncDisposable
     {
         BrowserPlatformScope? _scope = scope;
 
@@ -1335,10 +1338,12 @@ internal static class BrowserPlatformWorkspace
             return released;
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
-            _scope?.Dispose();
+            BrowserPlatformScope? scope = _scope;
             _scope = null;
+            if (scope is not null)
+                await scope.DisposeAsync().ConfigureAwait(false);
         }
     }
 

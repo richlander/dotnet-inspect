@@ -76,7 +76,7 @@ public static partial class SourceExports
             assemblyName,
             typeIdentity,
             operation.CancellationToken);
-        using (scopeLease)
+        await using (scopeLease)
         {
             BrowserInspectionScope scope = scopeLease.Scope;
             var request = AssemblyTypeSourceRequest.From(
@@ -152,7 +152,7 @@ public static partial class SourceExports
         BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
         CallGraphMemberResolution resolution = resolved.Member;
         operation.CancellationToken.ThrowIfCancellationRequested();
-        using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             BrowserPackageWorkspace.LeaseScope(scope);
         if (resolution.Member.MetadataToken != resolution.BodyToken)
         {
@@ -245,7 +245,7 @@ public static partial class SourceExports
         }
         catch
         {
-            scopeLease.Dispose();
+            await scopeLease.DisposeAsync().ConfigureAwait(false);
             throw;
         }
     }

@@ -417,7 +417,8 @@ public static partial class PackageExports
     }
 
     [JSExport]
-    public static string ActivateWorkspacePackageOccurrence(string action)
+    public static async Task<string> ActivateWorkspacePackageOccurrence(
+        string action)
     {
         BrowserWorkspaceOccurrenceSelection? selection =
             BrowserWorkspaceOccurrenceOperations
@@ -434,7 +435,8 @@ public static partial class PackageExports
         }
 
         BrowserInspectionScope scope =
-            BrowserPackageWorkspace.OpenScope([selection.Coordinate]);
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [selection.Coordinate]);
         BrowserPackageSurface package =
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(

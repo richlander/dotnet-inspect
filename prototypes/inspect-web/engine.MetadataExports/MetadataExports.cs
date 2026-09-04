@@ -144,7 +144,7 @@ public static partial class MetadataExports
         string assemblyFileName,
         string pack)
     {
-        using BrowserPlatformScopeResolution resolution =
+        await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
@@ -187,7 +187,7 @@ public static partial class MetadataExports
         int startRowId,
         int maxRows)
     {
-        using BrowserPlatformScopeResolution resolution =
+        await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
@@ -222,7 +222,7 @@ public static partial class MetadataExports
         string pack,
         string heap)
     {
-        using BrowserPlatformScopeResolution resolution =
+        await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,
