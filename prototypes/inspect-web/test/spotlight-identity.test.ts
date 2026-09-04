@@ -2787,7 +2787,9 @@ test("home demos restore the complete parsed location", () => {
   const runHomeDemo =
     appSource.match(/function runHomeDemo\([\s\S]*?\n}\n\n\/\/ Return to the intro/)?.[0]
     ?? "";
-  assert.match(runHomeDemo, /restoreWorkspaceFromLocation\(loc, loc\)/);
+  assert.match(
+    runHomeDemo,
+    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*workspaceLocation\.push\(link\);[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*undefined,\s*true\)/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
@@ -2808,7 +2810,19 @@ test("home demos restore the complete parsed location", () => {
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
+    /state\.loading = false;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*await renderMermaidCallGraph\(\);\s*focusInspectionResult\(navigationSeq\)/);
+  assert.match(
+    callGraphDemo,
     /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
+  assert.match(
+    restoreWorkspace,
+    /await loadSelectionData\(\);\s*if \(focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*focusInspectionResult\(navigationSeq\);/);
+  assert.match(
+    restoreWorkspace,
+    /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot,\s*focusResult\)/);
+  assert.match(
+    restoreWorkspace,
+    /state\.retryAction = \(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*undefined,\s*focusResult\)/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";

@@ -7843,9 +7843,17 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
     return;
   }
+  const navigationSeq = navigationSequence.begin();
   workspaceLocation.push(link);
   const loc = parseLocation();
-  observeAsync(restoreWorkspaceFromLocation(loc, loc), "Loading the demo workspace");
+  observeAsync(
+    restoreWorkspaceFromLocation(
+      loc,
+      loc,
+      navigationSeq,
+      undefined,
+      true),
+    "Loading the demo workspace");
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -7914,6 +7922,14 @@ function focusLevelOneHeading(): boolean {
   heading.tabIndex = -1;
   heading.focus();
   return true;
+}
+
+function focusInspectionResult(navigationSeq: number): void {
+  afterCurrentNavigationFrame(() => {
+    if (navigationSequence.isCurrent(navigationSeq)) {
+      focusLevelOneHeading();
+    }
+  });
 }
 
 function restorePackageQueryReturnFocus() {
@@ -10674,8 +10690,10 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
       overload,
       true);
     state.loading = false;
+    workspaceLocation.push(buildStateUrl().toString());
     render();
     await renderMermaidCallGraph();
+    focusInspectionResult(navigationSeq);
   } catch (error) {
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     fail(error);
@@ -10692,6 +10710,7 @@ async function restoreWorkspaceFromLocation(
   canonicalSnapshot = loc.hasWorkspaceState
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
+  focusResult = false,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
@@ -10829,7 +10848,12 @@ async function restoreWorkspaceFromLocation(
         loc.library,
         loc.libraryPack,
         navigationSeq,
-        () => restoreWorkspaceFromLocation(loc, deep));
+        () => restoreWorkspaceFromLocation(
+          loc,
+          deep,
+          navigationSeq,
+          canonicalSnapshot,
+          focusResult));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
       if (!scoped) {
         if (loc.shareState) {
@@ -10871,6 +10895,9 @@ async function restoreWorkspaceFromLocation(
     state.loading = false;
     render();
     await loadSelectionData();
+    if (focusResult && navigationSequence.isCurrent(navigationSeq)) {
+      focusInspectionResult(navigationSeq);
+    }
   } else if (!isRuntimePackId(target.id)) {
     // The focused NuGet target failed to load during the silent background pass; re-run it in
     // the foreground so its error (e.g. a 404) surfaces properly instead of a blank workbench.
@@ -10889,7 +10916,12 @@ async function restoreWorkspaceFromLocation(
       ? `${state.queryNotice} ${failure}`
       : failure;
     state.errorTitle = "Platform failed";
-    state.retryAction = () => restoreWorkspaceFromLocation(loc, deep);
+    state.retryAction = () => restoreWorkspaceFromLocation(
+      loc,
+      deep,
+      undefined,
+      undefined,
+      focusResult);
     render();
   }
 }
