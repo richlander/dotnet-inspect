@@ -319,8 +319,11 @@ pointer swaps observe the shared runtime composition gate but need no Artifact
 publication plan when physical composition is unchanged. Each issues a fresh
 Scope publication base. After the final parent participant is constructed, no
 ordinary progress publication may invalidate it; cancellation or supersession
-must enter the same gate and either replace its expected base before
-`PrepareCommit` or lose to the parent's final non-yielding commit.
+that enters the same gate first replaces its expected base before
+`PrepareCommit`. After `PrepareCommit`, independently signaled cancellation or
+deadline expiry can still win at the parent's final recheck. A later
+supersession waiting for the held gate, or cancellation after the final
+non-yielding commit begins, loses to the committed result.
 
 `WorkspaceScopePreparationDescriptor` carries only the operation identity and
 kind, requested Root count, non-retaining adjacent-owner progress evidence,
@@ -876,7 +879,9 @@ evidence contract:
    intentionally outside the boundary. Publish a fresh `ClosedBoundary`
    closure observation under the unchanged logical revision when that evidence
    changed, retaining any producer-bound markers without interpreting them as
-   eligible candidates; perform no adjacent source or artifact work.
+   eligible candidates. Perform no source resolution, Root preparation,
+   acquisition, or receipt work; changed closure evidence still uses the
+   receipt-free parent publication plan and sealed Scope participant.
 3. Otherwise classify each relationship row as already admitted, eligible
    under one or more registered scopes, outside the boundary, or unsupported
    because it lacks an owner-issued acquisition coordinate.
@@ -1166,8 +1171,8 @@ The implementation must demonstrate:
 | All eligible dependencies are already admitted and two are outside the scopes | A closure-only observation is complete for the exact current Ready Root coverage and retains the two declined boundaries |
 | A closure-only publication is retried with an equivalent new participant | The prior Scope publication base is stale even though membership revision is unchanged; no second logical or physical publication occurs |
 | A delayed participant waits through several later Scope publications | Every pointer swap issues a fresh non-reused publication base, so the old participant cannot become current again through ABA |
-| Closed Workspace evaluates external dependencies | A closure-only `ClosedBoundary` observation retains the observed outside-boundary evidence and invokes no source or artifact owner |
-| Closed Workspace receives producer-bound dependency evidence | `ClosedBoundary` retains the typed bound marker and still invokes no source or artifact owner |
+| Closed Workspace evaluates external dependencies | A closure-only `ClosedBoundary` observation retains the observed outside-boundary evidence, performs no source or preparation work, and publishes through the receipt-free parent gate |
+| Closed Workspace receives producer-bound dependency evidence | `ClosedBoundary` retains the typed bound marker, performs no source or preparation work, and publishes through the receipt-free parent gate |
 | Dependency evidence covers only one of several current Ready Roots | `Rejected(EvidenceMismatch)`; the current unevaluated frontier remains visible |
 | A Root is re-realized after complete closure and before old evidence is submitted | The logical occurrence remains, closure becomes not evaluated for the replacement realization reference, and the old batch is rejected without publication |
 | One Root is Ready and another is Pending during expansion | Ready coverage is retained, the Pending occurrence remains in the unevaluated frontier, and closure cannot become complete |
@@ -1219,7 +1224,7 @@ or artifact evidence later claimed by those owners.
 | `RemoveExpansionScope_IsValueBasedAndIdempotent` | Removal uses typed scope-value equality; an absent value returns `NoEffect`, and no Workspace-bound registration identity exists. |
 | `EmptyExpansionScopes_MeanClosedBoundary` | Closed is derived from the empty scope set and causes no acquisition. |
 | `ExpansionScopeRegistration_PerformsNoDiscoveryOrAcquisition` | Registration only changes logical eligibility. |
-| `ClosedExpansion_EvidenceRemainsClosedAndPerformsNoPreparation` | An empty scope set has precedence, records observed outside-boundary and producer-bound evidence, and invokes no adjacent owner. |
+| `ClosedExpansion_EvidenceRemainsClosedAndPerformsNoPreparation` | An empty scope set has precedence, records observed outside-boundary and producer-bound evidence, performs no source, acquisition, or receipt work, and uses the receipt-free parent gate only when closure changes. |
 | `PackageExpansion_RequiresOwnerIssuedCoordinateEvidence` | Package scopes cannot match assembly names, labels, or uncorrelated references. |
 | `Expansion_CommitsSuccessfulCandidatesWithExactIncompleteEvidence` | Successfully prepared selected candidates publish atomically; every unsupported, capacity-declined, rejected, or failed relationship and every producer-bound marker remains typed and visible. |
 | `Expansion_AddingRootsLeavesUnevaluatedFrontier` | A revision containing newly expanded Roots cannot claim those Roots were already evaluated. |
