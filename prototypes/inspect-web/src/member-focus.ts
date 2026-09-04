@@ -56,6 +56,36 @@ export function captureMemberFocus(
       : null;
   } else if (active?.id === "clear-member-filter") {
     selector = "#clear-member-filter";
+  } else if (active?.dataset.type !== undefined) {
+    dataTarget = {
+      selector: "[data-type]",
+      key: "type",
+      value: active.dataset.type,
+    };
+  } else if (active?.dataset.namespace !== undefined) {
+    dataTarget = {
+      selector: "[data-namespace]",
+      key: "namespace",
+      value: active.dataset.namespace,
+    };
+  } else if (active?.dataset.kindFilter !== undefined) {
+    dataTarget = {
+      selector: "[data-kind-filter]",
+      key: "kindFilter",
+      value: active.dataset.kindFilter,
+    };
+  } else if (active?.dataset.accessChip !== undefined) {
+    dataTarget = {
+      selector: "[data-access-chip]",
+      key: "accessChip",
+      value: active.dataset.accessChip,
+    };
+  } else if (active?.dataset.libraryChip !== undefined) {
+    dataTarget = {
+      selector: "[data-library-chip]",
+      key: "libraryChip",
+      value: active.dataset.libraryChip,
+    };
   } else if (active?.dataset.memberKindFilter !== undefined) {
     dataTarget = {
       selector: "[data-member-kind-filter]",

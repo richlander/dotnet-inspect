@@ -179,6 +179,35 @@ test("navigation focus and scroll survive completion before loading focus restor
   assert.equal(elements.get("#type-list")!.scrollTop, 87);
 });
 
+test("a focused Type row survives an asynchronous replacement render", () => {
+  const { document, element } = createDocument();
+  element("#type-list", {
+    id: "type-list",
+    dataset: {
+      navScope: "types",
+      navSelection: "type:Example.Type",
+    },
+  });
+  const initialRow = element("#initial-type", {
+    dataset: { type: "Example.Type" },
+  });
+  document.activeElement = initialRow;
+  const snapshot = captureMemberFocus(document);
+
+  initialRow.isConnected = false;
+  document.activeElement = document.body;
+  const replacementRow = element("#replacement-type", {
+    dataset: { type: "Example.Type" },
+  });
+
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementRow);
+});
+
 test("stable annotated source segments retain focus across member completion renders", () => {
   const { document, element } = createDocument();
   const selector = "#annotated-source-modal-segment-42";
