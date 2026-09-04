@@ -585,9 +585,9 @@ callbacks, subscriptions, registrations, and payload references are released,
 or when successful synchronous `abandon()` acknowledges that a never-activated
 installed binding released every prepared resource.
 For an activated producer, the authority accepts that report only after a
-terminal outcome is committed and every returned terminal publication
-capability is exercised. An earlier report is a producer-contract failure and
-does not resolve `quiesced`.
+physical terminal settlement is reported and every returned terminal
+publication capability is exercised. An earlier report is a producer-contract
+failure and does not resolve `quiesced`.
 The authority component does not infer quiescence from logical cancellation, a
 terminal outcome, elapsed time, or feature cleanup.
 
