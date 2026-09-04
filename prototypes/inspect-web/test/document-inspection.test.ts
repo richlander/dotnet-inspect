@@ -9,7 +9,7 @@ import {
 import type {
   BrowserPackageDocument,
   BrowserPackageDocumentContent,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-package.d.ts";
 
 const document: BrowserPackageDocument = {
   kind: "Markdown",

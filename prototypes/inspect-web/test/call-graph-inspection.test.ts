@@ -9,7 +9,9 @@ import {
   type MemberCallGraphRequest,
   type PlatformDrillRequest,
 } from "../src/call-graph-inspection.ts";
-import type { BrowserCallGraph } from "../src/inspect-web-engine.d.ts";
+import type {
+  BrowserCallGraph,
+} from "../src/facades/inspect-web-call-graph.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 
 function graph(mermaid: string): BrowserCallGraph {

@@ -25,20 +25,23 @@
     <AdditionalFiles Include="BannedSymbols.txt" />
     <ProjectReference Include="..\..\..\src\TsJsExport.Contracts\TsJsExport.Contracts.csproj" />
     <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
-    <ProjectReference Include="..\..\..\src\CSharpText\CSharpText.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
-    <ProjectReference Include="..\..\..\src\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
-    <ProjectReference Include="..\..\..\src\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
+    <!--
+      The host references every capability export assembly. That is what lets the compiled
+      InspectWebJsExportContext name all seven roots without any reverse or sibling dependency,
+      and what puts every facade's WebCIL assembly in the published browser app.
+    -->
+    <ProjectReference Include="..\engine.PackageExports\InspectWeb.Engine.PackageExports.csproj" />
+    <ProjectReference Include="..\engine.MetadataExports\InspectWeb.Engine.MetadataExports.csproj" />
+    <ProjectReference Include="..\engine.AnalysisExports\InspectWeb.Engine.AnalysisExports.csproj" />
+    <ProjectReference Include="..\engine.SourceExports\InspectWeb.Engine.SourceExports.csproj" />
+    <ProjectReference Include="..\engine.CallGraphExports\InspectWeb.Engine.CallGraphExports.csproj" />
+    <ProjectReference Include="..\engine.CatalogExports\InspectWeb.Engine.CatalogExports.csproj" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.PackageExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.MetadataExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.AnalysisExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.SourceExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.CallGraphExports" />
+    <TrimmerRootAssembly Include="InspectWeb.Engine.CatalogExports" />
     <Content Include="..\dist\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Content Include="..\dist\manifest.json" Link="wwwroot\manifest.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\dist\assets\**\*" Link="wwwroot\assets\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
