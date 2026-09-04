@@ -48,7 +48,13 @@ internal static class ClassicInverseRecipes
         }
         List<Call> getResults = GetResultCalls(execution, shell);
 
-        Add(candidates, TryTryFinally(planning, shell, setResult, getResults));
+        Add(candidates, TryTryFinally(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
         Add(candidates, TryLoop(
             request.ExecutionBody,
             planning,
@@ -56,10 +62,34 @@ internal static class ClassicInverseRecipes
             setResult,
             getResults,
             budget));
-        Add(candidates, TryConditional(planning, shell, setResult, getResults));
-        Add(candidates, TrySequentialVoid(planning, shell, setResult, getResults));
-        Add(candidates, TrySingleAwaitVoid(planning, shell, setResult, getResults));
-        Add(candidates, TrySingleAwaitReturn(planning, shell, setResult, getResults));
+        Add(candidates, TryConditional(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
+        Add(candidates, TrySequentialVoid(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
+        Add(candidates, TrySingleAwaitVoid(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
+        Add(candidates, TrySingleAwaitReturn(
+            request.ExecutionBody,
+            planning,
+            shell,
+            setResult,
+            getResults,
+            budget));
         return candidates;
     }
 
@@ -157,10 +187,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: return await -------------------------------------------
 
     static ClassicInverseCandidate? TrySingleAwaitReturn(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
@@ -175,7 +207,12 @@ internal static class ClassicInverseRecipes
             .LastOrDefault(candidate =>
                 candidate.Index == result.Index
                 && Contains(candidate.Value, getResults[0]));
-        if (store is null)
+        if (store is null
+            || !ProvesCompletionTransfer(
+                rawExecution,
+                store,
+                setResult,
+                budget))
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-return")
@@ -196,10 +233,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: await a void-returning operation -----------------------
 
     static ClassicInverseCandidate? TrySingleAwaitVoid(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
@@ -210,7 +249,12 @@ internal static class ClassicInverseRecipes
             return null;
         }
 
-        if (getResults[0].Parent is not ExpressionStatement statement)
+        if (getResults[0].Parent is not ExpressionStatement statement
+            || !ProvesCompletionTransfer(
+                rawExecution,
+                statement,
+                setResult,
+                budget))
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-await-void");
@@ -228,10 +272,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: two sequential awaits, then one statement ---------------
 
     static ClassicInverseCandidate? TrySequentialVoid(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments.Count != 1
@@ -266,7 +312,12 @@ internal static class ClassicInverseRecipes
             .OfType<ExpressionStatement>()
             .FirstOrDefault(static statement =>
                 statement.Expression is Call { Callee.Name: "KeepAlive" });
-        if (tail is null)
+        if (tail is null
+            || !ProvesCompletionTransfer(
+                rawExecution,
+                tail,
+                setResult,
+                budget))
             return null;
 
         var candidate = new ClassicInverseCandidate("classic-sequential-await-void");
@@ -323,10 +374,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: conditional await --------------------------------------
 
     static ClassicInverseCandidate? TryConditional(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
@@ -378,8 +431,40 @@ internal static class ClassicInverseRecipes
         List<Branch> joins = [.. execution.Body.Descendants.OfType<Branch>()];
         List<Branch> conditionalJoins = [.. joins.Where(
             branch => branch.TargetOffset == finalBlock.StartOffset)];
-        if (conditionalJoins.Count > 1)
+        if (conditionalJoins is not [Branch conditionalJoin]
+            || zeroBranch.Parent is not Block conditionBlock
+            || awaitStore.Parent is not Block awaitContinuation
+            || OperandBlock(planning, shell, getResults[0])
+                is not Block awaitEntry
+            || !TryGetConditionalControlIdentity(
+                conditionBlock,
+                zeroBranch,
+                awaitEntry,
+                awaitContinuation,
+                zeroBlock,
+                finalBlock,
+                conditionalJoin,
+                budget,
+                out string planningControl)
+            || !TryGetRawConditionalControlIdentity(
+                rawExecution,
+                zeroBranch.SourceOffset,
+                awaitEntry.StartOffset,
+                awaitContinuation.StartOffset,
+                zeroBlock.StartOffset,
+                finalBlock.StartOffset,
+                conditionalJoin.SourceOffset,
+                budget,
+                out string rawControl)
+            || planningControl != rawControl
+            || !ProvesCompletionTransfer(
+                rawExecution,
+                finalStore,
+                setResult,
+                budget))
+        {
             return null;
+        }
 
         var candidate = new ClassicInverseCandidate("classic-await-conditional")
         {
@@ -417,8 +502,7 @@ internal static class ClassicInverseRecipes
             ret,
             ClassicInverseRealizationRule.ResultStore);
 
-        foreach (Branch join in conditionalJoins)
-            candidate.DeclareProtocol(join, "conditional-join");
+        candidate.DeclareProtocol(conditionalJoin, "conditional-join");
 
         Block? thenBlock = EnclosingBlock(awaitStore);
         Block? operandBlock = EnclosingBlock(getResults[0]) is { } resultBlock
@@ -434,6 +518,286 @@ internal static class ClassicInverseRecipes
         candidate.DeclareControlRegion("conditional-else", [zeroBlock], elseOutput);
 
         return candidate;
+    }
+
+    static bool TryGetConditionalControlIdentity(
+        Block condition,
+        ConditionalBranch test,
+        Block awaitEntry,
+        Block awaitContinuation,
+        Block whenFalse,
+        Block merge,
+        Branch join,
+        ClassicInverseBudget budget,
+        out string identity)
+    {
+        identity = "";
+        if (condition.Parent is not BlockContainer container
+            || !ReferenceEquals(awaitEntry.Parent, container)
+            || !ReferenceEquals(awaitContinuation.Parent, container)
+            || !ReferenceEquals(whenFalse.Parent, container)
+            || !ReferenceEquals(merge.Parent, container)
+            || !ReferenceEquals(test.Parent, condition)
+            || !ReferenceEquals(condition.Children.LastOrDefault(), test)
+            || !ReferenceEquals(join.Parent, awaitContinuation)
+            || !ReferenceEquals(
+                awaitContinuation.Children.LastOrDefault(),
+                join))
+        {
+            return false;
+        }
+
+        IReadOnlyList<Block> blocks = container.Blocks;
+        int conditionIndex = BlockIndex(blocks, condition, budget);
+        int awaitEntryIndex = BlockIndex(blocks, awaitEntry, budget);
+        int awaitContinuationIndex = BlockIndex(
+            blocks,
+            awaitContinuation,
+            budget);
+        int falseIndex = BlockIndex(blocks, whenFalse, budget);
+        int mergeIndex = BlockIndex(blocks, merge, budget);
+        if (conditionIndex < 0
+            || awaitEntryIndex < 0
+            || awaitContinuationIndex < 0
+            || falseIndex < 0
+            || mergeIndex < 0
+            || test.TargetOffset != whenFalse.StartOffset
+            || join.TargetOffset != merge.StartOffset
+            || !ClassicInverseCfg.TryBuild(blocks, budget, out var edges)
+            || !HasOnlySuccessors(
+                edges[conditionIndex],
+                budget,
+                awaitEntryIndex,
+                falseIndex)
+            || !HasOnlySuccessors(
+                edges[awaitContinuationIndex],
+                budget,
+                mergeIndex)
+            || !HasOnlySuccessors(
+                edges[falseIndex],
+                budget,
+                mergeIndex)
+            || !HasNoSuccessors(edges[mergeIndex])
+            || !HasOnlyPredecessors(
+                edges,
+                awaitEntryIndex,
+                budget,
+                conditionIndex)
+            || !HasOnlyPredecessors(
+                edges,
+                falseIndex,
+                budget,
+                conditionIndex)
+            || !HasOnlyPredecessors(
+                edges,
+                mergeIndex,
+                budget,
+                awaitContinuationIndex,
+                falseIndex))
+        {
+            return false;
+        }
+
+        identity =
+            $"condition:{condition.StartOffset}/{test.SourceOffset}"
+            + $"->{awaitEntry.StartOffset}|{whenFalse.StartOffset};"
+            + $"await:{awaitContinuation.StartOffset}/{join.SourceOffset}"
+            + $"->{merge.StartOffset};"
+            + $"false:{whenFalse.StartOffset}->{merge.StartOffset};"
+            + $"merge:{merge.StartOffset}";
+        return true;
+    }
+
+    static bool TryGetRawConditionalControlIdentity(
+        IrFunction raw,
+        int testSourceOffset,
+        int awaitEntryOffset,
+        int awaitContinuationOffset,
+        int falseOffset,
+        int mergeOffset,
+        int joinSourceOffset,
+        ClassicInverseBudget budget,
+        out string identity)
+    {
+        identity = "";
+        var tests = new List<ConditionalBranch>();
+        var joins = new List<Branch>();
+        var awaitEntries = new List<Block>();
+        var awaitContinuations = new List<Block>();
+        var falseBlocks = new List<Block>();
+        var mergeBlocks = new List<Block>();
+        foreach (IrNode node in raw.Body.Descendants)
+        {
+            if (!budget.Charge())
+                return false;
+            switch (node)
+            {
+                case ConditionalBranch candidateTest
+                    when candidateTest.SourceOffset == testSourceOffset:
+                    tests.Add(candidateTest);
+                    break;
+                case Branch candidateJoin
+                    when candidateJoin.SourceOffset == joinSourceOffset:
+                    joins.Add(candidateJoin);
+                    break;
+                case Block block when block.StartOffset == awaitEntryOffset:
+                    awaitEntries.Add(block);
+                    break;
+                case Block block
+                    when block.StartOffset == awaitContinuationOffset:
+                    awaitContinuations.Add(block);
+                    break;
+                case Block block when block.StartOffset == falseOffset:
+                    falseBlocks.Add(block);
+                    break;
+                case Block block when block.StartOffset == mergeOffset:
+                    mergeBlocks.Add(block);
+                    break;
+            }
+        }
+
+        if (tests is not [ConditionalBranch test]
+            || joins is not [Branch join]
+            || awaitEntries is not [Block awaitEntry]
+            || awaitContinuations is not [Block awaitContinuation]
+            || falseBlocks is not [Block whenFalse]
+            || mergeBlocks is not [Block merge]
+            || test.Parent is not Block condition)
+        {
+            return false;
+        }
+
+        return TryGetConditionalControlIdentity(
+            condition,
+            test,
+            awaitEntry,
+            awaitContinuation,
+            whenFalse,
+            merge,
+            join,
+            budget,
+            out identity);
+    }
+
+    static int BlockIndex(
+        IReadOnlyList<Block> blocks,
+        Block target,
+        ClassicInverseBudget budget)
+    {
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            if (!budget.Charge())
+                return -1;
+            if (ReferenceEquals(blocks[i], target))
+                return i;
+        }
+        return -1;
+    }
+
+    static bool HasOnlySuccessors(
+        ILInspector.ControlFlow.BlockEdges block,
+        ClassicInverseBudget budget,
+        params int[] expected)
+    {
+        if (block.ExitsMethod
+            || block.LeavesRegion
+            || block.ExternalTargets.Count != 0
+            || block.Successors.Count != expected.Length)
+        {
+            return false;
+        }
+        foreach (int successor in block.Successors)
+        {
+            if (!budget.Charge() || !expected.Contains(successor))
+                return false;
+        }
+        return true;
+    }
+
+    static bool HasNoSuccessors(
+        ILInspector.ControlFlow.BlockEdges block)
+        => block.ExternalTargets.Count == 0
+            && block.Successors.Count == 0;
+
+    static bool HasOnlyPredecessors(
+        IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges,
+        int block,
+        ClassicInverseBudget budget,
+        params int[] expected)
+    {
+        var actual = new List<int>();
+        for (int source = 0; source < edges.Count; source++)
+        {
+            if (!budget.Charge())
+                return false;
+            foreach (int successor in edges[source].Successors)
+            {
+                if (!budget.Charge())
+                    return false;
+                if (successor == block)
+                    actual.Add(source);
+            }
+        }
+        return actual.Count == expected.Length
+            && actual.All(expected.Contains);
+    }
+
+    static bool ProvesCompletionTransfer(
+        IrFunction raw,
+        IrNode planningEndpoint,
+        Call planningSetResult,
+        ClassicInverseBudget budget)
+    {
+        if (planningEndpoint.Parent is not Block planningBlock
+            || planningBlock.Parent is not BlockContainer planningContainer
+            || !ClassicInverseCfg.TryBuild(
+                planningContainer.Blocks,
+                budget,
+                out var planningEdges))
+        {
+            return false;
+        }
+
+        int planningIndex = BlockIndex(
+            planningContainer.Blocks,
+            planningBlock,
+            budget);
+        if (planningIndex < 0
+            || !HasNoSuccessors(planningEdges[planningIndex]))
+        {
+            return false;
+        }
+
+        var rawEndpoints = new List<Block>();
+        var rawSetResults = new List<Call>();
+        var rawLeaves = new List<Leave>();
+        foreach (IrNode node in raw.Body.Descendants)
+        {
+            if (!budget.Charge())
+                return false;
+            switch (node)
+            {
+                case Block block
+                    when block.StartOffset == planningBlock.StartOffset:
+                    rawEndpoints.Add(block);
+                    break;
+                case Call call
+                    when call.SourceOffset == planningSetResult.SourceOffset
+                        && call.Callee.Name == "SetResult":
+                    rawSetResults.Add(call);
+                    break;
+                case Leave leave:
+                    rawLeaves.Add(leave);
+                    break;
+            }
+        }
+
+        return rawEndpoints is [Block rawEndpoint]
+            && rawSetResults is [Call { Parent.Parent: Block setResultBlock }]
+            && rawEndpoint.Children.LastOrDefault() is Leave success
+            && success.TargetOffset == setResultBlock.StartOffset
+            && rawLeaves.Count(
+                leave => leave.TargetOffset == setResultBlock.StartOffset) == 1;
     }
 
     static Block? OperandBlock(
@@ -462,8 +826,9 @@ internal static class ClassicInverseRecipes
             return null;
         }
 
-        StoreField? collectionHoist = execution.Body.Descendants.OfType<StoreField>()
-            .FirstOrDefault(store =>
+        List<StoreField> collectionHoists = [.. execution.Body.Descendants
+            .OfType<StoreField>()
+            .Where(store =>
                 store.Field.Name == "<>7__wrap1"
                 && store.Instance is LoadArgument { Index: 0 }
                 && ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine)
@@ -474,8 +839,9 @@ internal static class ClassicInverseRecipes
                     shell.Machine)
                 && collection.Field.Type is
                     { Kind: TypeRefKind.SzArray, ElementType: { } element }
-                && IsTaskLike(element));
-        if (collectionHoist?.Value is not LoadField collectionField
+                && IsTaskLike(element))];
+        if (collectionHoists is not
+            [StoreField { Value: LoadField collectionField } collectionHoist]
             || collectionField.Field.Type.ElementType is not { } taskType)
         {
             return null;
@@ -537,6 +903,34 @@ internal static class ClassicInverseRecipes
             hoistedCollection,
             loopIndex,
             loopAccumulator);
+        List<StoreField> accumulatorHoists = [.. execution.Body.Descendants
+            .OfType<StoreField>()
+            .Where(store => store.Field == loopAccumulator
+                && store.Instance is LoadArgument { Index: 0 }
+                && store.Value is LoadLocal load
+                && load.Index == accumulatorStore.Index)];
+        List<StoreField> collectionReleases = [.. execution.Body.Descendants
+            .OfType<StoreField>()
+            .Where(store => store.Field == hoistedCollection
+                && store.Instance is LoadArgument { Index: 0 }
+                && store.Value is Constant { Value: null })];
+        int collectionWriteCount = execution.Body.Descendants.Count(
+            node => IsMachineFieldWrite(
+                node,
+                hoistedCollection,
+                shell.Machine));
+        int accumulatorWriteCount = execution.Body.Descendants.Count(
+            node => IsMachineFieldWrite(
+                node,
+                loopAccumulator,
+                shell.Machine));
+        if (accumulatorHoists is not [StoreField accumulatorHoist]
+            || collectionReleases is not [StoreField collectionRelease]
+            || collectionWriteCount != 2
+            || accumulatorWriteCount != 1)
+        {
+            return null;
+        }
 
         IrExpression? operand = AwaitedOperand(execution, getResult);
         List<LoadStackSlot> spilledElements = operand is null
@@ -583,7 +977,10 @@ internal static class ClassicInverseRecipes
                 && advanceRead.Field == loopIndex
                 && advanceRead.Instance is LoadArgument { Index: 0 })];
         List<IrNode> indexWrites = [.. execution.Body.Descendants
-            .Where(node => IsLoopIndexWrite(node, loopIndex, shell.Machine))];
+            .Where(node => IsMachineFieldWrite(
+                node,
+                loopIndex,
+                shell.Machine))];
         List<StoreField> indexInitializers = [.. indexWrites
             .OfType<StoreField>()
             .Where(static store => store.Value is Constant { Value: 0 })];
@@ -611,6 +1008,13 @@ internal static class ClassicInverseRecipes
                 bodyBlock,
                 advanceBlock,
                 indexInitializer,
+                collectionHoist,
+                elementSpill,
+                accumulatorHoist,
+                resultStore,
+                accumulatorStore,
+                collectionRelease,
+                finalStore,
                 budget,
                 out string planningControl)
             || !TryGetRawForeachControlIdentity(
@@ -622,9 +1026,26 @@ internal static class ClassicInverseRecipes
                 elementSpill.SourceOffset,
                 advance.SourceOffset,
                 indexInitializer.SourceOffset,
+                collectionHoist.SourceOffset,
+                accumulatorHoist.SourceOffset,
+                resultStore.SourceOffset,
+                accumulatorStore.SourceOffset,
+                collectionRelease.SourceOffset,
+                finalStore.SourceOffset,
+                collectionField.Field,
+                accumulatorStore.Index,
+                finalResult.Index,
                 budget,
                 out string rawControl)
             || planningControl != rawControl)
+        {
+            return null;
+        }
+        if (!ProvesCompletionTransfer(
+                rawExecution,
+                finalStore,
+                setResult,
+                budget))
         {
             return null;
         }
@@ -704,25 +1125,12 @@ internal static class ClassicInverseRecipes
             "foreach-collection-hoist",
             outputContext: null);
 
-        foreach (IrNode node in execution.Body.Descendants)
-        {
-            switch (node)
-            {
-                case StoreField { Value: Constant { Value: null } } release
-                    when release.Field == hoistedCollection
-                        && release.Instance is LoadArgument { Index: 0 }:
-                    candidate.DeclareProtocol(release, "foreach-collection-release");
-                    break;
-
-                case StoreField { Value: LoadLocal spill } hoistSum
-                    when hoistSum.Field == loopAccumulator
-                        && spill.Index == accumulatorStore.Index
-                        && hoistSum.Instance is LoadArgument { Index: 0 }:
-                    candidate.DeclareProtocol(hoistSum, "hoisted-local-transfer");
-                    break;
-
-            }
-        }
+        candidate.DeclareProtocol(
+            collectionRelease,
+            "foreach-collection-release");
+        candidate.DeclareProtocol(
+            accumulatorHoist,
+            "hoisted-local-transfer");
         candidate.DeclareProtocol(indexInitializer, "foreach-index-init");
         candidate.DeclareProtocol(advance, "foreach-index-advance");
         candidate.DeclareProtocol(boundTest, "foreach-bound-test");
@@ -753,6 +1161,13 @@ internal static class ClassicInverseRecipes
         Block body,
         Block advance,
         StoreField indexInitializer,
+        StoreField collectionHoist,
+        StoreStackSlot elementSpill,
+        StoreField accumulatorHoist,
+        StoreLocal awaitedResultStore,
+        StoreLocal accumulatorStore,
+        StoreField collectionRelease,
+        StoreLocal finalStore,
         ClassicInverseBudget budget,
         out string identity)
     {
@@ -762,8 +1177,23 @@ internal static class ClassicInverseRecipes
             || !ReferenceEquals(body.Parent, container)
             || !ReferenceEquals(advance.Parent, container)
             || !ReferenceEquals(indexInitializer.Parent, entry)
+            || !ReferenceEquals(collectionHoist.Parent, entry)
+            || !ReferenceEquals(elementSpill.Parent, body)
+            || !ReferenceEquals(accumulatorHoist.Parent, body)
+            || !ReferenceEquals(awaitedResultStore.Parent, advance)
+            || !ReferenceEquals(accumulatorStore.Parent, advance)
+            || finalStore.Parent is not Block finalBlock
+            || !ReferenceEquals(finalBlock.Parent, container)
             || indexInitializer.ChildIndex < 0
             || indexInitializer.ChildIndex >= entry.Children.Count - 1
+            || collectionHoist.ChildIndex < 0
+            || collectionHoist.ChildIndex >= indexInitializer.ChildIndex
+            || elementSpill.ChildIndex < 0
+            || accumulatorHoist.ChildIndex <= elementSpill.ChildIndex
+            || accumulatorHoist.ChildIndex >= body.Children.Count - 1
+            || awaitedResultStore.ChildIndex < 0
+            || accumulatorStore.ChildIndex <= awaitedResultStore.ChildIndex
+            || accumulatorStore.ChildIndex >= advance.Children.Count - 1
             || bound.Children is not [.., var terminator]
             || !ReferenceEquals(terminator, test))
         {
@@ -771,22 +1201,24 @@ internal static class ClassicInverseRecipes
         }
 
         IReadOnlyList<Block> blocks = container.Blocks;
-        int boundIndex = IndexOf(blocks, bound);
-        int entryIndex = IndexOf(blocks, entry);
-        int bodyIndex = IndexOf(blocks, body);
-        int advanceIndex = IndexOf(blocks, advance);
+        int boundIndex = BlockIndex(blocks, bound, budget);
+        int entryIndex = BlockIndex(blocks, entry, budget);
+        int bodyIndex = BlockIndex(blocks, body, budget);
+        int advanceIndex = BlockIndex(blocks, advance, budget);
+        int finalIndex = BlockIndex(blocks, finalBlock, budget);
         if (boundIndex < 0
             || entryIndex < 0
             || bodyIndex < 0
-            || advanceIndex < 0)
+            || advanceIndex < 0
+            || finalIndex < 0)
         {
             return false;
         }
 
         if (!ClassicInverseCfg.TryBuild(blocks, budget, out var edges))
             return false;
-        if (!HasOnlySuccessors(edges[entryIndex], boundIndex)
-            || !HasOnlySuccessors(edges[advanceIndex], boundIndex)
+        if (!HasOnlySuccessors(edges[entryIndex], budget, boundIndex)
+            || !HasOnlySuccessors(edges[advanceIndex], budget, boundIndex)
             || edges[boundIndex].Successors.Count != 2
             || !edges[boundIndex].Successors.Contains(bodyIndex))
         {
@@ -798,11 +1230,32 @@ internal static class ClassicInverseRecipes
             -1);
         if (exitIndex < 0
             || test.TargetOffset != body.StartOffset
-            || !HasOnlyPredecessors(edges, bodyIndex, boundIndex)
-            || !HasOnlyPredecessors(edges, exitIndex, boundIndex)
+            || !ReferenceEquals(
+                collectionRelease.Parent,
+                blocks[exitIndex])
+            || collectionRelease.ChildIndex < 0
+            || finalStore.ChildIndex < 0
+            || (exitIndex == finalIndex
+                && collectionRelease.ChildIndex >= finalStore.ChildIndex)
+            || !AllPathsReachTarget(
+                edges,
+                exitIndex,
+                finalIndex,
+                budget)
+            || !HasOnlyPredecessors(
+                edges,
+                bodyIndex,
+                budget,
+                boundIndex)
+            || !HasOnlyPredecessors(
+                edges,
+                exitIndex,
+                budget,
+                boundIndex)
             || !HasOnlyPredecessors(
                 edges,
                 boundIndex,
+                budget,
                 entryIndex,
                 advanceIndex))
         {
@@ -810,46 +1263,82 @@ internal static class ClassicInverseRecipes
         }
 
         identity =
-            $"init:{indexInitializer.SourceOffset}@{entry.StartOffset};"
+            $"collection:{collectionHoist.SourceOffset}"
+            + $"@{entry.StartOffset}:{collectionHoist.ChildIndex};"
+            + $"init:{indexInitializer.SourceOffset}@{entry.StartOffset}"
+            + $":{indexInitializer.ChildIndex};"
             + $"entry:{entry.StartOffset}->{bound.StartOffset};"
+            + $"element:{elementSpill.SourceOffset}@{body.StartOffset}"
+            + $":{elementSpill.ChildIndex};"
+            + $"accumulator:{accumulatorHoist.SourceOffset}@{body.StartOffset}"
+            + $":{accumulatorHoist.ChildIndex};"
+            + $"result:{awaitedResultStore.SourceOffset}@{advance.StartOffset}"
+            + $":{awaitedResultStore.ChildIndex};"
+            + $"accumulate:{accumulatorStore.SourceOffset}"
+            + $"@{advance.StartOffset}:{accumulatorStore.ChildIndex};"
             + $"advance:{advance.StartOffset}->{bound.StartOffset};"
             + $"bound:{bound.StartOffset}/{test.SourceOffset}"
             + $"->{body.StartOffset}|{blocks[exitIndex].StartOffset};"
             + $"body:{body.StartOffset};"
+            + $"release:{collectionRelease.SourceOffset}"
+            + $"@{blocks[exitIndex].StartOffset}:{collectionRelease.ChildIndex};"
+            + $"final:{finalStore.SourceOffset}"
+            + $"@{finalBlock.StartOffset}:{finalStore.ChildIndex};"
             + $"exit:{blocks[exitIndex].StartOffset}";
         return true;
+    }
 
-        static int IndexOf(IReadOnlyList<Block> blocks, Block target)
+    static bool AllPathsReachTarget(
+        IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges,
+        int start,
+        int target,
+        ClassicInverseBudget budget)
+    {
+        var state = new byte[edges.Count];
+        var stack = new Stack<(int Block, int NextSuccessor)>();
+        stack.Push((start, 0));
+        while (stack.Count > 0)
         {
-            for (int i = 0; i < blocks.Count; i++)
+            var (block, nextSuccessor) = stack.Pop();
+            if (block == target)
+                continue;
+
+            ILInspector.ControlFlow.BlockEdges edge = edges[block];
+            if (nextSuccessor == 0)
             {
-                if (ReferenceEquals(blocks[i], target))
-                    return i;
+                if (!budget.Charge()
+                    || state[block] == 1
+                    || edge.ExitsMethod
+                    || edge.LeavesRegion
+                    || edge.ExternalTargets.Count != 0
+                    || edge.Successors.Count == 0)
+                {
+                    return false;
+                }
+                if (state[block] == 2)
+                    continue;
+                state[block] = 1;
             }
-            return -1;
-        }
 
-        static bool HasOnlySuccessors(
-            ILInspector.ControlFlow.BlockEdges block,
-            params int[] expected)
-            => !block.ExitsMethod
-                && !block.LeavesRegion
-                && block.ExternalTargets.Count == 0
-                && block.Successors.Count == expected.Length
-                && block.Successors.Order().SequenceEqual(expected.Order());
+            if (nextSuccessor < edge.Successors.Count)
+            {
+                if (!budget.Charge())
+                    return false;
+                stack.Push((block, nextSuccessor + 1));
+                int successor = edge.Successors[nextSuccessor];
+                if (successor != target)
+                {
+                    if (state[successor] == 1)
+                        return false;
+                    if (state[successor] == 0)
+                        stack.Push((successor, 0));
+                }
+                continue;
+            }
 
-        static bool HasOnlyPredecessors(
-            IReadOnlyList<ILInspector.ControlFlow.BlockEdges> edges,
-            int block,
-            params int[] expected)
-        {
-            int[] actual = [.. edges
-                .Select((edge, index) => (edge, index))
-                .Where(pair => pair.edge.Successors.Contains(block))
-                .Select(pair => pair.index)
-                .Order()];
-            return actual.SequenceEqual(expected.Order());
+            state[block] = 2;
         }
+        return true;
     }
 
     static bool TryGetRawForeachControlIdentity(
@@ -861,6 +1350,15 @@ internal static class ClassicInverseRecipes
         int bodySourceOffset,
         int advanceSourceOffset,
         int initializerSourceOffset,
+        int collectionHoistSourceOffset,
+        int accumulatorHoistSourceOffset,
+        int awaitedResultStoreSourceOffset,
+        int accumulatorStoreSourceOffset,
+        int collectionReleaseSourceOffset,
+        int finalStoreSourceOffset,
+        FieldRef sourceCollection,
+        int accumulatorLocal,
+        int finalResultLocal,
         ClassicInverseBudget budget,
         out string identity)
     {
@@ -869,7 +1367,13 @@ internal static class ClassicInverseRecipes
             || entrySourceOffset < 0
             || bodySourceOffset < 0
             || advanceSourceOffset < 0
-            || initializerSourceOffset < 0)
+            || initializerSourceOffset < 0
+            || collectionHoistSourceOffset < 0
+            || accumulatorHoistSourceOffset < 0
+            || awaitedResultStoreSourceOffset < 0
+            || accumulatorStoreSourceOffset < 0
+            || collectionReleaseSourceOffset < 0
+            || finalStoreSourceOffset < 0)
         {
             return false;
         }
@@ -880,6 +1384,14 @@ internal static class ClassicInverseRecipes
         var advances = new List<StoreField>();
         var initializers = new List<StoreField>();
         var indexWrites = new List<IrNode>();
+        var collectionHoists = new List<StoreField>();
+        var accumulatorHoists = new List<StoreField>();
+        var collectionReleases = new List<StoreField>();
+        var finalStores = new List<StoreLocal>();
+        var awaitedResultStores = new List<StoreLocal>();
+        var accumulatorStores = new List<StoreLocal>();
+        var collectionWrites = new List<IrNode>();
+        var accumulatorWrites = new List<IrNode>();
         foreach (IrNode node in raw.Body.Descendants)
         {
             if (!budget.Charge())
@@ -925,8 +1437,62 @@ internal static class ClassicInverseRecipes
                             machine):
                     advances.Add(store);
                     break;
+                case StoreField
+                {
+                    Field: var hoistedCollection,
+                    Instance: LoadArgument { Index: 0 },
+                    Value: LoadField
+                    {
+                        Field: var source,
+                        Instance: LoadArgument { Index: 0 },
+                    },
+                } store
+                    when store.SourceOffset == collectionHoistSourceOffset
+                        && hoistedCollection == storage.Collection
+                        && source == sourceCollection:
+                    collectionHoists.Add(store);
+                    break;
+                case StoreField
+                {
+                    Field: var accumulator,
+                    Instance: LoadArgument { Index: 0 },
+                    Value: LoadLocal { Index: var local },
+                } store
+                    when store.SourceOffset == accumulatorHoistSourceOffset
+                        && accumulator == storage.Accumulator
+                        && local == accumulatorLocal:
+                    accumulatorHoists.Add(store);
+                    break;
+                case StoreField
+                {
+                    Field: var collection,
+                    Instance: LoadArgument { Index: 0 },
+                    Value: Constant { Value: null },
+                } store
+                    when store.SourceOffset == collectionReleaseSourceOffset
+                        && collection == storage.Collection:
+                    collectionReleases.Add(store);
+                    break;
+                case StoreLocal
+                {
+                    Index: var target,
+                    Value: LoadLocal { Index: var source },
+                } store
+                    when store.SourceOffset == finalStoreSourceOffset
+                        && target == finalResultLocal
+                        && source == accumulatorLocal:
+                    finalStores.Add(store);
+                    break;
+                case StoreLocal store
+                    when store.SourceOffset == awaitedResultStoreSourceOffset:
+                    awaitedResultStores.Add(store);
+                    break;
+                case StoreLocal store
+                    when store.SourceOffset == accumulatorStoreSourceOffset:
+                    accumulatorStores.Add(store);
+                    break;
             }
-            if (IsLoopIndexWrite(node, storage.Index, machine))
+            if (IsMachineFieldWrite(node, storage.Index, machine))
             {
                 indexWrites.Add(node);
                 if (node is StoreField
@@ -938,6 +1504,10 @@ internal static class ClassicInverseRecipes
                     initializers.Add(indexInitializer);
                 }
             }
+            if (IsMachineFieldWrite(node, storage.Collection, machine))
+                collectionWrites.Add(node);
+            if (IsMachineFieldWrite(node, storage.Accumulator, machine))
+                accumulatorWrites.Add(node);
         }
         if (bounds is not [ConditionalBranch bound]
             || entries is not [Branch entry]
@@ -945,6 +1515,15 @@ internal static class ClassicInverseRecipes
             || advances is not [StoreField advance]
             || initializers is not [StoreField initializer]
             || indexWrites.Count != 2
+            || collectionHoists is not [StoreField collectionHoist]
+            || accumulatorHoists is not [StoreField accumulatorHoist]
+            || collectionReleases is not [StoreField collectionRelease]
+            || finalStores is not [StoreLocal finalStore]
+            || awaitedResultStores is not
+                [StoreLocal awaitedResultStore]
+            || accumulatorStores is not [StoreLocal accumulatorStore]
+            || collectionWrites.Count != 2
+            || accumulatorWrites.Count != 1
             || bound.Parent is not Block boundBlock
             || entry.Parent is not Block entryBlock
             || bodyAnchor.Parent is not Block bodyBlock
@@ -960,30 +1539,35 @@ internal static class ClassicInverseRecipes
             bodyBlock,
             advanceBlock,
             initializer,
+            collectionHoist,
+            bodyAnchor,
+            accumulatorHoist,
+            awaitedResultStore,
+            accumulatorStore,
+            collectionRelease,
+            finalStore,
             budget,
             out identity);
     }
 
-    static bool IsLoopIndexWrite(
+    static bool IsMachineFieldWrite(
         IrNode node,
-        FieldRef loopIndex,
+        FieldRef expectedField,
         TypeRef machine)
         => node switch
         {
             StoreField
             {
                 Field: var field,
-                Instance: LoadArgument { Index: 0 },
-            } => field == loopIndex
+            } => field == expectedField
                 && ClassicInverseNodeFacts.IsMachineField(field, machine),
             InitObject
             {
                 Address: LoadFieldAddress
                 {
                     Field: var field,
-                    Instance: LoadArgument { Index: 0 },
                 },
-            } => field == loopIndex
+            } => field == expectedField
                 && ClassicInverseNodeFacts.IsMachineField(field, machine),
             _ => false,
         };
@@ -1055,10 +1639,12 @@ internal static class ClassicInverseRecipes
     // ---- Recipe: await inside try/finally --------------------------------
 
     static ClassicInverseCandidate? TryTryFinally(
+        IrFunction rawExecution,
         ClassicInversePlanningView planning,
         ClassicInverseShellFacts shell,
         Call setResult,
-        List<Call> getResults)
+        List<Call> getResults,
+        ClassicInverseBudget budget)
     {
         IrFunction execution = planning.ExecutionBody;
         if (setResult.Arguments is not [_, LoadLocal result]
@@ -1076,7 +1662,12 @@ internal static class ClassicInverseRecipes
         StoreLocal? resultStore = tryFinally.TryBody.Descendants.OfType<StoreLocal>()
             .LastOrDefault(store =>
                 store.Index == result.Index && Contains(store.Value, getResults[0]));
-        if (resultStore is null)
+        if (resultStore is null
+            || !ProvesCompletionTransfer(
+                rawExecution,
+                resultStore,
+                setResult,
+                budget))
             return null;
 
         List<IfStatement> guards = [.. tryFinally.FinallyBody.Blocks

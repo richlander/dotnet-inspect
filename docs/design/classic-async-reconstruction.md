@@ -353,6 +353,10 @@ independently recognizable shapes:
   `SetException` and excludes `SetResult`, and a handler-entry variable that is
   the local `SetException` receives; the planning view's structured clause must
   agree on type, variable, and the compiler's state/`SetException`/return arm;
+- **successful completion** — the exact terminal block for each accepted
+  recipe must have no remaining planning successor, and its corresponding raw
+  block must end in the sole `leave` to the exact `SetResult` block. A detached
+  or unreachable lookalike transfer cannot authorize completion;
 - **the resume-state protocol** — every state constant bound to its role: the
   dispatch-local initialization, each suspension constant stored into both the
   machine field and the dispatch local before its await callback, exactly one
@@ -483,19 +487,29 @@ effect rather than realize it one-to-one:
   exact accessor and dispatch are part of the proven completion, suspension,
   resume, and `GetResult` topology for that await. Retargeting the completed
   edge to skip `GetResult` or a user effect leaves the branch unaccounted.
+- **a conditional merge.** The condition's two exact successors must enter the
+  awaited and false arms, those arms must each reach the same final value store,
+  and that merge must have no other predecessor or planning successor. The
+  awaited arm's join belongs to that arm; moving it to the false arm changes
+  runtime value selection and is not protocol.
 - **a loop element.** A recipe that realizes an array read as a `foreach`
   binding must first bind the hoisted collection, the loop index its own bound
   test compares, and the accumulator it folds into, each by exact `FieldRef`
   identity. The compiler's `<>7__wrap` names label three different storage
   locations and authorize nothing beyond selecting a candidate hoist, so the
   element-access effect is retired only for a read of that exact array at that
-  exact index. Exactly one zero initialization and one unchecked signed
-  `index + 1` advance may write that index; an extra direct or in-place
-  initialization is not protocol. The recipe also proves the exact
-  `index < collection.Length` bound, that the entry and advance edges reach its
-  test, that its taken edge enters the body, that its fall-through exits, and
-  that no other predecessor enters either arm. That exact storage, expression,
-  and CFG identity must agree in the raw import and derived planning view.
+  exact index. The collection hoist must precede index initialization and loop
+  entry; the accumulator transfer must follow the element read in the await
+  body; and the collection release must occur on the exit path before the final
+  result transfer. Exactly one zero initialization and one unchecked signed
+  `index + 1` advance may write that index, and the awaited result,
+  accumulation, and advance must remain ordered in the same continuation
+  block. An extra direct or in-place initialization is not protocol. The
+  recipe also proves the exact `index < collection.Length` bound, that the
+  entry and advance edges reach its test, that its taken edge enters the body,
+  that its fall-through exits, and that no other predecessor enters either arm.
+  That exact storage, expression, sequencing, and CFG identity must agree in
+  the raw import and derived planning view.
 - **a consumed initializer member.** A setter, `Add`, or getter a prerequisite
   pass folded into an initializer, `with`, or nested-initializer entry keeps its
   call-site dispatch alongside its typed identity. `with` syntax specifically
@@ -627,6 +641,7 @@ Release gates:
 | `ClassicInverseCorrelationBindsOwnerIssuedRolesExactly` | The request mixes a relationship kind, kickoff, or execution MethodDef from different owner-issued evidence. |
 | `ClassicInverseCompletionCallbacksAreProvenExactlyOnce` | A second, nested, or unmodeled builder completion callback is treated as protocol instead of failing the exactly-one `SetResult`/`SetException` proof. |
 | `ClassicInverseCompletionCatchBindsItsExactHandler` | The completion catch's exact catch type, filter absence, handler range, or handler-variable binding to `SetException` is not proven. |
+| `ClassicInverseDeclinesWhenSuccessfulPathBypassesSetResult` | The recipe's normal-success endpoint does not end in the sole raw transfer to the exact `SetResult` block, including when a decoy transfer preserves global cardinality or planning repairs only its clone. |
 | `ClassicInverseResumeStatesAreProvenAgainstTheirDispatch` | A suspension state constant has no matching dispatcher and resume block, or a state store or its spill is preserved rather than proven protocol. |
 | `ClassicInverseRawLocalValuesKeepPlanningCorrespondence` | A raw local value the planning view drops leaves the cross-space value stream without a positively proven recipe realization. |
 | `ClassicInverseCallIdentityComparesTypedInstantiation` | A callee's generic instantiation, signature, by-ref facts, declaring assembly, or definition provenance changes while its display text does not. |
@@ -640,6 +655,8 @@ Release gates:
 | `ClassicInverseAwaitSuspensionBindsItsExactExit` | A suspension leave does not target the method's exact return, or a planning view repairs only its detached copy of that nonlocal transfer. |
 | `ClassicInverseLoopIndexWritesBindExactRoles` | The proven loop index has anything other than one zero initialization in the entry block and one `index + 1` advance, including an extra direct or in-place reset hidden only from the planning view. |
 | `ClassicInverseLoopRawRolesCannotBeHealedByPlanning` | The raw loop bound, index initializer, or index advance differs from the exact role accepted in the planning view, even when a planning runner repairs only its detached clone. |
+| `ClassicInverseDeclinesConditionalWithMovedJoin` | The conditional's exact branches, awaited-arm join, false-arm fallthrough, or final merge topology changes in raw or planning space. |
+| `ClassicInverseDeclinesLoopWithPostLoopCollectionHoist` | The loop collection hoist, accumulator transfer, awaited continuation, collection release, or final result transfer moves outside its proven block and order, including when planning repairs only its detached clone. |
 | `ClassicInverseAwaitBindsItsExactGetAwaiterMember` | A same-named helper, direct dispatch, or a raw/planning member or call-site mismatch is erased as the `GetAwaiter` protocol for an emitted `await`. |
 | `ClassicInverseAwaitResultBindsItsExactAwaiterMember` | A call normalizes to `await` without being the exact instance, parameterless `GetResult` member of the type its suspension's local, `GetAwaiter` bind, and cache field all carry. |
 | `ClassicInverseWithCloneBindsItsExactDispatch` | A record clone's typed identity or dispatch is erased, or direct clone dispatch on an open receiver raises into a `with` expression that restores virtual dispatch. |

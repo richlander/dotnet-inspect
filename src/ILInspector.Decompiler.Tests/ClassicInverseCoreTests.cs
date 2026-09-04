@@ -687,6 +687,288 @@ public sealed class ClassicInverseCoreTests
     }
 
     [Fact]
+    public void ClassicInverseDeclinesWhenSuccessfulPathBypassesSetResult()
+    {
+        int changedOffset = -1;
+        int decoyBlockOffset = -1;
+        int originalTarget = -1;
+        int returnOffset = -1;
+        using RequestScope bypassed = OpenMutatedRequest(
+            "TwoSequentialAwaits",
+            execution =>
+            {
+                Call setResult = Assert.Single(
+                    execution.Body.Descendants.OfType<Call>(),
+                    call => call.Callee.Name == "SetResult");
+                Block setResultBlock = Assert.IsType<Block>(
+                    setResult.Parent?.Parent);
+                Leave success = Assert.Single(
+                    execution.Body.Descendants.OfType<Leave>(),
+                    leave => leave.TargetOffset == setResultBlock.StartOffset);
+                Block returnBlock = Assert.Single(
+                    execution.Body.Descendants.OfType<Block>(),
+                    block => block.Children is [Return { Value: null }]);
+
+                changedOffset = success.SourceOffset;
+                originalTarget = success.TargetOffset;
+                returnOffset = returnBlock.StartOffset;
+                Assert.NotEqual(setResultBlock.StartOffset, returnOffset);
+                var replacement = new Leave(returnOffset);
+                replacement.SetSourceOffset(changedOffset);
+                success.ReplaceWith(replacement);
+
+                BlockContainer container =
+                    Assert.IsType<BlockContainer>(setResultBlock.Parent);
+                decoyBlockOffset = execution.Body.Descendants
+                    .Max(node => node.SourceOffset) + 1;
+                var decoy = new Block(decoyBlockOffset);
+                var decoyLeave = new Leave(originalTarget);
+                decoyLeave.SetSourceOffset(decoyBlockOffset);
+                decoy.Add(decoyLeave);
+                container.Add(decoy);
+            });
+
+        Leave changed = Assert.Single(
+            bypassed.Request.ExecutionBody.Body.Descendants.OfType<Leave>(),
+            leave => leave.SourceOffset == changedOffset);
+        Assert.Equal(returnOffset, changed.TargetOffset);
+
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(bypassed.Request));
+
+        Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                bypassed.Request.RunPasses);
+        bool repairedPlanningClone = false;
+        bool removedDecoy = false;
+        ClassicInverseRequest healedPlanning = CopyRequest(
+            bypassed.Request,
+            runPasses: (body, passes) =>
+            {
+                Leave? changedLeave = body.Body.Descendants.OfType<Leave>()
+                    .SingleOrDefault(leave =>
+                        leave.SourceOffset == changedOffset
+                        && leave.TargetOffset == returnOffset);
+                if (changedLeave is not null)
+                {
+                    repairedPlanningClone = true;
+                    var replacement = new Leave(originalTarget);
+                    replacement.SetSourceOffset(changedOffset);
+                    changedLeave.ReplaceWith(replacement);
+                }
+                Block? decoy = body.Body.Descendants.OfType<Block>()
+                    .SingleOrDefault(block =>
+                        block.StartOffset == decoyBlockOffset);
+                if (decoy is not null)
+                {
+                    removedDecoy = true;
+                    decoy.Detach();
+                }
+                originalRunner(body, passes);
+            });
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(healedPlanning));
+        Assert.True(repairedPlanningClone);
+        Assert.True(removedDecoy);
+    }
+
+    [Fact]
+    public void ClassicInverseDeclinesConditionalWithMovedJoin()
+    {
+        int joinOffset = -1;
+        int awaitedBlockOffset = -1;
+        int zeroBlockOffset = -1;
+        using RequestScope movedJoin = OpenMutatedRequest(
+            "AwaitConditional",
+            execution =>
+            {
+                Call getResult = Assert.Single(
+                    execution.Body.Descendants.OfType<Call>(),
+                    call => call.Callee.Name == "GetResult");
+                StoreLocal awaitStore = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreLocal>(),
+                    store => store.Value.Descendants.Prepend(store.Value)
+                        .Contains(getResult));
+                StoreLocal zeroStore = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreLocal>(),
+                    store => store.Index == awaitStore.Index
+                        && store.Value is Pipeline.Constant { Value: 0 });
+                Block awaitedContinuation =
+                    Assert.IsType<Block>(awaitStore.Parent);
+                Block zeroBlock = Assert.IsType<Block>(zeroStore.Parent);
+                StoreLocal finalStore = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreLocal>(),
+                    store => store.Value is LoadLocal load
+                        && load.Index == awaitStore.Index
+                        && store.Index != awaitStore.Index);
+                Block finalBlock = Assert.IsType<Block>(finalStore.Parent);
+                Branch join = Assert.Single(
+                    awaitedContinuation.Children.OfType<Branch>(),
+                    branch => branch.TargetOffset == finalBlock.StartOffset);
+                BlockContainer container =
+                    Assert.IsType<BlockContainer>(awaitedContinuation.Parent);
+                IReadOnlyList<Block> blocks = container.Blocks;
+                int awaitedIndex = blocks.ToList().IndexOf(
+                    awaitedContinuation);
+                Assert.Same(zeroBlock, blocks[awaitedIndex + 1]);
+
+                joinOffset = join.SourceOffset;
+                awaitedBlockOffset = awaitedContinuation.StartOffset;
+                zeroBlockOffset = zeroBlock.StartOffset;
+                join.Detach();
+                zeroBlock.Add(join);
+            });
+
+        Branch moved = Assert.Single(
+            movedJoin.Request.ExecutionBody.Body.Descendants.OfType<Branch>(),
+            branch => branch.SourceOffset == joinOffset);
+        Assert.Equal(
+            zeroBlockOffset,
+            Assert.IsType<Block>(moved.Parent).StartOffset);
+
+        ClassicInverseDecision decision =
+            ClassicInverseCore.Decide(movedJoin.Request);
+        if (decision is ClassicInverseDecision.Reconstruct reconstructed)
+        {
+            Conditional conditional = Assert.Single(
+                reconstructed.Plan.MaterializeBody()
+                    .Descendants.OfType<Conditional>());
+            Assert.IsType<AwaitExpression>(conditional.WhenTrue);
+            Assert.Equal(
+                0,
+                Assert.IsType<Pipeline.Constant>(
+                    conditional.WhenFalse).Value);
+        }
+        Assert.IsType<ClassicInverseDecision.Decline>(decision);
+
+        Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                movedJoin.Request.RunPasses);
+        bool repairedPlanningClone = false;
+        ClassicInverseRequest healedPlanning = CopyRequest(
+            movedJoin.Request,
+            runPasses: (body, passes) =>
+            {
+                Branch? join = body.Body.Descendants.OfType<Branch>()
+                    .SingleOrDefault(branch =>
+                        branch.SourceOffset == joinOffset
+                        && branch.Parent is Block parent
+                        && parent.StartOffset == zeroBlockOffset);
+                if (join is not null)
+                {
+                    Block awaited = Assert.Single(
+                        body.Body.Descendants.OfType<Block>(),
+                        block => block.StartOffset == awaitedBlockOffset);
+                    join.Detach();
+                    awaited.Add(join);
+                    repairedPlanningClone = true;
+                }
+                originalRunner(body, passes);
+            });
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(healedPlanning));
+        Assert.True(repairedPlanningClone);
+    }
+
+    [Fact]
+    public void ClassicInverseDeclinesLoopWithPostLoopCollectionHoist()
+    {
+        int hoistOffset = -1;
+        int entryBlockOffset = -1;
+        int entryPosition = -1;
+        int exitBlockOffset = -1;
+        using RequestScope movedHoist = OpenMutatedRequest(
+            "AwaitInLoop",
+            execution =>
+            {
+                StoreField hoist = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreField>(),
+                    store => store.Field.Name == "<>7__wrap1"
+                        && store.Value is LoadField);
+                Call setResult = Assert.Single(
+                    execution.Body.Descendants.OfType<Call>(),
+                    call => call.Callee.Name == "SetResult");
+                var finalResult =
+                    Assert.IsType<LoadLocal>(setResult.Arguments[1]);
+                StoreLocal finalStore = Assert.Single(
+                    execution.Body.Descendants.OfType<StoreLocal>(),
+                    store => store.Index == finalResult.Index
+                        && store.Value is LoadLocal);
+                Block exitBlock = Assert.IsType<Block>(finalStore.Parent);
+
+                Block entryBlock = Assert.IsType<Block>(hoist.Parent);
+                hoistOffset = hoist.SourceOffset;
+                entryBlockOffset = entryBlock.StartOffset;
+                entryPosition = hoist.ChildIndex;
+                exitBlockOffset = exitBlock.StartOffset;
+                hoist.Detach();
+                IReadOnlyList<IrNode> exitStatements =
+                    exitBlock.DetachChildren();
+                foreach (IrNode statement in exitStatements)
+                {
+                    if (ReferenceEquals(statement, finalStore))
+                        exitBlock.Add(hoist);
+                    exitBlock.Add(statement);
+                }
+            });
+
+        StoreField moved = Assert.Single(
+            movedHoist.Request.ExecutionBody.Body.Descendants.OfType<StoreField>(),
+            store => store.SourceOffset == hoistOffset);
+        Assert.Equal(
+            exitBlockOffset,
+            Assert.IsType<Block>(moved.Parent).StartOffset);
+
+        ClassicInverseDecision decision =
+            ClassicInverseCore.Decide(movedHoist.Request);
+        if (decision is ClassicInverseDecision.Reconstruct reconstructed)
+        {
+            ForeachStatement loop = Assert.Single(
+                reconstructed.Plan.MaterializeBody()
+                    .Descendants.OfType<ForeachStatement>());
+            var collection = Assert.IsType<LoadArgument>(loop.Collection);
+            Assert.Equal(0, collection.Index);
+        }
+        Assert.IsType<ClassicInverseDecision.Decline>(decision);
+
+        Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
+            Assert.IsType<Action<IrFunction, ImmutableArray<IIrPass>>>(
+                movedHoist.Request.RunPasses);
+        bool repairedPlanningClone = false;
+        ClassicInverseRequest healedPlanning = CopyRequest(
+            movedHoist.Request,
+            runPasses: (body, passes) =>
+            {
+                StoreField? hoist = body.Body.Descendants
+                    .OfType<StoreField>()
+                    .SingleOrDefault(store =>
+                        store.SourceOffset == hoistOffset
+                        && store.Parent is Block parent
+                        && parent.StartOffset == exitBlockOffset);
+                if (hoist is not null)
+                {
+                    Block entry = Assert.Single(
+                        body.Body.Descendants.OfType<Block>(),
+                        block => block.StartOffset == entryBlockOffset);
+                    hoist.Detach();
+                    IReadOnlyList<IrNode> statements = entry.DetachChildren();
+                    for (int i = 0; i <= statements.Count; i++)
+                    {
+                        if (i == entryPosition)
+                            entry.Add(hoist);
+                        if (i < statements.Count)
+                            entry.Add(statements[i]);
+                    }
+                    repairedPlanningClone = true;
+                }
+                originalRunner(body, passes);
+            });
+        Assert.IsType<ClassicInverseDecision.Decline>(
+            ClassicInverseCore.Decide(healedPlanning));
+        Assert.True(repairedPlanningClone);
+    }
+
+    [Fact]
     public void ClassicInverseCompletionCatchBindsItsExactHandler()
     {
         using RequestScope narrowed = OpenMutatedRequest(
@@ -1599,7 +1881,7 @@ public sealed class ClassicInverseCoreTests
         var decline = Assert.IsType<ClassicInverseDecision.Decline>(
             ClassicInverseCore.Decide(retargetedCompletion.Request));
         Assert.Equal(
-            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            ClassicInverseDeclineReason.NoRecipeMatched,
             decline.Reason);
 
         Action<IrFunction, ImmutableArray<IIrPass>> originalRunner =
@@ -1633,7 +1915,7 @@ public sealed class ClassicInverseCoreTests
             ClassicInverseCore.Decide(healedPlanning));
         Assert.True(repairedPlanningClone);
         Assert.Equal(
-            ClassicInverseDeclineReason.UnclassifiedPhysicalRegion,
+            ClassicInverseDeclineReason.NoRecipeMatched,
             rawDecline.Reason);
     }
 
