@@ -113,6 +113,7 @@ export interface TypePanelBindingActions {
   onOverloadSelect: (index: number) => void;
   onShowTypes: () => void;
   onTypeFilterChange: (value: string) => void;
+  onTypeFilterDisclosureToggle: (expanded: boolean) => void;
   onTypeFilterEscape: () => void;
   onTypeSelect: (typeId: string) => void;
 }
@@ -189,9 +190,10 @@ export function bindTypePanel(
   root.querySelector("#nav-to-types")?.addEventListener(
     "click",
     actions.onShowTypes);
-  root.querySelector("#clear-filter")?.addEventListener(
-    "click",
-    actions.onClearFilters);
+  root.querySelector("#clear-filter")?.addEventListener("click", () => {
+    actions.onClearFilters();
+    root.querySelector<HTMLElement>("#clear-filter")?.focus();
+  });
   root.querySelector("#clear-member-filter")?.addEventListener(
     "click",
     actions.onMemberFilterClear);
@@ -262,6 +264,11 @@ export function bindTypePanel(
     }, memberFilter);
   }
   const filter = root.querySelector<HTMLInputElement>("#type-filter");
+  const typeFilterDisclosure =
+    root.querySelector<HTMLDetailsElement>("[data-type-filter-disclosure]");
+  typeFilterDisclosure?.addEventListener(
+    "toggle",
+    () => actions.onTypeFilterDisclosureToggle(typeFilterDisclosure.open));
   filter?.addEventListener(
     "input",
     () => actions.onTypeFilterChange(filter.value));
@@ -296,6 +303,8 @@ export interface TypeNavOptions {
   kindFilters: readonly string[];
   accessibilityControlHtml: string;
   libraryControlHtml: string;
+  filtersExpanded: boolean;
+  filterSummary: string;
   escapeHtml: EscapeHtml;
   typeDisplayName: (item: TypeSummary) => string;
   kindIcon: (kind: string) => string;
@@ -306,7 +315,8 @@ export function renderTypeNav(options: TypeNavOptions): string {
   const {
     current, visible, typeGroups, typeFilter, namespaceFilter, kindFilter,
     namespaceCount, namespaceOptionsHtml, kindFilters, accessibilityControlHtml,
-    libraryControlHtml, escapeHtml, typeDisplayName, kindIcon, shortKind,
+    libraryControlHtml, filtersExpanded, filterSummary, escapeHtml,
+    typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
     <aside class="type-browser" aria-label="Public types">
@@ -315,27 +325,30 @@ export function renderTypeNav(options: TypeNavOptions): string {
           <span class="pane-label">PUBLIC TYPES</span>
           <span class="result-count">${visible.length} shown</span>
         </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
+        <button class="tiny-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">×</button>
       </div>
-      <label class="type-search">
-        <span>/</span>
-        <input id="type-filter" value="${escapeHtml(typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
-        <kbd>⌘F</kbd>
-      </label>
-      <div class="namespace-picker">
-        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
-          <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
-          ${namespaceOptionsHtml}
-        </select>
-      </div>
-      <div class="chip-stack">
-        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-          <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-          ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+      <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
+        <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+        <label class="type-search">
+          <span aria-hidden="true">/</span>
+          <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+          <kbd>⌘F</kbd>
+        </label>
+        <div class="namespace-picker">
+          <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+            <option value="" ${!namespaceFilter ? "selected" : ""}>All namespaces · ${namespaceCount}</option>
+            ${namespaceOptionsHtml}
+          </select>
         </div>
-        ${accessibilityControlHtml}
-        ${libraryControlHtml}
-      </div>
+        <div class="chip-stack">
+          <div class="namespace-chips kind-chips" aria-label="Type kind filters">
+            <button class="${!kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
+            ${kindFilters.map(kind => `<button class="${kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+          </div>
+          ${accessibilityControlHtml}
+        </div>
+      </details>
+      <div class="type-library-context">${libraryControlHtml}</div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list" data-nav-scope="types" data-nav-selection="${current ? `type:${escapeHtml(current.id)}` : ""}">
         ${[...typeGroups].map(([namespace, types]) => `
           <section class="type-group">

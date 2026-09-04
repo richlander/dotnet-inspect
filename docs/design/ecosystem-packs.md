@@ -75,7 +75,8 @@ The exact claim is:
 > The host-neutral application catalog defines how one ecosystem contribution
 > is described, discovered, and selected. Source in that catalog defines which
 > static contributions ship and supplies their data and scanner
-> implementations. Lower package-set, query, and Integration infrastructure
+> implementations. The co-located Package Set Registry remains a separate
+> owner, while lower package-coordinate, query, and Integration infrastructure
 > remains independent and subject to its owners' separate contracts.
 
 ## Why a pack is the product unit
@@ -231,23 +232,24 @@ by its engine rules from taking a dependency on
 - Metadata's explicit allow-only rule does not admit the ecosystem assembly.
 
 The implementation adds one focused project-and-assembly rule,
-`ecosystem-packs-stay-out-of-reusable-product-libraries`. Within
+`ecosystem-catalog-stays-in-approved-hosts`. Within
 `dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
 production target except `dotnet-inspect`.
 
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately adds
 `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
-inspect-web project graph and permits the reference only from the current
-managed front-end facade, `InspectWeb.Engine`. `InspectWeb.Engine.Core` and
-every other inspect-web production project reject it. Test projects and the
-focused `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may
-reference the catalog, but only `DotnetInspector.Ecosystems.Tests` may be an
-assembly friend.
+evaluated MSBuild `ProjectReference` and assembly `Reference` items for the
+inspect-web production projects and permits either reference only from the
+current managed front-end facade, `InspectWeb.Engine`.
+`InspectWeb.Engine.Core` and every other inspect-web production project reject
+it. Test projects and the focused
+`DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
+catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
 
 Together, the solution dependency policy and browser project-graph gate provide
 full coverage for the current production dependency claim.
-`DotnetInspector.Ecosystems` consumes package-set, prefix, and scanner
+`DotnetInspector.Ecosystems` consumes package-coordinate, prefix, and scanner
 currencies through their public owner-issued surfaces; those lower assemblies
 do not grant it `InternalsVisibleTo`. The non-friend front-end canary separately
 proves that discovery and selection require only the ecosystem assembly's
@@ -299,31 +301,34 @@ a scale the product does not have.
 that a curated-set action exists. The pack does not resolve, retain, copy, or
 count the set's coordinates.
 
-Selecting the set returns only `PackageSetId` to the front end for handoff to
-source-selection or realization orchestration. The catalog does not perform
-Package Set Registry lookup or own typed unknown behavior. Selection does not
-automatically select the pack's prefixes or scanner. A curated set is not
-represented as prefix expansion, and its membership does not claim exhaustive
-ecosystem coverage.
+Selecting the set returns only `PackageSetId` to the front end. The ecosystem
+catalog does not perform Package Set Registry lookup or own typed unknown
+behavior. The front end resolves the ID through the co-located application
+registry, then hands only owner-issued package-coordinate or source values to
+lower orchestration. Selection does not automatically select the pack's
+prefixes or scanner. A curated set is not represented as prefix expansion, and
+its membership does not claim exhaustive ecosystem coverage.
 
 Pack registration validates the typed identity but does not look it up during
 discovery or selection. The application adoption suite exhaustively proves that
 every shipped pack reference resolves; it uses literal expected identities
 rather than deriving expectations from either registry.
 
-This is a deliberate split between inert runtime discovery and shipped-product
-validity. A manually altered or mismatched build could discover an action whose
-set is unknown at selection, but the literal application gate prevents such a
-reference from shipping in a repository build without making discovery eagerly
-materialize the Package Set Registry.
+This is a deliberate split between two co-located static tables. The compiled
+pack registration shape carries only `PackageSetId`, not package-set
+descriptors, registrations, coordinates, or registry access. Literal
+application gates prove shipped references resolve, while the generic discovery
+gate retains the no-lookup runtime contract without asserting static
+initialization timing.
 
-The current Package Set Registry remains the only package-set authority. This
-pattern does not itself authorize pack-authored package registrations.
-Allowing a pack source file to own its referenced membership is a residual
-design question for that owner, tracked by
-[#5720](https://github.com/richlander/dotnet-inspect/issues/5720). It may
-instead retain its closed catalog and require pack-referenced sets to be
-registered there.
+The Package Set Registry remains the only package-set authority. Its #5720
+composition decision places the private shipped package-set manifest in
+`DotnetInspector.Ecosystems` with `PackageSetId`; only package-coordinate
+currency and validation remain below in `DotnetInspector.Packages`. One
+ecosystem source unit may author both a package-set registration and a pack
+registration, but the two static manifests remain separate and the pack stores
+only `PackageSetId`. No reusable package, source, query, service, Vocabulary,
+or browser-Core component references the application registry.
 
 ## Recorded package prefixes
 
@@ -480,8 +485,8 @@ Aspire is the first intended new-pack candidate. A complete Aspire pack depends
 on separately approved owner work:
 
 1. package/API evidence defines a small stable Aspire Core package set;
-2. the Package Set Registry decides where Aspire Core membership is authored;
-   and
+2. the application Package Set Registry authors Aspire Core membership beside
+   the pack source under its separate static manifest; and
 3. Integrations defines and adopts the static scanner binding.
 
 An Aspire pack may then expose:
@@ -546,15 +551,19 @@ ordinary non-friend consumer.
 | `EcosystemPackConsumerTests.PublicSurfaceSupportsStaticDiscoveryAndSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-packs-stay-out-of-reusable-product-libraries` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | The inspect-web project graph permits `DotnetInspector.Ecosystems` only in the current managed front-end facade and rejects it from `InspectWeb.Engine.Core` and every other browser production project. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Evaluated inspect-web `ProjectReference` and assembly `Reference` items permit `DotnetInspector.Ecosystems` only in the current managed front-end facade and reject it from `InspectWeb.Engine.Core` and every other browser production project. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
-descriptor and reference expectations. Integration adoption owns scanner
-invocation and witness gates. Generic catalog tests use synthetic pack names
-and do not establish built-in ecosystem policy.
+descriptor and reference expectations, plus
+`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity` to
+prove compiled shipped pack fields and construction paths carry no package-set
+descriptor, registration, coordinate sequence, registry lookup, or
+registry-enumeration reference. Integration adoption owns scanner invocation
+and witness gates. Generic catalog tests use synthetic pack names and do not
+establish built-in ecosystem policy.
 
 The implementation must also retain existing NativeAOT and Browser/Wasm build
 coverage. Static binding values root their target methods in published output.
@@ -570,7 +579,7 @@ The owner tracks may advance independently:
 
 | Independent track | Owner work |
 | --- | --- |
-| Curated package set | #5720 decides how packs reference source-authored membership, followed by Package Set Registry implementation. |
+| Curated package set | #5720 places source-authored membership in the separate private application Package Set Registry, followed by registry implementation. |
 | Recorded prefix | #5602 issues the typed package-prefix request currency. |
 | Semantic scanner | #5719 issues the opaque binding and decoded observation-context contract. |
 
@@ -588,10 +597,17 @@ The owner tracks may advance independently:
    and application-pack owner changes.
 7. Adopt CLI and browser actions through their separately owned slices.
 
-The three owner tracks are residual decisions rather than outcomes authorized
-by this pattern. No implementation slice waits for every optional slot: each
-lands only when its owner-issued currency exists and one real application
-scenario makes that slice coherent.
+The three owner tracks remain separately owned; #5720 records the package-set
+composition decision, while prefix and scanner contracts remain residual. No
+implementation slice waits for every optional slot: each lands only when its
+owner-issued currency exists and one real application scenario makes that slice
+coherent.
+
+Whichever action track first creates `DotnetInspector.Ecosystems` also creates
+the project, grants friendship only to `DotnetInspector.Ecosystems.Tests`, and
+lands the solution dependency-policy and inspect-web project-graph gates. The
+package-set donor transfer is the intended first track; another track may pay
+that one-time application-shell cost if it lands first.
 
 ## Non-claims
 

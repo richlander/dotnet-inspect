@@ -51,7 +51,7 @@
     <!-- #1741 fixture: DiffAsmTarget exposes two overloads whose parameter types
          share the FQN Shared.Token but come from different assemblies (LibA vs
          LibB). Used to prove the structural signature keeps them distinct. -->
-    <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
+    <ProjectReference Include="../../fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
   </ItemGroup>
 
 </Project>

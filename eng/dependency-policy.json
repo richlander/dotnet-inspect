@@ -52,6 +52,28 @@
       ]
     },
     {
+      "id": "ecosystem-catalog-stays-in-approved-hosts",
+      "source": "docs/design/ecosystem-packs.md#dependency-boundary",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "*"
+      ],
+      "projectPaths": [
+        "src/*/*.csproj"
+      ],
+      "excludeTargets": [
+        "*.Tests",
+        "*Fixture*",
+        "dotnet-inspect"
+      ],
+      "deny": [
+        "DotnetInspector.Ecosystems"
+      ]
+    },
+    {
       "id": "product-libraries-use-repository-and-platform-assemblies",
       "source": "docs/dependency-policy.md#external-dependencies",
       "graphs": [

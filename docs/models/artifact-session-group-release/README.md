@@ -69,7 +69,8 @@ The model does not cover:
 - exception payloads, cleanup-failure ordering, close-report serialization,
   or thread scheduling;
 - later session-related group rejection, which remains gated by
-  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`;
+  `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet` and
+  `RegisterArtifactSession_RejectsLaterCoordinatedGroup`;
 - product capability, product substrate, host, or rendering behavior; or
 - implementation conformance.
 
@@ -143,10 +144,12 @@ The reachability configurations intentionally negate their named observations,
 so exit code 12 means TLC reached the required neighboring positive behavior.
 `Safety.cfg` enforces fault-before-request ordering through
 `RecoveryPrecedesPostFaultRequest`.
-`ReachabilityOwnerRecoveryRequest.cfg` is an exact-outcome gate proving that
-the required explicit recovery path remains reachable rather than making that
-safety invariant vacuous. The other reachability probes remain unlisted in the
-sparse manifest.
+The sparse exact-outcome manifest enforces the contract-defining retained-fault,
+adjacent-owner recovery, and post-transfer unrelated-admission paths. In
+particular, `ReachabilityOwnerRecoveryRequest.cfg` proves that the required
+explicit recovery path remains reachable rather than making that safety
+invariant vacuous. The already-terminal and mixed-result configurations remain
+unlisted neighboring evidence.
 
 ## Running TLC
 

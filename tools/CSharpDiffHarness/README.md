@@ -61,8 +61,8 @@ fixture output changes:
 
 ```bash
 dotnet build tools/CSharpDiffHarness/CSharpDiffHarness.csproj -c Release
-dotnet build src/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
-dotnet build src/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
+dotnet build fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj -c Release
+dotnet build fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj -c Release
 dotnet run --project tools/CSharpDiffHarness -c Release --no-build -- \
   artifacts/bin/DiffFixtures.V1/release/DiffFixtureSample.dll \
   artifacts/bin/DiffFixtures.V2/release/DiffFixtureSample.dll \
