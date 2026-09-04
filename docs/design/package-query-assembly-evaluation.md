@@ -33,9 +33,10 @@ deadline bounds, the evaluator:
 4. otherwise obtains the semantic producer's typed verdict;
 5. returns a resource-free match, non-match, non-applicable outcome, or visible
    item failure; and
-6. releases the candidate workspace, artifact generation, image, metadata or
+6. closes the candidate workspace, artifact generation, image, metadata or
    analysis session, and borrowed capability before returning or propagating
-   cancellation or an unexpected exception.
+   cancellation or an unexpected exception, and never returns success when
+   close reports incomplete cleanup.
 
 The result is scoped to the exact package plus selected asset. It preserves the
 retained-content generation, frozen selection, pattern, and producer evidence
@@ -428,8 +429,8 @@ selection. Evaluation adds a narrower candidate-scoped realization:
    `AssemblyImageSnapshot`.
 7. Copy all evidence needed by the outcome into resource-free values.
 8. In a `finally` path, dispose the query session and candidate workspace,
-   which releases the participant and artifact generation, before returning an
-   outcome or propagating cancellation or an unexpected exception.
+   then inspect the shared close report before returning an outcome or
+   propagating cancellation or an unexpected exception.
 
 The operation does not extract a package tree, open sibling entry bodies, or
 realize every package role. At most one selected package assembly is live in
@@ -535,13 +536,30 @@ with the retained-image bound when choosing candidate concurrency.
 Cancellation is not a match, non-match, or item failure. The evaluator observes
 the operation token before sparse projection, after bounded materialization,
 before semantic evaluation, and at producer-owned traversal checkpoints. It
-releases all candidate resources, then propagates cancellation to the enclosing
-stream or host operation. No result is published after cancellation is
-observed.
+closes the candidate and inspects the cleanup report, then propagates
+cancellation to the enclosing stream or host operation. No result is published
+after cancellation is observed.
 
 An unexpected exception from a prefilter or semantic binding follows the same
 cleanup rule. Candidate cleanup runs in `finally`; a cleanup failure is
 attached as secondary evidence and cannot replace the original exception.
+
+`InspectionWorkspace.CloseAsync()` may complete normally while returning
+`ArtifactSessionCleanupFailures`. The evaluator always inspects that report:
+
+- after a would-be `Matched` or `NoMatch`, any reported cleanup failure replaces
+  the success with `Failure(CandidateCleanup)`;
+- after a typed evaluation failure, cleanup evidence is appended as secondary
+  evidence without replacing the primary failure stage; and
+- during cancellation or unexpected exception propagation, cleanup exceptions
+  are attached as secondary evidence to the primary condition.
+
+Candidate-cleanup evidence is resource-free and product-authored. It contains a
+stable cleanup-stage code and failure count, not exception instances, messages,
+paths, or stack traces. A thrown workspace group-close failure remains an
+unexpected exception; after all possible artifact-session releases have been
+attempted by the workspace owner, it propagates under the same
+primary-condition rule.
 
 The operation deadline is implemented by cancelling that same operation token.
 Deadline expiry is therefore cancellation, not a separate candidate failure.
@@ -584,9 +602,11 @@ context plus one stage-specific resource-free payload:
   diagnostic implementation object or cleanup exception;
 - image admission carries the exact Metadata-owned `CandidateOpenFailure`;
 - semantic decode and unsupported-input failures carry the producer-owned
-  typed failure; and
+  typed failure;
 - semantic work limit carries the producer-owned budget kind, admitted limit,
-  and charged work when available.
+  and charged work when available; and
+- candidate cleanup carries the stable close stage and reported cleanup-failure
+  count.
 
 A bounded product-authored presentation diagnostic may accompany a failure,
 but it is derived from the typed payload and is never the only durable cause.
@@ -603,7 +623,8 @@ Failure stages distinguish:
 - Metadata-owned image admission;
 - semantic decode;
 - unsupported producer input;
-- semantic work limit; and
+- semantic work limit;
+- candidate cleanup; and
 - semantic-producer contract violation.
 
 Package-authored strings, paths, metadata names, and exception text do not
@@ -688,8 +709,8 @@ The implementation must preserve focused fixtures for:
    generation;
 11. semantic work reaching its exact limit and exceeding it;
 12. cancellation during sparse projection and semantic traversal; and
-13. a throwing prefilter or producer whose candidate cleanup also reports a
-    failure.
+13. a successful or throwing prefilter or producer whose candidate close also
+    reports a cleanup failure.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
 must run in the ordinary Release suite. Performance and peak-memory corpus
@@ -717,7 +738,8 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
-| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, cancellation, and unexpected binding-exception path closes and releases its query, workspace, participant, and artifact resource. Throwing prefilter and producer fixtures prove `finally` cleanup and preservation of the primary exception when cleanup also fails. |
+| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`, closes its query and workspace, and attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
+| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | A successful producer plus `ArtifactSessionCleanupFailures` becomes `Failure(CandidateCleanup)`; an existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
