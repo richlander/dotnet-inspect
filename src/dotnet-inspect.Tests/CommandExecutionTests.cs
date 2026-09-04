@@ -11233,16 +11233,10 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member",
-            "ILInspector.Decompiler.Tests.TargetTypedNewFixtures+Box",
+            typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
             "Value:1",
             "--library",
-            Path.Combine(
-                CommandErrorOwnershipTests.RepositoryRoot(),
-                "artifacts",
-                "bin",
-                "ILInspector.Decompiler.Tests",
-                "release",
-                "ILInspector.Decompiler.Tests.dll"),
+            TestAssemblyPath,
             "--all",
             "-S",
             "Source Diff",
@@ -11258,6 +11252,28 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain(
             "+public int get_Value()",
             output);
+    }
+
+    [Theory]
+    [InlineData(1, "=> _value;")]
+    [InlineData(2, "set => GC.KeepAlive(value);")]
+    public async Task Member_SourceDiff_ReadonlyExplicitAccessorPreservesPhysicalModifier(
+        int accessorOrdinal,
+        string expectedBody)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member",
+            typeof(CommandExecutionReadonlySourceDiffFixture).FullName!,
+            $"{typeof(ICommandExecutionReadonlyValue).FullName}.Value:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("readonly int ICommandExecutionReadonlyValue.Value", output);
+        Assert.DoesNotContain("+int ICommandExecutionReadonlyValue.Value", output);
+        Assert.Contains(expectedBody, output);
     }
 
     [Fact]
@@ -35195,6 +35211,26 @@ public sealed class Operators<T>
     public T Apply(T value) => value;
     public TResult Convert<TResult>(T value) => default!;
     public TResult Convert<TResult>(IEnumerable<T> values) => default!;
+}
+
+public interface ICommandExecutionReadonlyValue
+{
+    int Value { get; set; }
+}
+
+public struct CommandExecutionReadonlySourceDiffFixture : ICommandExecutionReadonlyValue
+{
+    int _value;
+
+    public CommandExecutionReadonlySourceDiffFixture(int value) => _value = value;
+
+    public readonly int Value => _value;
+
+    readonly int ICommandExecutionReadonlyValue.Value
+    {
+        get => _value;
+        set => GC.KeepAlive(value);
+    }
 }
 
 public sealed class CommandExecutionSourceDiffFixture

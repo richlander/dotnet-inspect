@@ -1217,6 +1217,7 @@ public static class MemberBodyProducer
                                 "The explicit property accessor does not provide its property type.");
                         }
                         string staticModifier = member.IsStatic ? "static " : "";
+                        string readonlyModifier = member.IsReadOnly ? "readonly " : "";
                         string unsafeModifier =
                             (member.IsUnsafe || requiresUnsafeContext)
                                 ? "unsafe "
@@ -1225,7 +1226,7 @@ public static class MemberBodyProducer
                             accessorPropertyType,
                             type.TypeParameters.Select(p => p.Name));
                         string head =
-                            $"{staticModifier}{unsafeModifier}{propertyType} {propertyPath}";
+                            $"{staticModifier}{readonlyModifier}{unsafeModifier}{propertyType} {propertyPath}";
                         if (isExplicitSetter)
                         {
                             sb.AppendLf($"    {head}");

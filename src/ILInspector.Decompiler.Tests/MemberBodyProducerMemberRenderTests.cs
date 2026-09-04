@@ -135,6 +135,35 @@ public sealed class MemberBodyProducerMemberRenderTests
     [Theory]
     [InlineData("get_")]
     [InlineData("set_")]
+    public void ProduceMember_ReadonlyExplicitInterfaceAccessorPreservesPhysicalModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(ReadonlyExplicitMemberRenderSpecimen).FullName);
+        ApiMember accessor = Assert.Single(
+            type.Members,
+            member => member.Kind == "explicit-interface-implementation"
+                && member.Name.EndsWith(
+                    $".{accessorPrefix}Label",
+                    StringComparison.Ordinal));
+        Assert.True(accessor.IsReadOnly);
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type, accessor, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "readonly string? get_IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
     public void ProduceMember_StaticExplicitInterfaceAccessorPreservesStaticModifier(
         string accessorPrefix)
     {
@@ -866,6 +895,19 @@ public interface IMemberRenderExplicitPrefixMethods
     int get_Prefix();
 
     void set_Prefix();
+}
+
+public struct ReadonlyExplicitMemberRenderSpecimen : get_IMemberRenderExplicitProperty
+{
+    string? _label;
+
+    public ReadonlyExplicitMemberRenderSpecimen(string? label) => _label = label;
+
+    readonly string? get_IMemberRenderExplicitProperty.Label
+    {
+        get => _label;
+        set => GC.KeepAlive(value);
+    }
 }
 
 public sealed class MemberRenderSpecimen :

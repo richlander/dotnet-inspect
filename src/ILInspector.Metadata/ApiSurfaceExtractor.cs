@@ -1112,6 +1112,11 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
                     IsFinalizer = isFinalizer,
+                    IsReadOnly = AttributeReader.HasAttribute(
+                        reader,
+                        methodCustomAttributes,
+                        KnownAttributeNames.IsReadOnlyAttribute,
+                        observeDecodeWork),
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded

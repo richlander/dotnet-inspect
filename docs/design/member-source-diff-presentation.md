@@ -394,7 +394,8 @@ Release CLI tests prove:
 - an explicit property's qualified interface identity comes from its
   MethodSemantics-associated PropertyDef, including interface or namespace
   segments that themselves begin with `get_` or `set_`;
-- projected accessors retain physical MethodDef modifiers such as `readonly`;
+- projected accessors retain physical MethodDef modifiers such as `readonly`,
+  including explicit-interface getter and setter property declarations;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - co-selecting Source Diff with a decompiler-backed section preserves that
