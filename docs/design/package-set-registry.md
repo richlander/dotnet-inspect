@@ -2,7 +2,7 @@
 
 ## Status
 
-Focused component design proposal for
+Implemented focused component design for the initial registry in
 [#5681](https://github.com/richlander/dotnet-inspect/issues/5681), supporting
 the typed source-selection work tracked by
 [#5602](https://github.com/richlander/dotnet-inspect/issues/5602).
@@ -15,8 +15,14 @@ The product implements named package-set identity, discovery, and membership
 in a host-neutral application registry. Reusable package contracts remain
 below it, while the shipped inventory lives in
 `DotnetInspector.Ecosystems` beside other source-authored ecosystem data. The
-initial Release gates cover registry construction, exact audited membership,
-CLI adaptation, non-friend use, friendship, and project layering.
+initial registry and Release gates landed in
+[#5753](https://github.com/richlander/dotnet-inspect/pull/5753), covering
+registry construction, exact audited membership, CLI adaptation, non-friend
+use, friendship, and project layering.
+
+This amendment defines the next package set, `package-set.aspire`, from
+measured NuGet and API evidence. Its descriptor, membership, and named Release
+gates remain unimplemented and therefore unverified.
 
 Related designs:
 
@@ -221,7 +227,8 @@ success-shaped registry that silently drops an invalid set or member.
 
 Generic registry construction does not decide whether one package belongs in
 a shipped set. That is product policy evaluated before a source change is
-accepted. The initial manifests use the following authoring rule:
+accepted. The Microsoft.Extensions and ASP.NET Core manifests use the
+following authoring rule:
 
 - the package ID begins with the set's exact reserved prefix;
 - nuget.org reports a listed, stable major-10 release, verified ownership, and
@@ -238,6 +245,49 @@ rather than hand-picked examples or alternate delivery of platform APIs.
 Updating either manifest requires rerunning the same audit against the then
 current stable product line and recording the result with the source change.
 The registry does not run this network and archive audit at runtime.
+
+The Aspire manifest follows the same complete API-inventory principle as the
+Microsoft.Extensions and ASP.NET Core sets, adapted to Aspire's ownership and
+delivery model. Its authoring audit evaluates every currently listed stable
+`Aspire.*` package and includes every package that satisfies all of these
+conditions:
+
+- the package is verified and names `aspire` among its owners;
+- its stable major version matches the current stable `Aspire.Hosting` product
+  line;
+- its current stable release is not deprecated;
+- its NuGet package type is `Dependency`; and
+- its archive owns at least one public managed consumer type under `lib/` or
+  `ref/`.
+
+The 44-package Microsoft.Extensions set is the comparison baseline: it includes
+AI and evaluation, telemetry and compliance, resilience, health and resource
+monitoring, service discovery, platform-specific hosting, and testing and
+conformance APIs. It is not restricted to a two-package foundation. Applying a
+foundation-only rule to Aspire would hide the integration surfaces that make
+the ecosystem useful for API, Integration, and call-graph inspection.
+
+The Aspire rule is intentionally stricter at the delivery boundary. It filters
+on NuGet package type rather than only rejecting .NET tools, and requires a
+public `lib/` or `ref/` consumer type rather than only an assembly, because
+Aspire publishes `Dependency` packages whose managed payload is tooling or
+whose `lib/` assembly exposes no public API. This does not retroactively change
+the separately audited assembly-presence rules or 44/53 snapshots for the first
+two sets.
+
+This intentionally includes the application-model foundation, first-party
+testing and type-system APIs, hosting integrations, client adapters, and
+verified partner integrations co-owned by `aspire`. It excludes unrelated use
+of the prefix, legacy product lines, SDKs, tools, templates, RID and runtime
+payloads, build-task or analyzer-only packages, and other packages without a
+public `lib/` or `ref/` API.
+
+Every qualifying package is included in ordinal package-ID order. Updating the
+Aspire manifest requires rerunning the same audit across the complete
+then-current stable `Aspire.*` universe and recording both newly qualifying
+packages and inclusion and exclusion canaries. Prefix discovery remains a
+separate explicit ecosystem action: the package set is a complete API snapshot
+within the `aspire` co-ownership boundary, not the complete live prefix.
 
 ## Discovery and lookup
 
@@ -264,7 +314,7 @@ discover or look up the registry directly.
 
 ## Initial registry
 
-The first registry issues two descriptors:
+The implemented registry currently issues two descriptors:
 
 | Identity | Title | Summary | Order |
 | --- | --- | --- | ---: |
@@ -333,6 +383,136 @@ The Catalog, Search metadata, and archives are authoring evidence, not a
 runtime provider. A reviewed source snapshot remains the sole shipped
 membership authority.
 
+## Aspire adoption
+
+The next registry adoption issues one descriptor after the existing two:
+
+| Identity | Title | Summary | Order |
+| --- | --- | --- | ---: |
+| `package-set.aspire` | Aspire | Current `aspire`-co-owned Aspire packages with public managed APIs. | 300 |
+
+Its stable purpose is the complete current-line `aspire`-co-owned Aspire API
+surface defined in [Membership validation](#membership-validation). The
+2026-09-04 audit found 82 qualifying packages.
+
+The audit used NuGet Search queries `q=id:Aspire` and `q=Aspire.`, exact-prefix
+filtering, Catalog history from 2023-11-01 through catalog commit
+`2026-09-04T03:56:04.4095328Z`, exact registration metadata, current package
+archives, and production dotnet-inspect API queries.
+
+Both Search forms returned the same 138 listed stable exact `Aspire.*` IDs.
+Catalog contained 9,354 Aspire events for 163 IDs published since Aspire's
+first public release on 2023-11-14. The 26 Catalog-only IDs were all
+preview-only. The one Search-only ID, `Aspire.Util.TestLogger`, was an
+unverified third-party package published in 2021 before Microsoft Aspire and
+therefore before the Catalog scan boundary. Any package satisfying the current
+major-line rule necessarily has a post-boundary Catalog event, so the combined
+Search and Catalog evidence closes the qualifying universe despite that older
+unrelated ID.
+
+The complete audit funnel was:
+
+| Disposition | Excluded | Remaining |
+| --- | ---: | ---: |
+| Listed stable exact `Aspire.*` IDs | 0 | 138 |
+| Exclude packages without the `aspire` owner | 4 | 134 |
+| Exclude stable versions outside the current major-13 line | 20 | 114 |
+| Exclude deprecated current stable releases | 0 | 114 |
+| Exclude SDK, tool, RID-tool, and template package types | 10 | 104 |
+| Exclude current-line `Dependency` packages without public `lib/` or `ref/` consumer APIs | 22 | 82 |
+
+The 22 archive-stage exclusions are the complete current snapshot:
+
+```text
+Aspire.Dashboard.Sdk.linux-arm64
+Aspire.Dashboard.Sdk.linux-musl-x64
+Aspire.Dashboard.Sdk.linux-x64
+Aspire.Dashboard.Sdk.osx-arm64
+Aspire.Dashboard.Sdk.osx-x64
+Aspire.Dashboard.Sdk.win-arm64
+Aspire.Dashboard.Sdk.win-x64
+Aspire.Dashboard.Sdk.win-x86
+Aspire.Hosting.AppHost
+Aspire.Hosting.CodeGeneration.Go
+Aspire.Hosting.CodeGeneration.Java
+Aspire.Hosting.CodeGeneration.Python
+Aspire.Hosting.CodeGeneration.Rust
+Aspire.Hosting.CodeGeneration.TypeScript
+Aspire.Hosting.Orchestration.linux-arm64
+Aspire.Hosting.Orchestration.linux-musl-x64
+Aspire.Hosting.Orchestration.linux-x64
+Aspire.Hosting.Orchestration.osx-arm64
+Aspire.Hosting.Orchestration.osx-x64
+Aspire.Hosting.Orchestration.win-arm64
+Aspire.Hosting.Orchestration.win-x64
+Aspire.Hosting.Orchestration.win-x86
+```
+
+The prefix, owner, version, deprecation, and package-type stages are
+re-derivable from NuGet Search and registration metadata. This complete
+archive-stage list records the only stage that requires downloading packages,
+so the exact 82-package ordinal result remains reproducible without copying the
+qualifying coordinates into a second normative manifest.
+
+Current-line filtering can retain an older-named compatibility package that
+was republished on the current line while excluding a newer-named sibling that
+remains on an old line. The audit therefore includes
+`Aspire.MongoDB.Driver.v2` and `Aspire.RabbitMQ.Client.v6` but excludes their
+major-9 `v3` and `v7` siblings. A future `Aspire.Hosting` major change requires
+a complete re-audit and replacement of the literal snapshot.
+
+The prefix includes integration libraries, client adapters, the CLI and RID
+packages, dashboard and orchestration payloads, SDKs, installers, templates,
+legacy compatibility lines, partner-owned packages, and unrelated
+third-party use of the prefix. Package type alone is insufficient because
+several dashboard and orchestration runtime packages report
+`Dependency`.
+
+Archive and API inspection demonstrates the intended breadth and boundaries:
+
+| Package | Disposition |
+| --- | --- |
+| `Aspire.Hosting` | Include: application-model foundation with public consumer APIs. |
+| `Aspire.Hosting.Testing` | Include: first-party application-model testing APIs. |
+| `Aspire.TypeSystem` | Include: first-party polyglot and code-generation APIs. |
+| `Aspire.Hosting.Azure` | Include: first-party hosting integration APIs. |
+| `Aspire.Hosting.AWS` | Include: verified partner integration co-owned by `aspire`. |
+| `Aspire.Hosting.Python` | Include: non-.NET resource hosting APIs. |
+| `Aspire.Hosting.AppHost` | Exclude: zero public `lib/` types; its four public `tools/` types are MSBuild tasks. |
+| `Aspire.AppHost.Sdk` | Exclude at the package-type stage: it is `DotnetPlatform`. |
+| `Aspire.Dashboard.Sdk.linux-x64` | Exclude: runtime/tool payload rather than a public `lib/` or `ref/` API. |
+
+`tools/PackagePrefixBenchmark.cs` makes prefix discovery evidence
+reproducible:
+
+```bash
+dotnet run tools/PackagePrefixBenchmark.cs -- search Aspire. 500,1000 3
+dotnet run tools/PackagePrefixBenchmark.cs -- profile Aspire. 500,1000 3
+```
+
+Three trials at each take returned all 138 packages with no truncation: median
+Search time was 1.27-1.35 seconds with 11 requests, and median profile time was
+3.86-4.04 seconds with 149 requests. A separate single cold production command,
+`find IResourceBuilder --package-prefix Aspire. -t 1000`, took 120.02 seconds,
+made 276 HTTP requests, and reported 32 selected packages without inspectable
+assemblies. That command used the fixed 500-package prefix-expansion cap, which
+covers all 138 candidates; `-t 1000` raised only the result-row limit. These
+measurements are neither runtime budgets nor stable performance promises. The
+package count, mixed roles, and assembly-free payloads demonstrate why live
+prefix discovery remains a separate explicit gesture. The audited package set
+retains the 82 current `aspire`-co-owned API packages useful for broad
+workspace inspection while excluding delivery-only payloads.
+
+Six sampled integration packages preserved the existing Aspire scanner shape:
+`Aspire.Hosting.PostgreSQL`, `Aspire.Hosting.Redis`,
+`Aspire.Hosting.Azure.Storage`, `Aspire.Hosting.AWS`,
+`CommunityToolkit.Aspire.Hosting.Ollama`, and
+`CommunityToolkit.Aspire.Hosting.MailPit` expose public `Add*` methods that
+accept `Aspire.Hosting.IDistributedApplicationBuilder` and return
+`Aspire.Hosting.ApplicationModel.IResourceBuilder<T>`. This is supporting
+evidence for the Integration-owned scanner work in #5719, not a package-set
+membership rule.
+
 ## Consumer composition
 
 ### Typed source declaration
@@ -385,7 +565,7 @@ package sets do not appear as a `vocabulary` section.
 
 ## Demo
 
-The implementation PR should demonstrate discovery through an ordinary
+The initial implementation demonstrates discovery through an ordinary
 non-friend consumer:
 
 ```text
@@ -413,6 +593,33 @@ The neighboring case is exact lookup of `package-set.aspnetcore`; it must
 return the same descriptor value and member order as enumeration rather than a
 host-local copy.
 
+The Aspire implementation extends that same demo without turning broad
+discovery into package-set membership:
+
+```text
+Available package sets
+
+Microsoft.Extensions   44 packages
+ASP.NET Core           53 packages
+Aspire                 82 packages
+
+Selected: package-set.aspire
+```
+
+The neighboring ecosystem-pack mockup keeps each capability explicit:
+
+```text
+Aspire
+  Add Aspire packages
+  Search official packages               Aspire.
+  Search Community Toolkit packages      CommunityToolkit.Aspire.
+  Analyze Aspire integrations
+```
+
+The Package Set Registry owns only the first action. Prefix and scanner
+availability remain subject to their separate owners and may land in separate
+changes.
+
 ## Required gates
 
 The target Release suite is `PackageSetRegistryTests` in
@@ -421,12 +628,12 @@ The target Release suite is `PackageSetRegistryTests` in
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns the two initial descriptors in explicit order with their exact IDs, metadata, and literal expected 44- and 53-package sequences rather than expectations derived from the registry. |
+| `PackageSetRegistryTests.InitialCatalogIsDiscoverableInDeclaredOrder` | Enumeration returns every shipped descriptor in explicit order with exact IDs and metadata. The implemented baseline is two descriptors; Aspire adoption extends the literal expectation to the third descriptor at order 300. |
 | `PackageSetRegistryTests.ExactLookupReturnsEnumeratedDescriptor` | Exact lookup and enumeration expose the same immutable descriptor and member order. |
 | `PackageSetRegistryTests.InvalidRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate or out-of-order manifest order, invalid, versioned, or target-specific coordinates, and within-set duplicate package IDs reject complete internal registry construction rather than publishing a shortened catalog. |
 | `PackageSetRegistryTests.DescriptorAndMembershipAreImmutableSnapshots` | Caller collection mutation and returned-collection use cannot change registry metadata, membership, or order. |
 | `PackageSetRegistryTests.InvalidTextDoesNotConstructAnIdentity` | Case variants, labels, CLI spellings, whitespace, and other non-canonical text fail the identity-construction boundary. |
-| `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use canonical typed initial IDs without parsing literals, and each resolves to the matching enumerated descriptor. |
+| `PackageSetRegistryTests.WellKnownIdsResolveToInitialDescriptors` | Product adapters can use every canonical typed shipped ID without parsing literals, and each resolves to the matching enumerated descriptor. Aspire adoption adds `PackageSetIds.Aspire`. |
 | `PackageSetRegistryTests.UnknownIdentityDoesNotAliasOrSelectADefault` | A well-formed unregistered identity returns typed unknown and does not resolve by neighboring identity, label, or default. |
 | `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the application manifest contains the exact audited 44- and 53-package ID sequences in ordinal order, each lifted to a versionless target-neutral coordinate; exclusion canaries pin known deprecated, legacy-only, and shared-framework-only IDs. |
 | `SearchScopeResolutionTests.PackageSetFlagsUseAuditedMembership` | `--extensions` and `--aspnetcore` project registry members back to the exact audited ordered package-ID strings while retaining composition and deduplication behavior after the transfer. |
@@ -452,36 +659,43 @@ ecosystem-pack adoption adds
 those gates are deferred because the registry donor-transfer slice publishes no
 pack rows.
 
+Aspire implementation adds or extends these Release gates:
+
+| Gate | Property |
+| --- | --- |
+| `PackageSetRegistryTests.AspireManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates. |
+| `PackageSetRegistryTests.AspireIncludesApiBreadthCanaries` | The manifest includes literal foundation, testing, separate-subsystem, first-party integration, partner integration, client-adapter, and non-.NET resource canaries such as `Aspire.Hosting`, `Aspire.Hosting.Testing`, `Aspire.TypeSystem`, `Aspire.Hosting.Azure`, `Aspire.Hosting.AWS`, `Aspire.Azure.Storage.Blobs`, and `Aspire.Hosting.Python`. |
+| `PackageSetRegistryTests.AspireExcludesBoundaryCanaries` | The manifest excludes owner-boundary canaries `Aspire.ClickHouse.Driver`, `Aspire.Hosting.ClickHouse`, `Aspire.Hosting.DocumentDB`, and `Aspire.Util.TestLogger`; legacy-line canary `Aspire.Hosting.Dapr`; package-type canaries `Aspire.AppHost.Sdk`, `Aspire.Cli`, and `Aspire.ProjectTemplates`; and public-API canaries `Aspire.Hosting.AppHost`, `Aspire.Hosting.CodeGeneration.TypeScript`, `Aspire.Dashboard.Sdk.linux-x64`, and `Aspire.Hosting.Orchestration.linux-x64`. |
+
+These gates prove the reviewed source snapshot and registry behavior. They do
+not make the network audit a runtime operation or prove prefix-query and
+Integration-scanner contracts owned elsewhere.
+
 ## Landing sequence
 
-1. Lock this focused application-inventory composition amendment.
-2. Implement the private application registry, Release contract suite, and
-   non-friend consumer in `DotnetInspector.Ecosystems`; replace the two
-   `ScopeConstants` inventories with the audited manifests and adapt current
-   CLI search-scope resolution in the same bounded transfer.
-3. Add ecosystem-pack references through their focused application adoption.
-4. Have #5602 define the typed resolved-coordinate handoff for later generic
-   source intent.
-5. Adopt browser **Add package set** and remaining CLI surfaces through their
-   own focused issues.
+1. The initial registry, audited Microsoft.Extensions and ASP.NET Core
+   manifests, CLI donor transfer, and application-shell gates landed in #5753.
+2. Lock the Aspire membership rule and audit evidence in this amendment.
+3. Add `PackageSetIds.Aspire`, the 82-member private manifest, exact
+   Release gates, and non-friend discovery coverage without adding a generic
+   CLI option.
+4. Reference that identity whenever the Aspire ecosystem pack lands with at
+   least one independently coherent capability. Package-set, prefix, demo, and
+   scanner slots are optional and do not wait for or activate one another.
+5. Have #5602 define the typed resolved-coordinate handoff for generic CLI and
+   browser **Add package set** adoption.
 
-Registry implementation and removal of the donor's two parallel inventories
-land together so the repository has one membership authority. Search-scope
-adaptation is the bounded consumer required to complete that one-donor
-transfer. Ecosystem-pack rows, browser, vocabulary, generic CLI syntax, and
-end-user-defined sets do not join that PR.
-
-The package-set donor transfer is the intended first creator of
-`DotnetInspector.Ecosystems` and therefore follows the one application-shell
-checklist owned by
-[Static Ecosystem Packs](ecosystem-packs.md#landing-sequence). If another track
-lands first, this implementation reuses that already-gated application shell.
+The Aspire package-set implementation changes only the application registry
+and its contract tests. It does not add prefix execution, scanner binding,
+workspace realization, browser presentation, Vocabulary entries, or
+end-user-defined sets.
 
 ## Non-claims
 
 This design does not define:
 
 - a runtime exhaustive package prefix, live query, or NuGet Catalog view;
+- every live `Aspire.*` package in `package-set.aspire`;
 - package recommendation, ranking, popularity, or compatibility;
 - source availability or whether every member can be realized;
 - exact-version package-set membership;
