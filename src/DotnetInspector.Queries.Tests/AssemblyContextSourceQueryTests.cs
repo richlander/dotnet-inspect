@@ -447,6 +447,59 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task MemberComparison_ResolvesProjectedExtensionOperator()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        ApiType type =
+            assembly.TypeTarget(nameof(InventoryFixture));
+        ApiMember projected = Assert.Single(
+            type.Members,
+            candidate =>
+                candidate.Name == "op_Addition"
+                && candidate.Kind == "extension-method");
+        Assert.Equal("extension-method", projected.Kind);
+        AssemblyMemberSourceRequest request =
+            AssemblyMemberSourceRequest.From(type, projected);
+        Assert.StartsWith(
+            "operator:op_Addition~",
+            request.Member.StableSelector,
+            StringComparison.Ordinal);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            File.ReadAllBytes(
+                Path.Combine(
+                    Path.GetDirectoryName(SourceFileBytesPath())!,
+                    "ApiInventoryQueryTests.cs")));
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+            available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Contains(
+            "operator +",
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberComparison_PdbFailureDoesNotSuppressDecompilation()
     {
         TestAssembly assembly = TestAssembly.Create();

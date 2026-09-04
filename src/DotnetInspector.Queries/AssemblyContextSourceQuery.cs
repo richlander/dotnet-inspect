@@ -196,7 +196,8 @@ public sealed record AssemblyMemberSourceRequest
             requestMember = requestMember with
             {
                 StableSelector =
-                    $"{member.Name}~{requestMember.Fingerprint}",
+                    $"{ApiMemberIdentity.GetMemberSelectorName(member.Name)}"
+                    + $"~{requestMember.Fingerprint}",
                 TypeFullName = member.DeclaringTypeCanonicalName,
             };
         }

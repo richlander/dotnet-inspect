@@ -71,8 +71,9 @@ An extension method projected onto its receiver type remains a request for the
 physical method on its exact declaring TypeDef. The projected API row supplies
 that retained declaring-type identity, MethodDef token, and canonical member
 identity; request construction retargets those facts to the physical method
-shape before query resolution. The query does not pass a receiver-projected
-`extension-method` row to the whole-member producer.
+shape, including the physical selector classification for operator-shaped
+metadata names, before query resolution. The query does not pass a
+receiver-projected `extension-method` row to the whole-member producer.
 
 ## Result
 
