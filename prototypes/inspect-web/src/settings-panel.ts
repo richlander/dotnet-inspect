@@ -29,6 +29,14 @@ export interface StyleCatalogState {
 
 type EscapeHtml = (value: unknown) => string;
 
+export function reconcileStyleTaste(
+  taste: readonly string[],
+  options: readonly StyleOption[],
+): string[] {
+  const currentIds = new Set(options.map(option => option.id));
+  return taste.filter(id => currentIds.has(id));
+}
+
 export interface SettingsPanelBindingActions {
   onClose: () => void;
   onOpen: (from: "home" | "workbench") => void;
