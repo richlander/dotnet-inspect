@@ -80,6 +80,51 @@ public sealed class PackageRoleCleanupReport
     public ImmutableArray<PackageRoleGroupCleanupRecord> Groups { get; }
 }
 
+/// <summary>
+/// Stable reason a package-role projection could not enter physical access.
+/// </summary>
+public enum PackageAssemblyContextProjectionAccessRejection
+{
+    ArtifactGenerationMismatch,
+}
+
+/// <summary>
+/// Typed result of generation-checked package-role projection admission.
+/// </summary>
+public abstract record PackageAssemblyContextProjectionAccessResult
+{
+    private protected PackageAssemblyContextProjectionAccessResult()
+    {
+    }
+
+    public sealed record Admitted :
+        PackageAssemblyContextProjectionAccessResult
+    {
+        internal Admitted(PackageAssemblyContextProjection projection)
+        {
+            ArgumentNullException.ThrowIfNull(projection);
+            Projection = projection;
+        }
+
+        public PackageAssemblyContextProjection Projection { get; }
+    }
+
+    public sealed record Rejected :
+        PackageAssemblyContextProjectionAccessResult
+    {
+        internal Rejected(
+            PackageAssemblyContextProjectionAccessRejection reason)
+        {
+            Reason = reason;
+        }
+
+        public PackageAssemblyContextProjectionAccessRejection Reason
+        {
+            get;
+        }
+    }
+}
+
 internal sealed class PackageRoleCompletionLifetime
 {
     readonly object _gate = new();
@@ -350,8 +395,11 @@ public sealed class PackageAssemblyContextCompletionOperation
 public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
 {
     readonly object _gate = new();
+    readonly InspectionWorkspace _workspace;
     readonly PackageAssemblyContextRoles _roles;
     readonly ImmutableArray<PackageRootAntecedent> _antecedents;
+    readonly ImmutableArray<ArtifactRootScopeProjection>
+        _rootScopeProjections;
     readonly ImmutableArray<PackageAssemblyRoleParticipantTemplate>
         _surfaceTemplates;
     readonly ImmutableArray<PackageAssemblyRoleParticipantTemplate>
@@ -366,15 +414,32 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
     PackageRoleCleanupReport? _closeReport;
 
     internal PackageAssemblyContextCompletion(
+        InspectionWorkspace workspace,
         PackageRoleCompletionLifetime lifetime,
         ImmutableArray<PackageRootAntecedent> antecedents,
         PackageAssemblyContextRoles roles,
         ImmutableArray<InspectionWorkspace.RoleAssembly> surfaceRole,
         ImmutableArray<InspectionWorkspace.RoleAssembly> implementationRole)
     {
+        _workspace = workspace;
         _lifetime = lifetime;
         Operation = lifetime.Operation;
         _antecedents = antecedents;
+        _rootScopeProjections =
+        [
+            .. antecedents.Select(
+                antecedent =>
+                {
+                    var generation =
+                        new ArtifactRootGenerationReference(
+                            workspace.Identity,
+                            antecedent.Correspondence);
+                    return new ArtifactRootScopeProjection(
+                        antecedent.Correspondence,
+                        new ArtifactRootRealizationStatus.Ready(
+                            generation));
+                }),
+        ];
         _roles = roles;
         SurfaceGroup = lifetime.SurfaceGroup;
         ImplementationGroup = lifetime.ImplementationGroup;
@@ -421,6 +486,13 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         ImplementationGroup is not null
         && ReferenceEquals(SurfaceGroup, ImplementationGroup);
 
+    /// <summary>
+    /// Gets the ordered resource-free Artifact Root projections published with
+    /// this completion.
+    /// </summary>
+    public ImmutableArray<ArtifactRootScopeProjection>
+        RootScopeProjections => _rootScopeProjections;
+
     public PackageRoleCleanupReport? CloseReport
     {
         get
@@ -436,9 +508,11 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(exactBindings);
         ImmutableArray<PackageRootBinding> bindings =
             [.. exactBindings];
-        return CreateProjection(
-            bindings,
-            [.. bindings.Select(binding => binding.Root.Identity)]);
+        return RequireAdmitted(
+            CreateProjection(
+                bindings,
+                [.. bindings.Select(binding => binding.Root.Identity)],
+                CurrentGenerationReferences()));
     }
 
     internal PackageAssemblyContextProjection CreateProjection(
@@ -451,24 +525,73 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
             [.. exactBindings];
         ImmutableArray<PackageRootIdentity> roots =
             [.. demandRoots];
+        return RequireAdmitted(
+            CreateProjection(
+                bindings,
+                roots,
+                CurrentGenerationReferences()));
+    }
+
+    /// <summary>
+    /// Creates a demand-local projection only when every supplied Artifact
+    /// Root generation is still current.
+    /// </summary>
+    public PackageAssemblyContextProjectionAccessResult CreateProjection(
+        IEnumerable<PackageRootBinding> exactBindings,
+        IEnumerable<ArtifactRootGenerationReference> generations)
+    {
+        ArgumentNullException.ThrowIfNull(exactBindings);
+        ArgumentNullException.ThrowIfNull(generations);
+        ImmutableArray<PackageRootBinding> bindings =
+            [.. exactBindings];
+        return CreateProjection(
+            bindings,
+            [.. bindings.Select(binding => binding.Root.Identity)],
+            [.. generations]);
+    }
+
+    PackageAssemblyContextProjectionAccessResult CreateProjection(
+        ImmutableArray<PackageRootBinding> bindings,
+        ImmutableArray<PackageRootIdentity> roots,
+        ImmutableArray<ArtifactRootGenerationReference> generations)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(
+                _closeStarted,
+                this);
+        }
         ValidateProjection(bindings, roots);
 
-        return _lifetime.AdmitProjection(
+        bool admitted = _workspace.TryAdmitArtifactRootAccess(
+            _rootScopeProjections,
+            generations,
             () =>
             {
-                lock (_gate)
-                {
-                    var projection =
-                        new PackageAssemblyContextProjection(
-                            this,
-                            roots,
-                            _surfaceTemplates,
-                            _implementationTemplates,
-                            _implementationBySurface);
-                    _projections.Add(projection);
-                    return projection;
-                }
-            });
+                return _lifetime.AdmitProjection(
+                    () =>
+                    {
+                        lock (_gate)
+                        {
+                            var projection =
+                                new PackageAssemblyContextProjection(
+                                    this,
+                                    roots,
+                                    _surfaceTemplates,
+                                    _implementationTemplates,
+                                    _implementationBySurface);
+                            _projections.Add(projection);
+                            return projection;
+                        }
+                    });
+            },
+            out PackageAssemblyContextProjection? projection);
+        return admitted
+            ? new PackageAssemblyContextProjectionAccessResult.Admitted(
+                projection!)
+            : new PackageAssemblyContextProjectionAccessResult.Rejected(
+                PackageAssemblyContextProjectionAccessRejection
+                    .ArtifactGenerationMismatch);
     }
 
     public Task<PackageRoleCleanupReport> CloseAsync()
@@ -520,6 +643,8 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
                     projection.ReturnCompletion)];
         }
 
+        _workspace.RetireArtifactRootScopeProjections(
+            _rootScopeProjections);
         _ = CompleteCloseAsync(projectionReturns);
     }
 
@@ -633,6 +758,28 @@ public sealed class PackageAssemblyContextCompletion : IAsyncDisposable
             expected.RequestedRuntimeIdentifier,
             actual.RequestedRuntimeIdentifier,
             StringComparison.Ordinal);
+
+    ImmutableArray<ArtifactRootGenerationReference>
+        CurrentGenerationReferences() =>
+    [
+        .. _rootScopeProjections.Select(
+            static projection =>
+                ((ArtifactRootRealizationStatus.Ready)
+                    projection.Status).Generation),
+    ];
+
+    static PackageAssemblyContextProjection RequireAdmitted(
+        PackageAssemblyContextProjectionAccessResult result) =>
+        result switch
+        {
+            PackageAssemblyContextProjectionAccessResult.Admitted admitted =>
+                admitted.Projection,
+            PackageAssemblyContextProjectionAccessResult.Rejected =>
+                throw new InvalidOperationException(
+                    "The package-role projection's Artifact Root generation is no longer current."),
+            _ => throw new InvalidOperationException(
+                "Unknown package-role projection access result."),
+        };
 
     static ImmutableArray<PackageAssemblyRoleParticipantTemplate> Templates(
         ImmutableArray<InspectionWorkspace.RoleAssembly> assemblies,
@@ -942,13 +1089,16 @@ public sealed class PackageAssemblyContextProjection : IAsyncDisposable
 }
 
 internal readonly record struct PackageRootAntecedent(
+    ArtifactRootCorrespondence Correspondence,
     RealizedMemberCoordinate.Package Coordinate,
     PackageContentGenerationIdentity ContentGeneration,
     PackageRootSelectionIdentity Selection)
 {
     internal static PackageRootAntecedent From(
-        PackageRootBinding binding) =>
+        PackageRootBinding binding,
+        ArtifactRootCorrespondence correspondence) =>
         new(
+            correspondence,
             binding.Coordinate,
             binding.ContentGenerationIdentity,
             binding.SelectionIdentity);
@@ -1015,6 +1165,20 @@ public sealed partial class InspectionWorkspace
                 nameof(selectedPackages));
         }
 
+        ImmutableArray<ArtifactRootCorrespondence> correspondences =
+        [
+            .. bindings.Select(
+                binding =>
+                    (ArtifactRootCorrespondence)
+                    CreatePackageArtifactRootCorrespondence(binding)),
+        ];
+        if (correspondences.Distinct().Count()
+            != correspondences.Length)
+        {
+            throw new ArgumentException(
+                "A shareable package-role operation cannot contain duplicate logical Artifact Roots.",
+                nameof(selectedPackages));
+        }
         PackageRoleRealizationPreparation preparation =
             PreparePackageRoleRealization(
                 bindings.Select(binding => binding.Root),
@@ -1023,7 +1187,11 @@ public sealed partial class InspectionWorkspace
         return new PackageAssemblyContextCompletionOperation(
             this,
             preparation,
-            [.. bindings.Select(PackageRootAntecedent.From)],
+            [
+                .. bindings.Zip(
+                    correspondences,
+                    PackageRootAntecedent.From),
+            ],
             yieldAsync);
     }
 
@@ -1080,6 +1248,7 @@ public sealed partial class InspectionWorkspace
                         participants,
                         options));
             var completion = new PackageAssemblyContextCompletion(
+                this,
                 lifetime,
                 antecedents,
                 roles,
@@ -1099,7 +1268,8 @@ public sealed partial class InspectionWorkspace
             bool published =
                 CompleteCoordinatedGroupAdmissions(
                     admissions,
-                    groups);
+                    groups,
+                    completion.RootScopeProjections);
             transferred = true;
             lifetime.EnableReleaseDispatch();
             if (!published)
