@@ -4790,16 +4790,43 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /const memberOverloadPicker =[\s\S]*?!selectedConcreteOverload\([\s\S]*?const memberWorkingSurface =[\s\S]*?currentPendingGraphMember\(\) === null[\s\S]*?memberOverloadPicker[\s\S]*?memberSectionUsesWorkingSurface\(state\.memberSection\)/);
   assert.match(
     stylesSource,
-    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
-    /\.api-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
+    /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
   assert.doesNotMatch(
     stylesSource,
     /\.api-surface-head p span \{[^}]*display: none;/s);
+});
+
+test("type metadata uses a full-area working surface without the inset type heading", () => {
+  const renderLens =
+    appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+  assert.match(
+    appSource,
+    /metadataWorkingSurface \? " metadata-working-surface" : ""/);
+  assert.match(
+    renderLens,
+    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.doesNotMatch(
+    renderLens,
+    /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {
