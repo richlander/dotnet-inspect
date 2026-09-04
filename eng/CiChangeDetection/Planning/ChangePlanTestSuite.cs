@@ -179,17 +179,17 @@ internal static class ChangePlanTestSuite
             ("global.json", "decompiler,packaging,shipped,codeqlcsharp"),
             (".github/workflows/ci.yml",
                 "code,csharpdiff,decompiler,ildiff,packaging,shipped,web,"
-                + "skills,tla,codeqlactions"),
+                + "skills,tla,codeqlactions,codeqljavascript"),
             (".github/workflows/release.yml",
-                "code,packaging,codeqlactions"),
+                "code,packaging,codeqlactions,codeqljavascript"),
             (".github/workflows/deploy-inspect-web.yml",
-                "web,codeqlactions"),
+                "web,codeqlactions,codeqljavascript"),
             (".github/workflows/deploy-inspect-web-coreclr.yml",
-                "web,codeqlactions"),
+                "web,codeqlactions,codeqljavascript"),
             (".github/workflows/promote-inspect-web.yml",
-                "web,codeqlactions"),
-            (".github/workflows/other.yml", "code,codeqlactions"),
-            (".markdownlint.yaml", "docs,codeqlactions"),
+                "web,codeqlactions,codeqljavascript"),
+            (".github/workflows/other.yml", "code,codeqlactions,codeqljavascript"),
+            (".markdownlint.yaml", "docs,codeqlactions,codeqljavascript"),
             ("docs/.markdownlint-cli2.jsonc", "docs"),
             ("docs/design/ci-change-plan.md", "docs"),
             ("skills/a/SKILL.md", "docs,skills"),
@@ -211,13 +211,21 @@ internal static class ChangePlanTestSuite
             ("misc/probe.cts", "codeqljavascript"),
             ("misc/probe.html", "codeqljavascript"),
             ("misc/probe.htm", "codeqljavascript"),
-            ("misc/config.yaml", "codeqlactions"),
+            ("misc/config.yaml", "codeqlactions,codeqljavascript"),
             // Case folding: an uppercase extension must not skip a lane.
             ("misc/probe.CS", "codeqlcsharp"),
             ("misc/probe.JS", "codeqljavascript"),
             // Dependency and compiler inputs for the JavaScript extractor.
             ("misc/package.json", "codeqljavascript"),
             ("misc/tsconfig.node.json", "codeqljavascript"),
+            // Families the extractor indexes that this repository does not
+            // currently contain. They cost nothing and stop the routing list
+            // from drifting away from the published inclusion set.
+            ("misc/probe.vue", "codeqljavascript"),
+            ("misc/probe.jsp", "codeqljavascript"),
+            ("misc/probe.raml", "codeqljavascript"),
+            ("misc/manifest.json", "codeqljavascript"),
+            ("misc/.eslintrc.json", "codeqljavascript"),
             ("misc/notes.rst", ""),
         ];
 

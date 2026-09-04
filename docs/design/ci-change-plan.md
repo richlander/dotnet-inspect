@@ -212,13 +212,28 @@ The three CodeQL lanes route on file-extension families rather than a project
 inventory, because CodeQL's unit of analysis is a language, not a project:
 `codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on C#
 sources plus the MSBuild and SDK inputs that decide which packages and sources
-participate in buildless extraction, and `codeqlJavaScript` on JavaScript and
-TypeScript sources together with the HTML that can embed them and the
-`package.json` and `tsconfig*.json` inputs that decide what the extractor
-resolves. Extension matching folds ASCII case, so an uppercase spelling cannot
-silently skip a lane. Like `markdownlint`, `inspectWeb`, and `tla`, they carry
-no pre-merge event condition, so a push to `main` analyzes whichever languages
-that push touched.
+participate in buildless extraction, and `codeqlJavaScript` on the JavaScript
+extractor's own published default inclusion set. That set is wider than
+JavaScript and TypeScript sources: it also covers HTML and its templates, YAML,
+and named inputs such as `package.json` and `tsconfig.json`. YAML therefore
+selects both `codeqlActions` and `codeqlJavaScript`. The lane mirrors the
+published set rather than the file types this repository happens to contain, so
+that the list does not drift as the repository gains file types; families that
+are absent simply never match. The one documented inclusion deliberately not
+routed is "all extension-less files", which would select the lane for ordinary
+metadata on nearly every candidate. Extension matching folds ASCII case, so an
+uppercase spelling cannot silently skip a lane. Like `markdownlint`,
+`inspectWeb`, and `tla`, these lanes carry no pre-merge event condition, so a
+push to `main` analyzes whichever languages that push touched.
+
+Push-time analysis is skipped for Dependabot-authored commits. This repository
+allows only squash merging, so merging a Dependabot pull request produces a
+Dependabot-authored commit on `main`, and GitHub gives workflows running on
+such a commit read-only permissions. Because uploading SARIF for a branch
+requires `security-events: write`, the lane would fail rather than publish, so
+the workflow does not start it. The pull-request run still analyzes the change,
+since code scanning always accepts uploads from a `pull_request` event; only
+the default-branch baseline refresh is deferred to the weekly scan.
 
 Routing a whole-program analyzer is a scheduling decision rather than a
 coverage one. The weekly scan in `codeql-scheduled.yml` analyzes all three

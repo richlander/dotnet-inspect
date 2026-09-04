@@ -624,10 +624,21 @@ while IFS= read -r -d '' file; do
       CODEQLCSHARP=true ;;
   esac
   case "$file_lower" in
-    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx|*.mts|*.cts|*.html|*.htm) \
+    # Mirrors the JavaScript extractor's own default inclusion set (see
+    # AutoBuild.java in github/codeql) rather than the file types this
+    # repository happens to contain. YAML is included there, so YAML selects
+    # this lane as well as the Actions lane. The one documented inclusion
+    # deliberately not routed is "all extension-less files".
+    *.js|*.jsx|*.mjs|*.cjs|*.es|*.es6|*.xsjs|*.xsjslib) \
       CODEQLJAVASCRIPT=true ;;
-    # Dependency and compiler inputs change what the extractor resolves.
-    *package.json|*tsconfig*.json) CODEQLJAVASCRIPT=true ;;
+    *.ts|*.tsx|*.mts|*.cts) CODEQLJAVASCRIPT=true ;;
+    *.htm|*.html|*.xhtm|*.xhtml|*.vue|*.html.erb|*.html.dot|*.jsp) \
+      CODEQLJAVASCRIPT=true ;;
+    *.yml|*.yaml|*.raml) CODEQLJAVASCRIPT=true ;;
+    *package.json|*tsconfig*.json|*codeql-javascript-*.json) \
+      CODEQLJAVASCRIPT=true ;;
+    *.eslintrc*|*.xsaccess|*xs-app.json|*.view.json|*manifest.json) \
+      CODEQLJAVASCRIPT=true ;;
   esac
   case "$file_lower" in
     *.yml|*.yaml) CODEQLACTIONS=true ;;

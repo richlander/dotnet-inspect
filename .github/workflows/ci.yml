@@ -1392,9 +1392,22 @@ jobs:
   # push applies this same routing rather than re-analyzing the whole tree, so
   # it does not bound a mis-routed lane; the weekly full analysis in
   # codeql-scheduled.yml is that bound.
+  #
+  # Push-time analysis is skipped for Dependabot-authored commits. This
+  # repository allows only squash merging, so merging a Dependabot pull
+  # request produces a Dependabot-authored commit on main, and GitHub gives
+  # workflows running on such a commit read-only permissions. The SARIF upload
+  # needs security-events: write, which a job cannot grant itself, so the job
+  # would fail with "403: Resource not accessible by integration" and turn
+  # ci-required red on main. The pull-request run still analyzes the change:
+  # code scanning always accepts uploads from a pull_request event. Only the
+  # default-branch baseline refresh is deferred, to the weekly scan.
+  # https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible
   codeql-actions:
     needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1411,7 +1424,9 @@ jobs:
 
   codeql-csharp:
     needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1432,7 +1447,9 @@ jobs:
 
   codeql-javascript:
     needs: changes
-    if: fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+      && !(github.event_name == 'push' && github.actor == 'dependabot[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

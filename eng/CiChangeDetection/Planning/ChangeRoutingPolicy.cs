@@ -210,24 +210,56 @@ internal sealed class ChangeRoutingPolicy
             state.CodeqlCSharp = true;
         }
 
+        // This list mirrors the JavaScript extractor's own default inclusion
+        // set rather than the file types this repository happens to contain,
+        // because the extractor indexes considerably more than JavaScript.
+        // Three review rounds each found a different family missing from a
+        // hand-picked list, so the published set is the stable contract. See
+        // AutoBuild.java in github/codeql, "The default inclusion patterns
+        // cause the following files to be included". Families this repository
+        // does not currently use cost nothing: they simply never match.
+        //
+        // The one documented inclusion deliberately not routed is "all
+        // extension-less files". Routing it would select this lane for
+        // ordinary metadata such as LICENSE or CODEOWNERS on nearly every
+        // candidate, and the weekly scan already bounds a missed lane.
         if (BytePattern.MatchesAny(
             folded,
             "*.js",
             "*.jsx",
             "*.mjs",
             "*.cjs",
+            "*.es",
+            "*.es6",
+            "*.xsjs",
+            "*.xsjslib",
             "*.ts",
             "*.tsx",
             "*.mts",
             "*.cts",
-            // The JavaScript extractor also reads script content embedded in
-            // HTML, which this repository's browser pages carry.
-            "*.html",
+            // The extractor reads script embedded in HTML and its templates.
             "*.htm",
-            // Dependency and compiler inputs decide what the extractor
-            // resolves, in the same way the MSBuild inputs do for C#.
+            "*.html",
+            "*.xhtm",
+            "*.xhtml",
+            "*.vue",
+            "*.html.erb",
+            "*.html.dot",
+            "*.jsp",
+            // The extractor indexes YAML, so YAML selects this lane as well
+            // as the Actions lane.
+            "*.yml",
+            "*.yaml",
+            "*.raml",
+            // Named dependency, compiler, and configuration inputs.
             "*package.json",
-            "*tsconfig*.json"))
+            "*tsconfig*.json",
+            "*codeql-javascript-*.json",
+            "*.eslintrc*",
+            "*.xsaccess",
+            "*xs-app.json",
+            "*.view.json",
+            "*manifest.json"))
         {
             state.CodeqlJavaScript = true;
         }
