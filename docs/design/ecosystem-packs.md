@@ -14,12 +14,14 @@ Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
 The Package Set Registry and its Microsoft.Extensions and ASP.NET Core
-inventories are implemented. The pack pattern, demo contribution, and all
-pack-level target gates remain unimplemented. Existing product demos remain in
-the `DotnetInspector.Queries` donor registry until the transfer described here
-lands. Every asserted target property is unverified until its named Release
-gate lands; existing package membership, demo behavior, and search behavior
-remain unchanged.
+inventories are implemented. The pack registry, demo contribution, and their
+novel registry and application-adoption gates remain unimplemented. The
+assembly-friend tests, solution dependency-policy rule, and inspect-web facade
+boundary gate already landed with the application shell and remain applicable.
+Existing product demos remain in the `DotnetInspector.Queries` donor registry
+until the transfer described here lands. Every asserted target property is
+unverified until its named Release gate lands; existing package membership,
+demo behavior, and search behavior remain unchanged.
 
 Supporting owners:
 
@@ -849,8 +851,9 @@ coherent.
 The package-set donor transfer already created
 `DotnetInspector.Ecosystems`, limited friendship to
 `DotnetInspector.Ecosystems.Tests`, and landed the solution dependency-policy
-gate. The demo track adds the Queries dependency and inspect-web project-graph
-gate while preserving those boundaries.
+and inspect-web project-graph gates. The demo track adds the Queries dependency
+and must keep those existing boundaries green; it does not add parallel
+boundary mechanisms.
 
 ## Non-claims
 
