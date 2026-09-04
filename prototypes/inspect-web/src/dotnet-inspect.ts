@@ -1736,6 +1736,12 @@ function trackContentFrameFocus(event: FocusEvent) {
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
 }
 
+function trackContentFramePointer(event: PointerEvent) {
+  documentFocusGeneration++;
+  const pointed = event.target instanceof Element ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
+}
+
 function releaseContentFrameFocusOwner() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -11715,6 +11721,7 @@ keybindings.register({
 });
 
 keybindings.attach(document);
+document.addEventListener("pointerdown", trackContentFramePointer);
 document.addEventListener("focusin", trackContentFrameFocus);
 document.addEventListener("focusout", releaseContentFrameFocusOwner);
 bindContentFrameMedia(contentFrameMedia, handleContentFrameResize);

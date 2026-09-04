@@ -192,6 +192,22 @@ test("immediate narrowing ignores stale navigation focus ownership", async ({
   await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
+test("immediate widening ignores a departed narrow toggle", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.getByRole("button", { name: "Members" }).focus();
+  await page.locator(".docs-unavailable").click();
+  await expect(page.locator("body")).toBeFocused();
+  await page.setViewportSize({ width: 900, height: 700 });
+
+  await expect(page.locator("body")).toBeFocused();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
 test("keyboard entry focuses an empty Member inventory after replacement", async ({
   page,
 }) => {

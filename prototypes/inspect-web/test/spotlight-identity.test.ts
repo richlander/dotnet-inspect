@@ -1412,7 +1412,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("focusin", trackContentFrameFocus\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 4);
+  assert.match(
+    appSource,
+    /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 5);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -2800,10 +2803,13 @@ test("content-frame focus ownership clears after focus settles outside both pane
     /function trackContentFrameFocus\(event: FocusEvent\) \{\s*documentFocusGeneration\+\+;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(focused\)/);
   assert.match(
     appSource,
+    /function trackContentFramePointer\(event: PointerEvent\) \{\s*documentFocusGeneration\+\+;[\s\S]*contentFrameFocusOwner = contentFrameFocusOwnerFor\(pointed\)/);
+  assert.match(
+    appSource,
     /function releaseContentFrameFocusOwner\(\) \{\s*requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameFocusOwnerFor\(focused\) === null[\s\S]*contentFrameFocusOwner = null/);
   assert.match(
     appSource,
-    /document\.addEventListener\("focusin", trackContentFrameFocus\);\s*document\.addEventListener\("focusout", releaseContentFrameFocusOwner\)/);
+    /document\.addEventListener\("pointerdown", trackContentFramePointer\);\s*document\.addEventListener\("focusin", trackContentFrameFocus\);\s*document\.addEventListener\("focusout", releaseContentFrameFocusOwner\)/);
 });
 
 test("package-root Open and selected-Type activation preserve local frame state", () => {

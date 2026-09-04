@@ -763,6 +763,10 @@ function focusContentFrameTarget(target: ContentFrameFocusTarget) {
   else if (target === "navigation-toggle")
     focusContentNavigationToggle(document);
 }
+document.addEventListener("pointerdown", event => {
+  const pointed = event.target instanceof Element ? event.target : null;
+  contentFrameFocusOwner = contentFrameFocusOwnerFor(pointed);
+});
 document.addEventListener("focusin", event => {
   const focused = event.target instanceof HTMLElement ? event.target : null;
   contentFrameFocusOwner = contentFrameFocusOwnerFor(focused);
