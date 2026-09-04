@@ -10,17 +10,15 @@ namespace DotnetInspector.Commands;
 
 internal static class ILOffsetQuery
 {
-    public static async Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
-        string dllPath,
+    internal static Task<(int ExitCode, ILOffsetProjection? Result)> ResolveAsync(
+        SourceLinkService service,
         string? packageName,
         string? packageVersion,
         bool isPlatformAssembly,
         LibraryOptions options,
         HttpClient httpClient,
-        VerboseLogger logger)
-    {
-        using var service = SourceLinkService.Open(dllPath, logger.Log);
-        return await ResolveAsync(
+        VerboseLogger logger) =>
+        ResolveAsync(
             service,
             packageName,
             packageVersion,
@@ -29,7 +27,6 @@ internal static class ILOffsetQuery
             httpClient,
             logger,
             writeErrors: true);
-    }
 
     internal static async Task<(int ExitCode, ILOffsetProjection? Result, string? Error)> ResolveBatchAsync(
         SourceLinkService service,

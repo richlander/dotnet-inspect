@@ -24,8 +24,8 @@ This owner defines:
 - package-source presentation placement (feed tabs absence, producer-label
   display);
 - the placement and allocation of the two persistent shell rows, including the
-  subject/inspector region, inspected target, shell-owned Application menu, and
-  contextual working-surface actions;
+  application-scope and subject/inspector regions, inspected target,
+  shell-owned Application menu, and contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
 - the data bar and Diagnostics surface.
@@ -80,29 +80,41 @@ This document consumes, without redefining:
 - the Slideable Subject Strip's inventories, representations, internal
   allocation, terminal-deficit behavior, and focus contract owned by
   [Inspect Web Navigation
-  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip).
+  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
+  and
+- the Query/Workspace application-scope inventory, selection, and interaction
+  owned by
+  [Inspect Web Navigation
+  Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
 
 ## Shell navigation and application actions
 
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [subject and inspector region]
+row one: [product] [Query | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
 ```
 
-Row one contains navigation and the stable application-action home. The
-product control and Application menu occupy non-shrinking slots. The
-Navigation Presentation-owned subject/inspector region receives the primary
-flexible allocation between them, followed by the Shell Interaction-owned
-history and Search cluster. Search progresses from its full label to its
-compact label and then disappears; history disappears after Search. This
-cluster yields before the Slideable Subject Strip starts reducing active
-Subject or Inspector identity. Once those shell controls have yielded, the
-SlideStrip resolves its own normal, control-free, and terminal-deficit states
-inside the remaining page boundary.
+Row one contains navigation and the stable application-action home. The product
+control and Application menu occupy non-shrinking slots. The
+Navigation Presentation-owned application-scope strip precedes the
+subject/inspector region, which receives the primary flexible allocation. The
+Shell Interaction-owned history and Search cluster follows it. Search
+progresses from its full label to its compact label and then disappears;
+the application-scope strip yields next, while history remains available until
+a narrower width. History then disappears before the Slideable Subject Strip
+starts reducing active Subject or Inspector identity. Once those controls have
+yielded, the SlideStrip resolves its own normal, control-free, and
+terminal-deficit states inside the remaining page boundary.
+
+The application-scope strip uses a distinct quiet treatment and may be removed
+at constrained widths only after focus has left it. Query remains reachable
+through Spotlight's global keyboard entry and Workspace through hierarchical
+drill-out or a return action. On `/query`, the visible heading and
+route-specific Back action continue to orient the surface if the strip yields.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -425,9 +437,22 @@ reconstructs that label from an endpoint.
 
 One information hierarchy adapts across viewport sizes:
 
-- wide layouts retain Type or Member navigation beside a full working surface;
-- narrow layouts replace the navigation pane with a visible
-  `Types` or `Members` button that opens the shared modal navigation drawer;
+- wide layouts retain Type or Member navigation beside a full working surface,
+  using a bounded inventory column rather than a percentage split; the column
+  stays within its readable minimum and maximum while the detail pane receives
+  all remaining width, and no draggable divider is introduced;
+- narrow layouts replace the split with one presentation-local pane:
+  inventory or detail. Detail exposes a visible `Types` or `Members` button
+  that switches to the corresponding full-width inventory; activating an
+  inventory row switches back to detail, and inventory retains a visible
+  detail-return action even when filters leave no activatable row;
+- the narrow inventory/detail choice is not workspace state or product
+  navigation. Switching panes does not change the selected coordinate,
+  subject, lens, filters, canonical packet, URL, or browser history;
+- the return button shares the quiet 40-pixel working-surface header when one
+  exists. Heading-free Source and Annotated Source and document-style package
+  surfaces use a narrow-only local navigation band rather than inventing a
+  working-surface title;
 - both persistent shell rows remain one line;
 - the row-one subject/inspector region remains outside and above the
   navigation/content grid;
@@ -459,14 +484,17 @@ One information hierarchy adapts across viewport sizes:
 Responsive layout is not workspace state. Changing viewport size does not alter
 the selected coordinate, subject, lens, filters, or canonical packet.
 
-When narrowing replaces a navigation pane while focus is inside it, focus moves
-to the new `Types` or `Members` drawer button without opening the drawer. When
-widening replaces an open drawer, the drawer closes without returning focus to
-its removed invoker and focus moves to the equivalent visible navigation item,
-or to the active-subject heading when no equivalent item is rendered. When a
-closed drawer button is replaced, the same transfer occurs only if that button
-owned focus; otherwise the current focus remains unchanged. In particular,
-widening does not move focus out of another open modal.
+Activating `Types` or `Members` moves focus to the visible inventory and scrolls
+its selected row into view. Activating an inventory row moves focus to the
+return button in the resulting narrow detail pane. A filter-focus command first
+switches to inventory, then opens and focuses the applicable filter.
+
+When crossing into the narrow layout, focus inside Type or Member navigation
+keeps inventory visible; focus inside detail keeps detail visible. Otherwise
+the retained presentation-local pane remains visible. Widening reveals both
+panes without moving focus, except that focus owned by either removed
+narrow-only pane-switch control moves to the equivalent visible navigation
+list. A viewport change never moves focus out of another open modal.
 
 Density comes from removing duplication and conditionally presenting
 navigation, not from making text or controls too small to use.
@@ -637,20 +665,26 @@ with the absence of a synthesized `Default feed` control.
 ### Narrow viewport
 
 1. Start from a committed Type Source state.
-2. Narrow the viewport until Type navigation moves to its drawer.
-3. Activate the visible `Types` button and confirm the drawer's accessible
-   dialog name, initial focus, focus containment, Escape dismissal, and focus
-   return.
+2. Narrow the viewport until detail occupies the full content frame and Type
+   navigation is replaced by a visible `Types` button.
+3. Activate `Types` and confirm that inventory occupies the same full content
+   frame, focus moves to its list, the selected row remains visible, and URL
+   and browser history do not change. Clear the list with filters and confirm
+   that the visible detail-return action still restores the prior detail.
 4. Confirm that both persistent shell rows remain single-line rather than
    wrapping. Confirm that the row-two target elides while preserving its
    complete accessible path, only the Slideable Subject Strip uses contiguous
    windows and edge disclosure, and the Application menu retains its row-one
    trailing slot.
-5. With focus in the wide navigation pane, narrow the viewport and confirm that
-   focus moves to the new drawer button without opening it.
-6. Open the drawer, restore the wide viewport, and confirm that the drawer
-   closes and focus moves to the equivalent visible navigation item or the
-   active-subject heading.
+5. Activate the selected Type row and confirm that detail returns, focus moves
+   to `Types`, and URL and browser history remain unchanged. Activate a
+   different row and confirm that its ordinary product navigation semantics
+   still apply before detail returns.
+6. With focus in the wide navigation pane, narrow the viewport and confirm that
+   inventory remains visible. With focus in detail, repeat and confirm that
+   detail remains visible. Restore the wide viewport and confirm both panes
+   return without disturbing focus, except that a focused narrow return button
+   transfers to the visible navigation list.
 7. Open Settings at the narrow viewport, restore the wide viewport, and confirm
    that focus remains contained in Settings.
 8. Confirm that coordinate, subject, lens,

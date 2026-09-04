@@ -1,8 +1,8 @@
-import type { BrowserPackageDocument } from "./inspect-web-engine.d.ts";
+import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
-type DocViewerDocument = Pick<BrowserPackageDocument, "name" | "path">;
+type DocViewerDocument = Pick<InspectedPackageDocument, "name" | "path">;
 type PackageDocumentSummary = Pick<
-  BrowserPackageDocument,
+  InspectedPackageDocument,
   "kind" | "name" | "path" | "size"
 >;
 
