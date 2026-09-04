@@ -1242,12 +1242,18 @@ test("keyboard help projects available global and current graph bindings", () =>
   assert.match(
     appSource,
     /const inspectionNavigationIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && scope\(\) !== "workspace"/);
+  assert.match(
+    appSource,
+    /const workspaceDrillInIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && state\.package !== null/);
+  assert.match(
+    appSource,
+    /function drillIn\(\) \{\s*if \(scope\(\) === "workspace"\) \{\s*if \(!state\.package\) return;/);
   const drillInBinding =
     appSource.match(/keybindings\.register\(\{\s*id: "workspace\.drill-in"[\s\S]*?\n}\);/)?.[0]
     ?? "";
   assert.match(
     drillInBinding,
-    /available: workspaceKeyboardContextIsActive/);
+    /available: workspaceDrillInIsAvailable/);
   assert.match(drillInBinding, /run: \(\) => \{\s*drillIn\(\);/);
   assert.match(
     appSource,
@@ -2148,7 +2154,7 @@ test("annotated source Escape and history ownership track the mounted surface", 
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);\s*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isPackageQueryPath/);
   assert.match(
     appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(options\.synchronizeUrl !== false[\s\S]*\) \{\s*syncUrl\(\);\s*\}/);
+    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("leaving package search clears its pending loading state", () => {
@@ -2641,7 +2647,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
   assert.match(
     appSource,
-    /options\.synchronizeUrl !== false[\s\S]*scope\(\) === "workspace"[\s\S]*isProductHomeDemosPath\(location\.pathname\)[\s\S]*syncUrl\(\)/);
+    /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
   assert.match(
     stateUrl,
     /state\.atPackageRoot && state\.package[\s\S]*buildPackageRootStateUrl/);
@@ -2797,6 +2803,9 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
+  assert.match(
+    callGraphDemo,
+    /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
     /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);

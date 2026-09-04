@@ -2700,6 +2700,7 @@ function stepHorizontal(delta: number) {
 // Enter drills one level deeper; Escape/Backspace pops back out.
 function drillIn() {
   if (scope() === "workspace") {
+    if (!state.package) return;
     state.workspaceSubjectOpen = false;
     state.atPackageRoot = true;
     render();
@@ -3065,9 +3066,12 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
   recordNav();
-  if (options.synchronizeUrl !== false
-      && !(scope() === "workspace"
-        && isProductHomeDemosPath(location.pathname))) {
+  const productDemosRouteVisible =
+    scope() === "workspace"
+    && isProductHomeDemosPath(location.pathname);
+  if (productDemosRouteVisible) {
+    document.title = "Demos — dotnet-inspect";
+  } else if (options.synchronizeUrl !== false) {
     syncUrl();
   }
   maybeAutoLoadVisibleSource();
@@ -10602,6 +10606,7 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
         "The engine-run demo selection was not present in its returned package surfaces.");
     }
 
+    clearWorkspacePackages();
     for (const packageModel of packages) {
       retainPackageModel(packageModel);
       recordRecentPackage(
@@ -11276,6 +11281,8 @@ const workspaceDrillOutIsAvailable = () =>
   && (navMode() === "member" || !state.atPackageRoot);
 const inspectionNavigationIsAvailable = () =>
   workspaceKeyboardContextIsActive() && scope() !== "workspace";
+const workspaceDrillInIsAvailable = () =>
+  workspaceKeyboardContextIsActive() && state.package !== null;
 const workspaceHistoryBackIsAvailable = () =>
   workspaceKeyboardContextIsActive() && navigationHistory.canBack();
 const workspaceHistoryForwardIsAvailable = () =>
@@ -11597,7 +11604,7 @@ keybindings.register({
 keybindings.register({
   id: "workspace.drill-in",
   key: "Enter",
-  available: workspaceKeyboardContextIsActive,
+  available: workspaceDrillInIsAvailable,
   allowExtraModifiers: true,
   priority: WORKBENCH_KEYBINDING_PRIORITY.workspace,
   when: event => !isTextEntry()
@@ -11754,13 +11761,11 @@ window.addEventListener("popstate", () => {
     state.queryNoticeRetryAction = null;
     state.credits = false;
     state.home =
-      !isProductHomeDemosPath(location.pathname)
-      && !pendingLocation.package
+      !pendingLocation.package
       && !pendingWorkspace.hasWorkspaceState
       && !pendingLocation.routeFailure;
-    state.workspaceSubjectOpen =
-      isProductHomeDemosPath(location.pathname);
-    state.atPackageRoot = state.workspaceSubjectOpen;
+    state.workspaceSubjectOpen = false;
+    state.atPackageRoot = false;
     state.loading = !state.home;
     if (state.home) clearNavigationError();
     render();

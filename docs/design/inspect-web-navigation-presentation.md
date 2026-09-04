@@ -416,10 +416,12 @@ successor, or fallback for the product.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
 state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. Share and refresh preserve
-the Workspace subject and its retained coordinates. After refresh, the generic
-current Workspace remains viewable without reconstructing a demo identity from
-matching coordinates.
+returned successor while remaining in Workspace. The `/demos` entry route is an
+in-session catalog view: it preserves currently loaded coordinates while open,
+but a direct visit or refresh starts with an empty Workspace. After an Open demo
+or coordinate action returns to a canonical Workspace URL, Share and refresh
+preserve the Workspace subject and its retained coordinates without
+reconstructing a demo identity from matching coordinates.
 
 Workspace renders stable focus targets for its heading, every demo entry, and
 every coordinate action. Post-result focus and failure
