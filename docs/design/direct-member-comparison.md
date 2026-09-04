@@ -106,6 +106,12 @@ continue to apply. A physical `ExactAddress` request is never retargeted
 through forwarding: the workspace contract explicitly excludes that operation.
 The adapter consumes the resulting owner-issued association rather than
 resolving the member again or adding a participant after sealing.
+The workspace
+[two-sided handoff](research-workspace-target-composition.md#two-sided-comparison-handoff)
+distinguishes ordinary correspondence from explicit designation: the former
+requires Research `Paired`, while this adapter requires #5877's designated-pair
+association over the exact selected attempts. Neither route overrides
+side-local composition failure or binding-policy validation.
 
 ### Execution and publication
 
