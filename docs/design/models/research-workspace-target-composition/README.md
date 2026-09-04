@@ -212,7 +212,11 @@ The model does not implement or prove:
 - cancellation, concurrency, CLI, browser, or presentation behavior; or
 - implementation conformance.
 
-Those remain owned by their product contracts and named Release gates.
+Those remain owned by their product contracts and named Release gates. In
+particular, the product design requires
+`WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities` to walk the
+closed composition-result type graph; TLC intentionally does not substitute
+for that structural implementation gate.
 
 ## Running TLC
 

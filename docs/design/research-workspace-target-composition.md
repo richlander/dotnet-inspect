@@ -193,6 +193,31 @@ callback, lease, or cleanup authority. Projection is semantic preservation of
 the owner-issued outcome, not retention or reconstruction of Metadata's
 capability-bearing object graph.
 
+This absence claim requires full structural coverage. The Release gate
+`WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities` recursively walks
+the declared instance fields, including non-public backing fields, and exposed
+property signatures of composition-owned types reachable from the composition
+result, receipt, `WorkspaceTypeResolutionEvidence`, and every closed-union arm.
+The walk includes base and derived arms and decomposes arrays, nullable values,
+and generic arguments. It fails if that closure reaches:
+
+- `AssemblyContextTypeResolutionResult`, `TypeResolutionOutcome`,
+  `TypeForwardingHop`,
+  `ResolvedAssemblyCandidate`, or `ResolvedAssemblyReference`;
+- `AssemblyContextGroup`, `AssemblyContextParticipant`,
+  `TypeResolutionContext`, `TypeResolutionCatalog`, or
+  `IAssemblyReferenceResolver`; or
+- any type assignable to `Stream`, `Delegate`, `Exception`, `IDisposable`, or
+  `IAsyncDisposable`.
+
+The gate is non-vacuous: it separately proves that the closure reaches the
+composition receipt and both `Available` and `QueryRejected` evidence arms,
+then demonstrates that the same walk detects a test-only prohibited exposure.
+A new composition-result or evidence arm must enter the closed-union walk
+without an allow-list edit. This gate covers retained object-graph authority;
+the behavioral gates below separately prove projection fidelity and
+failure-atomic publication.
+
 ## Validation order
 
 Composition validates one side in this order:
@@ -479,6 +504,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath`
 - `WorkspaceResearchTarget_UnboundTerminalIsUnavailable`
 - `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
+- `WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities`
 - `WorkspaceResearchTarget_MissingTerminalPopulationMemberIsRejected`
 - `WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected`
 - `WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute`
