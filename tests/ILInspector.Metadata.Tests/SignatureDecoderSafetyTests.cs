@@ -775,6 +775,48 @@ public class SignatureDecoderSafetyTests
     }
 
     [Fact]
+    public void ReadOnlyByRefProbe_RejectsNestedDegradedTypeSpec()
+    {
+        TypeDefinitionHandle typeHandle = default;
+        MethodDefinitionHandle methodHandle = default;
+        var reader = BuildAssembly(metadata =>
+        {
+            var cyclicTypeSpec = new BlobBuilder();
+            cyclicTypeSpec.WriteByte(0x1f); // CMOD_REQD
+            cyclicTypeSpec.WriteByte(0x06); // TypeSpec row 1
+            cyclicTypeSpec.WriteByte(0x08); // I4
+            metadata.AddTypeSpecification(metadata.GetOrAddBlob(cyclicTypeSpec));
+
+            var methodSignature = new BlobBuilder();
+            methodSignature.WriteByte(0x00); // default method signature
+            methodSignature.WriteByte(0x00); // zero parameters
+            methodSignature.WriteByte(0x1f); // CMOD_REQD
+            methodSignature.WriteByte(0x06); // TypeSpec row 1
+            methodSignature.WriteByte(0x08); // I4
+            methodHandle = metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static,
+                MethodImplAttributes.IL,
+                metadata.GetOrAddString("M"),
+                metadata.GetOrAddBlob(methodSignature),
+                bodyOffset: -1,
+                parameterList: MetadataTokens.ParameterHandle(1));
+            typeHandle = metadata.AddTypeDefinition(
+                TypeAttributes.Public,
+                metadata.GetOrAddString("N"),
+                metadata.GetOrAddString("C"),
+                default,
+                MetadataTokens.FieldDefinitionHandle(1),
+                methodHandle);
+        });
+
+        Assert.False(MetadataDeclarationQuery.TryHasReadOnlyByRefSignature(
+            reader,
+            reader.GetTypeDefinition(typeHandle),
+            reader.GetMethodDefinition(methodHandle),
+            out _));
+    }
+
+    [Fact]
     public void CyclicTypeSpecThroughApiSurfaceExtractorWorker()
     {
         if (!IsSelectedWorker(nameof(CyclicTypeSpecThroughApiSurfaceExtractorWorker)))

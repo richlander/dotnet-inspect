@@ -71,6 +71,67 @@ public sealed class SignatureSpellabilityTests
     }
 
     [Fact]
+    public void InspectMethod_RejectsUnresolvedReferencedType()
+    {
+        using var fixture = OpenFixture(new MapResolver());
+        var method = GetMethod(fixture.Reader, fixture.Type, "VisibleMethod");
+
+        var result = fixture.Spellability.InspectMethod(
+            fixture.Reader,
+            method,
+            GenericContext.ForMethod(fixture.Reader, fixture.Type, method));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
+    }
+
+    [Fact]
+    public void InspectMethod_RejectsResolvedAssemblyMissingReferencedType()
+    {
+        using var fixture = OpenFixture(new FixedResolver(
+            typeof(SignatureSpellabilityConsumerFixtures).Assembly.Location));
+        var method = GetMethod(fixture.Reader, fixture.Type, "VisibleMethod");
+
+        var result = fixture.Spellability.InspectMethod(
+            fixture.Reader,
+            method,
+            GenericContext.ForMethod(fixture.Reader, fixture.Type, method));
+
+        Assert.False(result.CanSpell);
+        Assert.Equal(SignatureDecodeStatus.Degraded, result.DecodeStatus);
+    }
+
+    [Fact]
+    public void InspectMethod_AcceptsForwardedReferencedType()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"signature-spellability-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(
+            directory,
+            $"{typeof(VisibleReferenceType).Assembly.GetName().Name}.dll");
+        try
+        {
+            WriteForwarderAssembly(path);
+            using var fixture = OpenFixture(new MapResolver(path));
+            var method = GetMethod(fixture.Reader, fixture.Type, "VisibleMethod");
+
+            var result = fixture.Spellability.InspectMethod(
+                fixture.Reader,
+                method,
+                GenericContext.ForMethod(fixture.Reader, fixture.Type, method));
+
+            Assert.True(result.CanSpell);
+            Assert.Null(result.DecodeStatus);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CanSpellField_RelaxesVersionWhenResolverUnifiesReferences()
     {
         using var fixture = OpenFixture(new VersionRelaxingResolver(typeof(VisibleReferenceType).Assembly.Location));
@@ -184,6 +245,56 @@ public sealed class SignatureSpellabilityTests
         return new Fixture(stream, pe, reader, type, new SignatureSpellability(resolver));
     }
 
+    static void WriteForwarderAssembly(string path)
+    {
+        var sourceName = typeof(VisibleReferenceType).Assembly.GetName();
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString(Path.GetFileName(path)),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(sourceName.Name!),
+            sourceName.Version!,
+            sourceName.CultureName is { Length: > 0 } culture
+                ? metadata.GetOrAddString(culture)
+                : default,
+            default,
+            default,
+            default);
+        var target = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("ForwardTarget"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddExportedType(
+            TypeAttributes.Public | (TypeAttributes)0x00200000,
+            metadata.GetOrAddString(typeof(VisibleReferenceType).Namespace!),
+            metadata.GetOrAddString(nameof(VisibleReferenceType)),
+            target,
+            typeDefinitionId: 0);
+
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        File.WriteAllBytes(path, image.ToArray());
+    }
+
     static TypeDefinition GetTypeDefinition(MetadataReader reader, Type type)
     {
         var expected = type.FullName!.Replace('+', '.');
@@ -259,6 +370,18 @@ public sealed class SignatureSpellabilityTests
                     _path,
                     AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
+    }
+
+    sealed class FixedResolver(string path) : IAssemblyReferenceResolver
+    {
+        readonly string _path = Path.GetFullPath(path);
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => ResolvedAssemblyReference.CreateFromPath(
+                _path,
+                AssemblyResolutionProvenance.Local("TestFixed"));
     }
 
     sealed record Fixture(

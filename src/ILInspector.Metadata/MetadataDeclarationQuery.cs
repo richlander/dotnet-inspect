@@ -545,6 +545,55 @@ public static class MetadataDeclarationQuery
             .HasRequiredModifier("System.Runtime.CompilerServices", "IsVolatile");
 
     /// <summary>
+    /// Decodes a method signature and reports whether its return or parameter types
+    /// carry readonly-by-reference custom modifiers. False means signature decoding
+    /// failed; callers must not treat the out value as evidence in that case.
+    /// </summary>
+    public static bool TryHasReadOnlyByRefSignature(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method,
+        out bool hasReadonlyByRef)
+    {
+        try
+        {
+            var decoded = GuardedProviderDecode.MethodResult(
+                reader,
+                method,
+                TypeNodeProvider.Instance,
+                GenericContext.ForMethod(reader, typeDef, method),
+                (TypeNode)new NamedTypeNode("object", isReferenceType: true));
+            if (decoded.IsDegraded
+                || decoded.Value.ReturnType.IsDegraded
+                || decoded.Value.ParameterTypes.Any(static type => type.IsDegraded))
+            {
+                hasReadonlyByRef = false;
+                return false;
+            }
+            var signature = decoded.Value;
+            hasReadonlyByRef = HasReadonlyByRefModifier(signature.ReturnType)
+                || signature.ParameterTypes.Any(HasReadonlyByRefModifier);
+            return true;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            hasReadonlyByRef = false;
+            return false;
+        }
+
+        static bool HasReadonlyByRefModifier(TypeNode type)
+            => type.HasRequiredModifier(
+                    "System.Runtime.CompilerServices",
+                    "IsReadOnlyAttribute")
+                || type.HasRequiredModifier(
+                    "System.Runtime.CompilerServices",
+                    "RequiresLocationAttribute")
+                || type.HasRequiredModifier(
+                    "System.Runtime.InteropServices",
+                    "InAttribute");
+    }
+
+    /// <summary>
     /// The C# generic-constraint clause body for each in-scope generic parameter of
     /// <paramref name="method"/> — its own parameters and its declaring type's —
     /// keyed by parameter name (for example <c>"TOther"</c> to

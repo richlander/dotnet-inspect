@@ -289,12 +289,20 @@ static class FidelityCheck
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
         RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered: false);
+        var references = RuntimeReferences(assemblyPath);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
             var typeDef = reader.GetTypeDefinition(typeHandle);
             if (!typeDef.GetDeclaringType().IsNil)
                 continue;
-            foreach (var (fullType, _, _) in EnumerateTypeTree(reader, pe, source, typeHandle, render, typeFilter))
+            foreach (var (fullType, _, _) in EnumerateTypeTree(
+                reader,
+                pe,
+                source,
+                typeHandle,
+                render,
+                references,
+                typeFilter))
                 names.Add(fullType);
         }
         return names;
@@ -704,7 +712,14 @@ static class FidelityCheck
 
     sealed record TargetedCompileBackResult(MethodTarget Target, CompileBackResult Result);
 
-    sealed record ReferenceSet(ImmutableArray<MetadataReference> Metadata, SignatureSpellability Accessibility);
+    sealed record ReferenceVisibility(
+        IReadOnlySet<string> Types,
+        IReadOnlySet<string> Namespaces);
+
+    sealed record ReferenceSet(
+        ImmutableArray<MetadataReference> Metadata,
+        SignatureSpellability Accessibility,
+        ImmutableArray<Lazy<ReferenceVisibility?>> Visibility);
 
     sealed record CompilerReference(ResolvedAssemblyReference Reference, bool PlatformTrusted);
 
@@ -968,6 +983,7 @@ static class FidelityCheck
                             source,
                             typeHandle,
                             render,
+                            references,
                             assemblyTargets.ContainsKey))
                         {
                             if (pending.Count == 0)
@@ -1185,14 +1201,25 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        Func<IrFunction, DecompilerResult> render, ReferenceSet references,
+        int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
             return null; // nested types are emitted by their enclosing type
-        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries, typeFilter, methodFilter);
+        return CollectTypeEntries(
+            reader,
+            pe,
+            source,
+            typeHandle,
+            typeDef,
+            render,
+            references,
+            maxEntries,
+            typeFilter,
+            methodFilter);
     }
 
     /// <summary>
@@ -1205,7 +1232,8 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render,
+        ReferenceSet references, int maxEntries = int.MaxValue,
         Func<string, bool>? typeFilter = null,
         Func<EvaluationMethod, bool>? methodFilter = null)
     {
@@ -1263,7 +1291,8 @@ static class FidelityCheck
                 source,
                 mh,
                 targeted: methodFilter is not null,
-                isPrimaryConstructor: primaryConstructor is not null);
+                isPrimaryConstructor: primaryConstructor is not null,
+                references);
             entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
@@ -1412,13 +1441,29 @@ static class FidelityCheck
     /// </summary>
     static IEnumerable<(string FullType, List<Entry> Entries, TypeDefinitionHandle Handle)> EnumerateTypeTree(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, Func<string, bool>? typeFilter = null)
+        Func<IrFunction, DecompilerResult> render, ReferenceSet references,
+        Func<string, bool>? typeFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
-        if (CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, typeFilter: typeFilter) is { } collected)
+        if (CollectTypeEntries(
+            reader,
+            pe,
+            source,
+            typeHandle,
+            typeDef,
+            render,
+            references,
+            typeFilter: typeFilter) is { } collected)
             yield return (collected.FullType, collected.Entries, typeHandle);
         foreach (var nested in typeDef.GetNestedTypes())
-            foreach (var result in EnumerateTypeTree(reader, pe, source, nested, render, typeFilter))
+            foreach (var result in EnumerateTypeTree(
+                reader,
+                pe,
+                source,
+                nested,
+                render,
+                references,
+                typeFilter))
                 yield return result;
     }
 
@@ -1432,7 +1477,17 @@ static class FidelityCheck
     {
         if (maxEntries <= 0)
             return;
-        if (CollectType(reader, pe, source, typeHandle, render, maxEntries, typeFilter, methodFilter) is not var (fullType, entries) || entries.Count == 0)
+        if (CollectType(
+            reader,
+            pe,
+            source,
+            typeHandle,
+            render,
+            references,
+            maxEntries,
+            typeFilter,
+            methodFilter) is not var (fullType, entries)
+            || entries.Count == 0)
             return;
         results.AddRange(EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
@@ -2569,8 +2624,24 @@ static class FidelityCheck
                 ? name => name.Contains(filter, StringComparison.Ordinal)
                 : null;
         var collected = timings is null
-            ? CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter)
-            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter));
+            ? CollectType(
+                reader,
+                pe,
+                source,
+                typeHandle,
+                render,
+                references,
+                remaining,
+                typeFilter)
+            : timings.MeasureCollectRender(() => CollectType(
+                reader,
+                pe,
+                source,
+                typeHandle,
+                render,
+                references,
+                remaining,
+                typeFilter));
         if (collected is not var (fullType, entries) || entries.Count == 0)
             return;
 
@@ -2851,9 +2922,10 @@ static class FidelityCheck
         // (`List<T>`, `PEReader`, `AssemblyReferenceHandle`), assuming the standard
         // decompiler-output using set. The skeleton imports the same namespaces so
         // those short names bind instead of failing CS0246 and poisoning the
-        // whole-module compile. Kept conservative — only widely-assumed, low-
-        // collision namespaces — so a body's short name resolves without
-        // introducing CS0104 ambiguity.
+        // whole-module compile. Explicit-interface whole-member admission checks
+        // this complete set against the compilation references before accepting a
+        // bare interface identifier; the effective-using and referenced-lexical-
+        // scope regressions in FidelityCheckGeneratedFilterTests gate that coupling.
         var usings = new SortedSet<string>(SkeletonUsings, StringComparer.Ordinal);
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
@@ -2984,28 +3056,643 @@ static class FidelityCheck
            || (type.ElementType is { } element && ContainsUnsupportedType(element))
            || type.TypeArguments.Any(ContainsUnsupportedType);
 
-    static string InterfaceClause(MetadataReader reader, TypeDefinition typeDef, TypeKind kind, SignatureSpellability accessibility)
+    static string InterfaceClause(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        TypeKind kind,
+        IReadOnlyDictionary<MethodDefinitionHandle, TargetBody> targets,
+        SignatureSpellability accessibility)
     {
         if (kind != TypeKind.Class)
             return "";
 
         var interfaces = new List<string>();
+        var includedInterfaces = new HashSet<EntityHandle>();
+        foreach (var target in SingleMethodExplicitInterfaceTargets(
+            reader,
+            typeDef,
+            accessibility,
+            body => targets.TryGetValue(body, out var targetBody)
+                && targetBody.WholeMember is not null))
+        {
+            interfaces.Add($"global::{Clean(target.InterfaceName)}");
+            includedInterfaces.Add(target.Interface);
+        }
         foreach (var implementationHandle in typeDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            if (includedInterfaces.Contains(implementation.Interface))
+                continue;
             if (SameAssemblyNonGenericInterfaceName(reader, implementation.Interface) is { } name
                 && IsSafeClassInterfaceName(name)
                 && InterfaceMembersSatisfied(reader, typeDef, implementation.Interface, accessibility))
             {
                 interfaces.Add(Clean(name));
+                includedInterfaces.Add(implementation.Interface);
                 continue;
             }
 
-            if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName)
+            if (ProtobufSelfMessageInterfaceName(reader, typeDef, implementation.Interface) is { } protobufName
+                && includedInterfaces.Add(implementation.Interface))
                 interfaces.Add(Clean(protobufName));
         }
 
         return interfaces.Count == 0 ? "" : string.Join(", ", interfaces.Distinct(StringComparer.Ordinal));
+    }
+
+    readonly record struct ExplicitInterfaceTarget(
+        MethodDefinitionHandle Body,
+        TypeDefinitionHandle Interface,
+        MethodDefinitionHandle Declaration,
+        string InterfaceName);
+
+    static IReadOnlyList<ExplicitInterfaceTarget> SingleMethodExplicitInterfaceTargets(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        SignatureSpellability accessibility,
+        Func<MethodDefinitionHandle, bool> bodyFilter)
+    {
+        if (ShapeOf(reader, typeDef) != TypeKind.Class)
+            return [];
+        if (!typeDef.GetDeclaringType().IsNil)
+            return [];
+
+        var directInterfaces = typeDef.GetInterfaceImplementations()
+            .Select(handle => reader.GetInterfaceImplementation(handle).Interface)
+            .ToHashSet();
+        var implementations = typeDef.GetMethodImplementations()
+            .Select(reader.GetMethodImplementation)
+            .ToList();
+        var bodyImplementationCounts = implementations
+            .Where(implementation =>
+                implementation.MethodBody.Kind == HandleKind.MethodDefinition)
+            .GroupBy(implementation => (MethodDefinitionHandle)implementation.MethodBody)
+            .ToDictionary(group => group.Key, group => group.Count());
+        var targets = new List<ExplicitInterfaceTarget>();
+        foreach (var implementation in implementations)
+        {
+            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var bodyHandle = (MethodDefinitionHandle)implementation.MethodBody;
+            if (bodyImplementationCounts[bodyHandle] != 1
+                || !bodyFilter(bodyHandle))
+                continue;
+            var body = reader.GetMethodDefinition(bodyHandle);
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            var interfaceHandle = declaration.GetDeclaringType();
+            if (!directInterfaces.Contains(interfaceHandle)
+                || SameAssemblyNonGenericInterfaceName(reader, interfaceHandle) is not { } interfaceName)
+            {
+                continue;
+            }
+
+            var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            string expectedBodyName =
+                $"{interfaceName}.{reader.GetString(declaration.Name)}";
+            if (interfaceDef.GetInterfaceImplementations().Count != 0
+                || interfaceDef.GetProperties().Count != 0
+                || interfaceDef.GetEvents().Count != 0
+                || interfaceDef.GetMethods().Count != 1
+                || interfaceDef.GetMethods().Single() != declarationHandle
+                || reader.GetString(body.Name) != expectedBodyName
+                || !MethodImplSignaturesMatch(
+                    reader,
+                    body,
+                    declaration)
+                || HasInterfaceQualifierCollision(
+                    reader,
+                    typeDef,
+                    interfaceHandle,
+                    interfaceName,
+                    body,
+                    declaration)
+                || HasUnsupportedExplicitInterfaceSignature(
+                    reader,
+                    interfaceDef,
+                    declaration,
+                    body)
+                || !accessibility.CanSpellMethod(
+                    reader,
+                    declaration,
+                    GenericContext.ForMethod(reader, interfaceDef, declaration))
+                || body.Attributes.HasFlag(MethodAttributes.Static)
+                || declaration.Attributes.HasFlag(MethodAttributes.Static)
+                || declaration.Attributes.HasFlag(MethodAttributes.SpecialName)
+                || !declaration.Attributes.HasFlag(MethodAttributes.Abstract)
+                || declaration.RelativeVirtualAddress != 0)
+            {
+                continue;
+            }
+
+            targets.Add(new ExplicitInterfaceTarget(
+                bodyHandle,
+                interfaceHandle,
+                declarationHandle,
+                interfaceName));
+        }
+
+        return targets;
+    }
+
+    static bool MethodImplSignaturesMatch(
+        MetadataReader reader,
+        MethodDefinition body,
+        MethodDefinition declaration)
+    {
+        if (!HasDefaultCallingConvention(reader, body)
+            || !HasDefaultCallingConvention(reader, declaration)
+            || !reader.GetBlobBytes(body.Signature).AsSpan()
+                .SequenceEqual(reader.GetBlobBytes(declaration.Signature)))
+        {
+            return false;
+        }
+
+        if (!TryParameterAttributes(reader, body, out var bodyParameters)
+            || !TryParameterAttributes(
+                reader,
+                declaration,
+                out var declarationParameters))
+        {
+            return false;
+        }
+        const ParameterAttributes implementationFlags =
+            ParameterAttributes.In | ParameterAttributes.Out;
+        if (bodyParameters.Keys.Union(declarationParameters.Keys).Any(sequence =>
+            (bodyParameters.GetValueOrDefault(sequence) & implementationFlags)
+                != (declarationParameters.GetValueOrDefault(sequence)
+                    & implementationFlags)))
+        {
+            return false;
+        }
+
+        var bodyGenericParameters = body.GetGenericParameters()
+            .Select(reader.GetGenericParameter)
+            .OrderBy(parameter => parameter.Index)
+            .ToList();
+        var declarationGenericParameters = declaration.GetGenericParameters()
+            .Select(reader.GetGenericParameter)
+            .OrderBy(parameter => parameter.Index)
+            .ToList();
+        if (bodyGenericParameters.Count != declarationGenericParameters.Count)
+            return false;
+
+        for (int index = 0; index < bodyGenericParameters.Count; index++)
+        {
+            var bodyParameter = bodyGenericParameters[index];
+            var declarationParameter = declarationGenericParameters[index];
+            if (bodyParameter.Index != declarationParameter.Index
+                || bodyParameter.Attributes != declarationParameter.Attributes)
+            {
+                return false;
+            }
+
+            var bodyConstraints = bodyParameter.GetConstraints()
+                .Select(handle => reader.GetGenericParameterConstraint(handle).Type)
+                .ToList();
+            var declarationConstraints = declarationParameter.GetConstraints()
+                .Select(handle => reader.GetGenericParameterConstraint(handle).Type)
+                .ToList();
+            if (!bodyConstraints.SequenceEqual(declarationConstraints)
+                || bodyConstraints.Any(constraint =>
+                    !IsSystemValueTypeConstraint(reader, constraint)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool HasDefaultCallingConvention(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        try
+        {
+            return reader.GetBlobReader(method.Signature)
+                .ReadSignatureHeader()
+                .CallingConvention == SignatureCallingConvention.Default;
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    static bool TryParameterAttributes(
+        MetadataReader reader,
+        MethodDefinition method,
+        out Dictionary<int, ParameterAttributes> attributes)
+    {
+        attributes = [];
+        foreach (var handle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(handle);
+            if (!attributes.TryAdd(
+                    parameter.SequenceNumber,
+                    parameter.Attributes))
+            {
+                attributes = [];
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    static bool IsSystemValueTypeConstraint(
+        MetadataReader reader,
+        EntityHandle constraint)
+    {
+        StringHandle @namespace;
+        StringHandle name;
+        switch (constraint.Kind)
+        {
+            case HandleKind.TypeDefinition:
+                var definition = reader.GetTypeDefinition(
+                    (TypeDefinitionHandle)constraint);
+                @namespace = definition.Namespace;
+                name = definition.Name;
+                break;
+            case HandleKind.TypeReference:
+                var reference = reader.GetTypeReference(
+                    (TypeReferenceHandle)constraint);
+                @namespace = reference.Namespace;
+                name = reference.Name;
+                break;
+            default:
+                return false;
+        }
+
+        return reader.StringComparer.Equals(@namespace, "System")
+            && reader.StringComparer.Equals(name, "ValueType");
+    }
+
+    static bool HasUnsupportedExplicitInterfaceSignature(
+        MetadataReader reader,
+        TypeDefinition interfaceDef,
+        MethodDefinition declaration,
+        MethodDefinition body)
+    {
+        if (!MetadataDeclarationQuery.TryHasReadOnlyByRefSignature(
+                reader,
+                interfaceDef,
+                declaration,
+                out bool hasReadonlyByRef)
+            || hasReadonlyByRef)
+        {
+            return true;
+        }
+
+        return HasUnsupportedParameterAttributes(reader, declaration)
+            || HasUnsupportedParameterAttributes(reader, body);
+    }
+
+    static bool HasUnsupportedParameterAttributes(
+        MetadataReader reader,
+        MethodDefinition method)
+    {
+        foreach (var parameterHandle in method.GetParameters())
+        {
+            var parameter = reader.GetParameter(parameterHandle);
+            var attributes = parameter.GetCustomAttributes();
+            if (AttributeReader.HasAttribute(
+                    reader,
+                    attributes,
+                    "System.Runtime.CompilerServices.TupleElementNamesAttribute")
+                || parameter.SequenceNumber != 0
+                && (AttributeReader.HasAttribute(reader, attributes, "System.ParamArrayAttribute")
+                || AttributeReader.HasAttribute(
+                    reader,
+                    attributes,
+                    KnownAttributeNames.ParamCollectionAttribute)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool HasInterfaceQualifierCollision(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        TypeDefinitionHandle interfaceHandle,
+        string interfaceName,
+        MethodDefinition body,
+        MethodDefinition declaration)
+    {
+        int firstSeparator = interfaceName.IndexOf('.');
+        string root = firstSeparator < 0 ? interfaceName : interfaceName[..firstSeparator];
+        int lastSeparator = interfaceName.LastIndexOf('.');
+        string identifier = lastSeparator < 0 ? interfaceName : interfaceName[(lastSeparator + 1)..];
+        string targetNamespace = reader.GetString(typeDef.Namespace);
+        var visibleNamespaces = new HashSet<string>(StringComparer.Ordinal);
+        for (string current = targetNamespace; ;)
+        {
+            visibleNamespaces.Add(current);
+            int dot = current.LastIndexOf('.');
+            if (dot < 0)
+            {
+                visibleNamespaces.Add("");
+                break;
+            }
+            current = current[..dot];
+        }
+
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            if (handle == interfaceHandle)
+                continue;
+            var candidate = reader.GetTypeDefinition(handle);
+            if (candidate.GetDeclaringType().IsNil
+                && visibleNamespaces.Contains(reader.GetString(candidate.Namespace))
+                && IsProtectedQualifier(StripArity(reader.GetString(candidate.Name))))
+            {
+                return true;
+            }
+        }
+        if (HasVisibleChildNamespaceCollision(
+                reader,
+                visibleNamespaces,
+                identifier))
+        {
+            return true;
+        }
+
+        foreach (var parameterHandle in typeDef.GetGenericParameters())
+        {
+            var parameter = reader.GetGenericParameter(parameterHandle);
+            if (IsProtectedQualifier(reader.GetString(parameter.Name)))
+                return true;
+        }
+        foreach (var method in new[] { body, declaration })
+        {
+            foreach (var parameterHandle in method.GetGenericParameters())
+            {
+                var parameter = reader.GetGenericParameter(parameterHandle);
+                if (IsProtectedQualifier(reader.GetString(parameter.Name)))
+                    return true;
+            }
+        }
+
+        return HasNestedOrBaseInterfaceIdentifierCollision(
+            reader,
+            body.GetDeclaringType(),
+            root)
+            || identifier != root
+                && HasNestedOrBaseInterfaceIdentifierCollision(
+                    reader,
+                    body.GetDeclaringType(),
+                    identifier);
+
+        bool IsProtectedQualifier(string candidate)
+            => candidate == root || candidate == identifier;
+    }
+
+    static bool HasVisibleChildNamespaceCollision(
+        MetadataReader reader,
+        IReadOnlySet<string> visibleNamespaces,
+        string identifier)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            if (IsVisibleChildNamespace(reader.GetString(type.Namespace)))
+                return true;
+        }
+        foreach (var handle in reader.TypeReferences)
+        {
+            var type = reader.GetTypeReference(handle);
+            if (IsVisibleChildNamespace(reader.GetString(type.Namespace)))
+                return true;
+        }
+
+        return false;
+
+        bool IsVisibleChildNamespace(string candidate)
+        {
+            foreach (string visible in visibleNamespaces)
+            {
+                string child = visible.Length == 0
+                    ? identifier
+                    : $"{visible}.{identifier}";
+                if (candidate == child
+                    || candidate.StartsWith($"{child}.", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    internal static bool HasNestedOrBaseInterfaceIdentifierCollision(
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle,
+        string identifier)
+    {
+        var visited = new HashSet<TypeDefinitionHandle>();
+        var currentHandle = typeHandle;
+        for (;;)
+        {
+            if (currentHandle.IsNil || !visited.Add(currentHandle))
+                return true;
+
+            var current = reader.GetTypeDefinition(currentHandle);
+            foreach (var nestedHandle in current.GetNestedTypes())
+                if (StripArity(reader.GetString(reader.GetTypeDefinition(nestedHandle).Name))
+                    == identifier)
+                    return true;
+
+            if (current.BaseType.IsNil
+                || current.BaseType.Kind != HandleKind.TypeDefinition)
+            {
+                if (current.BaseType.Kind is HandleKind.TypeSpecification
+                    || current.BaseType.Kind == HandleKind.TypeReference
+                        && BaseTypeName(reader, current.BaseType) != "System.Object")
+                {
+                    return true;
+                }
+                break;
+            }
+            currentHandle = (TypeDefinitionHandle)current.BaseType;
+        }
+
+        return false;
+    }
+
+    static bool HasImportedInterfaceQualifierCollision(
+        MetadataReader reader,
+        TypeDefinitionHandle interfaceHandle,
+        string identifier,
+        IReadOnlySet<string> namespaces,
+        string bodyNamespace,
+        string interfaceNamespace,
+        ReferenceSet references)
+    {
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            if (handle == interfaceHandle)
+                continue;
+            var candidate = reader.GetTypeDefinition(handle);
+            if (candidate.GetDeclaringType().IsNil
+                && reader.GetString(candidate.Namespace) != interfaceNamespace
+                && namespaces.Contains(reader.GetString(candidate.Namespace))
+                && StripArity(reader.GetString(candidate.Name)) == identifier)
+            {
+                return true;
+            }
+        }
+        foreach (var handle in reader.TypeReferences)
+        {
+            var candidate = reader.GetTypeReference(handle);
+            if (reader.GetString(candidate.Namespace) != interfaceNamespace
+                && namespaces.Contains(reader.GetString(candidate.Namespace))
+                && StripArity(reader.GetString(candidate.Name)) == identifier)
+            {
+                return true;
+            }
+        }
+
+        foreach (var lazyVisibility in references.Visibility)
+        {
+            var visibility = lazyVisibility.Value;
+            if (visibility is null)
+                return true;
+            foreach (string @namespace in namespaces)
+            {
+                if (@namespace != interfaceNamespace
+                    && visibility.Types.Contains($"{@namespace}\0{identifier}"))
+                    return true;
+            }
+            for (string current = bodyNamespace; current != interfaceNamespace;)
+            {
+                if (visibility.Types.Contains($"{current}\0{identifier}"))
+                    return true;
+                string child = current.Length == 0
+                    ? identifier
+                    : $"{current}.{identifier}";
+                if (visibility.Namespaces.Any(@namespace =>
+                    @namespace == child
+                    || @namespace.StartsWith($"{child}.", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+
+                int separator = current.LastIndexOf('.');
+                if (separator < 0)
+                {
+                    if (current.Length == 0)
+                        break;
+                    current = "";
+                }
+                else
+                {
+                    current = current[..separator];
+                }
+            }
+        }
+
+        return false;
+    }
+
+    static ReferenceVisibility? ReadReferenceVisibility(string path)
+    {
+        var types = new HashSet<string>(StringComparer.Ordinal);
+        var namespaces = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(path));
+            if (!pe.HasMetadata)
+                return new ReferenceVisibility(types, namespaces);
+            var reader = pe.GetMetadataReader();
+            if (reader.IsAssembly
+                && reader.AssemblyFiles.Any(handle =>
+                    reader.GetAssemblyFile(handle).ContainsMetadata))
+            {
+                return null;
+            }
+            bool includeInternalTypes = GrantsInternalsToCompileBack(reader);
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var type = reader.GetTypeDefinition(handle);
+                if (!type.GetDeclaringType().IsNil)
+                    continue;
+                string @namespace = reader.GetString(type.Namespace);
+                if (@namespace.Length > 0)
+                    namespaces.Add(@namespace);
+                var visibility = type.Attributes & TypeAttributes.VisibilityMask;
+                if (visibility == TypeAttributes.Public
+                    || includeInternalTypes
+                        && visibility == TypeAttributes.NotPublic)
+                {
+                    types.Add(
+                        $"{@namespace}\0"
+                        + StripArity(reader.GetString(type.Name)));
+                }
+            }
+            foreach (var handle in reader.ExportedTypes)
+            {
+                var type = reader.GetExportedType(handle);
+                if (type.Implementation.Kind != HandleKind.ExportedType
+                    && type.Attributes.HasFlag(TypeAttributes.Public))
+                {
+                    string @namespace = reader.GetString(type.Namespace);
+                    if (@namespace.Length > 0)
+                        namespaces.Add(@namespace);
+                    types.Add(
+                        $"{@namespace}\0"
+                        + StripArity(reader.GetString(type.Name)));
+                }
+            }
+        }
+        catch (Exception ex) when (
+            ex is IOException
+                or BadImageFormatException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return null;
+        }
+
+        return new ReferenceVisibility(types, namespaces);
+    }
+
+    static bool GrantsInternalsToCompileBack(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            return false;
+        foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (AttributeReader.GetAttributeTypeName(reader, attribute.Constructor)
+                != "System.Runtime.CompilerServices.InternalsVisibleToAttribute")
+            {
+                continue;
+            }
+
+            var blob = reader.GetBlobReader(attribute.Value);
+            if (blob.ReadUInt16() != 1)
+                throw new BadImageFormatException("Invalid InternalsVisibleToAttribute prolog.");
+            string? friend = blob.ReadSerializedString();
+            if (friend?.Split(',', 2)[0].Trim()
+                    .Equals("cb", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     static string CombineInheritance(string baseClause, string interfaceClause)
@@ -3236,7 +3923,7 @@ static class FidelityCheck
             ? (IsByRefLike(reader, typeDef) ? "ref struct" : "struct")
             : IsStaticClass(typeDef) ? "static class" : "class";
         string baseClause = BaseClause(reader, typeDef, kind);
-        string interfaceClause = InterfaceClause(reader, typeDef, kind, accessibility);
+        string interfaceClause = InterfaceClause(reader, typeDef, kind, targets, accessibility);
         string inheritanceClause = CombineInheritance(baseClause, interfaceClause);
         bool implementsProtobufMessage = interfaceClause.Contains("Google.Protobuf.IMessage<", StringComparison.Ordinal);
         bool implementsKubernetesStaticMetadata = interfaceClause.Contains("Aspire.Hosting.Dcp.Model.IKubernetesStaticMetadata", StringComparison.Ordinal);
@@ -3814,9 +4501,11 @@ static class FidelityCheck
     /// assumes (the same family <see cref="ValidityCheck"/> uses) plus the
     /// metadata namespaces that dominate the changed-method corpus
     /// (<c>System.Reflection.Metadata</c> handle/struct types, <c>PEReader</c>,
-    /// immutable collections). Conservative on purpose: every entry is a
-    /// widely-assumed, low-collision namespace, so adding it resolves short names
-    /// without risking CS0104 ambiguity.
+    /// immutable collections). Product whole members that emit a bare explicit-
+    /// interface identifier must prove that identifier remains unique under this
+    /// set; <c>TryRenderTargetMember_DeclinesEffectiveUsingAndChildNamespaceCollisions</c>
+    /// and <c>TryRenderTargetMember_DeclinesReferencedLexicalAndFriendCollisions</c>
+    /// gate the coupling.
     /// </summary>
     static readonly string[] SkeletonUsings =
     [
@@ -3989,12 +4678,17 @@ static class FidelityCheck
     /// The product's whole-member render for a target method — the CSharp-owned
     /// signature (from Metadata's model) composed with the decompiler body —
     /// replacing the harness's self-spelled signature. Ordinary constructors,
-    /// recovered destructors, properties, and custom events are safe to migrate
+    /// recovered destructors, narrowly bounded explicit-interface methods,
+    /// properties, and custom events are safe to migrate
     /// because the scaffold already applies the
     /// decompiler's separately captured lifted field initializers to reconstructed
     /// fields, while property and event renders own both accessor declarations and bodies.
-    /// Field-like and explicit-interface events, and finalizers that cannot be
-    /// recovered as destructors, remain on their existing fallback paths.
+    /// Multi-member, generic-interface, nested, external, static, or
+    /// name-colliding explicit-interface shapes, field-like and
+    /// explicit-interface events, and finalizers that cannot be recovered as
+    /// destructors remain on their existing fallback paths. Generic methods on an
+    /// otherwise eligible non-generic interface are supported when their
+    /// constraints can be repeated on an explicit implementation.
     /// Non-essential custom attributes are omitted because the skeleton does not
     /// reproduce arbitrary attribute inheritance; compilation-required attributes
     /// such as <c>SkipLocalsInit</c> remain.
@@ -4009,13 +4703,44 @@ static class FidelityCheck
         MethodDefinitionHandle mh,
         bool targeted,
         bool isPrimaryConstructor)
+        => TryRenderTargetMember(
+            pe,
+            source,
+            mh,
+            targeted,
+            isPrimaryConstructor,
+            RuntimeReferences(source.Path));
+
+    static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
+        PEReader pe,
+        MetadataSource source,
+        MethodDefinitionHandle mh,
+        bool targeted,
+        bool isPrimaryConstructor,
+        ReferenceSet references)
     {
         int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
         if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
             return null;
         if (isPrimaryConstructor
-            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "property" or "event"))
+            || entry.Member.Kind is not ("method" or "operator" or "constructor" or "finalizer" or "explicit-interface-implementation" or "property" or "event"))
             return null;
+        ExplicitInterfaceTarget? explicitInterfaceTarget = null;
+        if (entry.Member.Kind == "explicit-interface-implementation")
+        {
+            var reader = pe.GetMetadataReader();
+            var typeDef = reader.GetTypeDefinition(reader.GetMethodDefinition(mh).GetDeclaringType());
+            var candidates = SingleMethodExplicitInterfaceTargets(
+                reader,
+                typeDef,
+                references.Accessibility,
+                body => body == mh);
+            if (candidates.Count != 1)
+            {
+                return null;
+            }
+            explicitInterfaceTarget = candidates[0];
+        }
         if (entry.Member.Kind == "property"
             && entry.Type.Kind == "struct"
             && !MemberBodyProducer.IsCompilerGeneratedAutoPropertyAccessor(
@@ -4037,31 +4762,263 @@ static class FidelityCheck
             : RenderTypeMemberBatch(pe, entry.Type, entry.Member, source);
         if (result is null || !result.IsComplete || result.Text is null)
             return null;
+        var parsedMember = SyntaxFactory.ParseMemberDeclaration(result.Text);
+        if (parsedMember is null
+            || explicitInterfaceTarget is not null
+                && parsedMember.ContainsDiagnostics)
+            return null;
+        if (explicitInterfaceTarget is { } target)
+        {
+            if (parsedMember is not MethodDeclarationSyntax
+                {
+                    ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax interfaceIdentifier
+                } methodDeclaration
+                || HasDuplicateMethodDeclarationIdentifiers(methodDeclaration))
+            {
+                return null;
+            }
+
+            int separator = target.InterfaceName.LastIndexOf('.');
+            string expectedIdentifier = separator < 0
+                ? target.InterfaceName
+                : target.InterfaceName[(separator + 1)..];
+            if (interfaceIdentifier.Identifier.ValueText != expectedIdentifier)
+                return null;
+
+            var reader = pe.GetMetadataReader();
+            var effectiveNamespaces = new HashSet<string>(
+                SkeletonUsings,
+                StringComparer.Ordinal);
+            effectiveNamespaces.UnionWith(result.Namespaces);
+            var interfaceDef = reader.GetTypeDefinition(target.Interface);
+            var bodyType = reader.GetMethodDefinition(target.Body)
+                .GetDeclaringType();
+            var bodyDef = reader.GetTypeDefinition(bodyType);
+            string interfaceNamespace = reader.GetString(interfaceDef.Namespace);
+            string bodyNamespace = reader.GetString(bodyDef.Namespace);
+            if (bodyNamespace != interfaceNamespace
+                && HasImportedInterfaceQualifierCollision(
+                    reader,
+                    target.Interface,
+                    interfaceIdentifier.Identifier.ValueText,
+                    effectiveNamespaces,
+                    bodyNamespace,
+                    interfaceNamespace,
+                    references))
+            {
+                return null;
+            }
+            if (HasAmbiguousBareMemberIdentifier(
+                    reader,
+                    methodDeclaration,
+                    bodyType,
+                    effectiveNamespaces,
+                    bodyNamespace,
+                    references))
+            {
+                return null;
+            }
+        }
         if (entry.Member.Kind == "constructor"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not ConstructorDeclarationSyntax)
+            && parsedMember is not ConstructorDeclarationSyntax)
         {
             return null;
         }
         if (entry.Member.Kind == "finalizer"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not DestructorDeclarationSyntax)
+            && parsedMember is not DestructorDeclarationSyntax)
+        {
+            return null;
+        }
+        if (entry.Member.Kind == "explicit-interface-implementation"
+            && parsedMember is not MethodDeclarationSyntax
+                {
+                    ExplicitInterfaceSpecifier.Name: IdentifierNameSyntax
+                })
         {
             return null;
         }
         if (entry.Member.Kind == "property"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
+            && parsedMember is not (PropertyDeclarationSyntax or IndexerDeclarationSyntax))
         {
             return null;
         }
         if (entry.Member.Kind == "event"
-            && SyntaxFactory.ParseMemberDeclaration(result.Text)
-                is not EventDeclarationSyntax)
+            && parsedMember is not EventDeclarationSyntax)
         {
             return null;
         }
         return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    static bool HasDuplicateMethodDeclarationIdentifiers(
+        MethodDeclarationSyntax declaration)
+    {
+        var parameterNames = new HashSet<string>(StringComparer.Ordinal);
+        if (declaration.ParameterList.Parameters.Any(parameter =>
+            !parameterNames.Add(parameter.Identifier.ValueText)))
+        {
+            return true;
+        }
+
+        var typeParameterNames = new HashSet<string>(StringComparer.Ordinal);
+        if (declaration.TypeParameterList?.Parameters.Any(parameter =>
+            !typeParameterNames.Add(parameter.Identifier.ValueText)) == true)
+        {
+            return true;
+        }
+
+        return parameterNames.Overlaps(typeParameterNames);
+    }
+
+    static bool HasAmbiguousBareMemberIdentifier(
+        MetadataReader reader,
+        MethodDeclarationSyntax declaration,
+        TypeDefinitionHandle bodyType,
+        IReadOnlySet<string> importedNamespaces,
+        string bodyNamespace,
+        ReferenceSet references)
+    {
+        var bindingNamespaces = new HashSet<string>(
+            importedNamespaces,
+            StringComparer.Ordinal);
+        for (string current = bodyNamespace; ;)
+        {
+            bindingNamespaces.Add(current);
+            int separator = current.LastIndexOf('.');
+            if (separator < 0)
+            {
+                bindingNamespaces.Add("");
+                break;
+            }
+            current = current[..separator];
+        }
+
+        var typeParameters = declaration.TypeParameterList?.Parameters
+            .Select(parameter => parameter.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal)
+            ?? [];
+        foreach (var parameterHandle in reader
+            .GetTypeDefinition(bodyType)
+            .GetGenericParameters())
+        {
+            typeParameters.Add(
+                reader.GetString(
+                    reader.GetGenericParameter(parameterHandle).Name));
+        }
+        var qualifiedRootIdentifiers = new HashSet<string>(
+            StringComparer.Ordinal);
+        foreach (var qualifiedName in declaration.DescendantNodes()
+            .OfType<QualifiedNameSyntax>())
+        {
+            NameSyntax root = qualifiedName.Left;
+            while (root is QualifiedNameSyntax nested)
+                root = nested.Left;
+            if (root is SimpleNameSyntax simpleRoot)
+            {
+                string identifier = simpleRoot.Identifier.ValueText;
+                qualifiedRootIdentifiers.Add(identifier);
+                if (typeParameters.Contains(identifier)
+                    || HasNestedOrBaseInterfaceIdentifierCollision(
+                        reader,
+                        bodyType,
+                        identifier))
+                {
+                    return true;
+                }
+            }
+        }
+        var identifiers = declaration.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Where(name =>
+                name.Identifier.ValueText is not ("dynamic" or "nint" or "nuint")
+                && !name.Ancestors().Any(node =>
+                    node is ExplicitInterfaceSpecifierSyntax)
+                && name.Parent is not QualifiedNameSyntax
+                && name.Parent is not AliasQualifiedNameSyntax
+                && !(name.Parent is MemberAccessExpressionSyntax memberAccess
+                    && memberAccess.Name == name))
+            .Select(name => name.Identifier.ValueText)
+            .Concat(qualifiedRootIdentifiers)
+            .Distinct(StringComparer.Ordinal);
+
+        foreach (string identifier in identifiers)
+        {
+            if (HasNestedOrBaseInterfaceIdentifierCollision(
+                    reader,
+                    bodyType,
+                    identifier))
+            {
+                return true;
+            }
+            var symbols = new HashSet<string>(StringComparer.Ordinal);
+            if (typeParameters.Contains(identifier))
+                symbols.Add($"type-parameter:{identifier}");
+            foreach (var handle in reader.TypeDefinitions)
+            {
+                var type = reader.GetTypeDefinition(handle);
+                string @namespace = reader.GetString(type.Namespace);
+                if (type.GetDeclaringType().IsNil
+                    && bindingNamespaces.Contains(@namespace)
+                    && StripArity(reader.GetString(type.Name)) == identifier)
+                {
+                    symbols.Add($"type:{@namespace}\0{identifier}");
+                }
+                AddNamespaceSymbol(@namespace);
+            }
+            foreach (var handle in reader.TypeReferences)
+            {
+                var type = reader.GetTypeReference(handle);
+                string @namespace = reader.GetString(type.Namespace);
+                if (bindingNamespaces.Contains(@namespace)
+                    && StripArity(reader.GetString(type.Name)) == identifier)
+                {
+                    symbols.Add($"type:{@namespace}\0{identifier}");
+                }
+                AddNamespaceSymbol(@namespace);
+            }
+            foreach (var lazyVisibility in references.Visibility)
+            {
+                var visibility = lazyVisibility.Value;
+                if (visibility is null)
+                    return true;
+                foreach (string @namespace in bindingNamespaces)
+                {
+                    if (visibility.Types.Contains($"{@namespace}\0{identifier}"))
+                        symbols.Add($"type:{@namespace}\0{identifier}");
+                    string child = @namespace.Length == 0
+                        ? identifier
+                        : $"{@namespace}.{identifier}";
+                    if (visibility.Namespaces.Any(candidate =>
+                        candidate == child
+                        || candidate.StartsWith($"{child}.", StringComparison.Ordinal)))
+                    {
+                        symbols.Add($"namespace:{child}");
+                    }
+                }
+            }
+
+            if (symbols.Count > 1)
+                return true;
+
+            void AddNamespaceSymbol(string candidate)
+            {
+                foreach (string @namespace in bindingNamespaces)
+                {
+                    string child = @namespace.Length == 0
+                        ? identifier
+                        : $"{@namespace}.{identifier}";
+                    if (candidate == child
+                        || candidate.StartsWith(
+                            $"{child}.",
+                            StringComparison.Ordinal))
+                    {
+                        symbols.Add($"namespace:{child}");
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     static MemberRenderResult? RenderTargetMember(ApiType type, ApiMember member, MetadataSource source)
@@ -5010,7 +5967,19 @@ static class FidelityCheck
         foreach (var dependency in resolver.ResolveAll())
             Add(dependency.Path, dependency.Provenance);
 
-        return new ReferenceSet(builder.ToImmutable(), new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)));
+        var metadata = builder.ToImmutable();
+        var visibility = metadata
+            .OfType<PortableExecutableReference>()
+            .Select(reference => new Lazy<ReferenceVisibility?>(
+                () => reference.FilePath is { } path
+                    ? ReadReferenceVisibility(path)
+                    : null,
+                LazyThreadSafetyMode.ExecutionAndPublication))
+            .ToImmutableArray();
+        return new ReferenceSet(
+            metadata,
+            new SignatureSpellability(new CompilerReferenceResolver(resolvedReferences)),
+            visibility);
     }
 
     static AssemblyReferenceIdentity? TryReadAssemblyIdentity(string path)

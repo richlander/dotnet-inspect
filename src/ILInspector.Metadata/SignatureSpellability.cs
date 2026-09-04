@@ -20,7 +20,7 @@ public readonly record struct SignatureSpellabilityResult(
 public sealed class SignatureSpellability
 {
     readonly IAssemblyReferenceResolver _resolver;
-    readonly ConcurrentDictionary<ReferenceKey, Lazy<NonPublicTypeSet>> _nonPublicTypes = new();
+    readonly ConcurrentDictionary<ReferenceKey, Lazy<TypeVisibilitySet>> _typeVisibility = new();
 
     public SignatureSpellability(IAssemblyReferenceResolver resolver)
         => _resolver = resolver;
@@ -111,26 +111,39 @@ public sealed class SignatureSpellability
     static bool IsDecodeException(Exception ex)
         => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
 
-    bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
+    SpellabilityEvidence InspectTypeReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
     {
         if (AssemblyScope(reader, handle) is not { } reference)
-            return false;
+            return default;
 
+        var visibility = TypeVisibility(reference);
+        if (visibility.DefinedTypes is null
+            || visibility.NonPublicTypes is null)
+            return SpellabilityEvidence.Degraded;
         string fullName = reader.GetFullTypeName(reader.GetTypeReference(handle));
-        return NonPublicTypes(reference).Types?.Contains(fullName) == true;
+        if (!visibility.DefinedTypes.Contains(fullName))
+            return SpellabilityEvidence.Degraded;
+        return new(
+            IsInaccessible: visibility.NonPublicTypes.Contains(fullName),
+            IsDegraded: false);
     }
 
-    NonPublicTypeSet NonPublicTypes(ReferenceKey reference)
-        => _nonPublicTypes.GetOrAdd(
+    TypeVisibilitySet TypeVisibility(ReferenceKey reference)
+        => _typeVisibility.GetOrAdd(
             reference,
-            key => new Lazy<NonPublicTypeSet>(() => LoadNonPublicTypes(key), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+            key => new Lazy<TypeVisibilitySet>(
+                () => LoadTypeVisibility(key),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
-    NonPublicTypeSet LoadNonPublicTypes(ReferenceKey reference)
+    TypeVisibilitySet LoadTypeVisibility(ReferenceKey reference)
     {
         if (Resolve(reference) is not { } resolved)
-            return new NonPublicTypeSet(null);
+            return new TypeVisibilitySet(null, null);
 
-        var types = new HashSet<string>(StringComparer.Ordinal);
+        var definedTypes = new HashSet<string>(StringComparer.Ordinal);
+        var nonPublicTypes = new HashSet<string>(StringComparer.Ordinal);
         Stream? stream = null;
         PEReader? pe = null;
         try
@@ -143,14 +156,23 @@ public sealed class SignatureSpellability
                 var reader = pe.GetMetadataReader();
                 foreach (var handle in reader.TypeDefinitions)
                 {
+                    string fullName = reader.GetFullTypeName(
+                        reader.GetTypeDefinition(handle));
+                    definedTypes.Add(fullName);
                     if (!IsExternallyVisible(reader, handle))
-                        types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
+                        nonPublicTypes.Add(fullName);
+                }
+                foreach (var handle in reader.ExportedTypes)
+                {
+                    var exportedType = reader.GetExportedType(handle);
+                    if (exportedType.IsForwarder)
+                        definedTypes.Add(reader.GetFullTypeName(exportedType));
                 }
             }
         }
         catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
         {
-            return new NonPublicTypeSet(null);
+            return new TypeVisibilitySet(null, null);
         }
         finally
         {
@@ -158,7 +180,7 @@ public sealed class SignatureSpellability
             stream?.Dispose();
         }
 
-        return new NonPublicTypeSet(types);
+        return new TypeVisibilitySet(definedTypes, nonPublicTypes);
     }
 
     ResolvedAssemblyReference? Resolve(ReferenceKey reference)
@@ -205,7 +227,9 @@ public sealed class SignatureSpellability
         }
     }
 
-    sealed record NonPublicTypeSet(HashSet<string>? Types);
+    sealed record TypeVisibilitySet(
+        HashSet<string>? DefinedTypes,
+        HashSet<string>? NonPublicTypes);
 
     sealed class InaccessibleTypeDetector(SignatureSpellability spellability)
         : ISignatureTypeProvider<SpellabilityEvidence, GenericContext?>
@@ -213,7 +237,7 @@ public sealed class SignatureSpellability
         public SpellabilityEvidence GetPrimitiveType(PrimitiveTypeCode typeCode) => default;
         public SpellabilityEvidence GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => default;
         public SpellabilityEvidence GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => new(spellability.IsInaccessible(reader, handle), IsDegraded: false);
+            => spellability.InspectTypeReference(reader, handle);
         public SpellabilityEvidence GetTypeFromSpecification(
             MetadataReader reader,
             GenericContext? context,
