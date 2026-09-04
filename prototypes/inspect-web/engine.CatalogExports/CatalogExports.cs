@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 

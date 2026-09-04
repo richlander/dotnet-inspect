@@ -318,15 +318,14 @@ The implementation adds one focused project-and-assembly rule,
 production target except `dotnet-inspect`.
 
 The dependency-policy solution does not include inspect-web, so it does not
-claim to prove that boundary. The browser owner separately adds
+claim to prove that boundary. The browser owner separately gates
 `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
-evaluated direct MSBuild `ProjectReference` items and each Release-built
-production assembly's metadata `AssemblyRef` rows. Its current implementation
-inspects only declared references and permits the former managed host facade,
-`InspectWeb.Engine`; application adoption adds compiled-reference coverage and
-retargets the sole exception to `InspectWeb.Engine.CatalogExports`. The
-compiled check rejects host source that consumes the catalog through the
-transitive host-to-catalog-facade project graph.
+evaluated direct MSBuild `ProjectReference` items for every inspect-web
+production project. For each project whose declared graph can reach the catalog
+facade, it also reads the Release-built assembly's metadata `AssemblyRef` rows.
+`InspectWeb.Engine.CatalogExports` is the sole permitted project and compiled
+assembly reference. The compiled check rejects host source that consumes the
+catalog through the transitive host-to-catalog-facade project graph.
 `InspectWeb.Engine.Core`, the host and sibling export facades, and every other
 inspect-web production project reject both a declared edge and a compiled
 catalog reference. Test projects and the focused
@@ -792,7 +791,7 @@ ordinary non-friend consumer.
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
 | `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | After application adoption strengthens and retargets the existing gate, evaluated direct inspect-web `ProjectReference` items and Release-built metadata `AssemblyRef` rows permit `DotnetInspector.Ecosystems` only in `InspectWeb.Engine.CatalogExports`; they reject declared catalog edges or compiled catalog consumption through transitive availability from `InspectWeb.Engine.Core`, the host and sibling export facades, and every other browser production project. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Evaluated direct `ProjectReference` items reject catalog edges from every inspect-web production project except `InspectWeb.Engine.CatalogExports`. For each project whose declared graph can reach that facade, Release-built metadata `AssemblyRef` rows reject compiled catalog consumption through transitive availability. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
