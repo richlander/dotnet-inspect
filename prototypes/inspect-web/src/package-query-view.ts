@@ -4,18 +4,11 @@ import type {
   QueryResultRow,
 } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
-import {
-  bindApplicationScopeBar,
-  focusRenderedElement,
-  renderApplicationScopeBar,
-  type ApplicationScope,
-  type ApplicationScopeBarBinding,
-} from "./scope-bar.ts";
+import { focusRenderedElement } from "./scope-bar.ts";
 
 const PACKAGE_QUERY_PRESSURE_DISTANCE_PX = 600;
 
 export interface PackageQueryBindingActions {
-  onApplicationScopeSelect: (scope: ApplicationScope) => void;
   onBack: () => void;
   onCancel: () => void;
   onFacetToggle: (facetKey: string, prefix: string) => void;
@@ -31,7 +24,6 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "application-scope"; value: ApplicationScope }
   | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
@@ -79,10 +71,6 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  const applicationScope = active.dataset.applicationScope;
-  if (applicationScope === "query" || applicationScope === "workspace") {
-    return { kind: "application-scope", value: applicationScope };
-  }
   if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
@@ -114,12 +102,6 @@ export function restorePackageQueryFocus(
   switch (snapshot.kind) {
     case "prefix":
       target = root.querySelector("#package-query-prefix");
-      break;
-    case "application-scope":
-      target = [...root.querySelectorAll<HTMLElement>(
-        "[data-application-scope]")]
-        .find(element =>
-          element.dataset.applicationScope === snapshot.value) ?? null;
       break;
     case "product":
       target = root.querySelector("#package-query-product");
@@ -183,16 +165,9 @@ export function restorePackageQueryScroll(
 export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
-): ApplicationScopeBarBinding {
+) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
-  const applicationBinding = bindApplicationScopeBar(root, {
-    onApplicationScopeSelect: actions.onApplicationScopeSelect,
-    onFocusedControlUnavailable: () => {
-      focusRenderedElement(prefixInput(), { preventScroll: true });
-    },
-  });
-
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
   root.querySelector<HTMLFormElement>("#package-query-form")
@@ -219,7 +194,6 @@ export function bindPackageQueryView(
   reportResultPressure();
   return {
     disconnect() {
-      applicationBinding.disconnect();
       queryMain?.removeEventListener("scroll", reportResultPressure);
     },
   };
@@ -439,7 +413,6 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceAvailable?: boolean;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -505,7 +478,6 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceAvailable = false,
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -518,12 +490,6 @@ export function renderPackageQueryView(
       <header class="query-page-bar">
         ${renderBrand({ id: "package-query-product" })}
         <div class="query-page-navigation">
-          <div class="application-scope-region">
-            ${renderApplicationScopeBar(
-              "query",
-              workspaceAvailable,
-              escapeHtml)}
-          </div>
           <button id="package-query-back" type="button">Back</button>
         </div>
       </header>

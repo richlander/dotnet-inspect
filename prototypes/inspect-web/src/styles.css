@@ -2662,9 +2662,6 @@ kbd {
   gap: 8px;
   padding-right: 12px;
 }
-.query-page-navigation .application-scope-region {
-  flex-basis: auto;
-}
 .query-page-bar button,
 .query-bar button,
 .query-row-meta button,
@@ -2957,13 +2954,6 @@ kbd {
     --application-scope-yield: 1;
   }
   .titlebar > .application-scope-region:not(:focus-within) { display: none; }
-}
-
-@media (max-width: 560px) {
-  .query-page-bar .application-scope-region {
-    --application-scope-yield: 1;
-  }
-  .query-page-bar .application-scope-region:not(:focus-within) { display: none; }
 }
 
 /* Light mode: code surfaces are light, so re-tint the syntax tokens and copy

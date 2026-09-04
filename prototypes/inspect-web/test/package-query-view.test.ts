@@ -93,17 +93,15 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
-test("the persistent application scopes distinguish Query from Workspace", () => {
+test("the query header keeps home and Back without Query or Workspace buttons", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availableFacets: FACETS,
-    workspaceAvailable: true,
     escapeHtml,
   });
 
-  assert.match(
-    html,
-    /data-application-scope="query"[^>]*aria-current="page"[\s\S]*data-application-scope="workspace"(?![^>]*aria-current)/);
+  assert.doesNotMatch(html, /application-scope/);
+  assert.match(html, /id="package-query-back" type="button">Back<\/button>/);
   assert.match(
     html,
     /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
@@ -137,6 +135,8 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /1M\+ downloads/);
   assert.match(html, /streaming…/);
   assert.match(html, /data-query-cancel="1"/);
+  assert.match(html, />Open in workspace<\/button>/);
+  assert.doesNotMatch(html, /application-scope/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
 });
@@ -544,11 +544,6 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({ applicationScope: "workspace" }),
-      selector: "[data-application-scope]",
-      replacement: new FakeElement({ applicationScope: "workspace" }),
-    },
-    {
       active: new FakeElement({}, "package-query-product"),
       selector: "#package-query-product",
       replacement: new FakeElement({}, "package-query-product"),
@@ -647,13 +642,13 @@ test("a vanished query control reports prefix fallback", () => {
   }
 });
 
-test("a CSS-hidden application scope reports prefix fallback", () => {
-  const active = new FakeElement({ applicationScope: "workspace" });
-  const replacement = new FakeElement({ applicationScope: "workspace" });
+test("a CSS-hidden query control reports prefix fallback", () => {
+  const active = new FakeElement({}, "package-query-back");
+  const replacement = new FakeElement({}, "package-query-back");
   replacement.rendered = false;
   const prefix = new FakeElement({}, "package-query-prefix");
   const root = new FakeRoot(active);
-  root.add("[data-application-scope]", replacement);
+  root.add("#package-query-back", replacement);
   root.add("#package-query-prefix", prefix);
   // Test fake implements the Document and ParentNode subset consumed by the helpers.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -705,17 +700,12 @@ test("query prefix focus preserves its selection across a full render", () => {
 test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
   const root = new FakeRoot();
   const [back] = root.add("#package-query-back", new FakeElement());
-  const [workspace] = root.add(
-    "[data-application-scope]",
-    new FakeElement({ applicationScope: "workspace" }));
   const [open] = root.add("[data-query-row-open]", new FakeElement({ queryRowOpen: "A", queryRowVersion: "1.0.0" }));
   const [facet] = root.add("[data-query-facet]", new FakeElement({ queryFacet: "tfm-out-of-support" }));
   const [cancel] = root.add("[data-query-cancel]", new FakeElement());
 
   const calls: string[] = [];
   const actions: PackageQueryBindingActions = {
-    onApplicationScopeSelect: scope =>
-      calls.push(`application:${scope}`),
     onBack: () => calls.push("back"),
     onCancel: () => calls.push("cancel"),
     onFacetToggle: key => calls.push(`facet:${key}`),
@@ -727,14 +717,12 @@ test("bindPackageQueryView wires back, row-open, facet, and cancel", () => {
 
   bindPackageQueryView(fakeDom.parentNode(root), actions);
 
-  workspace?.dispatch("click");
   back?.dispatch("click");
   open?.dispatch("click");
   facet?.dispatch("click");
   cancel?.dispatch("click");
 
   assert.deepEqual(calls, [
-    "application:workspace",
     "back",
     "open:A:1.0.0",
     "facet:tfm-out-of-support",

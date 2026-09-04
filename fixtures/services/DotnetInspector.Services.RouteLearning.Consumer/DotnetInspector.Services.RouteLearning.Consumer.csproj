@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotnetInspector.Services.RouteLearning.Base\DotnetInspector.Services.RouteLearning.Base.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DotnetInspector.Services.RouteLearning.Contract\DotnetInspector.Services.RouteLearning.Contract.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Services.RouteLearning.Middle\DotnetInspector.Services.RouteLearning.Middle.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Compile against the contract, then inspect its forwarding implementation. -->
+  <Target Name="PrepareRouteLearningRuntimeAssemblies" AfterTargets="Build">
+    <MSBuild
+      Projects="..\DotnetInspector.Services.RouteLearning.Base\DotnetInspector.Services.RouteLearning.Base.csproj;..\DotnetInspector.Services.RouteLearning.Middle\DotnetInspector.Services.RouteLearning.Middle.csproj"
+      Targets="Build"
+      Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_RouteLearningRuntimeAssemblies" />
+    </MSBuild>
+    <Copy
+      SourceFiles="@(_RouteLearningRuntimeAssemblies)"
+      DestinationFolder="$(TargetDir)" />
+  </Target>
+
+</Project>

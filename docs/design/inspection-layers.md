@@ -640,7 +640,7 @@ This boundary does not define:
 - Research target requests, attempts, correspondence outcomes, work items,
   producer-specific inspection topology, producer execution, completion, or
   comparison semantics;
-- direct-member designation or comparison;
+- [direct-member designation or comparison](direct-member-comparison.md);
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output
   integrity; or
