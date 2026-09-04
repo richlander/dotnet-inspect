@@ -84,7 +84,7 @@ Then the subject's own facts:
 - `**Kind:** class` / `interface` / `struct` / `enum`
 - `**Modifiers:** static, sealed` (only if modifiers exist)
 - `**Source:** https://...`
-- `**Samples:** N available` (only with `--docs`, indicates samples exist)
+- `**Samples:** N available` (when the view has sample-reference metadata)
 
 ```markdown
 **Package:** System.Text.Json 10.0.0
@@ -98,13 +98,14 @@ Then the subject's own facts:
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
 
-The `**Samples:**` field is a count indicator. Sample URL tables belong in a
-dedicated `Samples` section when package/docs metadata can provide trustworthy
-links.
+The `**Samples:**` field is a count indicator, not a guarantee that a target
+exposes a `Samples` section. Discover the current section catalog before
+requesting sample output; do not invent URLs from the count.
 
 ### 4. H2 sections
 
-Tables and structured content appear under H2 headings. Section visibility is controlled by verbosity level.
+Tables and structured content appear under H2 headings. Section visibility is
+controlled by the command's verbosity preset and explicit section selection.
 
 ```markdown
 ## Members
@@ -118,22 +119,37 @@ When there is only a single table, the H2 heading may be omitted for brevity.
 
 ## Verbosity levels
 
-Verbosity controls which H2 sections appear, not which fields appear:
+The [progressive disclosure model](progressive-disclosure.md#verbosity) owns
+verbosity presets and explicit section selection. Verbosity can also change
+signature detail and documentation columns within a command's view:
 
 | Level | Description | Sections |
 | ----- | ----------- | -------- |
-| Quiet | Title and fields only | None |
-| Minimal | Compact section view (default) | Summary sections only |
-| Normal | Full output | All standard sections |
-| Detailed | Extended output | All sections including audit details |
+| Quiet | Compact identity/context, where supported | No automatic content sections |
+| Minimal | Compact view (default) | One high-value base section |
+| Normal | More detail about the same subject | Multiple base sections |
+| Detailed | Extended base output | All applicable base sections, not every domain |
 
 Note: The dotnet CLI uses minimal as the default verbosity level, not normal. This tool follows that convention.
 
-The H1, description, and fields are always present regardless of verbosity.
+Descriptions and optional fields depend on the view and available evidence.
+Focused section output may omit the identity header. For single-type section
+output, use `--markdown`; the default type tree supports `-v:m`, `-v:n`, and
+`-v:d`, not `-v:q`.
 
-### Verbosity-independent views
+### Documentation columns
 
-Some views use the same layout at all verbosity levels because differentiation would not be meaningful. The **types listing** (full-library view) is verbosity-independent: it always shows per-kind sections (`## Classes`, `## Structs`, etc.) with `Type | Members` columns. The only variation is `--docs` adding a Description column. Verbosity differentiation is reserved for the **member view** (per-type), where quiet groups by name, minimal abbreviates signatures, and normal/detailed show full signatures.
+Type listings, single-type views, member groups, and selected signatures have
+different schemas; they are not one verbosity-independent table. A selected
+member's `Signature` can include a `Description` from available XML
+documentation. Single-type Markdown views enable available XML summaries at
+normal verbosity and above. Columns follow the selected view and its available
+documentation, not a separate documentation switch.
+
+Use `-D` to discover section names and `-D <section>` to inspect a section's
+schema rather than assuming a standalone `Documentation` section.
+[Platform components](../platform-components.md#documentation-access) shows the
+package and platform invocations.
 
 ## Table formatting
 
@@ -154,7 +170,8 @@ Tables use pipe-delimited markdown:
 
 **Common table formats:**
 
-- Member tables: `| Member | Kind | Signature |` (+ `| Description |` with `--docs`)
+- Member tables: names/selectors and signatures, with `Description` where the
+  selected view includes available documentation
 - Metadata tables: `| Property | Value |`
 - Audit tables: `| File | Deterministic | SourceLink |`
 
