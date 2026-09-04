@@ -210,6 +210,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         List<Call> Calls,
         Environment? Environment,
         IrFunction Body,
+        ImmutableArray<string> CapturedBinderNames,
         string Name);
 
     /// <summary>Raises what it can, and reports the identities it actually declared.</summary>
@@ -332,7 +333,13 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 // #3631.
                 if (!TypeParametersAreTheHostsOwn(body.Signature, SelfReferences(body, group.Key)))
                     continue;
-                if (environment is not null && !SubstituteEnvironment(body, environment))
+                ImmutableArray<string> capturedBinderNames = [];
+                if (environment is not null
+                    && !SubstituteEnvironment(
+                        body,
+                        environment,
+                        function,
+                        out capturedBinderNames))
                     continue;
                 bool allowLocals = environment is null;
                 if (!allowLocals && !body.Locals.IsEmpty
@@ -345,6 +352,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     calls,
                     environment,
                     body,
+                    capturedBinderNames,
                     CSharpNaming.MethodName(method.Name)));
             }
         }
@@ -415,6 +423,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 container)
             {
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
+                CapturedBinderNames = candidate.CapturedBinderNames,
             };
             declarations.Add(declaration);
             // Merge the raised body's resolved type info into the enclosing
@@ -529,8 +538,13 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         return null;
     }
 
-    static bool SubstituteEnvironment(IrFunction body, Environment environment)
+    static bool SubstituteEnvironment(
+        IrFunction body,
+        Environment environment,
+        IrFunction host,
+        out ImmutableArray<string> capturedBinderNames)
     {
+        capturedBinderNames = [];
         // Every use of the environment parameter must be the receiver of a
         // LoadField we can substitute. Check that on the original body, before
         // substitution: the captured values cloned in below are themselves
@@ -547,13 +561,27 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 return false;
         }
 
+        var names = ImmutableArray.CreateBuilder<string>();
+        var seenNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var load in body.Descendants.OfType<LoadField>().ToList())
         {
             if (load.Instance is LoadArgument arg && arg.Index == environment.ArgIndex
                 && Equals(load.Field.DeclaringType, environment.Type)
                 && environment.Captures.TryGetValue(load.Field.Name, out var value))
+            {
+                string? name = value switch
+                {
+                    LoadArgument argument => argument.Name,
+                    LoadLocal local when local.Index < host.LocalNames.Length
+                        => host.LocalNames[local.Index],
+                    _ => null,
+                };
+                if (name is not null && seenNames.Add(name))
+                    names.Add(name);
                 load.ReplaceWith(value.Clone());
+            }
         }
+        capturedBinderNames = names.ToImmutable();
         return true;
     }
 

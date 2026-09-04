@@ -71,7 +71,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             kickoff,
             out var body,
             out var locals,
-            out var localNames);
+            out var localNames,
+            out var synthesizedLocalNames);
         if (reconstruction == ReconstructionResult.UnconsumedExecutionRegion)
         {
             MarkUnconsumedExecutionRegion(function, kickoff, context);
@@ -82,7 +83,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
         function.MergeTypeFactsFrom(moveNext);
-        function.ResetLocals(locals, localNames);
+        function.ResetLocals(
+            locals,
+            localNames,
+            synthesizedNames: synthesizedLocalNames);
         function.RequiresAsyncBodyModifier = true;
         function.Body.DetachChildren();
         foreach (var block in body.Blocks.ToList())
@@ -121,17 +125,32 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     {
         readonly ImmutableArray<TypeRef>.Builder _locals = ImmutableArray.CreateBuilder<TypeRef>();
         readonly ImmutableArray<string?>.Builder _names = ImmutableArray.CreateBuilder<string?>();
+        readonly ImmutableArray<string?>.Builder _synthesizedNames = ImmutableArray.CreateBuilder<string?>();
 
         public int Add(TypeRef type, string? name)
         {
             var index = _locals.Count;
             _locals.Add(type);
             _names.Add(name);
+            _synthesizedNames.Add(null);
+            return index;
+        }
+
+        public int AddSynthesized(TypeRef type, string name)
+        {
+            var index = _locals.Count;
+            _locals.Add(type);
+            _names.Add(null);
+            _synthesizedNames.Add(name);
             return index;
         }
 
         public ImmutableArray<TypeRef> Locals => _locals.ToImmutable();
         public ImmutableArray<string?> Names => _names.ToImmutable();
+        public ImmutableArray<string?> SynthesizedNames
+            => _synthesizedNames.Any(static name => name is not null)
+                ? _synthesizedNames.ToImmutable()
+                : [];
     }
 
     static bool TryAcknowledgeSupportMethod(IrFunction function, PassContext context)
@@ -228,11 +247,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         Kickoff kickoffShape,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
-        out ImmutableArray<string?> localNames)
+        out ImmutableArray<string?> localNames,
+        out ImmutableArray<string?> synthesizedLocalNames)
     {
         body = null!;
         locals = [];
         localNames = [];
+        synthesizedLocalNames = [];
 
         var localBuilder = new LocalBuilder();
         if (!TryBuildStatements(
@@ -261,6 +282,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         body.Add(block);
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
+        synthesizedLocalNames = localBuilder.SynthesizedNames;
         return ReconstructionResult.Reconstructed;
     }
 
@@ -806,8 +828,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         var sumType = accumulatorStore.Type;
-        var sumIndex = locals.Add(sumType, "sum");
-        var taskIndex = locals.Add(taskType, "task");
+        var sumIndex = locals.AddSynthesized(sumType, "sum");
+        var taskIndex = locals.AddSynthesized(taskType, "task");
 
         statements.Add(new StoreLocal(sumIndex, sumType, new Constant(0, sumType)));
         var body = new Block(0);

@@ -201,6 +201,33 @@ public class ClassicAsyncReconstructionHonestyTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void LoopRoleNamesAreSynthesizedAndCollisionResolved()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(
+            source,
+            "AwaitInLoopWithRoleNameCollision");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal([null, null], function.LocalNames);
+        Assert.Equal(["sum", "task"], function.SynthesizedLocalNames);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "int sum_1 = 0;",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "foreach (Task<int> task in tasks)",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return sum_1;",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     static MetadataSource OpenClassicFixture(bool readSymbols)
     {
         string configuration =

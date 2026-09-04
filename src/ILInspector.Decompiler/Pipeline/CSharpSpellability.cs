@@ -99,17 +99,25 @@ internal static class CSharpSpellability
             DeconstructionTarget target => DeconstructionTargetIssue(target),
             RecursivePropertyDeclarationPattern pattern => PropertyIssue(pattern.PropertyName),
             EventSubscription subscription => PropertyIssue(subscription.EventName),
-            Lambda lambda => ParameterNamesIssue(lambda.Parameters)
+            Lambda lambda => ParameterNamesIssue(
+                    lambda.Parameters,
+                    lambda.CapturedBinderNames,
+                    "an actually referenced enclosing binder")
                 ?? NestedLocalNamesIssue(
                     lambda.LocalNames,
                     lambda.Parameters,
-                    lambda.Body),
+                    lambda.Body,
+                    lambda.CapturedBinderNames),
             LocalFunctionStatement statement => LocalFunctionIssue(statement.Name)
-                ?? ParameterNamesIssue(statement.Parameters)
+                ?? ParameterNamesIssue(
+                    statement.Parameters,
+                    statement.CapturedBinderNames,
+                    "an actually referenced enclosing binder")
                 ?? NestedLocalNamesIssue(
                     statement.LocalNames,
                     statement.Parameters,
-                    statement.Body),
+                    statement.Body,
+                    statement.CapturedBinderNames),
             LocalFunctionInvocation invocation => LocalFunctionIssue(invocation.Name),
             _ => null,
         };
@@ -117,7 +125,8 @@ internal static class CSharpSpellability
 
     static NameIssue? ParameterNamesIssue(
         ImmutableArray<Parameter> parameters,
-        IEnumerable<string>? reservedNames = null)
+        IEnumerable<string>? reservedNames = null,
+        string reservedNameDescription = "a method generic parameter")
     {
         var parameterNames = new HashSet<string>(StringComparer.Ordinal);
         HashSet<string>? reserved = reservedNames is null
@@ -141,7 +150,7 @@ internal static class CSharpSpellability
             {
                 return Issue(
                     DecompilerFidelityDiscriminators.UnspellableParameterName,
-                    $"parameter name '{parameter.Name}' conflicts with a method generic parameter");
+                    $"parameter name '{parameter.Name}' conflicts with {reservedNameDescription}");
             }
         }
 
@@ -157,6 +166,7 @@ internal static class CSharpSpellability
         HashSet<string>? reserved = reservedNames is null
             ? null
             : new HashSet<string>(reservedNames, StringComparer.Ordinal);
+        var retainedNames = new HashSet<string>(StringComparer.Ordinal);
         for (var index = 0; index < localNames.Length; index++)
         {
             string? name = localNames[index];
@@ -181,6 +191,13 @@ internal static class CSharpSpellability
                     $"local name '{name}' conflicts with a parameter or method generic parameter",
                     DecompilerFidelityLocation.AtLocal(index));
             }
+            if (!retainedNames.Add(name))
+            {
+                return new NameIssue(
+                    DecompilerFidelityDiscriminators.UnspellableLocalName,
+                    $"duplicate local name '{name}' has no lossless C# binding",
+                    DecompilerFidelityLocation.AtLocal(index));
+            }
         }
 
         return null;
@@ -189,11 +206,13 @@ internal static class CSharpSpellability
     static NameIssue? NestedLocalNamesIssue(
         ImmutableArray<string?> localNames,
         ImmutableArray<Parameter> parameters,
-        BlockContainer body)
+        BlockContainer body,
+        ImmutableArray<string> capturedBinderNames)
         => LocalNamesIssue(
             localNames,
             reservedNames: parameters
                 .Select(parameter => parameter.Name)
+                .Concat(capturedBinderNames)
                 .Concat(ExternalArgumentNamesInScope(body, parameters)),
             retainedScope: body);
 

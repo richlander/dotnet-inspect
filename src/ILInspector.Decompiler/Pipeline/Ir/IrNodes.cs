@@ -3303,6 +3303,12 @@ public sealed class Lambda : IrExpression
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    /// <summary>
+    /// Enclosing binders that the final raised body references after
+    /// capture substitution. Kept explicitly because argument indices in the
+    /// transplanted body no longer identify the enclosing versus nested owner.
+    /// </summary>
+    public ImmutableArray<string> CapturedBinderNames { get; init; } = [];
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
@@ -3424,6 +3430,11 @@ public sealed class LocalFunctionStatement : IrNode
     public ImmutableArray<TypeRef> Locals { get; }
     public ImmutableArray<string?> LocalNames { get; }
     public ImmutableArray<string?> SynthesizedLocalNames { get; init; } = [];
+    /// <summary>
+    /// Enclosing binders that the final raised body references after
+    /// capture substitution.
+    /// </summary>
+    public ImmutableArray<string> CapturedBinderNames { get; init; } = [];
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];

@@ -452,7 +452,14 @@ public class LocalFunctionRaisingPassTests
     [Fact]
     public void CapturingLocalFunction_SubstitutesEnvironmentAndDropsRefParameter()
     {
-        string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalFunction));
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingLocalFunction),
+            function =>
+                Assert.Equal(
+                    ["n"],
+                    Assert.Single(
+                        function.Descendants.OfType<LocalFunctionStatement>())
+                        .CapturedBinderNames));
 
         Assert.Contains("return Add(5);", output);              // call drops the ref-env argument
         Assert.Contains("int Add(int v) => v + n;", output);    // captured `n` substituted; env param gone

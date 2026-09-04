@@ -599,6 +599,36 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void DuplicateRetainedLocalNames_DegradeToPartial()
+    {
+        var function = Function(
+            Int32,
+            [],
+            [Int32, Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                new StoreLocal(1, Int32, new Constant(2, Int32)),
+                new Return(new Binary(
+                    BinaryKind.Add,
+                    isChecked: false,
+                    isUnsigned: false,
+                    new LoadLocal(0, Int32),
+                    new LoadLocal(1, Int32)))));
+        function.LocalNames = ["same", "same"];
+
+        string output = CSharpPrinter.Print(function).Output!;
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Contains("int same = 1;", output);
+        Assert.Contains("int V_1 = 2;", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Equal(
+            DecompilerFidelityDiscriminators.UnspellableLocalName,
+            issue?.Discriminator);
+        Assert.Contains("duplicate local name", issue?.Reason);
+    }
+
+    [Fact]
     public void LocalConflictingWithMethodGenericParameter_DegradesToPartial()
     {
         var signature = new MethodSignature(
@@ -717,6 +747,37 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void RaisedLambdaParameterMatchingCapturedOuterParameter_DegradesToPartial()
+    {
+        var lambda = new Lambda(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "value", Int32),
+                new LoadArgument(0, "value", Int32)))))
+        {
+            CapturedBinderNames = ["value"],
+        };
+        var function = Function(
+            FuncIntInt,
+            [new Parameter("value", Int32)],
+            [],
+            Container(new Return(lambda)));
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(lambda);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("actually referenced enclosing binder", issue?.Reason);
+    }
+
+    [Fact]
     public void RaisedLocalFunctionParameterMatchingOuterParameter_StaysFull()
     {
         var localFunction = new LocalFunctionStatement(
@@ -739,6 +800,40 @@ public class UnspeakableNameFidelityTests
         Assert.Null(
             CSharpSpellability.InspectUnrepresentableMetadataName(
                 localFunction));
+    }
+
+    [Fact]
+    public void RaisedLocalFunctionParameterMatchingCapturedOuterParameter_DegradesToPartial()
+    {
+        var localFunction = new LocalFunctionStatement(
+            "Local",
+            Int32,
+            [new Parameter("value", Int32)],
+            isStatic: false,
+            locals: [],
+            localNames: [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(1, "value", Int32),
+                new LoadArgument(0, "value", Int32)))))
+        {
+            CapturedBinderNames = ["value"],
+        };
+        var function = Function(
+            Void,
+            [new Parameter("value", Int32)],
+            [],
+            Container(localFunction, new Return(null)));
+
+        var issue =
+            CSharpSpellability.InspectUnrepresentableMetadataName(localFunction);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("actually referenced enclosing binder", issue?.Reason);
     }
 
     [Fact]

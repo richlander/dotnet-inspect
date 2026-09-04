@@ -171,7 +171,18 @@ public class LambdaRaisingPassTests
 
     [Fact]
     public void CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda()
-        => Assert.Equal("return x => x + n;", PrintRaised(nameof(CfgSampleClass.CapturingLambda)));
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingLambda),
+            inspectFunction: function =>
+                Assert.Equal(
+                    ["n"],
+                    Assert.Single(
+                        function.Descendants.OfType<Lambda>())
+                        .CapturedBinderNames));
+
+        Assert.Equal("return x => x + n;", output);
+    }
 
     [Fact]
     public void MultipleCaptures_AllSubstitutedIntoRaisedBody()
@@ -2395,7 +2406,10 @@ public class LambdaRaisingPassTests
 
         new LambdaRaisingPass().Run(function, context);
 
-        Assert.Equal(2, function.Descendants.OfType<Lambda>().Count());
+        Assert.Collection(
+            function.Descendants.OfType<Lambda>(),
+            lambda => Assert.Equal(["a"], lambda.CapturedBinderNames),
+            lambda => Assert.Equal(["b"], lambda.CapturedBinderNames));
         Assert.Empty(function.Descendants.OfType<DelegateCreation>());
         Assert.Empty(function.Descendants.OfType<StoreField>());
         function.CheckInvariant();
@@ -2472,7 +2486,10 @@ public class LambdaRaisingPassTests
             outer,
             new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
             [dcType, s_int, s_int, s_func1, s_func1],
-            body);
+            body)
+        {
+            LocalNames = [null, "a", "b", null, null],
+        };
 
         IrFunction LambdaBodyReading(MethodRef method, FieldRef field)
         {
