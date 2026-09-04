@@ -1080,11 +1080,18 @@ kbd {
 .api-surface-secondary { padding: 24px 16px 0; }
 .api-surface-footer { justify-content: flex-end; }
 .member-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 40px minmax(0, 1fr); background: var(--bg); }
-.member-surface-scroll { min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 60px; }
+.member-surface-scroll { container: member-surface / inline-size; min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 60px; }
 .member-surface-scroll > .document-section:first-child { padding-top: 0; }
-.member-surface .learn-overview { max-width: 900px; }
+.member-surface .learn-overview { max-width: none; }
 .learn-section.member-overview-intro { padding-top: 0; }
 .member-overview-intro > :first-child { margin-top: 0; }
+.member-overview-intro .signature-panel { margin-top: 0; }
+.member-documentation { max-width: 760px; margin-top: 18px; }
+.member-documentation-heading { padding-bottom: 10px; }
+.member-overview-intro .member-documentation-heading h2 { margin: 0; color: var(--text); font-size: 16px; line-height: 1.25; }
+.member-documentation .api-summary,
+.member-documentation .docs-loading,
+.member-documentation .docs-unavailable { margin: 0; }
 .member-overload-surface { grid-template-rows: 40px minmax(0, 1fr) 34px; }
 .member-overload-surface .member-surface-scroll { padding: 0 0 24px; }
 .member-surface-list .api-row { padding-inline: 16px; }
@@ -1116,8 +1123,8 @@ kbd {
 .member-identity dl > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .member-identity dt { padding: 11px 10px; color: var(--dim); font-size: 13px; }
 .member-identity dd { min-width: 0; display: flex; align-items: center; gap: 10px; margin: 0; padding: 9px 10px; }
-.member-identity code { min-width: 0; overflow-x: auto; color: var(--text); font: 13px/1.45 var(--mono); white-space: nowrap; }
-.member-identity button { flex: 0 0 auto; margin-left: auto; border: 1px solid var(--line-strong); background: transparent; color: var(--dim); font: 11px var(--mono); }
+.member-identity code { min-width: 0; flex: 0 1 auto; overflow-x: auto; color: var(--text); font: 13px/1.45 var(--mono); white-space: nowrap; }
+.member-identity button { flex: 0 0 auto; border: 1px solid var(--line-strong); background: transparent; color: var(--dim); font: 11px var(--mono); }
 .member-identity button:hover { color: var(--text); border-color: var(--line-strong); }
 .member-identity > p { margin: 10px 0 0; color: var(--dim); font-size: 10px; }
 .definition-list { margin: 0 0 22px; }
@@ -1127,8 +1134,9 @@ kbd {
 .api-summary { margin: 19px 0; color: var(--text); font-size: 15px; line-height: 1.65; }
 .signature-panel { margin-top: 22px; border: 1px solid var(--code-line); border-radius: 4px; overflow: hidden; background: var(--code-bg); box-shadow: inset 3px 0 0 #6aaed6; }
 .signature-language { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 15px; border-bottom: 1px solid var(--code-line); background: var(--code-surface); }
+.signature-language h2 { display: flex; align-items: baseline; gap: 10px; margin: 0; }
 .signature-language span { color: var(--code-text); font: 12px var(--mono); font-weight: 600; }
-.signature-language small { color: var(--dim); font: 10px var(--mono); }
+.signature-language small { color: var(--dim); font: 10px var(--mono); font-weight: 400; }
 .signature-language button {
   height: 24px;
   margin-left: auto;
@@ -1710,10 +1718,16 @@ kbd {
   }
 }
 
+@container member-surface (max-width: 575px) {
+  .member-identity dl > div { grid-template-columns: minmax(0, 1fr); }
+  .member-identity dt { padding-bottom: 0; }
+  .member-identity dd { padding-top: 6px; }
+}
+
 @media (max-width: 760px) {
   .brand { width: 48px; padding: 0 14px; }
   .brand span:last-child { display: none; }
-  .inspected-target { gap: 6px; padding: 0 10px; }
+  .inspected-target { gap: 6px; padding: 0 10px;   }
   .subject-path-separator { margin: 0 6px; }
   .workspace:not(.content-frame) { grid-template-columns: 44% 56%; }
   .type-library-context .namespace-chips, .pane-footer { display: none; }

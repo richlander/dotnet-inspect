@@ -262,8 +262,34 @@ Member Overview retains package documentation, declaration copying, stable
 identity, parameters, returns, exceptions, and applicability. It removes the
 large documentation-style title and the repeated Namespace, Assembly, Package,
 and framework summary because the subject path already supplies that
-orientation. Call graph and Facts retain their owned result semantics and use
-the same full-area scroller.
+orientation.
+
+The C# declaration is the first stable artifact below the quiet member header.
+It remains anchored while package documentation is loading or resolves to a
+summary, failure, or absence state. A compact `Summary` region follows the
+declaration and keeps every documentation state visible without giving missing
+documentation the surface's highest prominence. Stable identity begins as a
+separate structured section after that region.
+
+```text
+C# declaration                                      Copy
+signature
+
+Summary
+package documentation, loading, failure, or absence
+
+Identity
+stable selector, digest, canonical signature
+```
+
+The declaration and identity use the working surface's available width while
+summary prose retains a readable line length. At constrained widths the
+declaration scrolls horizontally without separating its Copy action, and
+identity labels stack above their values rather than forcing page-level
+horizontal overflow.
+
+Call graph and Facts retain their owned result semantics and use the same
+full-area scroller.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become

@@ -4853,26 +4853,35 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   let content;
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
+    const documentationSummary = documentationLoading
+      ? '<p class="docs-loading">Loading package documentation…</p>'
+      : documentationError
+        ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
+        : overload.summary
+          ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
+          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
-          ${documentationLoading
-            ? '<p class="docs-loading">Loading package documentation…</p>'
-            : documentationError
-              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
-            : overload.summary
-              ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-              : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>'}
-          <div class="signature-panel">
-            <div class="signature-language"><span>C#</span><small>declaration</small><button id="copy-signature" type="button">copy</button></div>
+          <section class="signature-panel" aria-labelledby="member-declaration-title">
+            <div class="signature-language">
+              <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
+              <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+            </div>
             <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
-          </div>
+          </section>
+          <section class="member-documentation" aria-labelledby="member-documentation-title">
+            <div class="member-documentation-heading">
+              <h2 id="member-documentation-title">Summary</h2>
+            </div>
+            ${documentationSummary}
+          </section>
           <section class="member-identity" aria-labelledby="member-identity-title">
             <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
             <dl>
-              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector">copy</button></dd></div>
-              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest">copy</button></dd></div>
-              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical">copy</button></dd></div>
+              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector" aria-label="Copy stable selector">copy</button></dd></div>
+              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest" aria-label="Copy digest">copy</button></dd></div>
+              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical" aria-label="Copy canonical signature">copy</button></dd></div>
             </dl>
             <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
           </section>

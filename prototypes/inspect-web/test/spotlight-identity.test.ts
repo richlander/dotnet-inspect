@@ -4982,6 +4982,9 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   const renderMember =
     appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
     ?? "";
+  const memberOverview =
+    renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]
+    ?? "";
   const emptyMember =
     renderApi.match(/if \(state\.memberBrowseTypeId === item\.id\) \{[\s\S]*?\n  \}/)?.[0]
     ?? "";
@@ -5001,6 +5004,18 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;[\s\S]*?class="member-surface"[\s\S]*?<p>\$\{escapeHtml\(member\.kind\)} <span>· \$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}<\/span><\/p>/);
+  assert.match(
+    memberOverview,
+    /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);
+  assert.doesNotMatch(
+    memberOverview,
+    /class="learn-section member-overview-intro">\s*\$\{documentationSummary\}[\s\S]*?class="signature-panel"/);
+  assert.match(
+    memberOverview,
+    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in the package XML documentation/);
+  assert.match(
+    memberOverview,
+    /aria-labelledby="member-declaration-title"[\s\S]*?aria-label="Copy declaration"[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);
   assert.doesNotMatch(renderMember, /class="learn-title"/);
   assert.doesNotMatch(
     renderMember,
@@ -5014,6 +5029,15 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     stylesSource,
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+  assert.match(
+    stylesSource,
+    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
+  assert.match(
+    stylesSource,
+    /\.member-documentation \{ max-width: 760px;/);
+  assert.match(
+    stylesSource,
+    /\.member-surface-scroll \{ container: member-surface \/ inline-size;[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-identity dl > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(
     stylesSource,
     /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
