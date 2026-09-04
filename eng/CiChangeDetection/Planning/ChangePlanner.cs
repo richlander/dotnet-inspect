@@ -151,9 +151,10 @@ internal static class ChangePlanner
 
     /// <summary>
     /// Builds the TLA+ scope file: exact <c>path-bytes NUL</c> records, in
-    /// plan input order, containing only TLA+ model content. Infrastructure
-    /// paths select the lane without contributing content, so an
-    /// infrastructure-only selection produces a valid zero-record scope.
+    /// plan input order, containing the model content and exact-outcome
+    /// manifest consumed by the runner. Other infrastructure paths select the
+    /// lane without contributing input, so an infrastructure-only selection
+    /// produces a valid zero-record scope.
     /// </summary>
     /// <param name="evidence">The acquired change evidence.</param>
     /// <param name="recordCount">The number of scoped records.</param>
@@ -166,7 +167,7 @@ internal static class ChangePlanner
         long length = 0;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (!ChangeRoutingPolicy.IsTlaModelContent(record.Path))
+            if (!ChangeRoutingPolicy.IsTlaScopedInput(record.Path))
             {
                 continue;
             }

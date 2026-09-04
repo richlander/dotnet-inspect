@@ -7,12 +7,19 @@ export function isPackageQueryPath(pathname: string): boolean {
   return isRoutedEntryPath(pathname, ROUTED_ENTRY_PATHS.packageQuery);
 }
 
-export type PackageQueryReturnFocus = "home-search" | "package-search";
+export type PackageQueryReturnFocus =
+  | "application-query"
+  | "home-search"
+  | "package-search";
 
 export interface PackageQueryHistory {
   predecessorEntryId: string;
   returnFocus: PackageQueryReturnFocus;
 }
+
+export type PackageQueryWorkspaceSuccessor =
+  | { url: URL; projected: true; projectionError: null }
+  | { url: URL; projected: false; projectionError: unknown };
 
 const ENTRY_ID_KEY = "dotnetInspectEntryId";
 const PACKAGE_QUERY_KEY = "dotnetInspectPackageQuery";
@@ -65,7 +72,9 @@ export function readPackageQueryHistory(
   const returnFocus = query.returnFocus;
   return typeof predecessorEntryId === "string"
     && predecessorEntryId.length > 0
-    && (returnFocus === "home-search" || returnFocus === "package-search")
+    && (returnFocus === "application-query"
+      || returnFocus === "home-search"
+      || returnFocus === "package-search")
     ? { predecessorEntryId, returnFocus }
     : null;
 }
@@ -76,6 +85,25 @@ export function isPackageQueryPredecessor(
 ): boolean {
   return predecessorEntryId !== null
     && historyEntryId(value) === predecessorEntryId;
+}
+
+export function resolvePackageQueryWorkspaceSuccessor(
+  buildRetainedWorkspaceUrl: () => URL,
+  buildFallbackWorkspaceUrl: () => URL,
+): PackageQueryWorkspaceSuccessor {
+  try {
+    return {
+      url: buildRetainedWorkspaceUrl(),
+      projected: true,
+      projectionError: null,
+    };
+  } catch (projectionError) {
+    return {
+      url: buildFallbackWorkspaceUrl(),
+      projected: false,
+      projectionError,
+    };
+  }
 }
 
 export function validPackageQueryPrefix(value: string): string {
