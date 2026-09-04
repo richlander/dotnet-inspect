@@ -342,6 +342,26 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toBeLessThanOrEqual(metadataHeader.y + metadataHeader.height);
   await expect(page.locator(".metadata-surface-head h1")).toHaveText("Metadata");
 
+  await page.goto("/browser/workspace-titlebar.html?package-dependencies=1");
+  const packageDependenciesHeader = await box(
+    page,
+    ".package-dependencies-surface-head");
+  const packageDependenciesToggle = await box(
+    page,
+    "#content-navigation-toggle");
+  expect(packageDependenciesToggle.y)
+    .toBeGreaterThanOrEqual(packageDependenciesHeader.y);
+  expect(packageDependenciesToggle.y + packageDependenciesToggle.height)
+    .toBeLessThanOrEqual(
+      packageDependenciesHeader.y + packageDependenciesHeader.height);
+  await expect(page.locator(".detail-pane"))
+    .toHaveClass(/content-navigation-integrated/);
+  await expect(page.locator(".package-dependencies-surface-head h1"))
+    .toHaveText("Dependencies");
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+    - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
   await page.goto("/browser/workspace-titlebar.html?package-metadata=1");
   const packageMetadataHeader = await box(
     page,
