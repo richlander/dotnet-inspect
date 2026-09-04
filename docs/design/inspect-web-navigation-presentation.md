@@ -16,8 +16,8 @@ browser history; that model belongs to
 This owner defines:
 
 - the Workspace, Package, Library, Type, and Member subject hierarchy, the
-  title-line inspected-target region, and the second-row Slideable Subject
-  Strip that first adopts the reusable
+  inspected-target rendering, and the Slideable Subject Strip that first
+  adopts the reusable
   [SlideStrip](inspect-web-slide-strip.md) control;
 - the Workspace subject that owns retained-coordinate management;
 - lens-tab rendering, roving-tabindex interaction, and no-effective-lens
@@ -96,12 +96,13 @@ Type, or Member is active. This document does not invent package lenses for it.
 
 ### Persistent navigation composition
 
-An inspection workspace has two persistent lines before its primary content:
+Surface Composition places this owner's two persistent navigation
+presentations before the primary content:
 
-1. The title line begins with `dotnet-inspect`, then renders the icon-backed
-   ordered active subject path, Search, and browser-history actions.
-2. The **subject zone** renders the Slideable Subject Strip before the
-   working-content grid.
+1. Row one renders the Slideable Subject Strip between the product control and
+   the Shell Interaction-owned history, Search, and Application menu controls.
+2. Row two renders the icon-backed ordered active subject path before any
+   page-level contextual working-surface actions.
 
 The two rows together follow the CLI's product-to-subject-to-inspector grammar
 but are not command text. Inventories, hierarchy menus, and other target
@@ -316,8 +317,9 @@ width.
 
 ### Inspected target
 
-The inspected target follows the product root in the first shell row. It is not
-part of either pane. Its primary advertisement is an ordered typed path:
+The inspected target occupies the leading allocation of the second shell row
+owned by Surface Composition. It is not part of either pane. Its primary
+advertisement is an ordered typed path:
 
 ```text
 System.Text.Json > System.Text.Json.JsonSerializer > DeserializeSync
@@ -328,11 +330,13 @@ identities supplied by their owners. Workspace renders `Workspace`. The
 presentation does not parse one display string to derive another, and the
 segments are orientation rather than inert navigation breadcrumbs.
 
-The Package segment receives the strongest visual emphasis, following
-npmx.dev's useful emphasis and direct-copy treatment for current package
-identity. Narrower segments follow in order and the current leaf remains
-visually identifiable with the shared accent. The complete path remains in the
-accessible name and title when visible segments elide.
+The root segment uses a strong neutral treatment. Intermediate ancestors are
+muted and yield width before the current leaf. The current leaf uses the shared
+purple accent and stronger weight while remaining bounded so it cannot consume
+the complete row. When the root is the only segment, root treatment wins rather
+than recoloring or artificially capping that identity as a descendant leaf.
+The complete path remains in the accessible name and title when visible
+segments elide.
 
 Each product-issued Package, Library, Type, or Member segment is an individually
 copyable control. Activating one copies that segment's owner-issued canonical
@@ -359,24 +363,20 @@ source-attribution affordance:
 identity, not a package icon, and must not replace either an owner-issued
 package icon or the default package fallback.
 
-The title line gives the inspected target priority over its trailing
-Search/history cluster. That cluster yields space before the target path and
-may not become another persistent tab strip, coordinate selector, or
-independently reconstructed identity.
+Separating the inspected target into row two prevents a long path from changing
+row-one Search or history allocation. The target yields only to page-level
+contextual actions supplied in its own row.
 
-The subject zone contains no Share or separate `Copy name` action. Copy belongs
+The Subject and Inspector region contains no Share or separate `Copy name`
+action. Copy belongs
 to the segment whose typed identity is being copied; the shell-owned
 Application menu exposes canonical workspace Share outside both SlideStrips as
 placed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#shell-navigation-and-application-actions).
 
-Browser Back and Forward own navigation history. Compact Back and Forward
-buttons sit immediately to the left of the visible Spotlight Search control.
-Search terminates the title line flush with its right edge. The controls are
-outside the typed target and do not become breadcrumbs. The right-side cluster
-yields space when the target grows: the input-like Search control first becomes
-a `Search` button, then disappears while the arrows remain flush right, and
-finally the arrows disappear.
+Browser Back, Forward, Search, and the Application menu remain outside the
+typed target and do not become breadcrumbs. Shell Interaction owns their
+behavior; Surface Composition owns their row-one placement and pressure order.
 
 ### Workspace surface
 
@@ -513,9 +513,8 @@ Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
 
-The Workspace subject, second-row subject/inspector region, title-line
-inspected target, and content region all render the same returned navigation
-snapshot.
+The Workspace subject, row-one subject/inspector region, row-two inspected
+target, and content region all render the same returned navigation snapshot.
 The UI does not infer initial, fallback, or reconciliation policy from
 descriptor order, assembly order, current filters, package kind, or display
 text.
@@ -621,7 +620,7 @@ or retention from assembly membership.
 
 When the product surface identifies colliding types under `All libraries`, type
 navigation qualifies only those rows with their product-owned defining library.
-If a colliding Type is selected, the subject zone also shows its
+If a colliding Type is selected, the Subject and Inspector region also shows its
 defining library. API and Source continue to rely on that line for the complete
 identity; disambiguation does not restore the removed metadata block.
 
@@ -648,14 +647,15 @@ The old full-width `PACKAGE` row remains removed. Package version and TFM
 controls render in the Package working surface:
 
 ```text
-dotnet-inspect  ⬡ System.Text.Json                         ← →  Search
-Workspace Package Type Member | Overview Dependencies Metadata        ☰
+dotnet-inspect  Workspace Package Type Member | Overview ...  ← → Search ☰
+⬡ System.Text.Json
 
 Package coordinate
 Version 10.0.0   Framework net10.0
 ```
 
-The trailing Application menu occupies its own Surface Composition-owned slot;
+The trailing Application menu occupies its own row-one Surface
+Composition-owned slot;
 it is not a subject or inspector item.
 
 The coordinate editor is available while Package is selected, across its
@@ -802,7 +802,7 @@ are proved by the gates in
    menu-button invoker.
 8. Confirm that every copyable inspected-target segment copies its own
    product-issued canonical identity rather than display text and that no
-   separate `Copy target` action occupies the subject zone.
+   separate `Copy target` action occupies the Subject and Inspector region.
 
 ### Slideable strip allocation
 

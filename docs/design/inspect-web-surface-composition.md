@@ -23,8 +23,9 @@ This owner defines:
   Package sources) and contextual entry;
 - package-source presentation placement (feed tabs absence, producer-label
   display);
-- the second-line allocation between the subject/inspector region and the
-  shell-owned Application menu;
+- the placement and allocation of the two persistent shell rows, including the
+  subject/inspector region, inspected target, shell-owned Application menu, and
+  contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
 - the data bar and Diagnostics surface.
@@ -83,52 +84,51 @@ This document consumes, without redefining:
 
 ## Shell navigation and application actions
 
-The second persistent shell line is one page-level navigation band with a
-flexible navigation region, an optional working-surface action region, and a
-fixed application region:
+The persistent shell is two non-wrapping page-level rows:
 
 ```text
-[ subject and inspector region: minmax(0, 1fr) ]
-[ working-surface actions, when supplied ] [ Application menu ]
+row one: [product] [subject and inspector region]
+         [Back | Forward] [Search] [Application menu]
+row two: [inspected target: minmax(0, 1fr)]
+         [working-surface actions, when supplied]
 ```
 
-This composition follows tmux's useful status-line topology: a window list
-uses the flexible middle capacity while a separately allocated `status-right`
-region remains available at the trailing edge
-([tmux manual](https://man.openbsd.org/tmux.1)). Inspect Web transfers that
-allocation relationship, not tmux's passive status content or terminal
-formatting. The shell-owned three-line Application menu follows Firefox's
-stable application-menu placement, as recorded by
+Row one contains navigation and the stable application-action home. The
+product control and Application menu occupy non-shrinking slots. The
+Navigation Presentation-owned subject/inspector region receives the primary
+flexible allocation between them, followed by the Shell Interaction-owned
+history and Search cluster. Search progresses from its full label to its
+compact label and then disappears; history disappears after Search. This
+cluster yields before the Slideable Subject Strip starts reducing active
+Subject or Inspector identity. Once those shell controls have yielded, the
+SlideStrip resolves its own normal, control-free, and terminal-deficit states
+inside the remaining page boundary.
+
+The subject and inspector region has `min-width: 0`. Its preferred allocation
+is large enough to expose complete common inventories, but exact pixel
+thresholds are presentation tuning rather than product state. Its internal
+minimum may scroll inside the region, but it never pushes, overlaps, or scrolls
+the product control or Application menu and never creates page-level
+horizontal overflow.
+
+The shell-owned three-line Application menu follows Firefox's stable
+application-menu placement, as recorded by
 [Shell Interaction](inspect-web-shell-interaction.md#convention-and-comparison-evidence).
+It occupies the non-shrinking inline-end slot in row one, after Search. It
+remains visible at every supported viewport width and is not part of either
+tablist, their overflow viewport, or their allocation ladder.
 
-The deliberate placement is the trailing edge of the second shell line, below
-the title line's trailing Search/history cluster. Moving the button into the
-title line would displace Search from its owned flush-right position. Moving it
-into the subject region would make an application action appear to be a
-SlideStrip item. Moving it into the data bar or working surface would make its
-availability depend on unrelated scrolling or content.
-
-The subject and inspector region receives every inline pixel remaining after
-any working-surface action group, the Application menu control, and the
-ordinary inter-region gaps. It has `min-width: 0`; Navigation Presentation's
-composite resolves normal, control-free, and terminal-deficit behavior
-entirely inside that assigned page boundary. Its internal minimum may scroll
-inside the region, but it never pushes, overlaps, or scrolls either action
-region and never creates page-level horizontal overflow.
+Row two starts the inspected target at the shell's inline edge and reserves its
+trailing capacity for optional page-level contextual actions. Separating the
+target from Search means an unusually long Package, Type, or Member path cannot
+collapse row-one navigation. Navigation Presentation owns target rendering and
+elision inside its allocation.
 
 The optional working-surface action region exists only when the active surface
 supplies page-level contextual actions. It is not part of either SlideStrip and
 does not add items to the Application menu. Source supplies Copy and optional
-Open there; Annotated Source supplies Copy and Explore there. The complete
-Source action group remains visible as the subject and inspector region yields
-or scrolls under pressure.
-
-The Application menu occupies one non-shrinking control-sized slot aligned to
-the navigation band's inline end. It remains visible at every supported
-viewport width and is not part of the subject or inspector tablist, their
-overflow viewport, or their allocation ladder. Wide and narrow layouts keep
-the active surface's region topology; width changes only the capacity assigned
-to the Slideable Subject Strip.
+Open there; Annotated Source supplies Copy and Explore there. The target yields
+space while the complete action group remains visible.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -144,9 +144,8 @@ handles a genuine shell replacement.
 Adoption replaces the old direct Share, Settings, and Help controls atomically:
 the direct controls and Application menu never render as two simultaneous
 application-action homes. A working-surface action group remains a separate
-sibling throughout that replacement; implementations may place both groups in
-one trailing allocation during the transition, but must preserve their
-distinct accessible grouping. If a direct application control owns focus
+sibling throughout that replacement and must preserve its distinct accessible
+grouping. If a direct application control owns focus
 during that one-time shell replacement, focus moves to the Application menu
 button without opening it. If Settings is already open, modal focus remains
 contained and ordinary dismissal resolves the new Application menu button.
@@ -196,6 +195,13 @@ these named browser tests in `workspace-titlebar.spec.ts`:
   action controls, that atomic direct-action replacement moves focused legacy
   actions to the menu button, and that an open Settings modal resolves the new
   button on dismissal.
+- `row-one Search yields before Subject and Inspector navigation` proves the
+  row-one pressure order and that a long row-two target does not affect Search.
+- `the inspected target occupies the second row and package selectors stay in
+  content` proves row separation and left target alignment.
+- `Source fills the detail area below working-surface actions and above
+  provenance` proves that page-level Source actions occupy row two rather than
+  either navigation or application inventory.
 
 ## Working surfaces
 
@@ -340,7 +346,7 @@ opens Settings. Closing Settings returns to inline Annotated Source without
 reopening the viewer; any changed style regenerates the affected inline output.
 
 Changing style regenerates only affected decompiler output. The preference is
-not part of the title line or subject zone, and a
+not part of either persistent shell row, and a
 shared workspace does not impose the sender's style preference on its
 recipient.
 
@@ -390,22 +396,25 @@ One information hierarchy adapts across viewport sizes:
 - wide layouts retain Type or Member navigation beside a full working surface;
 - narrow layouts replace the navigation pane with a visible
   `Types` or `Members` button that opens the shared modal navigation drawer;
-- the title line and second-line shell navigation band each remain one line;
-- the subject zone remains outside and above the navigation/content grid;
-- the product and inspected-target root marks retain bounded icon slots in the
-  title line;
-- title-line Back and Forward sit immediately left of Search, which is flush
-  right; the trailing cluster yields from full Search, to a `Search` button, to
-  flush-right arrows, to nothing as the inspected target grows;
+- both persistent shell rows remain one line;
+- the row-one subject/inspector region remains outside and above the
+  navigation/content grid;
+- the product and inspected-target root marks retain bounded icon slots in
+  their respective rows;
+- row-one Back and Forward sit immediately left of Search, and the Application
+  menu terminates the row; the navigation cluster yields from full Search, to
+  a `Search` button, to arrows, to nothing before the Slideable Subject Strip
+  starts reducing active identity;
 - subject and inspector representations adapt through Navigation
   Presentation's measurement-driven Slideable Subject Strip contract rather
   than a fixed shell breakpoint;
-- the shell navigation band's fixed trailing Application menu slot remains
-  visible while the Slideable Subject Strip adapts entirely inside the
-  remaining flexible region;
-- contextual action groups stay with their working surfaces and may move below
-  descriptive text as a complete group rather than entering the shell band or
-  disappearing;
+- row one's fixed trailing Application menu slot remains visible while the
+  Slideable Subject Strip adapts entirely inside its assigned region;
+- the row-two inspected target elides independently of row-one Search;
+- page-level contextual action groups occupy row two; result-local action
+  groups stay with their working surfaces and may move below descriptive text
+  as a complete group rather than entering either shell navigation inventory
+  or disappearing;
 - subject and inspector navigation follows Navigation Presentation's
   contiguous horizontal window contract instead of wrapping;
 - subject-path segments and optional advertisements elide visually without
@@ -491,35 +500,38 @@ outcomes.
 
 ### Application and contextual action placement
 
-1. At a wide viewport, confirm that the second shell line contains a flexible
-   subject/inspector region followed by one non-shrinking Application menu
-   control at the inline end. Confirm that the button is outside both tablists.
-2. Narrow through the Slideable Subject Strip's normal, control-free, and
-   terminal-deficit states. Confirm that only the flexible region changes
-   width, its internal minimum scrolls when required, the Application menu
-   remains visible, and the page does not overflow horizontally.
-3. Overflow the subject strip, working surface, source content, and data bar,
+1. At a wide viewport, confirm that row one contains product,
+   subject/inspector, history, Search, and one non-shrinking Application menu
+   control in that order. Confirm that the button is outside both tablists.
+2. Confirm that row two contains the left-aligned inspected target followed by
+   page-level contextual actions when supplied.
+3. Narrow the viewport and confirm that Search progresses from full to compact
+   to hidden, then history hides, before the Slideable Subject Strip starts
+   reducing active identity. Continue through its normal, control-free, and
+   terminal-deficit states; confirm that the Application menu remains visible
+   and the page does not overflow horizontally.
+4. Overflow the subject strip, working surface, source content, and data bar,
    then open the Application menu. Confirm that it is anchored to the button,
    constrained to the viewport, rendered above those regions, and neither
    clipped by them nor causes reflow.
-4. Confirm that direct Share, Settings, and Help controls are absent when the
+5. Confirm that direct Share, Settings, and Help controls are absent when the
    Application menu is present. During atomic adoption, focus each legacy
    control before shell replacement and confirm that focus moves to the closed
    Application menu button; focus elsewhere remains unchanged.
-5. Open Settings before atomic adoption completes, install the new shell, and
+6. Open Settings before atomic adoption completes, install the new shell, and
    confirm that focus remains inside Settings and dismissal returns to the new
    Application menu button without opening the menu.
-6. Focus the Application menu button and resize repeatedly. Confirm that the
-   same control remains focused and is not cloned, moved into the title line,
-   or included in SlideStrip overflow.
-7. Confirm that Source and Annotated Source actions occupy a dedicated group
-   between the SlideStrip region and Application menu without entering either
-   inventory. Confirm that Package query and contextual Decompiler style
+7. Focus the Application menu button and resize repeatedly. Confirm that the
+   same row-one control remains focused and is not cloned or included in
+   SlideStrip overflow.
+8. Confirm that Source and Annotated Source actions occupy a dedicated row-two
+   group without entering either navigation inventory or the Application menu.
+   Confirm that Package query and contextual Decompiler style
    actions remain with their result. At a narrow viewport, confirm that Source
    Copy and optional Open remain visible, result-local action groups move
    together below descriptive text when needed, and focused actions retain
    focus.
-8. Confirm that source and annotated content begin at the top of their working
+9. Confirm that source and annotated content begin at the top of their working
    surfaces and scroll independently of their page-level action groups.
    Confirm that result overflow remains within its contextual action
    placement.
@@ -584,11 +596,11 @@ with the absence of a synthesized `Default feed` control.
 3. Activate the visible `Types` button and confirm the drawer's accessible
    dialog name, initial focus, focus containment, Escape dismissal, and focus
    return.
-4. Confirm that the title-line inspected target and second-line shell
-   navigation band remain single-line rather than wrapping. Confirm that the
-   title-line target elides while preserving its complete accessible path,
-   only the Slideable Subject Strip uses contiguous windows and edge
-   disclosure, and the Application menu retains its trailing slot.
+4. Confirm that both persistent shell rows remain single-line rather than
+   wrapping. Confirm that the row-two target elides while preserving its
+   complete accessible path, only the Slideable Subject Strip uses contiguous
+   windows and edge disclosure, and the Application menu retains its row-one
+   trailing slot.
 5. With focus in the wide navigation pane, narrow the viewport and confirm that
    focus moves to the new drawer button without opening it.
 6. Open the drawer, restore the wide viewport, and confirm that the drawer
