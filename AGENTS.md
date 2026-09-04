@@ -30,12 +30,14 @@ development model and rationale. The binding summary:
   user-observable experience.
 - **Design first and state the basis.** Name one normative owner and exact
   claim, then supporting designs, models, constraints, and evidence by role.
-- **Start capabilities from named consumers.** Every new capability or
-  substrate identifies its consumer in the specification and issue, links an
-  overall end-to-end tracker, and may land its consumer in a later slice.
-  Shared substrate must benefit and plan enablement through both the CLI and
-  browser/Wasm hosts; a single-consumer or single-host substrate requires
-  explicit user approval from the start.
+- **Start architectures from production-host adoption.** Every new architecture,
+  capability, or substrate names its consumer and links an end-to-end tracker
+  that enumerates the production-host adoption path and total step count, even
+  when the component is host-neutral. Test infrastructure may treat its harness
+  as the production host. An alternative to an existing architecture must also
+  track that architecture's retirement. Shared product substrate must plan
+  enablement through both CLI and browser/Wasm hosts; single-consumer or
+  single-host scope requires explicit user approval.
 - **Keep hosts thin.** Put reusable concepts and algorithms in host-neutral
   code. Duplicated host logic triggers a review for a shared abstraction that
   would also benefit another future host.
@@ -491,11 +493,12 @@ as a normal round), and **merge conflict requiring semantic resolution**
 | Tier | Requirement |
 | --- | --- |
 | Trivial | No review. State why the change is trivial. |
-| Everything else | **GPT-5.6 Sol**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
+| Everything else | **GPT-6 Astra**, always, plus one other roster reviewer (Claude Opus or Gemini Pro). |
 
 When uncertain, use the standard round. Second-seat selection by prior clean
 count lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
+in [Agent model mapping](docs/agent-models.md). A MAI-Code
 quick read on unsettled work is neither tier: it gets no isolated worktree or
 fixed head and satisfies no review tier — label its findings as early
 feedback, since the settled PR still requires its full round.

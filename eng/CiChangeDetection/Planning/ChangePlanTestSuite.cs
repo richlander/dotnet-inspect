@@ -62,16 +62,13 @@ internal static class ChangePlanTestSuite
 
     /// <summary>
     /// Pure routing canaries. Each entry pins the exact raw selections for one
-    /// classifier rule or first-match exclusion.
+    /// routing rule or first-match exclusion.
     /// </summary>
     /// <param name="policy">The loaded routing policy.</param>
     private static void AssertRoutingCanaries(ChangeRoutingPolicy policy)
     {
         (string Path, string Selected)[] canaries =
         [
-            ("eng/ci-detect-changes.sh",
-                "code,csharpdiff,decompiler,docs,ildiff,ilroundtrip,"
-                + "packaging,shipped,web,skills,tla"),
             ("src/NetworkDestinationPolicy.cs", "code,decompiler,shipped,web"),
             ("src/UnionPolyfill.cs", "code,decompiler,shipped,web"),
             ("src/dotnet-inspect/Program.cs", "code,shipped"),
@@ -113,7 +110,8 @@ internal static class ChangePlanTestSuite
             ("eng/test-ci-change-detection.cs", "code"),
             ("eng/inspect-web-gate-projects.txt", "code,docs,web"),
             ("eng/CiChangeDetection/PromotionWorkflowContract.cs", "code,web"),
-            ("eng/CiChangeDetection/DetectionTestSuite.cs", "code"),
+            ("eng/CiChangeDetection/Planning/ChangeRoutingPolicy.cs", "code"),
+            ("eng/CiChangeDetection/Planning/ChangePlanTestSuite.cs", "code"),
             ("eng/package-fixtures/a.nupkg", "code"),
             ("eng/package-manifest-corpus.json", "code"),
             ("eng/verify-package-manifest-corpus.cs", "code"),
@@ -205,21 +203,12 @@ internal static class ChangePlanTestSuite
             }
         }
 
-        // A change set is the union of its records, and the classifier owner
-        // is absorbing.
+        // A change set is the union of its records.
         if (Render(policy.Route(Evidence("README.md", "src/a/b.cs")))
             != "code,decompiler,docs,shipped")
         {
             throw new InvalidOperationException(
                 "Multi-record routing did not union its records.");
-        }
-
-        if (Render(policy.Route(
-            Evidence("README.md", "eng/ci-detect-changes.sh")))
-            != Render(RoutingSelections.All))
-        {
-            throw new InvalidOperationException(
-                "The classifier owner did not select every validation.");
         }
     }
 
@@ -1353,8 +1342,7 @@ internal static class ChangePlanTestSuite
 
     /// <summary>
     /// Pins the file-based entrypoint to this assembly's public façade. The
-    /// entrypoint is not routed by the legacy classifier, so this gate is what
-    /// keeps it from drifting away from the planner it publishes.
+    /// gate keeps the shim from drifting away from the planner it publishes.
     /// </summary>
     /// <param name="repository">The repository root directory.</param>
     private static void AssertEntrypointContract(string repository)

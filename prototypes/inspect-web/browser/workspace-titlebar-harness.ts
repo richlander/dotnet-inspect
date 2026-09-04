@@ -95,8 +95,10 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
+const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
-const packageMode = params.has("package") || packageMetadataMode;
+const packageMode =
+  params.has("package") || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
@@ -210,7 +212,11 @@ let activeScope: WorkspaceScope = workspaceMode
     : memberMode
       ? "member"
       : "type";
-let activePackageLens: PackageLens = packageMetadataMode ? "metadata" : "overview";
+let activePackageLens: PackageLens = packageDependenciesMode
+  ? "dependencies"
+  : packageMetadataMode
+    ? "metadata"
+    : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -333,6 +339,20 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (packageDependenciesMode) {
+    return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+      <header class="api-surface-head package-dependencies-surface-head">
+        <h1 id="package-dependencies-surface-title">Dependencies</h1>
+        <p>3 packages · 8 references</p>
+      </header>
+      <section class="package-dependencies-controls" aria-label="Dependency coordinate"></section>
+      <div class="package-dependencies-scroll"></div>
+      <footer class="api-surface-footer package-dependencies-surface-footer">
+        <span>System.Text.Json@10.0.0</span>
+        <span>net10.0</span>
+      </footer>
+    </section>`;
+  }
   if (packageMetadataMode) {
     return `<section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
       <header class="metadata-surface-head package-metadata-surface-head">
@@ -591,11 +611,14 @@ app.innerHTML = `
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
-        : sourceMode || (packageMode && !packageMetadataMode)
+        : sourceMode
+          || (packageMode
+            && !packageDependenciesMode
+            && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>

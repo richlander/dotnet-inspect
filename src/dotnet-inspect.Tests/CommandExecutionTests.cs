@@ -3314,114 +3314,45 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Network traffic", error);
     }
 
-    // ── api command ──────────────────────────────────────────────────
+    // ── removed commands ─────────────────────────────────────────────
 
     [Fact]
-    public async Task ApiShim_BareSelect_ForwardsThePresetToTypeOptions()
+    public async Task ApiCommand_RemovedFromRoot()
     {
-        // ApiCommand.ExecuteAsync's `_ =>` arm rebuilds a TypeOptions field by field for direct
-        // callers (the CLI always constructs TypeOptions/MemberOptions itself, so it never lands
-        // here). Bare -S used to ride along inside Select as the "@Default" string and got copied
-        // for free; a dedicated flag has to be copied deliberately, and omitting it silently
-        // downgrades the shim from the bare-select preset to the default tree view.
-        //
-        // The shim rebuilds a TypeOptions, so it renders whatever `type` renders for bare -S: that
-        // is now the fixed overview. What this test pins is that the flag survives the copy at all.
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            TypeName = "JsonSerializer",
-            SelectDefault = true
-        };
-
-        var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        Assert.Contains("## Type Info", output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task ApiShim_MultiSectionCount_ForwardsResolvedFormat()
-    {
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            IncludeSections = ["Classes", "Structs"],
-            Count = true,
-            Rows = RowWindow.Head(1),
-            JsonOutput = true,
-            Format = OutputFormat.Json,
-            FormatExplicitlySet = true,
-            TipLevel = TipLevel.Quiet,
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        using var document = JsonDocument.Parse(output);
-        var rows = document.RootElement
-            .EnumerateArray()
-            .Select(row => (
-                Section: row.GetProperty("section").GetString()!,
-                Count: row.GetProperty("count").GetInt32()))
-            .ToArray();
-        Assert.Equal([("Classes", 1), ("Structs", 1)], rows);
-    }
-
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task ApiShim_MultiSectionCount_ForwardsPresentationFlags(
-        bool tree,
-        bool embeddedMermaid)
-    {
-        var options = new ApiOptions
-        {
-            PlatformAssembly = "System.Text.Json",
-            IncludeSections = ["Classes", "Structs"],
-            Count = true,
-            Tree = tree,
-            EmbeddedMermaid = embeddedMermaid,
-            Format = OutputFormat.Markdown,
-            TipLevel = TipLevel.Quiet,
-        };
-
-        var (exit, output, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+        var (exit, output, error) = await RunAppAsync("api", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(
-            tree ? "exactly one selected shape" : "multiple sections as Mermaid",
-            error);
+        Assert.Contains("Unrecognized command or argument 'api'", error);
+        Assert.DoesNotContain("Package 'api' not found", error);
+        Assert.DoesNotContain("Network traffic", error);
     }
 
+    // ── type command ─────────────────────────────────────────────────
+
     [Fact]
-    public async Task Api_PlatformLibrary_ListsTypes()
+    public async Task Type_PlatformLibrary_ListsTypes()
     {
-        var options = new ApiOptions { PlatformAssembly = "System.Text.Json" };
+        var options = new TypeOptions { PlatformAssembly = "System.Text.Json" };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_WithTypeFilter_ShowsMembers()
+    public async Task Type_PlatformLibrary_WithTypeFilter_ShowsMembers()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer"
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("Serialize", output);
@@ -3429,16 +3360,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_JsonOutput()
+    public async Task Type_PlatformLibrary_JsonOutput()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             JsonOutput = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
 
@@ -3448,16 +3379,16 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_PlatformLibrary_Table()
+    public async Task Type_PlatformLibrary_Table()
     {
-        var options = new ApiOptions
+        var options = new TypeOptions
         {
             PlatformAssembly = "System.Text.Json",
             Tabular = true
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
@@ -18372,24 +18303,24 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Api_NonexistentPackage_ShowsError()
+    public async Task Type_NonexistentPackage_ShowsError()
     {
-        var options = new ApiOptions { PackagePath = "NonexistentPackage123456" };
+        var options = new TypeOptions { PackagePath = "NonexistentPackage123456" };
 
         var (exit, _, error) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(1, exit);
         Assert.NotEmpty(error);
     }
 
     [Fact]
-    public async Task Api_LocalAssembly_ListsTypes()
+    public async Task Type_LocalAssembly_ListsTypes()
     {
-        var options = new ApiOptions { AssemblyPath = TestAssemblyPath };
+        var options = new TypeOptions { AssemblyPath = TestAssemblyPath };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
-            () => ApiCommand.ExecuteAsync(options));
+            () => TypeCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("CommandExecutionTests", output);

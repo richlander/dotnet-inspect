@@ -88,14 +88,15 @@ query or fragment marker. This stricter process-local key is neither the
 NuGetFetch producer identity nor the legacy persistent-cache key. It must not
 be rendered, persisted, or hashed into a cache path.
 
-An HTTP declaration containing a query, fragment, or redacted credential-like
-path component cannot use a durable key derived from that text. Hashing the
-untreated value would retain a credential guess verifier, while using the
-credential-free producer key would collapse distinct authorities. Such an
-authority remains fully usable through its opaque runtime identity, but
-cross-process candidate and payload cache reuse is unavailable until an
-independent non-secret stable authority ID exists. A source name alone is not
-sufficient because the same name can later designate another endpoint.
+An HTTP declaration containing configured credentials, a query, fragment, or
+redacted credential-like path component cannot use a durable key derived from
+that text. Hashing the untreated value would retain a credential guess
+verifier, while using the credential-free producer key would collapse distinct
+authorities. Such an authority remains fully usable through its opaque runtime
+identity, but cross-process candidate and payload cache reuse is unavailable
+until an independent non-secret stable authority ID exists. A source name
+alone is not sufficient because the same name can later designate another
+endpoint.
 
 Portable browser source IDs and owner-issued canonical local identities may
 provide such an independent stable ID under their own contracts. The package
@@ -464,9 +465,14 @@ plugin-authentication context per configurable V3 authority, uses the
 credential-free Gallery route for the exact anonymous NuGet.org authority,
 uses one operation context across those authorities, adopts each typed result
 through the exact association, and reports authoritative, partial, or failed
-version evidence. A selected local authority is classified without
-constructing HTTP state and currently produces the explicit
-capability-unavailable result owned by #5400.
+version evidence. A selected local authority invokes the existing bounded
+NuGetFetch local-folder client without constructing an HTTP transport or
+authentication context. Its complete version observations, including an empty
+result, join the same aggregate as HTTP evidence through exact association
+lookup. Unavailable local capability, missing roots, invalid archives, and
+source limits remain attributed failures rather than package absence. The
+NuGetFetch host contract is unchanged: desktop filesystems support local reads;
+Browser/Wasm without a filesystem capability returns typed unsupported.
 When the Gallery route cannot complete its registration listing-state join,
 its retained flat-container candidates are explicitly partial rather than
 authoritative.
@@ -496,3 +502,62 @@ producer identity, transport kind, source order, or a healthy subset were
 mistakenly used as authority. Existing NuGetFetch and authentication gates
 remain evidence for their owners; they do not substitute for these
 package-composition gates.
+
+### Local version-listing adoption
+
+The CLI consumer is ordinary `package <id> --versions --source <folder>` (or a
+mapped folder in `NuGet.Config`). Local and HTTP version evidence use the same
+operation context, filtering, sorting, and final result limit. Directory layout
+recognition and finite observation limits remain owned by NuGetFetch.
+
+`PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport`,
+`PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots`,
+`PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit`,
+`PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails`,
+`PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial`,
+`PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial`, and
+`OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling` are the
+Release gates for this adoption. The existing terminal-operation-timeout and
+HTTP source-association gates remain unchanged.
+
+The remaining production adoption path is tracked by
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400): after this
+version-listing slice, migrate remaining candidate selection modes, then
+payload/cache authority, then CLI and reusable workspace consumers (including
+Browser/Wasm's supported source clients). Those slices retire the corresponding
+legacy composition paths. This slice does not add browser filesystem
+registration, local payload acquisition, or offline version discovery.
+
+### Reusable authority authorization
+
+The reusable authorization seam projects selected package sources into
+package-owned configured authority objects. It uses the same runtime authority
+key as desktop source composition, mints one opaque source association per
+authority, supports exact reverse lookup, and supplies a versioned persistent
+cache key only when the package owner can form one without retained credentials
+or collapsed authority distinctions. Alias mapping remains earlier than
+authority collapse, and local and HTTP declarations are classified without
+constructing a transport. An authority object and its association live for one
+authorization answer; result adoption uses that answer's reverse map.
+Host-supplied independently authorized sources remain distinct unless their
+policy owner has already selected and collapsed aliases with equivalent
+authority keys and policy.
+
+The Release gates
+`ConfiguredAuthority_QueryDistinctSameProducerSourcesRemainDistinct`,
+`PackageSourceAuthorization_QueryDistinctAuthoritiesHaveExactAssociations`,
+`PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey`,
+`PackageSourceAuthorization_HttpAuthorityWithoutStableIdHasNoPersistentKey`,
+`SourceClassification_PlainDirectoryNeverConstructsHttpTransport`,
+`SourceClassification_FileUriNeverConstructsHttpTransport`,
+`SourceClassification_UnsupportedSchemeCreatesNoAuthorityOrRequest`,
+`PackageSourceMapping_SelectsAliasesBeforeAuthorityCollapse`, and
+`PackageSourceMapping_ConflictingAliasPoliciesFailBeforeClientCreation`
+enforce this seam.
+
+Typed route composition, exact result adoption, and version discovery are live
+for the online desktop consumer described above. Payload and cache
+authorization plus the remaining consumer migrations remain later slices of
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400). The legacy
+`Sources` projection remains available during those migrations; it is not an
+alternative authority identity.
