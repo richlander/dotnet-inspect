@@ -1324,7 +1324,9 @@ public sealed class InspectionPlanningTests
 
         Assert.Equal(0, result.Exit);
         Assert.Contains("Members", result.Output);
-        Assert.Empty(result.Error);
+        Assert.Contains(
+            "best-effort prefix matches",
+            result.Error);
     }
 
     [Fact]
@@ -3028,6 +3030,30 @@ public sealed class InspectionPlanningTests
             result.Output);
         Assert.Contains(
             "[member/member-target/",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
+    public async Task NestedGenericMemberFilterRetainsTypeAndMemberAlternatives()
+    {
+        var result = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "-m",
+            "Add",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[type/type/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
             result.Output);
         Assert.Empty(result.Error);
     }

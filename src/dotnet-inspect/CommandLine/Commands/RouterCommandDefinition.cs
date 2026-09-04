@@ -697,6 +697,17 @@ public static class RouterCommandDefinition
             }
 
             if (hasMemberOption
+                && structuralSchema
+                && hasExplicitGenericNotation
+                && !StructuralViewRegistry
+                    .HasExplicitGenericTypeTail(target)
+                && !StructuralViewRegistry
+                    .HasUnambiguousMemberTail(target))
+            {
+                return false;
+            }
+
+            if (hasMemberOption
                 && (structuralSchema
                     || !hasExplicitGenericNotation
                     || (hasExplicitApiSource

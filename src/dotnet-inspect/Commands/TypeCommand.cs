@@ -458,68 +458,6 @@ public static class TypeCommand
                     if (selectedSurfaceExitCode != 0)
                         return selectedSurfaceExitCode;
                 }
-                else if (options.EffectiveDiscovery
-                    && options.DiscoverDeferredToListing)
-                {
-                    if (TryWritePrefixBrowse(
-                            api,
-                            apiDllPath,
-                            originalTypeQuery,
-                            typeName,
-                            packageName,
-                            apiSource,
-                            apiVersion,
-                            selectedTfm,
-                            options,
-                            typePipeline)
-                        is { } prefixBrowseExitCode)
-                    {
-                        return prefixBrowseExitCode;
-                    }
-
-                    var widePrefixExitCode =
-                        await TryExecuteWidePlatformPrefixFallbackAsync(
-                            options,
-                            originalTypeQuery,
-                            typePipeline);
-                    if (widePrefixExitCode.HasValue)
-                        return widePrefixExitCode.Value;
-
-                    ApiCommand
-                        .RejectDeferredDiscoveryForSingleType(
-                            options,
-                            memberPipeline);
-                    return 1;
-                }
-                else if (options.EffectiveDiscovery)
-                {
-                    // A deferred select belongs to this listing, and discovery filters by it, so it
-                    // has to be resolved before the filter is applied rather than after.
-                    if (options.SelectDeferredToListing
-                        || options.DiscoverDeferredToListing
-                        || options.Select is { Length: > 0 }
-                        || options.SelectDefault)
-                    {
-                        if (ApiCommand.ReresolveSectionsForListing(options) is not { } discoveryOptions)
-                            return 1;
-                        options = discoveryOptions;
-                    }
-
-                    // Discovery is a schema query about the surface's sections; it is independent
-                    // of which (unmatched) type was requested. The main listing and platform-prefix
-                    // routes already dispatch it before rendering, so the glob and prefix-browse
-                    // fallbacks must too — otherwise `-D` falls through to WriteFullApiOutput, which
-                    // ignores it and (with --fields/--json) now rejects the request outright.
-                    ApiCommand.ApplySurfaceFilters(api, options, options.TypeFilter);
-                    var schema = ApiViewContext.Default.GetSchemaInfo<CliApiSurface>()!.ToDocumentSchema();
-                    var effective = typePipeline.GetDiscoverableSections(api, options.IncludeSections);
-                    return DiscoverOutput.ExecuteEffective(options.Discover, effective, schema,
-                        tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
-                        verbosity: (int)options.Verbosity,
-                        sectionCostAnnotations: typePipeline.GetCostAnnotations(),
-                        sectionCategories: typePipeline.GetCategoryMap(),
-                        projection: options);
-                }
                 else if (TryWritePrefixBrowse(
                     api,
                     apiDllPath,

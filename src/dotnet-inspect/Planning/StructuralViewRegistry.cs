@@ -433,7 +433,13 @@ public static class StructuralViewRegistry
             return true;
         }
 
-        if (hasMemberOption)
+        bool genericDottedMemberAmbiguity =
+            hasMemberOption
+            && TypeMatcher.HasExplicitGenericNotation(target)
+            && !HasExplicitGenericTypeTail(target)
+            && !HasUnambiguousMemberTail(target);
+        if (hasMemberOption
+            && !genericDottedMemberAmbiguity)
         {
             InspectionCatalogIdentity catalog =
                 GetCommandlessMemberCatalog(tokens);
@@ -658,9 +664,7 @@ public static class StructuralViewRegistry
                 target,
                 tokens);
         bool memberSelectorsCanFilterType =
-            memberFilter.Count > 0
-            && demand.RequiredTarget
-                != InspectionTargetRequirement.ExactMember;
+            memberFilter.Count > 0;
         if (memberFilter.Count == 0
             || memberSelectorsCanFilterType)
         {

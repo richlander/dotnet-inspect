@@ -8827,6 +8827,28 @@ public partial class CommandExecutionTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Type_PrefixBrowse_SharedDiscoveryUsesFilteredSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Str",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Interfaces",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Section 'Interfaces' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A deferred select must use the listing pipeline for both count-map ordering and reduction;
     /// otherwise it either retains the obsolete single-section rejection or emits one scalar total.

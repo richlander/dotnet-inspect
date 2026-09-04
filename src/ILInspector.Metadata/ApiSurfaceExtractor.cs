@@ -2871,7 +2871,9 @@ public static class ApiSurfaceExtractor
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
-        OperatorNames.IsMetadataOperatorName(methodName);
+        methodName.StartsWith(
+            "op_",
+            StringComparison.Ordinal);
 
     private static void AttachLocalExtensionMethods(
         ApiSurface surface,
