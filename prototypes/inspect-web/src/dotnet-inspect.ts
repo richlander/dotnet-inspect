@@ -6722,9 +6722,28 @@ async function loadPackageFromSpotlight(
   framework = "",
 ) {
   const focusGeneration = beginSpotlightNavigation();
+  const openedFromProductDemos =
+    isProductHomeDemosPath(location.pathname);
   spotlight.reset();
-  await loadPackage(id, version, framework);
-  focusTypeList(focusGeneration);
+  const catalogSnapshot = openedFromProductDemos
+    ? captureCanonicalWorkspaceRestoreSnapshot()
+    : null;
+  const loaded = await loadPackage(
+    id,
+    version,
+    framework,
+    catalogSnapshot
+      ? {
+          failureHandler: message =>
+            failWorkspaceCatalogAction(
+              message,
+              catalogSnapshot,
+              () => loadPackageFromSpotlight(id, version, framework),
+              () => focusWorkbenchSearch(document),
+            ),
+        }
+      : {});
+  if (loaded || !catalogSnapshot) focusTypeList(focusGeneration);
 }
 
 // Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
@@ -8021,6 +8040,20 @@ function failDemoWorkspaceOpen(
   snapshot: CanonicalWorkspaceRestoreSnapshot,
   retryable: boolean,
 ): void {
+  failWorkspaceCatalogAction(
+    `Demo failed: ${message}`,
+    snapshot,
+    retryable ? () => runHomeDemo(demoId) : null,
+    () => restoreWorkspaceFocus(document, { kind: "demo", id: demoId }),
+  );
+}
+
+function failWorkspaceCatalogAction(
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  retry: RetryAction,
+  restoreFocus: () => boolean,
+): void {
   restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
   state.credits = false;
   state.loading = false;
@@ -8033,11 +8066,10 @@ function failDemoWorkspaceOpen(
   state.atPackageRoot = true;
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
-  const retry = retryable ? () => runHomeDemo(demoId) : null;
-  appendQueryNotice(`Demo failed: ${message}`, retry);
+  appendQueryNotice(message, retry);
   render();
   afterCurrentNavigationFrame(() => {
-    if (!restoreWorkspaceFocus(document, { kind: "demo", id: demoId })) {
+    if (!restoreFocus()) {
       focusWorkspace(document);
     }
   });
@@ -10510,6 +10542,7 @@ interface LoadPackageOptions {
   deepLink?: DeepLink | null;
   retryAction?: RetryAction;
   invalidateWorkspaceShareBasis?: boolean;
+  failureHandler?: (message: string) => void;
 }
 
 async function loadPackage(
@@ -10603,6 +10636,10 @@ async function loadPackage(
     state.loading = false;
     const retryOptions: LoadPackageOptions = { ...options };
     delete retryOptions.navigationSeq;
+    if (options.failureHandler) {
+      options.failureHandler(friendly.message);
+      return null;
+    }
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested

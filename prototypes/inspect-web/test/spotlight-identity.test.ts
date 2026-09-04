@@ -2293,7 +2293,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /const typeLensLoad = loadSelectedTypeLensData\(\);\s*if \(typeLensLoad !== "member"\) return typeLensLoad;/);
   assert.match(
     appSource,
-    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*focusTypeList\(focusGeneration\)/);
+    /async function loadPackageFromSpotlight[\s\S]*await loadPackage\([\s\S]*if \(loaded \|\| !catalogSnapshot\) focusTypeList\(focusGeneration\)/);
   assert.match(
     appSource,
     /async function openPlatformLibrary[\s\S]*spotlight\.reset\(\)[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
@@ -2820,7 +2820,7 @@ test("home demos restore the complete parsed location", () => {
     /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*message => failDemoWorkspaceOpen\(/);
   assert.match(
     runHomeDemo,
-    /async function restoreHomeDemoWorkspace\([\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\);[\s\S]*const retry = retryable \? \(\) => runHomeDemo\(demoId\) : null;[\s\S]*appendQueryNotice\(`Demo failed: \$\{message\}`, retry\);[\s\S]*restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
+    /async function restoreHomeDemoWorkspace\([\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
   assert.match(
     runHomeDemo,
     /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*const navigationSeq = beginDemoNavigation\(destination\)/);
@@ -2882,6 +2882,36 @@ test("home demos restore the complete parsed location", () => {
   assert.match(
     runtimeHistory,
     /await applyPlatformLibraryScope\([\s\S]*applyLocationView\(loc\);\s*applyDeepLink\(deep\)/);
+});
+
+test("catalog package acquisition failure restores warm and cold workspaces locally", () => {
+  const spotlightPackageLoad =
+    appSource.match(/async function loadPackageFromSpotlight\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    spotlightPackageLoad,
+    /const openedFromProductDemos =\s*isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
+  assert.match(
+    spotlightPackageLoad,
+    /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => loadPackageFromSpotlight\(id, version, framework\),\s*\(\) => focusWorkbenchSearch\(document\),\s*\)/);
+  assert.match(
+    spotlightPackageLoad,
+    /if \(loaded \|\| !catalogSnapshot\) focusTypeList\(focusGeneration\)/);
+
+  const catalogFailure =
+    appSource.match(/function failWorkspaceCatalogAction\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    catalogFailure,
+    /restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\);[\s\S]*state\.loading = false;[\s\S]*state\.home = false;[\s\S]*state\.error = "";[\s\S]*state\.retryAction = null;[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*state\.atPackageRoot = true;[\s\S]*appendQueryNotice\(message, retry\);[\s\S]*render\(\);[\s\S]*if \(!restoreFocus\(\)\) \{\s*focusWorkspace\(document\)/);
+  assert.doesNotMatch(catalogFailure, /workspaceLocation\.(?:push|replace)/);
+
+  const loadPackage =
+    appSource.match(/async function loadPackage\([\s\S]*?\n}\n\nfunction runtimePackLoaded/)?.[0]
+    ?? "";
+  assert.match(
+    loadPackage,
+    /if \(options\.failureHandler\) \{\s*options\.failureHandler\(friendly\.message\);\s*return null;\s*\}\s*if \(prevPackage\)/);
 });
 
 test("lens-scoped Platform library changes reset type-specific member state", () => {
