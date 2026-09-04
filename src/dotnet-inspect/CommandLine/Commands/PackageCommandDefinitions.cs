@@ -137,14 +137,6 @@ public static class PackageCommandDefinitions
                     + "--versions or --versions-with-feed.");
             }
 
-            if (hasPluralVersionSelector
-                && hasLineSelection
-                && result.GetValue(opts.Json))
-            {
-                result.AddError(
-                    "--lines and --tail-lines cannot be combined with --json; "
-                    + "use semantic -n to select complete JSON rows.");
-            }
         });
 
         CliRowSelectionCommandRegistry.Register(

@@ -1,7 +1,6 @@
 using DotnetInspector.Core;
 using System.CommandLine;
 using System.CommandLine.Parsing;
-using System.Globalization;
 
 namespace DotnetInspector.CommandLine;
 
@@ -48,7 +47,9 @@ public static class ArgumentPreprocessor
 
         for (var i = 0; i < end - 1; i++)
         {
-            if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
+            if (args[i] is not ("--head" or "--tail")
+                || IsBareShorthand(args[i + 1])
+                || !int.TryParse(args[i + 1], out _))
                 continue;
 
             var flag = args[i];
@@ -68,12 +69,16 @@ public static class ArgumentPreprocessor
     /// used to accept and no longer does. The parser can only say "Unrecognized option", which
     /// is true but leaves the caller to find the replacement themselves.
     /// </summary>
-    public static bool TryGetStaleArgumentError(string[] args, out string? error)
+    public static bool TryGetStaleArgumentError(
+        string[] args,
+        bool isPackageSearch,
+        out string? error)
     {
         if (TryGetStaleDirectionFlagError(args, out error))
             return true;
 
-        return TryGetValuedVersionSelectorError(args, out error);
+        return !isPackageSearch
+            && TryGetValuedVersionSelectorError(args, out error);
     }
 
     private static bool TryGetValuedVersionSelectorError(
@@ -106,14 +111,7 @@ public static class ArgumentPreprocessor
             bool hasSeparatedNumericValue =
                 !hasInlineValue
                 && index + 1 < end
-                && !args[index + 1].StartsWith(
-                    "-",
-                    StringComparison.Ordinal)
-                && int.TryParse(
-                    args[index + 1],
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out _);
+                && IsAsciiDecimal(args[index + 1]);
             if (!hasInlineValue && !hasSeparatedNumericValue)
                 continue;
 
@@ -124,6 +122,28 @@ public static class ArgumentPreprocessor
         }
 
         return false;
+    }
+
+    private static bool IsBareShorthand(string value) =>
+        value.Length > 1
+        && value[0] == '-'
+        && IsAsciiDecimal(value.AsSpan(1));
+
+    private static bool IsAsciiDecimal(string value) =>
+        IsAsciiDecimal(value.AsSpan());
+
+    private static bool IsAsciiDecimal(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+            return false;
+
+        foreach (char character in value)
+        {
+            if (character is < '0' or > '9')
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -582,10 +582,10 @@ The plural package-version adoption is enforced by:
 
 | Gate | Property |
 | --- | --- |
-| `Versions_WithLimit_RespectsLimit` and `Versions_BareShorthandAndTailSelectRows` | Explicit `-n`, implicit-route `-N`, and Tail select complete version rows. |
+| `Versions_WithLimit_RespectsLimit`, `Versions_BareShorthandAndTailSelectRows`, and `Versions_ModifierBeforeBareShorthandSelectsRows` | Explicit `-n`, implicit-route `-N`, and either modifier order for Head/Tail select complete version rows. |
 | `Versions_WithLimit_ProducesCompleteJsonRows` and `VersionsWithFeed_WithLimit_ProducesCompleteJsonRows` | JSON contains the selected complete row objects for merged and feed-attributed listings. |
-| `VersionsWithFeed_LinesMakesRenderedClippingExplicit` and `Versions_LinesRejectsDocumentJsonBeforeAcquisition` | `--lines` opts into rendered-line selection where the format remains valid and rejects document JSON before acquisition. |
-| `Versions_ValuedSelectorReportsReplacement` | Both zero-arity selectors reject their former valued spelling before routing can reinterpret the number as a package target. |
+| `VersionsWithFeed_LinesMakesRenderedClippingExplicit`, `Versions_LinesRejectsDocumentJsonBeforeAcquisition`, and `Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition` | `--lines` opts into rendered-line selection where the format remains valid and rejects explicit or environment-selected document JSON before acquisition. |
+| `Versions_ValuedSelectorReportsReplacement` and `PackageSearch_ValuedVersionSelectorDoesNotReportAdoptedReplacement` | Both zero-arity selectors reject their former valued spelling, including overflow, before routing can reinterpret the number as a package target, while package search does not receive guidance for the unselected lens. |
 | `PackageVersionListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress authenticated multi-source completion evidence. |
 | `SourceClassification_PlainDirectoryNeverConstructsHttpTransport` | A local-directory source remains outside HTTP/plugin authentication under semantic Head(1). |
 

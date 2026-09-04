@@ -171,7 +171,10 @@ try
 
     var rootCommand = CommandLineBuilder.CreateRootCommand();
 
-    if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
+    if (CommandLineBuilder.TryGetStaleArgumentError(
+            args,
+            rootCommand,
+            out var staleArgumentError))
     {
         CommandError.Write(staleArgumentError!);
         return 1;

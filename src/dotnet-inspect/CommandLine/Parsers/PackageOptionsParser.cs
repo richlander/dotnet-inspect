@@ -124,6 +124,17 @@ public static class PackageOptionsParser
         bool explicitTabularOutput = opts.IsTableExplicitlySet(parseResult);
         bool suppressImplicitRowFormat = bareOutput && !opts.IsTableFlagExplicitlySet(parseResult);
         var outputFormat = opts.ResolveFormat(parseResult);
+        bool hasLineSelection =
+            parseResult.GetValue(args.LinesOption)
+            || parseResult.GetValue(args.TailLinesOption);
+        if (showPluralVersions
+            && hasLineSelection
+            && outputFormat == OutputFormat.Json)
+        {
+            return new InvalidArguments(
+                "--lines and --tail-lines cannot be combined with JSON output; "
+                + "use semantic -n to select complete JSON rows.");
+        }
 
         // --path scopes the file listing and selects the Files section. A bare
         // --path (present without a value) means the whole package (root and below);

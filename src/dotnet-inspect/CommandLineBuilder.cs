@@ -65,7 +65,25 @@ public static class CommandLineBuilder
     /// replacement rather than with a bare "Unrecognized option".
     /// </summary>
     public static bool TryGetStaleArgumentError(string[] args, out string? error)
-        => ArgumentPreprocessor.TryGetStaleArgumentError(args, out error);
+        => TryGetStaleArgumentError(
+            args,
+            CreateRootCommand(),
+            out error);
+
+    internal static bool TryGetStaleArgumentError(
+        string[] args,
+        RootCommand rootCommand,
+        out string? error)
+    {
+        ParseResult rawParse = rootCommand.Parse(args);
+        bool isPackageSearch =
+            rawParse.CommandResult.Command.Name
+                == PackageSearchCommand.Name;
+        return ArgumentPreprocessor.TryGetStaleArgumentError(
+            args,
+            isPackageSearch,
+            out error);
+    }
 
     /// <summary>
     /// Known commands for implicit package command detection.

@@ -147,6 +147,28 @@ public class PackageVersionTests
         Assert.False(headRows.SequenceEqual(tailRows));
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public async Task Versions_ModifierBeforeBareShorthandSelectsRows(
+        string direction)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--versions",
+            direction,
+            "-2");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(
+            2,
+            output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
     [Fact]
     public async Task VersionsWithFeed_WithLimit_ProducesCompleteJsonRows()
     {
@@ -225,13 +247,50 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains(
-            "cannot be combined with --json",
+            "cannot be combined with JSON output",
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "not found",
             error,
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition()
+    {
+        string? originalFormat =
+            Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                "json");
+            var (exit, output, error) = await RunAppAsync(
+                "package",
+                "ThisQueryMustNotReachTheNetwork",
+                "--versions",
+                "-n",
+                "2",
+                "--lines");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "cannot be combined with JSON output",
+                error,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "not found",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_INSPECT_FORMAT",
+                originalFormat);
+        }
     }
 
     [Fact]
@@ -266,6 +325,12 @@ public class PackageVersionTests
                 "System.CommandLine",
                 "--versions-with-feed",
                 "2"
+            ],
+            [
+                "package",
+                "System.CommandLine",
+                "--versions",
+                "2147483648"
             ]
         ];
 
@@ -278,6 +343,28 @@ public class PackageVersionTests
             Assert.Empty(output);
             Assert.Contains(" -n N'.", error, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public async Task PackageSearch_ValuedVersionSelectorDoesNotReportAdoptedReplacement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "--versions",
+            "2",
+            "search",
+            "json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain(
+            "no longer accepts a count",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "--versions is not available with package search",
+            error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -437,6 +524,7 @@ public class PackageVersionTests
             var root = CommandLineBuilder.CreateRootCommand();
             if (CommandLineBuilder.TryGetStaleArgumentError(
                     args,
+                    root,
                     out string? error))
             {
                 CommandError.Write(error!);

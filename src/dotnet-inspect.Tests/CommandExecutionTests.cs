@@ -1602,7 +1602,10 @@ public partial class CommandExecutionTests
             // question, so it is answered by the product before parsing rather than by
             // a validator. Call the same product method the entry point calls; do not
             // reimplement the check here.
-            if (CommandLineBuilder.TryGetStaleArgumentError(args, out var staleArgumentError))
+            if (CommandLineBuilder.TryGetStaleArgumentError(
+                    args,
+                    root,
+                    out var staleArgumentError))
             {
                 CommandError.Write(staleArgumentError!);
                 return 1;
