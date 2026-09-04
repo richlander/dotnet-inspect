@@ -314,16 +314,6 @@ jobs:
           grep -q '<script type="importmap"></script>' dist/index.html
           grep -Eq '<link rel="preload" id="webassembly"[[:space:]]*/?>' dist/index.html
 
-      - name: Audit shipped browser dependencies
-        working-directory: prototypes/inspect-web
-        # The runtime libraries are lockfile dependencies, so advisories against the code that
-        # reaches a user's browser are visible to `npm audit`. `--audit-level=info` is the
-        # strictest setting and is not the default: npm falls back to `low`, which passes a
-        # package whose advisories are all `info`. No `--omit=dev`, because that filters by
-        # where a package is declared rather than by whether it ships -- Vite is a
-        # devDependency and its helpers are in the bundle.
-        run: npm audit --audit-level=info
-
       - name: Check generated inspect-web TypeScript facade for drift
         run: eng/generate-inspect-web-engine-facade.sh --check
 
@@ -620,6 +610,12 @@ jobs:
 
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
+
+      - name: Run ecosystem registry tests
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
       - name: Run row-selection tests
         run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release

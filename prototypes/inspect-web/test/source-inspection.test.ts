@@ -121,7 +121,7 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
-    /class="shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}\$\{sourcePageKind \? " source-page-actions" : ""\}/);
+    /contextualActionsHtml: annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(
     appSource,
     /class="legacy-application-actions"/);

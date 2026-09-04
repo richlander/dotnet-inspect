@@ -4,6 +4,8 @@
     <Project Path="eng/DependencyPolicy/DependencyPolicy.csproj" />
   </Folder>
   <Folder Name="/fixtures/">
+    <Project Path="fixtures/cli/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.Caller/DiffAsmFixtures.Caller.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj" />
@@ -17,12 +19,13 @@
     <Project Path="src/dotnet-inspect/dotnet-inspect.csproj" />
     <Project Path="src/CSharpText/CSharpText.csproj" />
     <Project Path="src/DotnetInspector.CSharpBodySlicer/DotnetInspector.CSharpBodySlicer.csproj" />
+    <Project Path="src/DotnetInspector.Ecosystems.Tests/DotnetInspector.Ecosystems.Tests.csproj" />
+    <Project Path="src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Tests/DotnetInspector.Artifacts.Tests.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Local/DotnetInspector.Artifacts.Local.csproj" />
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
-    <Project Path="src/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
@@ -63,7 +66,6 @@
     <Project Path="src/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
-    <Project Path="src/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
@@ -129,6 +131,7 @@
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
     <Project Path="tests/DotnetInspector.AssemblyOnlyHost.Fixture/DotnetInspector.AssemblyOnlyHost.Fixture.csproj" />
     <Project Path="tests/DotnetInspector.CSharpBodySlicer.Tests/DotnetInspector.CSharpBodySlicer.Tests.csproj" />
+    <Project Path="tests/DotnetInspector.Ecosystems.Consumer.Tests/DotnetInspector.Ecosystems.Consumer.Tests.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure/DotnetInspector.FixtureInfrastructure.csproj" />
     <Project Path="tests/DotnetInspector.FixtureInfrastructure.Tests/DotnetInspector.FixtureInfrastructure.Tests.csproj" />
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />

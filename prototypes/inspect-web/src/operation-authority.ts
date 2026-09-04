@@ -117,8 +117,15 @@ export interface OperationDiagnosticObserver {
   readonly report: (diagnostic: OperationDiagnostic) => undefined;
 }
 
+export interface OperationTerminalPublication {
+  readonly publish: () => undefined;
+}
+
 export interface OperationProducerSink<TValue, TError, TProgress> {
   readonly reportProgress: (value: TProgress) => undefined;
+  readonly commitTerminal: (
+    outcome: OperationOutcome<TValue, TError>,
+  ) => OperationTerminalPublication;
   readonly reportTerminal: (
     outcome: OperationOutcome<TValue, TError>,
   ) => undefined;
@@ -237,6 +244,7 @@ interface OperationRecord<TValue, TError, TProgress> {
   activated: boolean;
   cancellationReserved: boolean;
   terminalReported: boolean;
+  terminalPublicationsPending: number;
   released: boolean;
 }
 
@@ -461,28 +469,27 @@ function createRecord<TValue, TError, TProgress>(
 
   const reserveTerminal = (
     outcome: OperationOutcome<TValue, TError>,
-  ): "rejected" | "consumed" | "reserved" => {
+  ):
+    | { readonly kind: "rejected"; readonly message: string }
+    | { readonly kind: "consumed" }
+    | { readonly kind: "reserved" } => {
     if (record.released) {
-      producerContractError(
-        session,
-        record,
-        "Producer reported a terminal outcome after resource release.",
-      );
-      return "rejected";
+      return {
+        kind: "rejected",
+        message: "Producer reported a terminal outcome after resource release.",
+      };
     }
     if (record.terminalReported) {
-      producerContractError(
-        session,
-        record,
-        "Producer reported more than one terminal outcome.",
-      );
-      return "rejected";
+      return {
+        kind: "rejected",
+        message: "Producer reported more than one terminal outcome.",
+      };
     }
     record.terminalReported = true;
-    if (!publicationAuthority(session, record)) return "consumed";
+    if (!publicationAuthority(session, record)) return { kind: "consumed" };
     resolveOutcome(record, outcome);
     session.revision++;
-    return "reserved";
+    return { kind: "reserved" };
   };
 
   const publishTerminal = (
@@ -503,6 +510,44 @@ function createRecord<TValue, TError, TProgress>(
     }
   };
 
+  const createTerminalPublication = (
+    publish: () => undefined,
+  ): OperationTerminalPublication => {
+    let published = false;
+    record.terminalPublicationsPending++;
+    return {
+      publish: () => {
+        if (published) {
+          producerContractError(
+            session,
+            record,
+            "Producer exercised a terminal publication more than once.",
+          );
+          return undefined;
+        }
+        published = true;
+        record.terminalPublicationsPending--;
+        return publish();
+      },
+    };
+  };
+
+  const commitTerminal = (
+    outcome: OperationOutcome<TValue, TError>,
+  ): OperationTerminalPublication => {
+    const reservation = reserveTerminal(outcome);
+    return createTerminalPublication(() => {
+      if (reservation.kind === "rejected") {
+        producerContractError(session, record, reservation.message);
+      } else if (reservation.kind === "reserved"
+        && !session.disposed
+        && session.current === record) {
+        publishTerminal(outcome);
+      }
+      return undefined;
+    });
+  };
+
   const sink: OperationProducerSink<TValue, TError, TProgress> = {
     reportProgress: value => {
       if (record.released) {
@@ -521,21 +566,24 @@ function createRecord<TValue, TError, TProgress>(
       }
       return undefined;
     },
+    commitTerminal,
     reportTerminal: outcome => {
-      if (reserveTerminal(outcome) === "reserved")
-        publishTerminal(outcome);
+      commitTerminal(outcome).publish();
       return undefined;
     },
     reportUnexpectedTerminal: (error, diagnostic) => {
       const outcome = { kind: "failed", error } as const;
       const reservation = reserveTerminal(outcome);
-      if (reservation === "rejected") return undefined;
+      if (reservation.kind === "rejected") {
+        producerContractError(session, record, reservation.message);
+        return undefined;
+      }
       reportDiagnostic(session, {
         kind: "producer-contract",
         operationId: record.identity.id,
         error: diagnostic,
       });
-      if (reservation === "reserved")
+      if (reservation.kind === "reserved")
         publishTerminal(outcome);
       return undefined;
     },
@@ -553,6 +601,14 @@ function createRecord<TValue, TError, TProgress>(
           session,
           record,
           "Producer reported resource release before physical settlement.",
+        );
+        return undefined;
+      }
+      if (record.terminalPublicationsPending > 0) {
+        producerContractError(
+          session,
+          record,
+          "Producer reported resource release before terminal publication.",
         );
         return undefined;
       }
@@ -596,6 +652,7 @@ function createRecord<TValue, TError, TProgress>(
     activated: false,
     cancellationReserved: false,
     terminalReported: false,
+    terminalPublicationsPending: 0,
     released: false,
   };
   return record;

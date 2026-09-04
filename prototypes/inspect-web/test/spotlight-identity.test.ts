@@ -1279,7 +1279,7 @@ test("deferred Spotlight focus preserves newer Application-menu focus", () => {
     2);
 });
 
-test("the title line advertises the typed target above the subject strip", () => {
+test("the shell separates typed target and Subject navigation rows", () => {
   const renderNode = functionDeclaration("render");
   const subjectPathNode = functionDeclaration("inspectedSubjectPath");
   const subjectPathRenderer = functionDeclaration("renderInspectedSubjectPath");
@@ -1294,7 +1294,7 @@ test("the title line advertises the typed target above the subject strip", () =>
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*titleNavigationHtml:[\s\S]*class="title-navigation"[\s\S]*id="nav-back"[\s\S]*id="nav-forward"[\s\S]*id="open-search"[\s\S]*<header class="subject-zone"[\s\S]*class="subject-inspector-region"[\s\S]*renderScopeBar\(\)[\s\S]*renderApplicationMenuButton\(\)[\s\S]*<main id="subject-panel" class="workspace"[\s\S]*renderApplicationMenu\(true\)/);
+    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace"[\s\S]*renderApplicationMenu\(true\)/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -4790,16 +4790,43 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /const memberOverloadPicker =[\s\S]*?!selectedConcreteOverload\([\s\S]*?const memberWorkingSurface =[\s\S]*?currentPendingGraphMember\(\) === null[\s\S]*?memberOverloadPicker[\s\S]*?memberSectionUsesWorkingSurface\(state\.memberSection\)/);
   assert.match(
     stylesSource,
-    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
     stylesSource,
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
-    /\.api-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
+    /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
   assert.doesNotMatch(
     stylesSource,
     /\.api-surface-head p span \{[^}]*display: none;/s);
+});
+
+test("type metadata uses a full-area working surface without the inset type heading", () => {
+  const renderLens =
+    appSource.match(/function renderLens\([\s\S]*?\n}\n\nfunction renderApiLens/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const metadataWorkingSurface =\s*activeScope === "type" && state\.lens === "metadata"/);
+  assert.match(
+    appSource,
+    /metadataWorkingSurface \? " metadata-working-surface" : ""/);
+  assert.match(
+    renderLens,
+    /case "metadata":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.doesNotMatch(
+    renderLens,
+    /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.api-working-surface,\s*\.detail-scroll\.metadata-working-surface,\s*\.detail-scroll\.member-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {
