@@ -210,11 +210,13 @@ silently ignoring a measurement a newer writer may require.
 
 The field inventory and its measurement interpretation remain in the
 [operational history guide](../../tools/DecompilerHarness/corpus/evil-runs/README.md#schema).
-For optional members, absent and JSON `null` both mean **not recorded** and
-canonical writing omits null. Neither state may be repaired to zero or a
-current identity. `commit` and `invalidBreakdown` are physically required even
-when their legal historical value is null. Derived sums and percentages must
-reproduce the persisted base counts.
+For optional members other than `methodologyVersion`, absent and JSON `null`
+both mean **not recorded** and canonical writing omits null. Neither state may
+be repaired to zero or a current identity. Legacy `methodologyVersion` is the
+explicit exception: absent or null encodes methodology v1 rather than an
+unknown methodology. `commit` and `invalidBreakdown` are physically required
+even when their legal historical value is null. Derived sums and percentages
+must reproduce the persisted base counts.
 
 ## Schema and methodology evolution
 
@@ -234,10 +236,11 @@ methodology stamp.
 
 Exactly one original observation is grandfathered by its complete expected
 value. It may omit immutable commit provenance and partitions not retained in
-its discarded artifact. Other historical rows may omit identities or
-methodology fields that their generation did not record; absence stays unknown
-and cannot be repaired to zero or a current identity. Once an identified row
-records current corpus or pool identity, it must state its methodology.
+its discarded artifact. Other historical rows may omit identities; that
+absence stays unknown and cannot be repaired to zero or a current identity.
+They may also omit `methodologyVersion`, whose defined legacy interpretation is
+v1 rather than unknown. Once an identified row records current corpus or pool
+identity, it must state its methodology explicitly.
 
 Typed admission requires a full 40-hex commit. Complete-store verification also
 accepts the 8- through 39-hex commit prefixes already used by historical
@@ -250,6 +253,7 @@ produced them refuse verification.
 `StoreVerifier_RejectsMissingRequiredCountsAndGrandfatherTampering`,
 `TrackedHistory_OnlyGrandfatheredRowsOmitThePartition`,
 `TrackedHistory_OnlyTheOriginalRowOmitsACommit`,
+`ParseHistory_DefaultsMethodologyToV1WhenAbsentAndReadsExplicitVersion`,
 `ParseHistory_RejectsUnknownMethodologyVersion`, and
 `ParseHistory_RejectsFrontierAttributionBeforeMethodologyV3` gate the current
 compatibility boundary.
