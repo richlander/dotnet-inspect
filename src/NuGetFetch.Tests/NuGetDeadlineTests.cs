@@ -1747,7 +1747,8 @@ public sealed class NuGetDeadlineTests
     [Fact]
     public async Task RequestDeadline_DisposalFailureIsRetained()
     {
-        var stallingStream = new ThrowingDisposeStallingStream();
+        var stallingStream = new ThrowingDisposeStallingStream(
+            coordinateDisposal: true);
         using var client = new HttpClient(new DelayedHandler(
             (message, _) =>
                 Task.FromResult(
@@ -1756,19 +1757,40 @@ public sealed class NuGetDeadlineTests
             client,
             Options(
                 request: TimeSpan.FromMilliseconds(500),
-                operation: TimeSpan.FromSeconds(5)));
+                operation: TimeSpan.FromSeconds(60)));
 
         await using Stream package = await nuget.DownloadAsync(
             "package",
             "1.0.0",
             cancellationToken: TestContext.Current.CancellationToken);
         byte[] buffer = new byte[1];
-        Task<int> read = Task.Run(
+        Task<int> read = Task.Factory.StartNew(
             () => package.Read(buffer, 0, buffer.Length),
-            TestContext.Current.CancellationToken);
-        await stallingStream.ReadStarted.WaitAsync(
-            TimeSpan.FromSeconds(2),
-            TestContext.Current.CancellationToken);
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+        try
+        {
+            await stallingStream.ReadStarted.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            await stallingStream.DisposeStarted.WaitAsync(
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken);
+            await stallingStream.ReadUnblocked.WaitAsync(
+                TimeSpan.FromSeconds(2),
+                TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<TimeoutException>(
+                async () =>
+                    _ = await read.WaitAsync(
+                        TimeSpan.FromMilliseconds(500),
+                        TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            stallingStream.ReleaseDispose();
+        }
 
         NuGetRequestTimeoutException error =
             await Assert.ThrowsAsync<NuGetRequestTimeoutException>(
@@ -2182,13 +2204,29 @@ public sealed class NuGetDeadlineTests
         private readonly ManualResetEventSlim _disposed = new();
         private readonly TaskCompletionSource _disposedAsync =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _disposeStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _readUnblocked =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _readStarted =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ManualResetEventSlim? _releaseDispose;
         private int _disposeAttempted;
 
+        public ThrowingDisposeStallingStream(
+            bool coordinateDisposal = false)
+        {
+            if (coordinateDisposal)
+                _releaseDispose = new();
+        }
+
+        public Task DisposeStarted => _disposeStarted.Task;
+        public Task ReadUnblocked => _readUnblocked.Task;
         public Task ReadStarted => _readStarted.Task;
         public bool DisposeAttempted =>
             Volatile.Read(ref _disposeAttempted) != 0;
+
+        public void ReleaseDispose() => _releaseDispose?.Set();
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
@@ -2204,6 +2242,7 @@ public sealed class NuGetDeadlineTests
         {
             _readStarted.TrySetResult();
             _disposed.Wait();
+            _readUnblocked.TrySetResult();
             throw new ObjectDisposedException(
                 nameof(ThrowingDisposeStallingStream));
         }
@@ -2214,6 +2253,7 @@ public sealed class NuGetDeadlineTests
         {
             _readStarted.TrySetResult();
             await _disposedAsync.Task;
+            _readUnblocked.TrySetResult();
             throw new ObjectDisposedException(
                 nameof(ThrowingDisposeStallingStream));
         }
@@ -2223,10 +2263,19 @@ public sealed class NuGetDeadlineTests
             if (disposing
                 && Interlocked.Exchange(ref _disposeAttempted, 1) == 0)
             {
+                bool throwDisposalFailure =
+                    _releaseDispose is null || !_releaseDispose.IsSet;
                 _disposed.Set();
                 _disposedAsync.TrySetResult();
-                Thread.Sleep(50);
-                throw new IOException("Simulated disposal failure.");
+                _disposeStarted.TrySetResult();
+                if (_releaseDispose is null)
+                    Thread.Sleep(50);
+                else if (!_releaseDispose.Wait(TimeSpan.FromSeconds(30)))
+                    throw new TimeoutException(
+                        "Timed out waiting to release simulated disposal.");
+
+                if (throwDisposalFailure)
+                    throw new IOException("Simulated disposal failure.");
             }
 
             base.Dispose(disposing);
