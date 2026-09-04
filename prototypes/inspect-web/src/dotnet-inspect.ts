@@ -282,7 +282,6 @@ import {
   renderTypeNav,
   renderTypeSource,
   type MemberNavEntry,
-  typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
@@ -2875,6 +2874,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const metadataWorkingSurface =
+    activeScope === "type" && state.lens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2965,7 +2966,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4413,17 +4414,6 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: AppTypeSurface) {
-  return typeHeading({
-    item,
-    packageContext: currentPackage(),
-    escapeHtml,
-    typeDisplayName,
-    kindIcon,
-    highlight,
-  });
-}
-
 function renderGraphMemberPendingHtml(
   item: AppTypeSurface,
   title: string,
@@ -4485,7 +4475,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
-      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+      return renderTypeMetadataHtml(item);
     case "api":
       return renderApiLens(item);
     default:
