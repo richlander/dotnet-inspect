@@ -23,98 +23,9 @@ namespace DotnetInspector.Commands;
 
 /// <summary>
 /// Shared helpers for type and member commands.
-/// Also provides a compatibility shim for callers that use ApiCommand.ExecuteAsync directly.
 /// </summary>
 public class ApiCommand
 {
-    public const string Name = "api";
-
-    // ===== Compatibility Shim =====
-
-    public static Task<int> ExecuteAsync(ApiOptions options) => options switch
-    {
-        MemberOptions mo => MemberCommand.ExecuteAsync(mo),
-        TypeOptions to => TypeCommand.ExecuteAsync(to),
-        _ => TypeCommand.ExecuteAsync(ToTypeOptions(options))
-    };
-
-    internal static string? GetDeferredTypeIncompatibleOption(
-        MemberOptions options)
-    {
-        if (options.Focus is not null) return "--focus";
-        if (options.OverloadIndexExplicitlySet) return "--index";
-        if (options.CtorOnly) return "--ctor";
-        if (options.CallerScopeDirectories.Length > 0) return "--bin";
-        if (options.CallerScopePackages.Length > 0) return "--caller-package";
-        if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
-        return null;
-    }
-
-    internal static TypeOptions ToTypeOptions(ApiOptions options)
-    {
-        var (memberFilter, memberLimit) = options is MemberOptions
-            {
-                RouterDeferredTypeOrMember: true
-            } memberOptions
-            ? SharedParsers.ParseMemberFilter(
-                memberOptions.RouterDeferredTypeMemberValues)
-            : (options.MemberFilter, options.Limit);
-        return new()
-        {
-            TypeName = options.TypeName, PackagePath = options.PackagePath,
-            PackageRangeAddress = options.PackageRangeAddress,
-            AssemblyPath = options.AssemblyPath,
-            PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
-            ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
-            SourceRepositories = options.SourceRepositories,
-            Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
-            ShowDocs = options is MemberOptions
-                {
-                    RouterDeferredTypeOrMember: true,
-                    DocsExplicitlySet: false
-                }
-                    ? false
-                    : options.ShowDocs,
-            DocsExplicitlySet = options.DocsExplicitlySet,
-            UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
-            BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
-            JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
-            Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
-            TabularExplicitlySet = options.TabularExplicitlySet,
-            FormatExplicitlySet = options.FormatExplicitlySet,
-            FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
-            MarkdownExplicitlySet = options.MarkdownExplicitlySet,
-            Format = options.Format,
-            PlainText = options.PlainText,
-            MermaidOutput = options.MermaidOutput,
-            EmbeddedMermaid = options.EmbeddedMermaid,
-            Bare = options.Bare,
-            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
-            MemberFilter = memberFilter,
-            KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
-            IncludeSections = options.IncludeSections,
-            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
-            Print = options.Print, PrintRow = options.PrintRow,
-            Value = options.Value, Urls = options.Urls, Paths = options.Paths,
-            Select = options.Select, SelectDefault = options.SelectDefault,
-            Columns = options.Columns, Fields = options.Fields,
-            Discover = options.Discover, Tree = options.Tree,
-            ShapeOutput = options.ShapeOutput,
-            ShapeExplicitlySet = options.ShapeExplicitlySet,
-            Schema = options.Schema, Count = options.Count, Rows = options.Rows,
-            JsonArray = options.JsonArray,
-            PerformanceTriage = options.PerformanceTriage,
-            BodyKindQuery = options.BodyKindQuery,
-            SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
-            RenderConfigWarnings = options.RenderConfigWarnings,
-            RequestAllTaste = options.RequestAllTaste,
-            RequestReadableLocalNames = options.RequestReadableLocalNames,
-            DllPath = options.DllPath,
-            PdbPath = options.PdbPath
-        };
-    }
-
     internal static bool RejectUniversallyInvalidMemberSelect(
         MemberOptions options)
     {
@@ -428,9 +339,7 @@ public class ApiCommand
         // Selected member details join the fixed overview here: Signature is bounded, while the
         // former info preset also included Decompiled Source and therefore grew with the method
         // body. Broad member lists and member-name overload inventories retain their own compact
-        // summary presets; they need separate bounded overview designs. The deprecated `api` shim
-        // reaches this preamble too but renders nothing at all -- it prints a migration notice and
-        // returns -- so it has no bare -S to convert. See #3547.
+        // summary presets; they need separate bounded overview designs. See #3547.
         //
         // Type listing joins here as of this slice. It previously had no Fixed section to offer --
         // every section it published was a per-kind member table that grows with the assembly -- so

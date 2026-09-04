@@ -724,13 +724,55 @@ Hard constraints:
    and generated TypeScript bindings for the engine surface project that
    preset; they are not a second demo system.
 
-The product registry (`ProductInspectionDemos`) stays a static id→metadata
-table plus peer definition records lowered to a `ResolvedScenario`. Listing
-remains metadata-only. `ProductDemoRunPlan` is the host-neutral lowering of a
-resolved scenario into its selected context, navigation focus, type/member
-selection, and section; CLI and browser encodings consume that plan rather than
-parsing the member selection independently. **The current schema-version-1
-home demos bind legacy product section display names** through
+Under the operator-approved two-owner composition recorded by
+[#5772](https://github.com/richlander/dotnet-inspect/issues/5772), this revision
+transfers one cohesive application responsibility to
+[Static Ecosystem Packs](ecosystem-packs.md#product-demos): which product demos
+ship, their ecosystem grouping and display metadata, their global product
+order, and the source-authored record factories. Workspace Definitions retains
+scenario identity, record shape, validation, resolution, section or facet
+admission, run plans, execution semantics, and failures.
+
+Workspace Definitions issues `ProductDemoSourceBinding`, one static
+noncapturing source paired with the exact scenario ID it must resolve. The
+public minting seam is
+`ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
+method group is admitted. Construction requires a one-entry invocation list and
+rejects a delegate with a non-null target before publication. Static lambdas are
+intentionally not the authoring form because the compiler may represent a
+noncapturing lambda with a cached target object. A multicast combination of
+static method groups is also rejected because one resolve would otherwise
+execute every combined source. The binding stores the source privately and
+exposes no delegate or factory property.
+
+This section is the sole authority for the binding's construction, admission,
+source lifetime, validation, resolution, execution handoff, and failure
+semantics. The ecosystem design names only the opaque handoff and the
+catalog-owned dispatch obligations.
+
+The application catalog stores that opaque owner-issued binding beside its
+application metadata. Listing is metadata-only and cannot invoke the source.
+Selecting one demo dispatches only that binding. Its resolve operation requires
+the returned records to contain exactly one `ScenarioDefinition`, requires that
+record's ID to equal the declared scenario ID, builds
+`InspectionDefinitionRegistry`, resolves that exact ID, and enforces the normal
+demo section binding. An absent, second, or mismatched scenario, malformed peer
+graph, or unsupported section fails visibly; it does not return an empty or
+neighboring demo. Record types, graph validation, scenario admission,
+resolution, and failure therefore remain wholly owned here, while the
+application-authored factory body constructs those records and Ecosystems owns
+only exact dispatch isolation and the application inventory.
+
+Catalog selection retains the application descriptor beside
+`ResolvedScenario`. Product-facing title and summary come from that descriptor.
+`ScenarioDefinition.Title` and `Description` remain portable definition fields
+and may differ without becoming a second product-catalog metadata authority.
+
+`ProductDemoRunPlan` remains the host-neutral lowering of a resolved scenario
+into its selected context, navigation focus, type/member selection, and
+section; CLI and browser encodings consume that plan rather than parsing the
+member selection independently. **The current schema-version-1 home demos bind
+legacy product section display names** through
 `ProductDemoSections` (today: `Methods` for the STJ API tour; `Call
 Graph` primary bind for multi-package and package-local graph demos, expanded
 at run via `ExpandRunSections` / `DemoScenarioRunner`: Markdown keeps
@@ -741,15 +783,18 @@ select `Call Graph` when it does not, so package-local entry points with empty
 Callers still emit rows; standalone `--mermaid` keeps `Call Graph`; document
 `--json` fails closed for Call Graph demos until graph sections project into
 that payload.
-`ResolveHomeScenario` fails when a home demo omits `View.Section` or names a
-section outside that allow list (`ProductHomeDemos_AllBindKnownProductSections`,
+Demo-source resolution fails when a home demo omits `View.Section` or names a
+section outside that allow list
+(`ProductEcosystemPackTests.EveryShippedDemoBindsAKnownProductSection`,
 `ProductDemoSections_AreProductSectionNames`). Methods demos reject standalone
 mermaid rather than falling through to the type shape tree. The
 [View Facet Registry](view-facet-registry.md) settles minted facet identity;
 schema version 2 and the explicit legacy table below settle versioned migration
-and complete view composition. Platform workspaces remain product capability;
-they are not a home-demo entry (home catalog is package- and graph-shaped
-scenarios).
+and complete view composition. `ecosystem.platform` is application grouping,
+not workspace-coordinate inference: the current System.Text.Json demos retain
+their exact package pins even when the ecosystem catalog groups them as basic
+Platform demos. Platform-coordinate workspaces remain a product capability but
+are not admitted as home demos by this slice.
 
 A schema-version-2 home demo persists only `ViewState.Facet` and version-2
 query records. The resolved facet and query owners reach their ordinary
@@ -760,16 +805,18 @@ their exact canonical facet IDs before Registry resolution.
 **CLI run** lowers the resolved plan to `TypeCommand` / `MemberCommand` options
 (`DemoScenarioRunner`) so `dotnet-inspect demo <id>` returns ordinary section
 output from the existing pipelines; multi-package workspaces encode extra
-package members as `--caller-package` for the call-graph demo. **inspect-web**
-loads home-demo catalog and coordinates from the product registry through the
-browser engine (`ListHomeDemos` / `ResolveHomeDemo` /
-`RunHomeDemo` over `ProductInspectionDemos`). `RunHomeDemo` accepts both
-type-only `Methods` and member-bound `Call Graph` presets: the engine resolves
-the workspace, focus, section, and optional member anchor, opens one aggregate
-browser workspace, and returns its package surfaces plus exact activation
-identity. The focused `BrowserTypeSurface.Api` rows are the browser's ordinary
-Methods-section output; a member-bound run additionally returns the ordinary
-Call Graph projection. The engine rejects other product sections,
+package members as `--caller-package` for the call-graph demo. **inspect-web** loads home-demo metadata and exact scenario IDs from the
+ecosystem catalog through the browser engine (`ListHomeDemos` /
+`ResolveHomeDemo` / `RunHomeDemo`). The transfer replaced only the
+application-inventory source with flattened descriptors and exact selection;
+Workspace Definitions execution remains unchanged. `RunHomeDemo` accepts both
+type-only `Methods` and member-bound
+`Call Graph` presets: the engine resolves the workspace, focus, section, and
+optional member anchor, opens one aggregate browser workspace, and returns its
+package surfaces plus exact activation identity. The focused
+`BrowserTypeSurface.Api` rows are the browser's ordinary Methods-section
+output; a member-bound run additionally returns the ordinary Call Graph
+projection. The engine rejects other product sections,
 library-scoped views, and runtime-identifier-scoped package workspaces until
 Browser has explicit execution support rather than silently dropping those
 bindings. These properties are gated by
@@ -1852,7 +1899,7 @@ Implementation must add, at minimum:
   only current opaque Navigation authority can reach the consumer;
 - a demo-parity gate showing the previously imperative call-graph demo loads
   from a definition and lands on the anchor-digest-selected overload —
-  `InspectionDefinitionTests.ProductHomeDemos_ResolveCallGraphByMemberAnchor`
+  `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
   and
   `BrowserProductHomeDemosTests.ExtensionsCallGraph_RunPlanOwnsWorkspaceFocusAndMemberSelection`
   resolve the static product-registry scenario to `WorkspaceMemberCoordinate`
@@ -1866,11 +1913,21 @@ Implementation must add, at minimum:
   `BrowserEngineBoundaryTests.HomeDemoRunCore_ProjectsTheAnchoredMemberAndItsGraph`
   gates aggregate workspace projection, non-first focus consumption,
   digest-prefix selection, and graph execution;
+- a demo-source binding gate proving construction is inert, selected resolution
+  invokes its source exactly once, allocates only the records returned by that
+  source, requires exactly one scenario record, resolves the declared scenario
+  ID exactly, and keeps absent, duplicate, mismatched, record-reference, and
+  section-admission failures visible; constructor cases accept a static method
+  group and reject instance, capturing-lambda, and cached static-lambda targets
+  plus multicast static-method-group combinations before publication —
+  `ProductDemoSourceBindingTests` owns these Workspace Definitions properties;
+  application inventory, grouping, catalog display metadata, and
+  neighboring-source isolation remain ecosystem-catalog gates;
 - a demo-section constraint (design rule under
   [Product demos are closed section presets](#product-demos-are-closed-section-presets)):
   each product home demo names only existing section ids and runs through the
   normal section pipeline — gated by
-  `ProductHomeDemos_AllBindKnownProductSections`,
+  `ProductEcosystemPackTests.EveryShippedDemoBindsAKnownProductSection`,
   `ProductDemoSections_AreProductSectionNames`, and
   `DemoCommandTests.ExecuteScenario_*_Returns*Section` (CLI encoding). Residual
   implementation gates for facet-ID migration, complete portable composition,
@@ -1907,11 +1964,11 @@ Definition records and product demos (this slice):
   expressions and filesystem coordinates are typed failures in this slice).
   Each resolved context retains its activation-relative
   `WorkspaceContextAddress` and compact target descriptor;
-- `ProductInspectionDemos` is a static id→factory registry (smooth-markdown-table
-  `RendererRegistry` style) of the product home scenarios (Methods tour plus
-  multiple Call Graph shapes); listing is metadata-only and
-  `ResolveHomeScenario` allocates only that demo's peer records and enforces
-  `ProductDemoSections` binding; JSON remains the portable load path for external
+- `ProductDemoSourceBinding` is the Workspace-owned target-free static
+  method-group binding. It validates exactly one matching scenario record,
+  resolves that exact scenario, and enforces `ProductDemoSections`; the
+  Ecosystems application catalog retains the binding privately and dispatches
+  only the selected source. JSON remains the portable load path for external
   definitions;
 - `ProductDemoRunPlan` lowers the resolved context, focus, type/member
   selection, and section once for host encodings;
@@ -1923,13 +1980,22 @@ Definition records and product demos (this slice):
   metadata and **runs** the bound section through `TypeCommand` /
   `MemberCommand` (not a resolve-only plan dump), with orthogonal formats
   including `--mermaid` and fail-closed Call Graph `--json`;
-- `InspectionDefinitionTests` / `DemoCommandTests` gate round-trip, separation,
-  demo-parity, section binding, CLI lowering, and real section output for the
-  product home demos; inspect-web's generated `RunHomeDemo` binding runs both
-  type-only Methods and member-bound Call Graph presets from their product
-  scenario ids. `BrowserProductHomeDemosTests` gates host-plan lowering and
-  unsupported bindings; `BrowserEngineBoundaryTests` gates nonempty Methods
-  projection and anchored Call Graph execution;
+- `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
+  `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
+  gate portable round-trip and record-kind separation.
+  `ProductDemoSourceBindingTests` gates source shape, exactly-once source
+  invocation per resolve, exact scenario resolution, section admission, and
+  visible failures.
+  `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata`
+  gates selected-only catalog dispatch and neighboring-source isolation.
+  `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
+  and `ProductEcosystemPackTests.EveryShippedDemoBindsAKnownProductSection`
+  gate donor parity and shipped section binding; `DemoCommandTests` gates CLI
+  lowering and real section output. Inspect-web's generated `RunHomeDemo`
+  binding runs both type-only Methods and member-bound Call Graph presets from
+  their product scenario ids. `BrowserProductHomeDemosTests` gates host-plan
+  lowering and unsupported bindings; `BrowserEngineBoundaryTests` gates
+  nonempty Methods projection and anchored Call Graph execution;
 - `WorkspaceSharePacketCodec` decodes and canonically re-emits the bounded v1
   base64url packet into an immutable product-owned semantic model. It rejects
   legacy prototype packets, malformed or non-canonical encoding and JSON,
@@ -2225,9 +2291,12 @@ The residual open items from the list above are: group catalog grammar and
 subscribe lowering, filesystem `project` / `local` / `directory` coordinate
 hosts, and complete preset/query binding. Coordinate kinds
 `package`, `platform`, and `embedded` already lower; the record schema,
-serializer, registry, and product demos are gated by
-`InspectionDefinitionTests`. Every property that still depends on the residual
-items remains unverified.
+serializer, and registry are gated by `InspectionDefinitionTests`. Product
+demos are gated by the `ProductDemoSourceBindingTests`,
+`ProductEcosystemPackTests`, `DemoCommandTests`,
+`BrowserProductHomeDemosTests`, and `BrowserEngineBoundaryTests` suites named
+above. Every property that still depends on the residual items remains
+unverified.
 
 Until those residual gates exist, nothing in this note beyond the slices above
 is a behavior claim.

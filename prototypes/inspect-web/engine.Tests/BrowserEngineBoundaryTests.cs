@@ -3070,8 +3070,9 @@ public sealed class BrowserEngineBoundaryTests
             "Identity.Mismatch",
             PackagePair(surfaceImage, differentImage, "Identity.Pair.dll"));
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageWorkspace.OpenScope([mismatched]));
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
+                () => BrowserPackageWorkspace.OpenScope([mismatched]));
 
         Assert.Contains(
             "different assembly identities",

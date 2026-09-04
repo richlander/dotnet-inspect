@@ -4,7 +4,7 @@ using DotnetInspector.Options;
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Section descriptors for the api command type-list view (all types in an assembly).
+/// Section descriptors for the type command's listing view.
 /// Sections correspond to type-kind groupings: Classes, Structs, Interfaces, Enums, Delegates.
 /// </summary>
 public static class ApiTypeSectionDescriptors
@@ -96,7 +96,7 @@ public static class ApiTypeSectionDescriptors
 }
 
 /// <summary>
-/// Section descriptors for the api command type-detail view (single type with members).
+/// Section descriptors for the type command's detail view.
 /// Sections correspond to <see cref="Views.TypeView"/> sections and member-kind groupings.
 /// </summary>
 public static class ApiMemberSectionDescriptors

@@ -279,17 +279,38 @@ frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
 type shell, so metadata scaffolding cannot satisfy a target-body assertion.
-`--source-correspondence-census` is an alias for the source probe when the task
-is source-fidelity triage rather than RTS compile-back triage. Its `--json`
-payload includes `source_correspondence_findings`: stable Finding-style rows
-keyed by member stable selector when available. Each row carries a descriptor ID
-such as `source.correspondence.valid_different.known_taste`, a coarse category
+`--source-correspondence-census` is the live-source form of the probe. For every
+selected target, it uses the portable PDB to acquire the complete authored file
+from its recorded local path, a repeatable `--repo <path>` local clone, or
+SourceLink, in that order. The checksum-verified member slice enters a
+comparison-only source index; PDB correspondence cannot authorize RTS fault
+attribution and does not change the compile-back verdict
+(`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` gates that boundary).
+Acquisition is
+reported beside that verdict as `complete`, `absent`, or `failed`. Absence is a
+measured skip, while acquisition or body-extraction failure exits non-zero.
+RTS-invalid rows remain census data and do not fail this live-source mode; the
+fixture probe retains its existing RTS-invalid exit gate.
+
+Its `--json` payload includes `source_correspondence_findings`: stable
+Finding-style rows keyed by member stable selector when available. Each row
+carries a descriptor ID such as
+`source.correspondence.valid_different.known_taste`, a coarse category
 (`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
 `semantic-opcode-diff`, `semantic-operand-diff`, `invalid`, or `unclassified`),
 the source file name, and whether fidelity-diff evidence is attached. The
-finding projection intentionally
-uses source file names rather than absolute source paths so the census can be
-shared without leaking local checkout paths.
+finding projection intentionally uses source file names rather than absolute
+source paths so the census can be shared without leaking local checkout paths.
+Stored reports count authored-body matches separately from bodyless declarations,
+which remain context rather than a higher-is-better correspondence metric
+(`SourceCorrespondenceReport_TracksBodylessRowsAsContext` gates the split).
+For example:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census --json --cap 500 \
+  --repo /path/to/runtime System.Private.CoreLib.dll
+```
 
 `--authored-rebuild-fidelity` is the SourceLink-backed second oracle. It
 checksum-verifies the authored body, substitutes it into the same final RTS
@@ -299,11 +320,19 @@ reports deterministic-build and portable-PDB option/reference context
 separately. `SourceAbsent` is missing evidence; `SourceFailed` is an acquisition
 or integrity failure.
 
+The current context assessment is an aggregate comparison of recorded options
+and reference names against RTS context, not proof of a reproduced build.
+The planned [lane-specific rebuild-context
+contract](../../docs/design/fact-planned-compile-back-harness.md#authored-source-rebuild-fidelity)
+tracks separate recorded-versus-effective evidence for each compilation;
+that expanded reporting is not implemented yet.
+
 ### Authored-source correspondence corpus (offline benchmark)
 
 `--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
-authored source live through SourceLink, so they need network access and report
-`SourceUnavailable` whenever a library has no SourceLink. The authored-source
+authored source at run time. The census can avoid SourceLink network access when
+the recorded local path exists or a matching commit is available through
+`--repo`; otherwise both modes may require the network. The authored-source
 correspondence corpus removes that variability: a vendored JSONL where each row
 is a real method identity plus a checksum-verified authored member body captured
 at harvest time. Benchmark runs over it are fully offline and, because every row
@@ -329,9 +358,14 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   $(cat /tmp/corpus-assemblies.txt)
 ```
 
-`--repo <path>` (repeatable) makes harvest read each target's authored source
-from a local git clone instead of the network, arbitrated by the same PDB
-checksum, falling back to the network on any mismatch or miss. Pointing it at
+For `--package` inputs, the harness carries the resolved package ID and version
+into portable-PDB acquisition so the package's `.snupkg` participates before
+symbol-server fallback.
+
+`--repo <path>` (repeatable) makes harvest, drift verification, candidate
+discovery, and the live source-correspondence census read each target's authored
+source from a local git clone instead of the network, arbitrated by the same PDB
+checksum and falling back to the network on any mismatch or miss. Pointing it at
 this checkout resolves the dotnet-inspect self-corpus rows entirely from local
 git: those assemblies come from the pinned `dotnet-inspect.any` package
 (`prepare-decompiler-corpus.sh`), whose SourceLink targets this repository, so
@@ -502,13 +536,17 @@ eligible-method completeness for the exact scanned assembly set; it is **not** a
 claim that every C# declaration in the file was checked. A file with no eligible
 target is rejected structurally rather than qualifying vacuously.
 
-Each immutable file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
+Each checksum-pinned file identity — the `(sourceUrl, checksumAlgorithm, checksum)`
 triple the manifest registers, grouped across assemblies and marked
 `sharedAcrossAssemblies` when more than one module maps it — is:
 
-- **Enrolled** — its exact commit-pinned source URL is already present in the
-  verified baseline, so it remains visible but is not ranked as a next
-  candidate.
+- **Enrolled** — it qualifies in the current run, and its exact source URL is
+  already present in the accepted baseline and is commit-pinned under the
+  product's recognized SourceLink provenance grammar. It remains visible but
+  is not ranked as a next candidate. A mutable or unknown-host URL is not
+  enough to establish cross-run enrollment correspondence, and a currently
+  rejected or unevaluable file retains that verdict rather than being
+  relabeled.
 - **Qualified** — every eligible target has a captured record, evaluates
   `ValidMatch`, is `PrinterExact` `Exact` at the supported printer comparison
   version, and its Printer body parses for the syntax inventory.
@@ -569,11 +607,17 @@ rejected.
 inventory entries. The
 candidate report records the baseline's provenance, digest, and feature set —
 never its local path.
+Baseline cleanliness is disclosed rather than admitted: a dirty baseline or one
+whose build revision did not match the then-current checkout may still supply a
+passing measured feature set. The ledger preserves those facts, including
+`sourceRevisionMatchesHead`, so the operator can distinguish measurement
+consistency from repository reproducibility.
 
 Qualified files are then ranked greedily and deterministically: starting from
 the baseline's observed features, repeatedly take the remaining qualified file
 covering the most currently uncovered features, breaking ties on total feature
-count descending, eligible-target count descending, then source URL ordinal.
+count descending, eligible-target count descending, source URL ordinal,
+checksum algorithm ordinal, and checksum ordinal.
 Each pick records its `rank` and `incrementalFeatures` and updates the covered
 set, so a file's gain reflects the picks before it and zero-gain files rank
 after every positive-gain file.
@@ -581,13 +625,16 @@ after every positive-gain file.
 `GreedyRanking_BreaksTiesDeterministically` are the named gates.
 
 **Exit code.** Candidate rejection and transient source unavailability are typed
-data and exit 0. The run fails only on measurement integrity: no usable assembly
-or real-method target, a failed PDB mapping census, an evaluation count or
-correlation mismatch, an invalid or unverified baseline report, or a run in
-which no checksum-identified file was evaluated at all.
+data and exit 0. The supplied assembly set is all-or-nothing for measurement
+integrity: an unreadable assembly, duplicate module identity, absent real-method
+target, or failed complete PDB census in any input refuses the run rather than
+publishing a ranking for the remainder. An evaluation count or correlation
+mismatch, an unaccepted baseline report, or a run in which no
+checksum-identified file was evaluated also refuses the run.
 
-**Durable output.** The `--json` report carries identities, checksums, counts,
-typed reason codes, outcomes, feature names, and member identities only.
+**Archiveable output.** The version-2 `--json` report carries identities,
+checksums, counts, typed reason codes, outcomes, feature names, member
+identities, and disclosed current and baseline provenance only.
 Assembly provenance is content-derived; path-derived labels such as a parent
 directory interpreted as a target framework are excluded. The report never
 carries an authored body, a Printer body, a diff, or a local path;
@@ -598,14 +645,17 @@ it classifies and serializes. The text card is the same data: input and
 denominator totals, status counts, the rejection-family and reason histograms,
 the baseline feature count, the ranked candidates with gain, total, and member
 counts, and the explicit unevaluable and unmapped counts. Data goes to stdout
-and diagnostics to stderr.
+and diagnostics to stderr. No parser or complete-report verifier promotes an
+archived candidate report into a new baseline or enrollment authorization; the
+omitted source, PDB, and baseline bodies prevent replaying its verdicts from the
+report alone.
 
 ```bash
 bash eng/restore-authored-source-corpus.sh
 bash eng/prepare-authored-source-oracles.sh /tmp/source-oracle-assemblies.txt
 mapfile -t oracle_assemblies < /tmp/source-oracle-assemblies.txt
 
-# 1. Produce the verified enrolled baseline the ranking is incremental to.
+# 1. Produce the accepted measured baseline the ranking is incremental to.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --benchmark-authored-corpus external/authored-source-corpus/oracle/corpus.jsonl \
   --source-oracle-manifest external/authored-source-corpus/oracle/manifest.json \
@@ -1231,7 +1281,7 @@ rates; this is a first published census (successor to the earlier "0/21"
 classic-async gap), not yet a broad real-world quality target.
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
@@ -1439,12 +1489,14 @@ bring-down instrument, not a regression wall — build them and point
 `--library-report` at them. `AsyncLoweringFixtureMatrixTests` gates only the
 shared-source and physical-lowering contract. The first axis compiles the exact
 same `AsyncFixtures.cs` through
-`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (`runtime-async=off`) and
-`src/ILInspector.Decompiler.Fixtures.RuntimeAsync` (`runtime-async=on`):
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync`
+(`runtime-async=off`) and
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync`
+(`runtime-async=on`):
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
@@ -1462,8 +1514,8 @@ runtime-async implementation flag.
 The second axis is the old/new memory-safety pair:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.LegacyUnsafe/release/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.NewUnsafe/release/ILInspector.Decompiler.Fixtures.NewUnsafe.dll
@@ -1479,10 +1531,11 @@ both assemblies are 8/8 full and fully raised, with no unsupported patterns.
 `RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
 diagnostics.
 
-The checked-arithmetic axis is `src/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
+The checked-arithmetic axis is
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.CheckedArithmetic/release/ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll
 ```
@@ -1967,7 +2020,7 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   /path/to/System.Private.CoreLib.dll --bind-check --max-examples 20
 
 # Which whole source files could be enrolled in the source oracle next, ranked by
-# the new C# syntax each one adds over a VERIFIED enrolled benchmark report.
+# the new C# syntax each one adds over an accepted measured benchmark report.
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --source-oracle-candidates \
   --baseline-source-oracle-report /tmp/source-oracle-baseline.json \

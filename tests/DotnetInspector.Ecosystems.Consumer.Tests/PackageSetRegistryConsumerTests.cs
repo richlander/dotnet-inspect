@@ -24,4 +24,22 @@ public sealed class PackageSetRegistryConsumerTests
                 member.PackageId,
                 StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection()
+    {
+        EcosystemPackDescriptor[] packs = [.. EcosystemPackCatalog.Discover()];
+        EcosystemDemoDescriptor[] demos = [.. EcosystemPackCatalog.DiscoverDemos()];
+
+        Assert.Equal(4, packs.Length);
+        Assert.Equal(10, demos.Length);
+        Assert.Equal(ProductDemoIds.StjSerializer, demos[0].ScenarioId);
+        Assert.Equal(ProductDemoIds.AspireRedisCallGraph, demos[^1].ScenarioId);
+        var selected = Assert.IsType<EcosystemDemoSelectionResult.Known>(
+            EcosystemPackCatalog.SelectDemo(ProductDemoIds.StjSerializer));
+        Assert.Same(demos[0], selected.Selection.Descriptor);
+        Assert.Equal(
+            ProductDemoIds.StjSerializer,
+            selected.Selection.Scenario.ScenarioId);
+    }
 }

@@ -47,6 +47,10 @@ class FakeElement {
     this.focused = true;
   }
 
+  click() {
+    this.dispatch("click");
+  }
+
   checkVisibility() {
     return this.rendered;
   }
@@ -258,23 +262,26 @@ test("scope bar binding tolerates an empty strip", () => {
     recordingActions([])));
 });
 
-test("subject tabs use manual roving keyboard focus", () => {
+test("subject tab navigation focuses and activates the destination", () => {
   const root = new FakeRoot();
-  const workspace = new FakeElement();
-  const packageSubject = new FakeElement();
-  const type = new FakeElement();
+  const workspace = new FakeElement({ scope: "workspace" });
+  const packageSubject = new FakeElement({ scope: "package" });
+  const type = new FakeElement({ scope: "type" });
   workspace.tabIndex = -1;
   packageSubject.tabIndex = 0;
   type.tabIndex = -1;
   root.add("[data-subject-tab]", workspace, packageSubject, type);
+  root.add("[data-scope]", workspace, packageSubject, type);
+  const calls: string[] = [];
 
-  bindScopeBar(fakeDom.parentNode(root), recordingActions([]));
+  bindScopeBar(fakeDom.parentNode(root), recordingActions(calls));
 
   assert.equal(packageSubject.dispatch("keydown", { key: "ArrowRight" }), true);
   assert.equal(type.focused, true);
   assert.deepEqual(
     [workspace.tabIndex, packageSubject.tabIndex, type.tabIndex],
     [-1, -1, 0]);
+  assert.deepEqual(calls, ["scope:type"]);
 });
 
 test("scope bar bindings ignore missing and unknown dataset values", () => {
@@ -344,6 +351,21 @@ test("package scope marks only the package segment and the active package lens",
   assert.doesNotMatch(html, /data-scope="member"/);
   assert.match(html, /class="[^"]*\blens active" data-package-lens="dependencies"/);
   assert.doesNotMatch(html, /class="[^"]*\blens active" data-package-lens="overview"/);
+});
+
+test("workspace-only availability leaves the separate subject ladder empty", () => {
+  const html = renderScopeBar({
+    scope: "workspace",
+    strip: [],
+    activeStripId: null,
+    stripAttribute: "data-workspace-lens",
+    availableScopes: ["workspace"],
+    escapeHtml,
+  });
+
+  assert.doesNotMatch(
+    html,
+    /data-scope="workspace"|data-scope="package"|data-scope="type"/);
 });
 
 test("type scope marks the type segment and renders the fixed type lenses", () => {

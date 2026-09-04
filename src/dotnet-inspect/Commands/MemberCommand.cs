@@ -681,7 +681,7 @@ public static class MemberCommand
             return 1;
         }
 
-        if (ApiCommand.GetDeferredTypeIncompatibleOption(unresolvedOptions)
+        if (GetDeferredTypeIncompatibleOption(unresolvedOptions)
             is { } incompatibleOption)
         {
             CommandError.Write(
@@ -690,9 +690,21 @@ public static class MemberCommand
         }
 
         return await TypeCommand.ExecuteResolvedAsync(
-            ApiCommand.ToTypeOptions(unresolvedOptions),
+            TypeCommand.FromDeferredMemberOptions(unresolvedOptions),
             source,
             loaded);
+    }
+
+    private static string? GetDeferredTypeIncompatibleOption(
+        MemberOptions options)
+    {
+        if (options.Focus is not null) return "--focus";
+        if (options.OverloadIndexExplicitlySet) return "--index";
+        if (options.CtorOnly) return "--ctor";
+        if (options.CallerScopeDirectories.Length > 0) return "--bin";
+        if (options.CallerScopePackages.Length > 0) return "--caller-package";
+        if (options.MermaidOutput || options.EmbeddedMermaid) return "--mermaid";
+        return null;
     }
 
     private static async Task<int?> TryExecuteFindIfMissAsync(MemberOptions options)

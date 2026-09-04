@@ -342,6 +342,60 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toBeLessThanOrEqual(metadataHeader.y + metadataHeader.height);
   await expect(page.locator(".metadata-surface-head h1")).toHaveText("Metadata");
 
+  await page.goto("/browser/workspace-titlebar.html?package-dependencies=1");
+  const packageDependenciesHeader = await box(
+    page,
+    ".package-dependencies-surface-head");
+  const packageDependenciesToggle = await box(
+    page,
+    "#content-navigation-toggle");
+  expect(packageDependenciesToggle.y)
+    .toBeGreaterThanOrEqual(packageDependenciesHeader.y);
+  expect(packageDependenciesToggle.y + packageDependenciesToggle.height)
+    .toBeLessThanOrEqual(
+      packageDependenciesHeader.y + packageDependenciesHeader.height);
+  await expect(page.locator(".detail-pane"))
+    .toHaveClass(/content-navigation-integrated/);
+  await expect(page.locator(".package-dependencies-surface-head h1"))
+    .toHaveText("Dependencies");
+  const packageDependenciesFooter = await box(
+    page,
+    ".package-dependencies-surface-footer");
+  const packageDependenciesCoordinate = await box(
+    page,
+    ".package-dependencies-surface-footer span:first-child");
+  const packageDependenciesFramework = await box(
+    page,
+    ".package-dependencies-surface-footer span:last-child");
+  expect(packageDependenciesCoordinate.x)
+    .toBeLessThan(packageDependenciesFooter.x + packageDependenciesFooter.width / 3);
+  expect(packageDependenciesFramework.x + packageDependenciesFramework.width)
+    .toBeGreaterThan(
+      packageDependenciesFooter.x + packageDependenciesFooter.width * 2 / 3);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+    - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+  await page.goto("/browser/workspace-titlebar.html?package-metadata=1");
+  const packageMetadataHeader = await box(
+    page,
+    ".package-metadata-surface-head");
+  const packageMetadataToggle = await box(
+    page,
+    "#content-navigation-toggle");
+  expect(packageMetadataToggle.y)
+    .toBeGreaterThanOrEqual(packageMetadataHeader.y);
+  expect(packageMetadataToggle.y + packageMetadataToggle.height)
+    .toBeLessThanOrEqual(
+      packageMetadataHeader.y + packageMetadataHeader.height);
+  await expect(page.locator(".detail-pane"))
+    .toHaveClass(/content-navigation-integrated/);
+  await expect(page.locator(".package-metadata-surface-head h1"))
+    .toHaveText("Metadata images");
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+    - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
   await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
   const sourceNavigation = await box(page, ".content-navigation-bar");
   const source = await box(page, ".source-result");
@@ -351,15 +405,93 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
-test("Member Overview begins twelve pixels below its quiet header", async ({
+test("Member Overview anchors its declaration below the quiet header", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 900, height: 700 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
+  for (const documentation of ["missing", "summary", "loading", "error"]) {
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-docs=${documentation}`);
 
-  const header = await box(page, ".member-surface-head");
-  const summary = await box(page, ".member-overview-intro > :first-child");
-  expect(summary.y - (header.y + header.height)).toBeCloseTo(12, 0);
+    const header = await box(page, ".member-surface-head");
+    const declaration = await box(page, ".signature-panel");
+    expect(declaration.y - (header.y + header.height)).toBeCloseTo(12, 0);
+    await expect(page.locator(".member-documentation")).toBeVisible();
+    await expect(page.locator(".member-identity")).toBeVisible();
+  }
+});
+
+test("Member Overview keeps declaration, summary, and identity in order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+  const order = await page.evaluate(() => {
+    const declaration = document.querySelector(".signature-panel");
+    const summary = document.querySelector(".member-documentation");
+    const identity = document.querySelector(".member-identity");
+    if (!declaration || !summary || !identity)
+      throw new Error("The Member Overview top-content regions are unavailable.");
+    return [
+      Boolean(declaration.compareDocumentPosition(summary)
+        & Node.DOCUMENT_POSITION_FOLLOWING),
+      Boolean(summary.compareDocumentPosition(identity)
+        & Node.DOCUMENT_POSITION_FOLLOWING),
+    ];
+  });
+  expect(order).toEqual([true, true]);
+
+  const detail = await box(page, ".detail-pane");
+  const declaration = await box(page, ".signature-panel");
+  const summary = await box(page, ".member-documentation");
+  const parameters = await box(page, ".member-parameters");
+  const parameterProse = await box(page, ".member-parameters dd p");
+  const returnsProse = await box(page, ".member-returns .api-summary");
+  expect(detail.x + detail.width - (declaration.x + declaration.width))
+    .toBeCloseTo(16, 0);
+  expect(summary.width).toBeLessThan(declaration.width);
+  expect(parameters.width).toBeLessThanOrEqual(900);
+  expect(parameterProse.width).toBeLessThanOrEqual(900);
+  expect(returnsProse.width).toBeLessThanOrEqual(900);
+  expect(declaration.width).toBeGreaterThan(parameters.width);
+});
+
+test("Member Overview responds to constrained pane widths", async ({
+  page,
+}) => {
+  for (const width of [860, 480]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+    const label = await box(
+      page,
+      ".member-identity dl > div:first-child dt");
+    const value = await box(
+      page,
+      ".member-identity dl > div:first-child dd");
+    expect(value.y).toBeGreaterThan(label.y);
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary&long-signature=1");
+  const declaration = await box(page, ".signature-panel");
+  const declarationHeader = await box(page, ".signature-language");
+  const copy = await box(page, "#copy-signature");
+  const code = await page.locator(".signature-code").evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
+  expect(copy.x + copy.width)
+    .toBeLessThanOrEqual(declaration.x + declaration.width);
+  expect(copy.y).toBeGreaterThanOrEqual(declarationHeader.y);
+  expect(copy.y + copy.height)
+    .toBeLessThanOrEqual(declarationHeader.y + declarationHeader.height);
 });
 
 test("the Application menu owns global actions and modal focus return", async ({
@@ -668,8 +800,6 @@ test("keyboard tab activation preserves focus across shell replacement", async (
   await type.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(packageSubject).toBeFocused();
-  await expect(packageSubject).toHaveAttribute("aria-selected", "false");
-  await page.keyboard.press("Enter");
   await expect(packageSubject).toHaveAttribute("aria-selected", "true");
   await expect(packageSubject).toBeFocused();
 });
@@ -786,7 +916,11 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(memberSubject).toHaveAttribute("aria-selected", "true");
   await memberSubject.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator('[data-scope="type"]')).toBeFocused();
+  const typeSubject = page.locator('[data-scope="type"]');
+  await expect(typeSubject).toBeFocused();
+  await expect(typeSubject).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(memberSubject).toBeFocused();
   await expect(memberSubject).toHaveAttribute("aria-selected", "true");
   await overview.focus();
   await page.keyboard.press("ArrowRight");
@@ -1267,7 +1401,6 @@ test("manual windows survive resize and reset with inspector inventory", async (
   await page.keyboard.press("ArrowLeft");
   const typeSubject = page.locator('[data-scope="type"]');
   await expect(typeSubject).toBeFocused();
-  await page.keyboard.press("Enter");
   await expect(typeSubject).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".slide-strip-inspector")).toHaveAttribute(
     "data-mode",
@@ -1815,7 +1948,7 @@ test("the target row advertises the typed Package, Type, and Member path", async
   }
 });
 
-test("Workspace keeps the Default Workspace visible and menu fixed", async ({
+test("Workspace keeps the singular Workspace visible and menu fixed", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -2006,9 +2139,9 @@ test("Workspace selection is observational and occurrence activation executes", 
 
   await expect(workspace).toBeFocused();
   await expect(page.locator(".workspace-heading h1"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator(".subject-path-segment"))
-    .toHaveText("Default Workspace");
+    .toHaveText("Workspace");
   await expect(page.locator("body"))
     .toHaveAttribute("data-workspace-execution-count", "0");
   expect(page.url()).toBe(href);
