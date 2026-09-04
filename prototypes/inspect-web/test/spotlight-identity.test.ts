@@ -2429,6 +2429,16 @@ test("ready status shows versioned linked build provenance", () => {
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
 });
 
+test("bootstrap reconciles persisted style choices with the product catalog", () => {
+  const bootstrap =
+    appSource.match(
+      /async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/,
+    )?.[0] ?? "";
+  assert.match(
+    bootstrap,
+    /state\.styleOptions = \([\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleOptions\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
+});
+
 test("bare home paints before wasm engine download", () => {
   const renderDispatch =
     appSource.match(
