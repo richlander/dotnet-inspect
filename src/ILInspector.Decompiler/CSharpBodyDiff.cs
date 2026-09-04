@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Runtime.CompilerServices;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -231,12 +232,163 @@ public sealed record CSharpBodyDiffResult(
 }
 
 /// <summary>
+/// One explicitly admitted endpoint for a C# member comparison. A present endpoint identifies an
+/// exact method definition; subject absence is separate evidence and is never inferred from a null
+/// source, handle, or body.
+/// </summary>
+public abstract record CSharpMemberDiffEndpoint
+{
+    CSharpMemberDiffEndpoint()
+    {
+    }
+
+    public sealed record Present : CSharpMemberDiffEndpoint
+    {
+        public Present(
+            FindingSubject subject,
+            MetadataSource source,
+            MethodDefinitionHandle method)
+        {
+            Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+            Source = source ?? throw new ArgumentNullException(nameof(source));
+            if (method.IsNil)
+                throw new ArgumentException("Method handle must not be nil.", nameof(method));
+            Method = method;
+        }
+
+        public FindingSubject Subject { get; }
+        public MetadataSource Source { get; }
+        public MethodDefinitionHandle Method { get; }
+    }
+
+    public sealed record SubjectAbsent : CSharpMemberDiffEndpoint
+    {
+        public SubjectAbsent(FindingSubject subject, string? detail = null)
+        {
+            Subject = subject ?? throw new ArgumentNullException(nameof(subject));
+            Detail = detail;
+        }
+
+        public FindingSubject Subject { get; }
+        public string? Detail { get; }
+    }
+}
+
+/// <summary>
+/// The total C#-owned result for two explicitly admitted endpoints. <see cref="BodyDiff"/> is
+/// present exactly when both endpoint inspections completed and the pair-dependent C# differ ran.
+/// </summary>
+public sealed record CSharpMemberEndpointComparison
+{
+    internal CSharpMemberEndpointComparison(
+        FindingSubject old,
+        FindingSubject @new,
+        FindingComparison<CSharpCanonicalLine> findings,
+        CSharpBodyDiffResult? bodyDiff)
+    {
+        Old = old ?? throw new ArgumentNullException(nameof(old));
+        New = @new ?? throw new ArgumentNullException(nameof(@new));
+        Findings = findings ?? throw new ArgumentNullException(nameof(findings));
+
+        bool isCompletePair = findings.Value
+            is FindingComparison<CSharpCanonicalLine>.Complete
+            {
+                Transition:
+                {
+                    Old: FindingInspectionState.Complete,
+                    New: FindingInspectionState.Complete,
+                },
+            };
+        if (isCompletePair != (bodyDiff is not null))
+        {
+            throw new ArgumentException(
+                "A native C# body diff must be present exactly for a complete/complete endpoint pair.",
+                nameof(bodyDiff));
+        }
+
+        BodyDiff = bodyDiff;
+    }
+
+    public FindingSubject Old { get; }
+    public FindingSubject New { get; }
+    public FindingComparison<CSharpCanonicalLine> Findings { get; }
+    public CSharpBodyDiffResult? BodyDiff { get; }
+}
+
+/// <summary>
 /// Decompiler-owned C# body diff over the shipped decompiler output for matched
 /// method bodies.
 /// </summary>
 public static partial class CSharpBodyDiff
 {
     internal const int MaxLcsLines = 4096;
+
+    readonly record struct InspectedEndpoint(
+        FindingSubject Subject,
+        FindingInspection<CSharpCanonicalLine> Inspection);
+
+    /// <summary>
+    /// Compares two explicitly admitted endpoints without performing selector resolution or
+    /// cross-version correspondence. The pair-dependent C# body differ runs only when both
+    /// endpoint inspections complete.
+    /// </summary>
+    public static CSharpMemberEndpointComparison CompareMemberEndpoints(
+        CSharpMemberDiffEndpoint oldEndpoint,
+        CSharpMemberDiffEndpoint newEndpoint)
+    {
+        ArgumentNullException.ThrowIfNull(oldEndpoint);
+        ArgumentNullException.ThrowIfNull(newEndpoint);
+
+        var old = InspectEndpoint(oldEndpoint);
+        var @new = InspectEndpoint(newEndpoint);
+        var findings = CSharpFindings.CompareInspections(
+            old.Inspection,
+            @new.Inspection,
+            acceptanceThreshold: 100);
+
+        CSharpBodyDiffResult? bodyDiff = null;
+        if (findings.Value
+            is FindingComparison<CSharpCanonicalLine>.Complete
+            {
+                Transition:
+                {
+                    Old: FindingInspectionState.Complete,
+                    New: FindingInspectionState.Complete,
+                },
+            })
+        {
+            var oldPresent = (CSharpMemberDiffEndpoint.Present)oldEndpoint;
+            var newPresent = (CSharpMemberDiffEndpoint.Present)newEndpoint;
+            bodyDiff = CompareMembers(
+                oldPresent.Source,
+                oldPresent.Method,
+                newPresent.Source,
+                newPresent.Method);
+        }
+
+        return new CSharpMemberEndpointComparison(
+            old.Subject,
+            @new.Subject,
+            findings,
+            bodyDiff);
+    }
+
+    static InspectedEndpoint InspectEndpoint(CSharpMemberDiffEndpoint endpoint)
+        => endpoint switch
+        {
+            CSharpMemberDiffEndpoint.Present present => new(
+                present.Subject,
+                CSharpFindings.Inspect(
+                    present.Source,
+                    present.Method,
+                    present.Subject)),
+            CSharpMemberDiffEndpoint.SubjectAbsent absent => new(
+                absent.Subject,
+                new FindingInspection<CSharpCanonicalLine>.Absent(
+                    FindingInspectionAbsenceKind.SubjectAbsent,
+                    absent.Detail)),
+            _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
+        };
 
     public static CSharpBodyDiffResult CompareAssemblies(
         string oldPath,

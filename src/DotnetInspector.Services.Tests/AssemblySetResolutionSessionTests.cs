@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Fixtures;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Services.Tests;
@@ -185,6 +186,34 @@ public class AssemblySetResolutionSessionTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public void BuildApiSurface_PreservesResolverLineageAcrossForwardedConstraint()
+    {
+        string unrelated =
+            FixtureCatalog.ServicesRouteLearningUnrelated.AssemblyPath();
+        string consumer =
+            FixtureCatalog.ServicesRouteLearningConsumer.AssemblyPath();
+        _ = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("middle");
+        _ = FixtureCatalog.ServicesRouteLearningConsumer.AssetPath("base");
+
+        ApiSurface surface =
+            Assert.IsType<ApiSurface>(
+                AssemblySetSurfaceBuilder.Build(
+                    // The first root is the fallback and cannot resolve the
+                    // forwarding chain owned by the second root.
+                    [unrelated, consumer]));
+
+        ApiType consumerType = Assert.Single(
+            surface.Types,
+            static type =>
+                type.FullName
+                    == "DotnetInspector.Services.RouteLearning.Consumer`1");
+        Assert.Equal(
+            TypeParameterTypeKind.ReferenceType,
+            Assert.Single(consumerType.TypeParameters).TypeKind);
+        Assert.Empty(surface.InspectionFailures);
     }
 
     [Fact]

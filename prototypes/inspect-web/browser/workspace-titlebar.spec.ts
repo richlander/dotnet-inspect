@@ -182,7 +182,7 @@ test("narrowing retains detail after focus leaves the content frame", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.evaluate(() => new Promise<void>(resolve =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -199,7 +199,7 @@ test("immediate narrowing ignores stale navigation focus ownership", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
@@ -231,7 +231,7 @@ test("pointer departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
@@ -248,7 +248,7 @@ test("pointer departure cancels queued replacement focus", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("body")).toBeFocused();
@@ -264,18 +264,20 @@ test("focus departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").evaluate(element => {
-    if (!(element instanceof HTMLElement))
-      throw new Error("The detail focus target is unavailable.");
-    element.tabIndex = -1;
-    element.focus();
-  });
+  await page.locator(".member-documentation .docs-unavailable")
+    .evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("The detail focus target is unavailable.");
+      element.tabIndex = -1;
+      element.focus();
+    });
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
   await expect(page.locator(".detail-pane")).toBeVisible();
-  await expect(page.locator(".docs-unavailable")).toBeFocused();
+  await expect(page.locator(".member-documentation .docs-unavailable"))
+    .toBeFocused();
 });
 
 test("failed replacement restoration expires its pane authority", async ({
@@ -304,7 +306,7 @@ test("immediate widening ignores a departed narrow toggle", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.getByRole("button", { name: "Members" }).focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.setViewportSize({ width: 900, height: 700 });
 
@@ -342,6 +344,60 @@ test("the narrow return control integrates with Metadata and Source frames", asy
     .toBeLessThanOrEqual(metadataHeader.y + metadataHeader.height);
   await expect(page.locator(".metadata-surface-head h1")).toHaveText("Metadata");
 
+  await page.goto("/browser/workspace-titlebar.html?package-dependencies=1");
+  const packageDependenciesHeader = await box(
+    page,
+    ".package-dependencies-surface-head");
+  const packageDependenciesToggle = await box(
+    page,
+    "#content-navigation-toggle");
+  expect(packageDependenciesToggle.y)
+    .toBeGreaterThanOrEqual(packageDependenciesHeader.y);
+  expect(packageDependenciesToggle.y + packageDependenciesToggle.height)
+    .toBeLessThanOrEqual(
+      packageDependenciesHeader.y + packageDependenciesHeader.height);
+  await expect(page.locator(".detail-pane"))
+    .toHaveClass(/content-navigation-integrated/);
+  await expect(page.locator(".package-dependencies-surface-head h1"))
+    .toHaveText("Dependencies");
+  const packageDependenciesFooter = await box(
+    page,
+    ".package-dependencies-surface-footer");
+  const packageDependenciesCoordinate = await box(
+    page,
+    ".package-dependencies-surface-footer span:first-child");
+  const packageDependenciesFramework = await box(
+    page,
+    ".package-dependencies-surface-footer span:last-child");
+  expect(packageDependenciesCoordinate.x)
+    .toBeLessThan(packageDependenciesFooter.x + packageDependenciesFooter.width / 3);
+  expect(packageDependenciesFramework.x + packageDependenciesFramework.width)
+    .toBeGreaterThan(
+      packageDependenciesFooter.x + packageDependenciesFooter.width * 2 / 3);
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+    - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+  await page.goto("/browser/workspace-titlebar.html?package-metadata=1");
+  const packageMetadataHeader = await box(
+    page,
+    ".package-metadata-surface-head");
+  const packageMetadataToggle = await box(
+    page,
+    "#content-navigation-toggle");
+  expect(packageMetadataToggle.y)
+    .toBeGreaterThanOrEqual(packageMetadataHeader.y);
+  expect(packageMetadataToggle.y + packageMetadataToggle.height)
+    .toBeLessThanOrEqual(
+      packageMetadataHeader.y + packageMetadataHeader.height);
+  await expect(page.locator(".detail-pane"))
+    .toHaveClass(/content-navigation-integrated/);
+  await expect(page.locator(".package-metadata-surface-head h1"))
+    .toHaveText("Metadata images");
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth
+    - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
   await page.goto("/browser/workspace-titlebar.html?member=1&source=1");
   const sourceNavigation = await box(page, ".content-navigation-bar");
   const source = await box(page, ".source-result");
@@ -351,15 +407,205 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
-test("Member Overview begins twelve pixels below its quiet header", async ({
+test("Member Overview anchors its declaration below the quiet header", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 900, height: 700 });
-  await page.goto("/browser/workspace-titlebar.html?member=1");
+  for (const documentation of ["missing", "summary", "loading", "error"]) {
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-docs=${documentation}`);
 
-  const header = await box(page, ".member-surface-head");
-  const summary = await box(page, ".member-overview-intro > :first-child");
-  expect(summary.y - (header.y + header.height)).toBeCloseTo(12, 0);
+    const header = await box(page, ".member-surface-head");
+    const declaration = await box(page, ".signature-panel");
+    expect(declaration.y - (header.y + header.height)).toBeCloseTo(12, 0);
+    await expect(page.locator(".member-documentation")).toBeVisible();
+    await expect(page.locator(".member-identity")).toBeVisible();
+  }
+});
+
+test("Member Overview keeps declaration, summary, and identity in order", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+  const order = await page.evaluate(() => {
+    const declaration = document.querySelector(".signature-panel");
+    const summary = document.querySelector(".member-documentation");
+    const identity = document.querySelector(".member-identity");
+    if (!declaration || !summary || !identity)
+      throw new Error("The Member Overview top-content regions are unavailable.");
+    return [
+      Boolean(declaration.compareDocumentPosition(summary)
+        & Node.DOCUMENT_POSITION_FOLLOWING),
+      Boolean(summary.compareDocumentPosition(identity)
+        & Node.DOCUMENT_POSITION_FOLLOWING),
+    ];
+  });
+  expect(order).toEqual([true, true]);
+
+  const detail = await box(page, ".detail-pane");
+  const declaration = await box(page, ".signature-panel");
+  const summary = await box(page, ".member-documentation");
+  const parameters = await box(page, ".member-parameters");
+  const parameterProse = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd p");
+  const returnsProse = await box(page, ".member-returns dd p");
+  expect(detail.x + detail.width - (declaration.x + declaration.width))
+    .toBeCloseTo(16, 0);
+  expect(summary.width).toBeLessThan(declaration.width);
+  expect(parameters.width).toBeLessThanOrEqual(900);
+  expect(parameterProse.width).toBeLessThanOrEqual(900);
+  expect(returnsProse.width).toBeLessThanOrEqual(900);
+  expect(declaration.width).toBeGreaterThan(parameters.width);
+});
+
+test("Member Overview presents a compact structured contract body", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+  await expect(page.locator(".member-contract-heading h2"))
+    .toHaveText(["Parameters", "Returns", "Exceptions"]);
+  await expect(page.locator(".member-parameters .member-contract-heading span"))
+    .toHaveText("3 parameters");
+  await expect(page.locator(".member-exceptions .member-contract-heading span"))
+    .toHaveText("2 documented");
+  await expect(page.locator(".member-parameters a")).toHaveCount(0);
+  await expect(page.locator(".member-contract-name"))
+    .toHaveText(["utf8Json", "jsonTypeInfo", "propertyNamingPolicy"]);
+  await expect(page.locator(".member-contract-default"))
+    .toHaveText(/Default\s+"camelCasePropertyNamingAndCaseInsensitive"/);
+  await expect(page.locator(".member-applicability"))
+    .toHaveText(/Applies to\s*net10\.0/);
+  expect(await page.locator(".member-contract-heading h2").first()
+    .evaluate(element => getComputedStyle(element).fontSize)).toBe("16px");
+  const wideParameterIdentity = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dt");
+  const wideParameterDocumentation = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd");
+  expect(wideParameterDocumentation.y)
+    .toBeCloseTo(wideParameterIdentity.y, 0);
+
+  const order = await page.evaluate(() => {
+    const selectors = [
+      ".member-identity",
+      ".member-parameters",
+      ".member-returns",
+      ".member-exceptions",
+      ".member-applicability",
+    ];
+    const regions = selectors.map(selector => document.querySelector(selector));
+    if (regions.some(region => !region))
+      throw new Error("The Member Overview contract regions are unavailable.");
+    return regions.slice(0, -1).every((region, index) =>
+      Boolean(region!.compareDocumentPosition(regions[index + 1]!)
+        & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(order).toBe(true);
+});
+
+test("Member Overview distinguishes lower documentation states", async ({
+  page,
+}) => {
+  const states = [
+    {
+      mode: "loading",
+      parameter: "Loading parameter documentation…",
+      exceptions: "Loading documented exceptions…",
+    },
+    {
+      mode: "error",
+      parameter: "Parameter documentation is unavailable.",
+      exceptions: "Exception documentation is unavailable.",
+    },
+    {
+      mode: "missing",
+      parameter:
+        "No parameter documentation was found in the package XML documentation.",
+      exceptions: "No exceptions are documented for this overload.",
+    },
+  ];
+  for (const state of states) {
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-docs=${state.mode}`);
+    await expect(page.locator(".member-parameters dd p").first())
+      .toHaveText(state.parameter);
+    await expect(page.locator(".member-exceptions > p"))
+      .toHaveText(state.exceptions);
+  }
+});
+
+test("Member Overview responds to constrained pane widths", async ({
+  page,
+}) => {
+  for (const width of [860, 480]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+    const label = await box(
+      page,
+      ".member-identity dl > div:first-child dt");
+    const value = await box(
+      page,
+      ".member-identity dl > div:first-child dd");
+    const parameterIdentity = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dt");
+    const parameterDocumentation = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dd");
+    expect(value.y).toBeGreaterThan(label.y);
+    expect(parameterDocumentation.y).toBeGreaterThan(parameterIdentity.y);
+    for (const selector of [
+      ".member-parameters .member-contract-list > div:nth-child(2) dt",
+      ".member-parameters .member-contract-list > div:nth-child(3) dt",
+      ".member-exceptions .member-contract-list > div:first-child dt",
+    ]) {
+      expect(await page.locator(selector).evaluate(element =>
+        element.scrollWidth <= element.clientWidth)).toBe(true);
+    }
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary&long-signature=1");
+  const declaration = await box(page, ".signature-panel");
+  const declarationHeader = await box(page, ".signature-language");
+  const copy = await box(page, "#copy-signature");
+  const code = await page.locator(".signature-code").evaluate(element => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  const longParameterRow = await page.locator(
+    ".member-parameters .member-contract-list > div:first-child")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+  const memberScroller = await page.locator(".member-surface-scroll")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+  expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
+  expect(longParameterRow.scrollWidth)
+    .toBeLessThanOrEqual(longParameterRow.clientWidth);
+  expect(memberScroller.scrollWidth)
+    .toBeLessThanOrEqual(memberScroller.clientWidth);
+  expect(copy.x + copy.width)
+    .toBeLessThanOrEqual(declaration.x + declaration.width);
+  expect(copy.y).toBeGreaterThanOrEqual(declarationHeader.y);
+  expect(copy.y + copy.height)
+    .toBeLessThanOrEqual(declarationHeader.y + declarationHeader.height);
 });
 
 test("the Application menu owns global actions and modal focus return", async ({
@@ -1895,7 +2141,7 @@ test("application scope rerenders preserve focus until responsive yielding", asy
   await expect(page.locator(".brand")).toBeFocused();
 });
 
-test("query rerenders preserve product focus and reject yielded scopes", async ({
+test("query header omits scope buttons and preserves navigation focus across widths", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 700, height: 900 });
@@ -1909,11 +2155,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
   });
 
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
@@ -1928,7 +2176,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -1941,11 +2188,11 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     activeId: "package-query-product",
   });
 
-  const workspace = page.locator("[data-application-scope='workspace']");
-  await workspace.focus();
+  const back = page.locator("#package-query-back");
+  await back.focus();
   await page.setViewportSize({ width: 500, height: 900 });
-  await expect(workspace).toBeVisible();
-  const yieldedResult = await page.evaluate(async () => {
+  await expect(back).toBeVisible();
+  const backResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
     const {
       capturePackageQueryFocus,
@@ -1958,7 +2205,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -1966,12 +2212,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
       activeId: document.activeElement?.id,
     };
   });
-  expect(yieldedResult).toEqual({
-    restoration: "fallback",
-    activeId: "package-query-prefix",
+  expect(backResult).toEqual({
+    restoration: "restored",
+    activeId: "package-query-back",
   });
-  await expect(page.locator(".query-page-bar .application-scope-region"))
-    .toBeHidden();
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-product")).toBeVisible();
 });
 
 test("Workspace retains its full split height at constrained widths", async ({

@@ -10,33 +10,10 @@ using Markout;
 namespace DotnetInspector.CommandLine;
 
 /// <summary>
-/// Defines the type, member, and deprecated api commands.
+/// Defines the type and member commands.
 /// </summary>
 public static class ApiCommandDefinitions
 {
-    /// <summary>
-    /// Creates a deprecated hidden api command that shows a deprecation message.
-    /// </summary>
-    public static Command CreateDeprecatedApiCommand()
-    {
-        var deprecatedApiCommand = new Command("api", "Deprecated: Use 'type' or 'member' instead") { Hidden = true };
-        deprecatedApiCommand.TreatUnmatchedTokensAsErrors = false;
-        deprecatedApiCommand.SetAction(_ =>
-        {
-            CommandError.WriteLine("The 'api' command is deprecated. Please use:");
-            CommandError.WriteBlankLine();
-            CommandError.WriteLine("  type   - Discover types in a package/library (compact table, no docs by default)");
-            CommandError.WriteLine("  member - Inspect type members (docs by default)");
-            CommandError.WriteBlankLine();
-            CommandError.WriteLine("Examples:");
-            CommandError.WriteLine("  dotnet-inspect type --package System.Text.Json");
-            CommandError.WriteLine("  dotnet-inspect member JsonSerializer --package System.Text.Json");
-            CommandError.WriteLine("  dotnet-inspect member -m JsonSerializer.Deserialize --package System.Text.Json");
-            return 1;
-        });
-        return deprecatedApiCommand;
-    }
-
     /// <summary>
     /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>

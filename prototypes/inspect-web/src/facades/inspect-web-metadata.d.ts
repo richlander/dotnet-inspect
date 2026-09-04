@@ -102,6 +102,8 @@ export interface BrowserMetadataHeaders {
     readonly majorRuntimeVersion: number | null;
     readonly minorRuntimeVersion: number | null;
     readonly entryPointToken: number | null;
+    readonly managedNativeHeaderRva: number;
+    readonly managedNativeHeaderSize: number;
 }
 export interface BrowserMetadataHeap {
     readonly name: string;

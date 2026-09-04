@@ -688,7 +688,7 @@ public sealed class PolicyEvaluatorTests
             Path.Combine(repository, "eng", "dependency-policy.json"));
         string[] fixtureNames = Directory
             .EnumerateDirectories(
-                Path.Combine(repository, "src"),
+                Path.Combine(repository, "fixtures", "analysis"),
                 "ILInspector.Analysis.CallerGraph*")
             .Select(path => new DirectoryInfo(path).Name)
             .Order(StringComparer.Ordinal)
@@ -710,7 +710,7 @@ public sealed class PolicyEvaluatorTests
                     DependencyPattern.Selects(
                         rule,
                         fixtureName,
-                        $"src/{fixtureName}/{fixtureName}.csproj"),
+                        $"fixtures/analysis/{fixtureName}/{fixtureName}.csproj"),
                     $"{ruleId} selects caller-graph fixture {fixtureName}.");
             }
         }

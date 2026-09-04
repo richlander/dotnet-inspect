@@ -133,7 +133,8 @@ async function main(): Promise<void> {
 
   console.log(
     "ts-jsexport multi-facade Browser/Wasm canary passed "
-      + "(one runtime; Alpha + Beta sync, overload, async, record, and enum).",
+      + "(one runtime; Alpha + Beta sync, overload, async, record, enum, "
+      + "and managed nonterminal callback lifecycle).",
   );
 }
 
