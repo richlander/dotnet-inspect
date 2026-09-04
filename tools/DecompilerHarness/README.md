@@ -1231,7 +1231,7 @@ rates; this is a first published census (successor to the earlier "0/21"
 classic-async gap), not yet a broad real-world quality target.
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicStateMachines/release/ILInspector.Decompiler.Fixtures.ClassicStateMachines.dll \
   --corpus-profile classic-state-machines \
@@ -1439,12 +1439,14 @@ bring-down instrument, not a regression wall — build them and point
 `--library-report` at them. `AsyncLoweringFixtureMatrixTests` gates only the
 shared-source and physical-lowering contract. The first axis compiles the exact
 same `AsyncFixtures.cs` through
-`src/ILInspector.Decompiler.Fixtures.ClassicAsync` (`runtime-async=off`) and
-`src/ILInspector.Decompiler.Fixtures.RuntimeAsync` (`runtime-async=on`):
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync`
+(`runtime-async=off`) and
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync`
+(`runtime-async=on`):
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.RuntimeAsync/release/ILInspector.Decompiler.Fixtures.RuntimeAsync.dll
@@ -1462,8 +1464,8 @@ runtime-async implementation flag.
 The second axis is the old/new memory-safety pair:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
-dotnet build src/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.LegacyUnsafe/release/ILInspector.Decompiler.Fixtures.LegacyUnsafe.dll \
   artifacts/bin/ILInspector.Decompiler.Fixtures.NewUnsafe/release/ILInspector.Decompiler.Fixtures.NewUnsafe.dll
@@ -1479,10 +1481,11 @@ both assemblies are 8/8 full and fully raised, with no unsupported patterns.
 `RequiresUnsafeAttribute` resolution and optimistic `--simulate-new-rules`
 diagnostics.
 
-The checked-arithmetic axis is `src/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
+The checked-arithmetic axis is
+`fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic`:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- --library-report \
   artifacts/bin/ILInspector.Decompiler.Fixtures.CheckedArithmetic/release/ILInspector.Decompiler.Fixtures.CheckedArithmetic.dll
 ```
