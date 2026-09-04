@@ -71,6 +71,15 @@ public sealed class PackageQueryTests
                     facet.DisplayGroupId);
                 Assert.Equal(".NET tool format", facet.DisplayGroupLabel);
             });
+        Assert.False(
+            PackageQuery.Facets.Single(facet =>
+                facet.Id == PackageQuery.ToolFacetId)
+                .CombinesWithinSelectionGroup);
+        Assert.All(
+            PackageQuery.Facets.Where(facet =>
+                facet.Id is PackageQuery.ToolV1FacetId
+                    or PackageQuery.ToolV2FacetId),
+            facet => Assert.True(facet.CombinesWithinSelectionGroup));
     }
 
     [Theory]
@@ -109,6 +118,28 @@ public sealed class PackageQueryTests
         Assert.Equal("Contoso.", plan.Prefix.ToString());
         Assert.Equal(PackageQuery.DefaultMaximumCandidates, plan.MaximumCandidates);
         Assert.Equal(PackageQuery.DefaultMaximumMatches, plan.MaximumMatches);
+    }
+
+    [Fact]
+    public void Plan_TreatsOneTrailingWildcardAsPrefixShorthand()
+    {
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(new PackageQueryRequest("System.*")));
+
+        Assert.Equal("System.", plan.Prefix.ToString());
+        Assert.Equal(
+            "Package ID matches prefix \"System.\".",
+            plan.PrefixEvidence.ToString());
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidPrefix,
+            Rejected(PackageQuery.Plan(
+                new PackageQueryRequest("System.*.Json")))
+                .Reason);
+        Assert.Equal(
+            PackageQueryRequestFailureReason.InvalidPrefix,
+            Rejected(PackageQuery.Plan(
+                new PackageQueryRequest("*")))
+                .Reason);
     }
 
     [Fact]
@@ -223,6 +254,34 @@ public sealed class PackageQueryTests
                 PackageQuery.NoDependenciesFacetId,
             ],
             incompatible.FacetIds);
+
+        PackageQueryPlan toolVersions = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [
+                        PackageQuery.ToolV1FacetId,
+                        PackageQuery.ToolV2FacetId,
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates)));
+        Assert.Equal(
+            [PackageQuery.ToolV1FacetId, PackageQuery.ToolV2FacetId],
+            toolVersions.Facets.Select(facet => facet.Id));
+
+        PackageQueryRequestFailure broadAndSpecific = Rejected(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [
+                        PackageQuery.ToolFacetId,
+                        PackageQuery.ToolV1FacetId,
+                    ],
+                    MaximumCandidates:
+                        PackageQuery.MaximumPackageContentCandidates)));
+        Assert.Equal(
+            PackageQueryRequestFailureReason.IncompatibleFacets,
+            broadAndSpecific.Reason);
     }
 
     [Fact]
@@ -356,7 +415,7 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         PackageQueryMatch match =
-            Assert.IsType<PackageQueryEvent.Match>(events[0]).Value;
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         Assert.Equal(PackageQueryFacetTier.Nuspec, match.Tier);
         Assert.Equal(
             [
@@ -535,6 +594,90 @@ public sealed class PackageQueryTests
             content.Requests);
 
         content.Requests.Clear();
+        PackageQueryPlan bothVersionsPlan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [
+                        PackageQuery.ToolV1FacetId,
+                        PackageQuery.ToolV2FacetId,
+                    ],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        List<PackageQueryEvent> bothVersionEvents = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                bothVersionsPlan,
+                content,
+                TestContext.Current.CancellationToken));
+        List<PackageQueryMatch> bothVersions =
+        [
+            .. bothVersionEvents
+                .OfType<PackageQueryEvent.Match>()
+                .Select(item => item.Value),
+        ];
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            bothVersions.Select(item => item.Package.PackageId));
+        Assert.Equal(
+            [
+                [PackageQuery.PrefixEvidenceId, PackageQuery.ToolV1FacetId],
+                [PackageQuery.PrefixEvidenceId, PackageQuery.ToolV2FacetId],
+            ],
+            bothVersions.Select(item =>
+                item.Evidence.Select(evidence => evidence.Id)));
+        Assert.Contains(
+            "v1 format",
+            bothVersions[0].Evidence[^1].Value,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "v2 format",
+            bothVersions[1].Evidence[^1].Value,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.Requests);
+        Assert.Equal(
+            [0, 1, 2],
+            bothVersionEvents
+                .OfType<PackageQueryEvent.Progress>()
+                .Where(item => item.Value.Phase
+                    == PackageQueryProgressPhase.PackageContent)
+                .Select(item => item.Value.Completed));
+
+        content.Requests.Clear();
+        PackageQueryPlan bothVersionsAndSkillPlan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [
+                        PackageQuery.ToolV1FacetId,
+                        PackageQuery.ToolV2FacetId,
+                        PackageQuery.EmbeddedSkillFacetId,
+                    ],
+                    MaximumCandidates: 3,
+                    MaximumMatches: 3)));
+        PackageQueryMatch versionAndSkill = Assert.Single(
+            (await CollectAsync(
+                PackageQuery.ExecuteAsync(
+                    source,
+                    bothVersionsAndSkillPlan,
+                    content,
+                    TestContext.Current.CancellationToken)))
+                .OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("Contoso.V1", versionAndSkill.Package.PackageId);
+        Assert.Equal(
+            [
+                PackageQuery.PrefixEvidenceId,
+                PackageQuery.ToolV1FacetId,
+                PackageQuery.EmbeddedSkillFacetId,
+            ],
+            versionAndSkill.Evidence.Select(evidence => evidence.Id));
+        Assert.Equal(
+            ["Contoso.V1", "Contoso.V2"],
+            content.Requests);
+
+        content.Requests.Clear();
         PackageQueryPlan skillPlan = Accepted(
             PackageQuery.Plan(
                 new PackageQueryRequest(
@@ -593,7 +736,7 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         PackageQueryFailure failure =
-            Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
         Assert.Equal(
             PackageQueryFailureKind.PackageContentEvaluation,
             failure.Kind);
@@ -626,7 +769,7 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         PackageQueryFailure failure =
-            Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
         Assert.Equal(
             PackageQueryFailureKind.PackageContentAcquisition,
             failure.Kind);
@@ -755,9 +898,37 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         PackageQueryMatch match =
-            Assert.IsType<PackageQueryEvent.Match>(events[0]).Value;
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
         PackageQueryEvidence evidence = Assert.Single(match.Evidence);
         Assert.Equal(PackageQuery.PrefixEvidenceId, evidence.Id);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UsesNormalizedTrailingWildcardPrefix()
+    {
+        var source = SourceFor(
+            Manifest("System.Text.Json"),
+            "System.Text.Json");
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "System.*",
+                    MaximumCandidates: 2,
+                    MaximumMatches: 1)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+
+        PackageQueryMatch match =
+            Assert.Single(events.OfType<PackageQueryEvent.Match>()).Value;
+        Assert.Equal("System.Text.Json", match.Package.PackageId);
+        Assert.Equal(
+            "Package ID matches prefix \"System.\".",
+            Assert.Single(match.Evidence).Value);
+        Assert.Equal("System.", plan.Prefix.ToString());
     }
 
     [Fact]
@@ -868,6 +1039,13 @@ public sealed class PackageQueryTests
         Assert.Equal(PackageQueryCompletionKind.Failed, summary.Completion);
         Assert.Equal(0, summary.Candidates);
         Assert.Equal(1, summary.Failures);
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+            ],
+            events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value));
     }
 
     [Fact]
@@ -893,7 +1071,7 @@ public sealed class PackageQueryTests
                 TestContext.Current.CancellationToken));
 
         PackageQueryFailure failure =
-            Assert.IsType<PackageQueryEvent.Failure>(events[0]).Value;
+            Assert.Single(events.OfType<PackageQueryEvent.Failure>()).Value;
         Assert.Equal(PackageQueryFailureKind.SearchContract, failure.Kind);
         PackageQuerySummary summary =
             Assert.IsType<PackageQueryEvent.Completed>(events[^1]).Value;
@@ -901,6 +1079,62 @@ public sealed class PackageQueryTests
         Assert.Equal(0, summary.Candidates);
         Assert.Equal(1, summary.Failures);
         Assert.Empty(source.ManifestRequests);
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+            ],
+            events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ReportsBoundedProgressBeforeSparseCompletion()
+    {
+        var source = new FakePackageSource(
+            [
+                Match("Contoso.One"),
+                Match("Contoso.Two"),
+            ],
+            new Dictionary<string, byte[]>
+            {
+                ["contoso.one@1.0.0"] = Manifest("Contoso.One"),
+                ["contoso.two@1.0.0"] = Manifest("Contoso.Two"),
+            });
+        PackageQueryPlan plan = Accepted(
+            PackageQuery.Plan(
+                new PackageQueryRequest(
+                    "Contoso.",
+                    [PackageQuery.ToolFacetId],
+                    MaximumCandidates: 2,
+                    MaximumMatches: 2)));
+
+        List<PackageQueryEvent> events = await CollectAsync(
+            PackageQuery.ExecuteAsync(
+                source,
+                plan,
+                TestContext.Current.CancellationToken));
+        PackageQueryProgress[] progress =
+        [
+            .. events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value),
+        ];
+
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 1, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 1, 2),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 2, 2),
+            ],
+            progress);
+        Assert.Empty(events.OfType<PackageQueryEvent.Match>());
+        Assert.IsType<PackageQueryEvent.Completed>(events[^1]);
+        Assert.Single(events.OfType<PackageQueryEvent.Completed>());
     }
 
     [Fact]
@@ -964,6 +1198,19 @@ public sealed class PackageQueryTests
         Assert.Equal(PackageQueryCompletionKind.MatchLimitReached, summary.Completion);
         Assert.Equal(2, summary.Candidates);
         Assert.Equal(1, summary.Failures);
+        Assert.Equal(
+            [
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 0, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Search, 1, 1),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 1, 2),
+                new PackageQueryProgress(
+                    PackageQueryProgressPhase.Manifest, 2, 2),
+            ],
+            events.OfType<PackageQueryEvent.Progress>()
+                .Select(item => item.Value));
     }
 
     [Fact]
@@ -1083,8 +1330,11 @@ public sealed class PackageQueryTests
                     cancellation.Token)
                 .GetAsyncEnumerator(cancellation.Token);
 
-        Assert.True(await events.MoveNextAsync());
-        Assert.IsType<PackageQueryEvent.Match>(events.Current);
+        do
+        {
+            Assert.True(await events.MoveNextAsync());
+        }
+        while (events.Current is not PackageQueryEvent.Match);
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
