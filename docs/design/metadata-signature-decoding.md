@@ -323,13 +323,14 @@ That statement does not extend to the guard's separate shape allowance.
 The headroom column divides each ceiling by a measured maximum, so where the
 maximum is understated the ratio is an **upper bound on headroom**, not
 guaranteed headroom. This affects the work ledger, the one budget the
-declaring-type chain would charge. Its guaranteed floor is obtained by assuming
-the worst unmeasured case: every occurrence copy in the largest observed decode
-projects a nested name whose declaring chain runs to the full
-`MaxRelationshipNodes` cap. That is `1,182 + 158 * 256 = 41,630` against a
-262,144 ceiling, or roughly **6.3x** guaranteed, against 222x measured. The
-conclusion that the ledger is not the binding constraint survives, but only the
-6.3x figure is load-bearing until the charge is added and the census re-run.
+declaring-type chain would charge. No guaranteed headroom follows from the
+historical result: deriving one would require assuming how often the future
+implementation projects a nested name, but this design specifies no caching
+strategy and the planned operation does not yet exist. The 1,182-unit maximum
+is therefore a lower bound for a conforming implementation, not evidence that
+the ledger cannot bind legitimate input. The first conforming implementation
+must charge the declaring chain and reproduce the pinned baseline; that
+complete measurement establishes its initial work-ledger headroom.
 
 The last three rows were never exercised, and no probe below drives the culture
 or `ModuleRef` name paths. That is a statement about the corpus, not about
