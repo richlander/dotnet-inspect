@@ -6,11 +6,14 @@ This document defines the target managed boundary for long-running inspect-web
 operations. It is the normative owner for issue
 [#5094](https://github.com/richlander/dotnet-inspect/issues/5094).
 
-The design is not yet implemented. Its abstract lifecycle is checked by the
-companion
+The dynamic operation lifecycle through quiescent release is implemented by
+`BrowserManagedOperationBridge` and gated by
+`BrowserManagedOperationBridgeTests` in the Release browser-engine suite. Its
+abstract lifecycle is checked by the companion
 [managed operation bridge model](models/inspect-web-managed-operation-bridge/README.md).
-Concrete browser and managed gates named below remain required before an
-implementation may claim the corresponding behavior.
+The generated `[JSExport]` browser canary, shared-producer attachment,
+epoch-work leases, and complete browser-host gate named below remain required
+before an implementation may claim those corresponding behaviors.
 
 ## Decision
 
@@ -350,6 +353,13 @@ cancellation, and is rethrown by the outer bridge only after its `finally`
 releases the entry. It is a Promise-rejecting boundary failure, not a
 feature-owned `Failed` envelope.
 
+That cooperative request uses the same reason-and-signal claim as keyed
+cancellation. When no earlier reason exists, it stores
+`FeatureObserverFailed` before signaling the token. A concurrent or reentrant
+keyed request therefore observes `AlreadyRequested(FeatureObserverFailed)`
+rather than signaling the token again. An earlier accepted reason remains
+unchanged and its signal is not repeated.
+
 The bridge still classifies the feature body's observation once after callout
 drain so failure precedence and diagnostics remain deterministic. That
 classification is inert bookkeeping when a progress boundary failure exists:
@@ -378,7 +388,7 @@ The wrapper classifies its physical result by the first matching row:
 | Unexpected feature failure | absent | either | `Failed(Unexpected, error, diagnostic)` |
 | Expected feature failure | absent | either | `Failed(Expected, error, diagnostic)` |
 | Value returned | absent | present | `Canceled(reason)` |
-| Matching operation-token cancellation | absent | present | `Canceled(reason)` |
+| `OperationCanceledException` after the operation token was signaled | absent | present | `Canceled(reason)` |
 | `OperationCanceledException` | absent | absent | `Failed(Unexpected, error, diagnostic)` |
 | Value returned | absent | absent | `Succeeded(value)` |
 
@@ -386,6 +396,12 @@ An accepted cancellation therefore wins over an ordinary late value and
 preserves its exact reason. An unexpected failure is never hidden as expected
 cancellation merely because cancellation was also requested. Feature adapters
 return expected failures explicitly; an escaping exception is unexpected.
+A cancellation exception is matched by the accepted reason and the operation
+token's signaled state, not by comparing
+`OperationCanceledException.CancellationToken`: linked feature tokens may
+surface a different token identity after the bridge's operation token is
+signaled. Without an accepted reason and a signaled operation token, a
+`TaskCanceledException` or `OperationCanceledException` remains unexpected.
 A recorded token-callback failure outranks an otherwise expected feature
 failure and forces `Failed(Unexpected, ...)`. Feature adapters own the safe
 error and diagnostic projection; the bridge owns the failure class, closed
@@ -607,16 +623,19 @@ operation behind a static slot and expose parameterless `CancelCurrent()`.
 Those coordinators are evidence for token propagation and cooperative
 cancellation, not the target identity contract.
 
-Implementation should:
+Implementation proceeds in independently coherent slices:
 
-1. introduce the bridge and its focused Release gate without changing feature
-   progress semantics;
-2. adapt one current export to pass an operation ID, concrete result envelope,
+1. introduce the dynamic lifecycle core and
+   `BrowserManagedOperationBridgeTests` Release sub-gate without changing
+   feature progress semantics;
+2. add the generated `[JSExport]` browser canary and complete the
+   `inspect-web-managed-operation-bridge` browser-host gate;
+3. adapt one current export to pass an operation ID, concrete result envelope,
    and authenticated synchronous progress callback;
-3. replace parameterless cancellation with keyed cancellation for that export;
-4. migrate shared acquisition waits through broker subscriptions and epoch-work
-   leases where needed; and
-5. remove singleton coordinators only after every caller uses keyed operation
+4. replace parameterless cancellation with keyed cancellation for that export;
+5. migrate shared acquisition waits through broker subscriptions and
+   epoch-work leases where needed; and
+6. remove singleton coordinators only after every caller uses keyed operation
    identity.
 
 The migration must not thread browser operation IDs into host-neutral
@@ -652,8 +671,14 @@ implementation behavior.
 
 ## Required implementation gate
 
-`inspect-web-managed-operation-bridge` is a Release browser-host gate. It does
-not yet exist and must include:
+`BrowserManagedOperationBridgeTests` is the Release managed-core sub-gate. It
+covers synchronous admission, duplicate rejection, keyed first-reason
+cancellation, counted non-blocking callout drain, progress callback closure,
+terminal precedence, exact-entry removal, failure-complete local cleanup, and
+quiescent task settlement. It does not stand in for browser interop evidence.
+
+`inspect-web-managed-operation-bridge` is the complete Release browser-host
+gate. It does not yet exist and must combine the managed-core sub-gate with:
 
 - two concurrent feature operations with distinct IDs and keyed cancellation
   reaching only the selected token;
@@ -728,6 +753,6 @@ This owner does not claim:
 - package acquisition, cache, reservation, or publication correctness; or
 - that an epoch-work allowance is bounded.
 
-Those claims require their adjacent owner and named gate. Until the concrete
-bridge and browser gates exist, implementation behavior described by this
-target design is unverified.
+Those claims require their adjacent owner and named gate. Until the remaining
+browser, shared-producer, and epoch-work gates exist, those implementation
+behaviors described by this target design are unverified.
