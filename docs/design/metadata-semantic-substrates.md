@@ -60,7 +60,7 @@ composition owned by a consumer.
 Admission is necessary, not sufficient. It governs whether a *meaning* belongs
 in a substrate; a component publishing that meaning must additionally satisfy
 the publication contract below, which is where single-module scope,
-construction totality, bounds, identity, and per-meaning reachability are
+construction totality, bounds, identity, and answerable cases are
 stated. A component can hold an
 admissible meaning and still not be a substrate — `TypeResolutionContext` is
 the clearest in-tree example, since it composes answers across assemblies,
@@ -136,7 +136,7 @@ which [a substrate must not do](#what-a-substrate-guarantees-and-what-it-leaves-
    exists, which is what keeps the admission test decidable at admission time.
    Its converse — that every case the algebra *declares* can actually occur —
    is a property of public surfaces rather than of the meaning, so it is not
-   an admission condition. It is stated as **per-meaning reachability** in the
+   an admission condition. It is stated as **answerable cases** in the
    publication contract below and discharged when the component is
    implemented.
 
@@ -177,8 +177,8 @@ Decompiler, and the substrate boundary is exactly what keeps it there.
 
 Substrates share **required distinctions**, not one shared generic result
 type. A single closed generic outcome across unrelated domains would force
-every substrate to carry cases it cannot reach, which per-meaning
-reachability forbids.
+every substrate to carry cases it cannot reach, which the answerable-cases
+rule forbids.
 
 A substrate must distinguish, whenever the distinction is reachable in its
 domain:
@@ -215,46 +215,35 @@ Three rules make the distinctions usable:
   and an exhausted budget are facts about the request and about us; both have
   their own distinction above.
 
-**Per-meaning reachability.** Requirement 5 makes every reachable disposition
-expressible. The converse obligation belongs here, because it constrains
-surfaces rather than meanings: **every case of the outcome type used for a
-meaning must be reachable through at least one public surface publishing that
-meaning**, and a surface that can *never* produce some of the cases its return
-type declares must return a narrower type.
+**Answerable cases.** Requirement 5 makes every reachable disposition
+expressible. The converse obligation belongs here: **the outcome type published
+by an operation must declare exactly the dispositions that operation's question
+can exhibit** — no case the question can never produce, and no case belonging
+to a question it does not answer.
 
-Documenting the narrowing in prose is not sufficient. The consumer still binds
+The unit is *the question the operation answers*, and that is deliberate. Three
+earlier formulations of this rule failed, each because of its unit.
+Quantifying over the publishing **component** is too weak: one component can
+publish two unrelated families through a single union and satisfy it.
+Quantifying over **surfaces** invites a wider type than the surface can
+produce, excused by a doc comment or by adding a scope parameter and calling
+the narrowing argument-indexed. Quantifying over the **published meaning** —
+which this document fixes by *demand* — makes conformance depend on a consumer
+census: a surface would become non-conforming when a second consumer appears
+elsewhere in the tree, without the surface changing at all. That cannot be an
+obligation an implementer discharges.
+
+An operation's question is fixed by the operation, including any parameter or
+construction state that changes what is being asked. `ProbeDefinition` asks
+whether an exact TypeDef exists, so it may not publish a type declaring
+`Forwarded`; a `Probe(name, scope)` overload asks a different question per
+scope and owes each a type that fits it. Renaming two families as one meaning
+changes nothing, because the question — not the label — decides what the type
+may declare.
+
+Documenting a narrowing in prose is never sufficient. The consumer still binds
 against a type carrying cases it cannot receive, and must write a branch that
 can never be taken and can never be tested.
-
-An argument matters here only when it decides *which meanings the call may
-report*. Such an argument is a **mode selector**, and each mode owes its own
-result type, because each mode publishes a different set of meanings; adding a
-scope or kind parameter does not license a wider return type than the selected
-mode can produce. An argument that selects *which instance of one meaning* is
-asked about — a role, a handle, a name — is an ordinary query input, and the
-narrowing it produces is not narrowing in this sense: across those arguments
-the declared type is reachable, and no consumer of the surface can avoid the
-cases it declares.
-
-Construction state is judged the same way. A receiver permanently configured
-so that a family can never be reported is a mode, not an instance, and owes
-the same narrower type.
-
-The unit is the published meaning, as it is throughout the admission test, and
-neither neighbouring choice works. Quantifying over the *component* is too
-weak: one component could publish two unrelated families through a single
-union type from two surfaces, document each surface's subset, and satisfy both
-clauses — precisely the shared algebra this rule exists to forbid. Quantifying
-over each *argument* of a parameterized surface is too strong: it has no fixed
-point, because any function whose codomain narrows with its input would fail
-it, which describes most parameterized APIs rather than a defect.
-
-Together the two clauses forbid a dead case at any surface, which is the whole
-harm a shared algebra causes. An algebra shared across unrelated domains fails
-whenever some surface publishing one meaning cannot produce the other family's
-cases — by the first clause when the surfaces are disjoint, and by the second
-when one surface is unconditionally narrow. It is not the sharing that is
-forbidden; it is what sharing normally produces.
 
 A substrate may model additional domain distinctions. It must not add a case
 whose only consumer meaning is presentational.
@@ -404,9 +393,10 @@ change that introduces it.
 
 ### Established
 
-These published meanings independently satisfy **requirement 3**: each shows
-its own demand evidence, and the following subsection lists meanings that do
-not. Membership here means exactly that and nothing more.
+These published meanings are **independently admissible**: each qualifies as a
+meaning on its own evidence under requirements 1 through 4, and the following
+subsection lists meanings that do not. Requirement 5 is not a membership
+criterion here, for the reason immediately below.
 
 **Requirement 5 is a forward contract, not something the precedents
 demonstrate.** It is the one requirement the existing components were written
@@ -445,22 +435,20 @@ that code. Duplication reproduces a derivation, not its quality.
 An admitted component may publish further families that would not pass the
 admission test on their own evidence. They are bound by the publication
 contract above — single-module scope, construction totality, bounds, identity,
-and per-meaning reachability — because their component is a substrate, and by
+and answerable cases — because their component is a substrate, and by
 requirement 5, which governs expressibility for every family a substrate
 publishes whether or not the family independently qualified. They are **not** evidence for the pattern, and
 none may be cited as precedent for admitting a new substrate. Recording them
 here rather than under **Established** is what keeps the per-meaning rule from
 being satisfied by a class-level sibling. A family lands here when it fails
-*any* requirement on its own evidence, not requirement 3 alone: a meaning with
+*any* of requirements 1 through 4 on its own evidence, not requirement 3
+alone: a meaning with
 ample demand that no substrate could be admitted on — because a single row
 states it outright, and requirement 1 excludes it — belongs here too.
 
-**Established** correspondingly means independently admissible under all five
-requirements, not requirement 3 alone.
-
 | Published meaning (component) | Why it is not independently admissible |
 | --- | --- |
-| Field, property, and event unsafe contracts, including an accessor's contract resolved through its declaring property or event (`MemorySafetyMetadataIndex`) | **No second derivation.** Requirement 3 fails for these handle kinds: Analysis's `ComputeCallerUnsafeMode` (`src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:248`-`270`) and the Decompiler's assembly of the same composite (`src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:55`-`59`) both classify methods only. They are published because the method contract cannot be answered for an accessor without them. |
+| Field, property, and event unsafe contracts, including an accessor's contract resolved through its declaring property or event (`MemorySafetyMetadataIndex`) | **Second derivations exist, but only of a subfact.** Analysis's `ComputeCallerUnsafeMode` (`src/ILInspector.Analysis/LibraryBodyPrimaryMetadataResolver.cs:248`-`270`) and the Decompiler's composite (`src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:55`-`59`) classify methods only. Property-level `unsafe` is derived twice more — `src/ILInspector.Metadata/ApiSurfaceExtractor.cs:1345` and `src/ILInspector.Decompiler/MemberBodyProducer.cs:1836` — but both test pointer shape in signature text, not the attribute-and-module-mode contract, so they are the same kind of subfact demand as `RequiresUnsafeCount` below. These families are published because an accessor's contract cannot be answered without them. |
 | Remaining interface roles — `SetStateMachine`, `MoveNextAsync`, `Dispose`, `DisposeAsync` (`StateMachineRelationshipIndex`) | **No second demand, and no individual reader.** The Decompiler does not distinguish them: iterating role dispositions at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:234`-`245`, it collapses every role other than `MoveNext` to a single `Support` answer. Analysis derives none of them. They are published because `StateMachineRelationship` requires a complete role array — its constructor rejects any relationship that does not "account for every role" (`src/ILInspector.Metadata/StateMachineRelationship.cs:69`-`80`) against the per-kind role sets in `RolesFor` (`:154`-`175`) — not because a second layer needs them. |
 | Core-library-root authentication (`MetadataTypeDeclarationProbe`) | **No demand above Metadata.** `DeclaringAssemblyDefinesCoreLibraryRoot` (`src/ILInspector.Metadata/TypeDeclaration.cs:179`) is copied into every successful `Defined` result and re-published on the `ResolvedTypeDefinition` projection (`src/ILInspector.Metadata/TypeResolution.cs:982`), but every reader is inside Metadata — `TypeResolutionContext.cs:2247`, `:2341`, `:2819` and `TypeParameterKindClassifier.cs:330`, `:397`. It fails requirement 3's higher-layer half outright, and is a good illustration of it: a fact only Metadata consumes needs no published contract to stay consistent. |
 
@@ -533,8 +521,10 @@ independently qualify. A component earns substrate status for the meaning that
 justified it, and tends to accumulate neighbouring families afterwards. The
 admission test governs the first; the publication contract governs both.
 
-The role split shows why the unit has to be a published meaning rather than a
-class or even an enum. `StateMachineMethodRole` has five members and
+The role split shows why the unit *of admission* has to be a published meaning
+rather than a class or even an enum. (**Answerable cases** uses a different
+unit, for reasons stated there; demand decides what is admitted, not what a
+type may declare.) `StateMachineMethodRole` has five members and
 `StateMachineRelationship` resolves a complete role array before publishing,
 so the roles look like one family in the code. By demand they are two: exact
 `MoveNext` selection is derived independently by Analysis — for both async and
@@ -581,8 +571,8 @@ non-conforming work:
 | Outcome collapses shared across all three components — a reachable disposition with no case, in the state-machine index, the memory-safety index, and TypeDef kind classification | [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) |
 | Unbounded declaration-table construction: the whole-table paths take no work bound, so the construction rule is unmet rather than deviated from | [#5731](https://github.com/richlander/dotnet-inspect/issues/5731) |
 | Bare row coordinates published throughout the result graphs, so a retained result cannot be rebound to a reader safely — the identity rows, and the raw-handle inputs that are the same problem from the other side | [#5711](https://github.com/richlander/dotnet-inspect/issues/5711) |
-| `MetadataTypeNameFailure` shared across two unrelated domains, so two of its four mechanisms are unreachable from every declaration surface — the first clause of per-meaning reachability | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
-| Entry points that can never produce some of the cases their return type declares, including where the narrowing is recorded only in prose — the surface-narrowing clause of per-meaning reachability | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
+| `MetadataTypeNameFailure` shared across two unrelated domains, so two of its four mechanisms belong to a question the declaration probe does not answer — answerable cases | [#5750](https://github.com/richlander/dotnet-inspect/issues/5750) |
+| Operations publishing a type that declares cases their question can never produce, including where the narrowing is recorded only in prose — answerable cases | [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) |
 
 The gap is instructive in one respect worth keeping. Two of the three
 components already *declare* the case they fail to route to:
@@ -605,8 +595,8 @@ issue, and must pass the admission test on its own evidence.
 | Property, event, accessor, and backing-storage association | Decoded separately inside Metadata by `src/ILInspector.Metadata/MetadataDeclarationQuery.cs`, `src/ILInspector.Metadata/ApiSurfaceExtractor.cs`, and `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs`. The higher-layer demand is the Decompiler, which derives accessor association at `src/ILInspector.Decompiler/Pipeline/MethodDefinitionFacts.cs:281`-`294` and backing-storage association at `src/ILInspector.Decompiler/MemberBodyProducer.cs:1630` — where it builds `$"<{member.Name}>k__BackingField"` by hand rather than through `GeneratedNameGrammar`. |
 | Compiler-recognized type-use annotations (nullability, tuple names, dynamic, required members, ref-safety) | Separate decoders in Metadata, interpreted again for spelling in CSharp and in the Decompiler printer. |
 | Generic constraint semantics | Decoded in Metadata's declaration query and again in Analysis; the Decompiler reconstructs constraints separately. |
-| Interop declaration contracts (P/Invoke) | Decoded inside Metadata at `src/ILInspector.Metadata/MethodClassificationScanner.cs:404`-`406` and `src/ILInspector.Metadata/AssemblyDetailScanner.cs:413`-`457`, both reading only a module reference and a presence bit, with no reusable typed result. Demand above Metadata is not yet observed. |
-| Assembly entry-point semantics | **Already typed, and already duplicated.** `MetadataCorHeaderSummary` (`src/ILInspector.Metadata/MetadataImageOverview.cs:231`-`270`) is produced at `src/ILInspector.Metadata/MetadataImageInspector.cs:127`-`132` and read above Metadata at `src/DotnetInspector.MetadataRendering/MetadataProjectionRenderer.cs:446`-`454`, while Analysis derives the same fact independently at `src/ILInspector.Analysis/LibraryBodyLiftedSourceOwnerResolver.cs:798`-`811`. The open question is whether the existing summary already is the substrate. |
+| Interop declaration contracts (P/Invoke) | **Already typed and consumed — the open question is whether more is wanted.** The classification and import module name are published as `ClassifiedMethodInfo` (`src/ILInspector.Metadata/MethodClassificationScanner.cs:11`-`20`) through `AssemblyInspectionSession.ClassifiedMethods()` (`src/ILInspector.Metadata/AssemblyInspectionSession.cs:202`), projected by `src/DotnetInspector.Queries/ClassifiedMethodsQuery.cs:21`-`35`, and rendered by the CLI (`src/dotnet-inspect/Views/LibraryInspectionView.cs:245`-`261`). What no one derives is the fuller `MethodImport` contract — entry-point name, charset, calling convention, error handling — so any candidate here must name those fields and show demand for them, not reuse the demand for classification. |
+| Authenticated managed entry point | **Two different questions, not one duplicated fact.** `MetadataCorHeaderSummary` (`src/ILInspector.Metadata/MetadataImageOverview.cs:231`-`270`) copies the COR-header flags and raw token and is rendered at `src/DotnetInspector.MetadataRendering/MetadataProjectionRenderer.cs:446`-`454`; that is a flag-plus-field read, which requirement 1 classifies as an ordinary helper. Analysis asks something else at `src/ILInspector.Analysis/LibraryBodyLiftedSourceOwnerResolver.cs:794`-`900`: it authenticates the token as a MethodDef, validates an analyzable static signature and body, and correlates a top-level owner. Only the second is a candidate meaning, and it has one derivation, so requirement 3 is not met today. |
 | Type and field layout relationships | **Weakest candidate — no observed duplication.** Metadata derives no layout relationship today. Both derivations sit in the Decompiler, and they are not the same sub-fact: `src/ILInspector.Decompiler/MemberBodyProducer.cs:974`-`1003` spells `StructLayout`/`FieldOffset`, while `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:3189` reads only `GetLayout().Size`. Listed for discovery; it does not satisfy requirement 3 today. |
 
 The strongest next validation of the pattern is accessor and backing-storage
@@ -679,7 +669,7 @@ still claims**, and the Markdown-only exemption covers only documentation that
 makes no measured behavior claim. This document therefore keeps its factual
 surface small, concentrated in the inventory's demand evidence, which is
 load-bearing for requirement 3. The precedents' conformance to requirement 5
-and to per-meaning reachability is `unverified` and is owned by the linked
+and to answerable cases is `unverified` and is owned by the linked
 trackers, not asserted here. The
 repository-wide routing posture is recorded under **Open questions**.
 
