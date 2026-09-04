@@ -811,8 +811,9 @@ failure and RTS-invalid correspondence remain independent exit decisions.
 `SourceCorrespondencePdbAcquisition_OversizedResponseIsFailure` and
 `SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` cover the
 download-limit and cache-permission boundaries, while
-`AcquirePdbAsync_MismatchedSymbolPackageIdentityRecordsFailure` distinguishes a
-rejected same-name PDB from a symbol package that genuinely contains no
+`AcquirePdbAsync_InvalidSymbolPackageCandidateRecordsFailure` and
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence` distinguish
+a rejected same-name PDB from a symbol package that genuinely contains no
 candidate. `AuthoredRebuildFidelity_PdbFailureProducesSourceFailedResult` keeps
 the existing authored-rebuild command on the same typed failure contract, while
 `AuthoredRebuildFidelity_PdbAbsenceProducesSourceAbsentResult` keeps a
