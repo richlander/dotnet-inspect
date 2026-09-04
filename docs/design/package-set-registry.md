@@ -679,8 +679,9 @@ Integration-scanner contracts owned elsewhere.
 3. Add `PackageSetIds.Aspire`, the 82-member private manifest, exact
    Release gates, and non-friend discovery coverage without adding a generic
    CLI option.
-4. Reference that identity from the Aspire ecosystem pack only after the pack
-   adoption satisfies its separately owned prefix and scanner dependencies.
+4. Reference that identity whenever the Aspire ecosystem pack lands with at
+   least one independently coherent capability. Package-set, prefix, demo, and
+   scanner slots are optional and do not wait for or activate one another.
 5. Have #5602 define the typed resolved-coordinate handoff for generic CLI and
    browser **Add package set** adoption.
 
