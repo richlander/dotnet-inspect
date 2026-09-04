@@ -113,25 +113,33 @@ internal sealed class PackageIntegrationAcquisition
 /// Owns the binding-consistent package groups used by one all-library
 /// Integrations request.
 /// </summary>
-internal sealed class PackageIntegrationsWorkspace : IDisposable
+internal sealed class PackageIntegrationsWorkspace :
+    IDisposable,
+    IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace;
+    readonly PackageAssemblyContextRealization? _packageRealization;
     readonly Dictionary<string, ParticipantResult> _participants;
     readonly Dictionary<string, string> _preflightFailures;
     readonly bool _includeIntegrationOpportunities;
+    readonly bool _asynchronous;
 
     PackageIntegrationsWorkspace(
         InspectionWorkspace workspace,
+        PackageAssemblyContextRealization? packageRealization,
         Dictionary<string, ParticipantResult> participants,
         Dictionary<string, string> preflightFailures,
         int contextGroupCount,
-        bool includeIntegrationOpportunities)
+        bool includeIntegrationOpportunities,
+        bool asynchronous)
     {
         _workspace = workspace;
+        _packageRealization = packageRealization;
         _participants = participants;
         _preflightFailures = preflightFailures;
         _includeIntegrationOpportunities =
             includeIntegrationOpportunities;
+        _asynchronous = asynchronous;
         ContextGroupCount = contextGroupCount;
     }
 
@@ -139,7 +147,12 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
     internal long RetainedImageBytes =>
         _participants.Values
-            .Select(static participant => participant.Group)
+            .SelectMany(static participant =>
+                new[]
+                {
+                    participant.SelectedGroup,
+                    participant.QueryGroup,
+                })
             .Distinct()
             .Sum(static group => group.RetainedImageBytes);
 
@@ -262,6 +275,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
                         Path.GetFullPath(root.Input.Path),
                         new ParticipantResult(
                             group,
+                            participants[index],
+                            group,
                             participants[index]));
                 }
 
@@ -270,16 +285,163 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
 
             return new PackageIntegrationsWorkspace(
                 workspace,
+                packageRealization: null,
                 results,
                 preflightFailures,
                 contextGroupCount,
-                includeIntegrationOpportunities);
+                includeIntegrationOpportunities,
+                asynchronous: false);
         }
         catch
         {
             workspace.Dispose();
             throw;
         }
+    }
+
+    internal static async ValueTask<PackageIntegrationsWorkspace>
+        CreateArtifactBackedAsync(
+            IEnumerable<PackageIntegrationAssembly> assemblies,
+            string extractionRoot,
+            PackageRootBinding package,
+            bool includeIntegrationOpportunities = false,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentException.ThrowIfNullOrWhiteSpace(extractionRoot);
+        ArgumentNullException.ThrowIfNull(package);
+
+        PackageIntegrationAssembly[] requested = [.. assemblies];
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        try
+        {
+            PackageAssemblyContextRealization realization =
+                await workspace.RealizePackageAssemblyContextRolesAsync(
+                        package,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            var results = new Dictionary<string, ParticipantResult>(
+                StringComparer.Ordinal);
+            var preflightFailures = new Dictionary<string, string>(
+                StringComparer.Ordinal);
+            if (!realization.HasAssemblyContexts)
+            {
+                foreach (PackageIntegrationAssembly assembly in requested)
+                {
+                    preflightFailures.Add(
+                        Path.GetFullPath(assembly.Path),
+                        "The selected library has no artifact-backed compile role.");
+                }
+
+                return new PackageIntegrationsWorkspace(
+                    workspace,
+                    realization,
+                    results,
+                    preflightFailures,
+                    contextGroupCount: 0,
+                    includeIntegrationOpportunities,
+                    asynchronous: true);
+            }
+
+            Dictionary<string, ParticipantResult> roles =
+                ArtifactRoles(realization);
+            foreach (PackageIntegrationAssembly assembly in requested)
+            {
+                string fullPath = Path.GetFullPath(assembly.Path);
+                string packagePath = Path.GetRelativePath(
+                        extractionRoot,
+                        fullPath)
+                    .Replace('\\', '/');
+                if (roles.TryGetValue(
+                        packagePath,
+                        out ParticipantResult? participant))
+                {
+                    results.Add(fullPath, participant);
+                }
+                else
+                {
+                    preflightFailures.Add(
+                        fullPath,
+                        "The selected library is outside the artifact-backed package roles.");
+                }
+            }
+
+            int contextGroupCount = results.Values
+                .SelectMany(static participant =>
+                    new[]
+                    {
+                        participant.SelectedGroup,
+                        participant.QueryGroup,
+                    })
+                .Distinct()
+                .Count();
+            return new PackageIntegrationsWorkspace(
+                workspace,
+                realization,
+                results,
+                preflightFailures,
+                contextGroupCount,
+                includeIntegrationOpportunities,
+                asynchronous: true);
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                await workspace.CloseAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(
+                    failure,
+                    cleanupFailure);
+            }
+
+            throw;
+        }
+    }
+
+    static Dictionary<string, ParticipantResult> ArtifactRoles(
+        PackageAssemblyContextRealization realization)
+    {
+        var results = new Dictionary<string, ParticipantResult>(
+            StringComparer.OrdinalIgnoreCase);
+        foreach (PackageAssemblyRoleParticipant surface
+            in realization.SurfaceParticipants)
+        {
+            PackageAssemblyRoleParticipant queryParticipant =
+                realization.ImplementationParticipant(surface)
+                ?? surface;
+            AssemblyContextGroup queryGroup =
+                ReferenceEquals(queryParticipant, surface)
+                    ? realization.SurfaceGroup
+                    : realization.ImplementationGroup!;
+            results.Add(
+                surface.Asset.Path,
+                new ParticipantResult(
+                    realization.SurfaceGroup,
+                    surface.Participant,
+                    queryGroup,
+                    queryParticipant.Participant));
+        }
+
+        if (realization.ImplementationGroup is { } implementationGroup)
+        {
+            foreach (PackageAssemblyRoleParticipant implementation
+                in realization.ImplementationParticipants)
+            {
+                results.TryAdd(
+                    implementation.Asset.Path,
+                    new ParticipantResult(
+                        implementationGroup,
+                        implementation.Participant,
+                        implementationGroup,
+                        implementation.Participant));
+            }
+        }
+
+        return results;
     }
 
     internal async Task<TResult> UseAssemblyAsync<TResult>(
@@ -300,23 +462,57 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
             return await callback(null, null, null).ConfigureAwait(false);
         }
 
-        if (_includeIntegrationOpportunities)
+        if (ReferenceEquals(
+                participant.SelectedParticipant,
+                participant.QueryParticipant))
         {
-            return await AssemblyContextIntegrationOpportunitiesQuery
-                .ExecuteParticipantAsync(
-                    participant.Group,
-                    participant.Participant,
+            return await ExecuteQueryAsync(
+                    participant.QueryGroup,
+                    participant.QueryParticipant,
                     callback)
                 .ConfigureAwait(false);
         }
 
         return await AssemblyContextIntegrationsQuery
             .ExecuteParticipantAsync(
-                participant.Group,
-                participant.Participant,
-                (retained, integrations) =>
-                    callback(retained, integrations, null))
+                participant.SelectedGroup,
+                participant.SelectedParticipant,
+                (selectedAssembly, selectedIntegrations) =>
+                    selectedAssembly is null
+                        ? callback(
+                            null,
+                            selectedIntegrations,
+                            null)
+                        : ExecuteQueryAsync(
+                            participant.QueryGroup,
+                            participant.QueryParticipant,
+                            (_, integrations, opportunities) =>
+                                callback(
+                                    selectedAssembly,
+                                    integrations,
+                                    opportunities)))
             .ConfigureAwait(false);
+
+        Task<TResult> ExecuteQueryAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant queryParticipant,
+            Func<
+                ResolvedAssemblyReference?,
+                AssemblyIntegrationsEntry?,
+                AssemblyIntegrationOpportunitiesEntry?,
+                Task<TResult>> consumer) =>
+            _includeIntegrationOpportunities
+                ? AssemblyContextIntegrationOpportunitiesQuery
+                    .ExecuteParticipantAsync(
+                        group,
+                        queryParticipant,
+                        consumer)
+                : AssemblyContextIntegrationsQuery
+                    .ExecuteParticipantAsync(
+                        group,
+                        queryParticipant,
+                        (retained, integrations) =>
+                            consumer(retained, integrations, null));
     }
 
     internal bool TryGetPreflightFailure(
@@ -336,7 +532,55 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
         return false;
     }
 
-    public void Dispose() => _workspace.Dispose();
+    public void Dispose()
+    {
+        if (_asynchronous)
+        {
+            throw new InvalidOperationException(
+                "An artifact-backed package Integrations workspace must be disposed asynchronously.");
+        }
+
+        _workspace.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_asynchronous)
+        {
+            Dispose();
+            return;
+        }
+
+        List<Exception>? failures = null;
+        try
+        {
+            _packageRealization!.Dispose();
+        }
+        catch (Exception failure)
+        {
+            (failures ??= []).Add(failure);
+        }
+
+        try
+        {
+            InspectionWorkspaceCloseReport report =
+                await _workspace.CloseAsync().ConfigureAwait(false);
+            if (!report.ArtifactSessionCleanupFailures.IsEmpty)
+            {
+                (failures ??= []).AddRange(
+                    report.ArtifactSessionCleanupFailures);
+            }
+        }
+        catch (Exception failure)
+        {
+            (failures ??= []).Add(failure);
+        }
+
+        if (failures is not null)
+        {
+            throw new AggregateException(failures);
+        }
+    }
 
     sealed record Root(
         PackageIntegrationAssembly Input,
@@ -344,6 +588,8 @@ internal sealed class PackageIntegrationsWorkspace : IDisposable
         AssemblyDependencyResolver Policy);
 
     sealed record ParticipantResult(
-        AssemblyContextGroup Group,
-        AssemblyContextParticipant Participant);
+        AssemblyContextGroup SelectedGroup,
+        AssemblyContextParticipant SelectedParticipant,
+        AssemblyContextGroup QueryGroup,
+        AssemblyContextParticipant QueryParticipant);
 }

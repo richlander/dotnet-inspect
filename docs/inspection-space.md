@@ -32,7 +32,16 @@ provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
-participant before advancing. Progressive member call
+participant before advancing. For a remote package whose default selection
+resolves one target framework, that grouped path now consumes the shared
+artifact-backed package-role realization: the existing visible surface
+selection remains the input to ordinary library inspection while Integration
+queries use its exact body-bearing implementation participant when one exists.
+A rejected implementation remains visible without erasing an available
+surface, and asynchronous workspace close retains the artifact generation
+until both participant groups settle. Local archives and explicit `--tfm`
+modes keep the legacy partitioned path because their visible selection can span
+tools or multiple package layout roles. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
