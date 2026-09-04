@@ -1078,14 +1078,15 @@ the definition without running a preset or acquiring its inputs.
 Target product-resident home demos ship through the static application
 ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
 ecosystem grouping, display metadata, and global product order. Workspace
-Definitions owns `ProductDemoSourceBinding`, peer records, exact scenario
-resolution, section admission, run plans, execution, and failures. Grouped and
-flat discovery expose only immutable metadata; selecting one exact scenario ID
-dispatches only that source, whose binding requires exactly one matching
-scenario record. Selection retains the catalog descriptor beside the resolved
-scenario, and hosts use that descriptor as product display metadata. The current
-`DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry remains
-the donor until that transfer lands.
+Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
+validation, exact scenario resolution, section admission, run plans, execution,
+and failures. The selected application-authored factory constructs the records.
+Grouped and flat discovery expose only immutable metadata; selecting one exact
+scenario ID dispatches only that source, whose binding requires exactly one
+matching scenario record. Selection retains the catalog descriptor beside the
+resolved scenario, and hosts use that descriptor as product display metadata.
+The current `DotnetInspector.Queries.Definitions.ProductInspectionDemos`
+registry remains the donor until that transfer lands.
 
 Home demos are closed presets over the open query/section product: each source
 fixes inputs and names **existing product section(s)**

@@ -758,9 +758,10 @@ record's ID to equal the declared scenario ID, builds
 `InspectionDefinitionRegistry`, resolves that exact ID, and enforces the normal
 demo section binding. An absent, second, or mismatched scenario, malformed peer
 graph, or unsupported section fails visibly; it does not return an empty or
-neighboring demo. Record construction, validation, resolution, and failure
-therefore remain wholly owned here, while Ecosystems owns only exact dispatch
-isolation and the application inventory.
+neighboring demo. Record types, graph validation, scenario admission,
+resolution, and failure therefore remain wholly owned here, while the
+application-authored factory body constructs those records and Ecosystems owns
+only exact dispatch isolation and the application inventory.
 
 Catalog selection retains the application descriptor beside
 `ResolvedScenario`. Product-facing title and summary come from that descriptor.

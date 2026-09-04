@@ -411,7 +411,7 @@ Workspace-Definitions-owned source binding. The application catalog owns:
 Workspace Definitions retains:
 
 - the exact scenario ID carried by the binding;
-- peer `InspectionDefinitionRecord` construction;
+- `InspectionDefinitionRecord` types and the peer-graph contract;
 - record and reference validation;
 - exact scenario resolution;
 - section or facet admission;
@@ -429,7 +429,8 @@ Complete ecosystem-manifest validation rejects duplicate scenario IDs,
 duplicate demo orders, empty title or summary, and a pack-local demo sequence
 whose orders are not strictly ascending. It does not invoke a source to
 validate its records. Catalog selection dispatches only the chosen binding;
-record construction, single-scenario validation, exact resolution, and
+the selected application factory constructs the records, while record and
+reference validation, single-scenario admission, exact resolution, and
 owner-domain failure remain Workspace Definitions behavior. An owner-domain
 failure remains visible rather than becoming an empty or default demo.
 
