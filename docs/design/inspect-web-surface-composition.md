@@ -13,8 +13,8 @@ focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Type API, Member API, Source, Annotated Source,
-  Package query, Diagnostics) and their page-level placement relative to
+- which working surfaces exist (Type API, Member API, Type Metadata, Source,
+  Annotated Source, Package query, Diagnostics) and their page-level placement relative to
   Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
@@ -199,9 +199,9 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Source, Annotated Source, and Diagnostics are working
-surfaces rather than documents inset inside a general page. This redesign does
-not change Metadata viewer composition.
+Type API, Member API, Type Metadata, Source, Annotated Source, and Diagnostics
+are working surfaces rather than documents inset inside a general page. Package
+Metadata and the Metadata Explorer retain their separately owned composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -253,6 +253,38 @@ success-shaped empty surfaces.
 
 At narrow widths, Type and Member header identity and status may elide, but the
 overload total or selected overload ordinal is not selectively hidden.
+
+### Type Metadata
+
+Type Metadata uses the full area to the right of Type navigation. It does not
+retain a centered document column or the large type hero. The persistent
+subject path remains the owner of the selected package and type hierarchy.
+
+The surface contains:
+
+```text
+Metadata                                  kind · accessibility
+type shape rows
+member composition and relationship sections
+exact type identity            TFM · library · package@version
+```
+
+The quiet header labels the lens and reports type kind and accessibility
+without competing with the subject path. Type shape rows begin at the top of
+the independently scrolling content region and use its full width. Member
+composition, interfaces, derived types, attributes, relationship graphs, and
+inspection warnings retain their owned semantics and follow in the same
+scroller.
+
+The fixed bottom context row preserves the exact type identity and package
+coordinate needed to compare or capture the projection without restoring a
+large duplicate heading. Loading and failure states retain the same header,
+scroll owner, and bottom context row; they remain visibly distinct from a
+successful empty projection.
+
+At narrow widths, header status and both context values may elide as complete
+strings. The surface retains one scroll owner and creates no page-level
+horizontal overflow.
 
 ### Package query
 
@@ -564,6 +596,19 @@ with the absence of a synthesized `Default feed` control.
    narrow viewport. Confirm that each surface retains its topology and creates
    no page-level horizontal overflow while preserving the overload total or
    selected overload ordinal in the rendered status.
+
+### Type Metadata working surface
+
+1. Open Type Metadata and confirm that the quiet Metadata header, full-width
+   type shape rows, scrolling relationship sections, and bottom exact-target
+   context row exactly fill the inspector pane without an inset type hero.
+2. Exercise loading, projection failure, relationship warnings, and a type with
+   enough sections to scroll. Confirm that each state keeps the same surface
+   frame, that failures remain visible, and that only the content region
+   scrolls.
+3. Repeat with a long generic type identity, long package coordinate, and a
+   narrow viewport. Confirm that header and footer values elide as complete
+   strings without selective loss or page-level horizontal overflow.
 
 ### Source working surface
 
