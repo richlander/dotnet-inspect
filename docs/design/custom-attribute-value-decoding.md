@@ -974,7 +974,7 @@ place it.
 
 ## What slice 2 must decide
 
-Three contracts the inversion changes that this document deliberately does not
+Two contracts the inversion changes that this document deliberately does not
 settle, recorded so slice 2 states them rather than improvising one and leaving
 callers to infer it.
 
@@ -986,10 +986,6 @@ callers to infer it.
   Slice 2 says what one unit of charge means after the inversion and whether
   `DeclaredSlotCharge` survives. Twenty source files consume the observer and
   their budgets depend on the answer, so this cannot be left implicit.
-- **The observer-exception contract.** D2 says an observer raising propagates and
-  never becomes a value. Slice 2 says whether `MaterializationObserverException`
-  wrapping survives with one walker or callers see the raw exception type. Either
-  is defensible; the contract must be stated.
 - **The decoder's name.** This document cites `CustomAttributeValueGuard`,
   `IsSafeToDecode`, and test names like `_GuardSkipMatchesDecodeWidth` throughout,
   because those are the names in the tree today and the document describes what
