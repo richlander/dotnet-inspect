@@ -121,6 +121,11 @@ alphabetically.
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
 | `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
 
+Within Services, `LocalRepoSourceAcquisition` owns [local repository source
+acquisition](design/local-repository-source-acquisition.md): checksum-backed
+substitution of Git blob bytes for one PDB source request. PDB acquisition
+retains the surrounding source-selection and fallback policy.
+
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
 the universal CLI acquisition path. The current package-free fixture consumes
