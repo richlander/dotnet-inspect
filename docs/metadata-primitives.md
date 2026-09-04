@@ -203,6 +203,17 @@ staged and enforcement is deliberately partial.
 no-metadata boundary. Neither it nor a malformed-root result is translated to
 `UnsupportedMetadataFormatException`.
 
+A scan whose candidates are *all* rejected is the one asymmetric shape. A
+single rejected candidate throws that candidate's mechanism, but
+`TypeDependencyScanner` throws `AllCandidatesRejectedException` — an
+`AggregateException` subtype — once no participant survives, because throwing
+any one mechanism would discard the others. A caller written as
+`catch (UnsupportedMetadataFormatException)` therefore does not catch the
+all-rejected case; it must also handle `AllCandidatesRejectedException` and
+read `Rejections`, which carries the typed path-to-mechanism pairing. That
+type overrides `Message` so each mechanism is rendered exactly once, beside
+its own path, rather than repeated by the base type's inner-message list.
+
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
 That closure includes `AssemblyImage`, `PdbContext`, Decompiler

@@ -42,11 +42,25 @@ public sealed record TypeDependencyRejection(
 /// </summary>
 public sealed class AllCandidatesRejectedException : AggregateException
 {
+    private readonly string renderedMessage;
+
     internal AllCandidatesRejectedException(
         string message,
         ImmutableArray<TypeDependencyRejection> rejections,
         IEnumerable<Exception> mechanisms)
-        : base(message, mechanisms) => Rejections = rejections;
+        : base(message, mechanisms)
+    {
+        renderedMessage = message;
+        Rejections = rejections;
+    }
+
+    /// <summary>
+    /// The rendered path-to-mechanism pairing, without the inner-message list
+    /// <see cref="AggregateException"/> appends to its own message. That
+    /// default would print every mechanism a second time at a command
+    /// boundary, unpaired with the path it belongs to.
+    /// </summary>
+    public override string Message => renderedMessage;
 
     /// <summary>
     /// The rejected candidates, in scan order. Each entry corresponds to the

@@ -515,6 +515,29 @@ public sealed class MetadataAdmissionCleanupTests
                     rejected.Message,
                     StringComparison.Ordinal);
             }
+
+            // AggregateException appends every inner message to its own
+            // Message. Left in place, each mechanism would be displayed a
+            // second time, unpaired with the path it belongs to, so a
+            // containment assertion alone cannot see the defect. Each
+            // mechanism must appear exactly once.
+            foreach (Exception mechanism in rejected.InnerExceptions)
+            {
+                int occurrences = 0;
+                int at = rejected.Message.IndexOf(
+                    mechanism.Message,
+                    StringComparison.Ordinal);
+                while (at >= 0)
+                {
+                    occurrences++;
+                    at = rejected.Message.IndexOf(
+                        mechanism.Message,
+                        at + mechanism.Message.Length,
+                        StringComparison.Ordinal);
+                }
+
+                Assert.Equal(1, occurrences);
+            }
         }
         finally
         {
