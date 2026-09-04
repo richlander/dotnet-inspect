@@ -1780,6 +1780,32 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void Harness_SourceCorrespondenceCensusPopulatesPdbSource()
+    {
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+
+        var run = RunHarness(
+            "--source-correspondence-census",
+            "--json",
+            "--cap",
+            "1",
+            "--repo",
+            repositoryRoot,
+            HarnessBinary());
+
+        Assert.Equal(0, run.ExitCode);
+        Assert.Contains("\"source_acquisition\": {", run.Output, StringComparison.Ordinal);
+        Assert.Contains("\"not_attempted\": 0", run.Output, StringComparison.Ordinal);
+        Assert.Contains("\"complete\": 1", run.Output, StringComparison.Ordinal);
+        Assert.Contains("\"source_acquisition\": \"complete\"", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "assembly is not registered in FixtureCatalog",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
     static HarnessRun RunHarness(params string[] arguments)
         => RunHarness(environment: null, arguments);
 
@@ -1787,7 +1813,7 @@ public class AuthoredCorpusHarnessProcessTests
         (string Name, string Value)? environment,
         params string[] arguments)
     {
-        var startInfo = new ProcessStartInfo("dotnet")
+        var startInfo = new ProcessStartInfo(DotnetHost())
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1826,6 +1852,21 @@ public class AuthoredCorpusHarnessProcessTests
             Assert.Fail($"The harness crashed instead of deciding:{Environment.NewLine}{output}");
 
         return new HarnessRun(process.ExitCode, output);
+    }
+
+    static string DotnetHost()
+    {
+        string? root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(root))
+        {
+            string path = Path.Combine(
+                root,
+                OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
+            if (File.Exists(path))
+                return path;
+        }
+
+        return "dotnet";
     }
 
     /// <summary>

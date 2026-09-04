@@ -13,9 +13,9 @@ focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Type API, Member API, Source, Annotated Source,
-  Package query, Diagnostics) and their page-level placement relative to
-  Type/Member navigation;
+- which working surfaces exist (Type API, Member API, Type Metadata, Source,
+  Annotated Source, Package query, Diagnostics) and their page-level placement
+  relative to Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
@@ -24,8 +24,8 @@ This owner defines:
 - package-source presentation placement (feed tabs absence, producer-label
   display);
 - the placement and allocation of the two persistent shell rows, including the
-  subject/inspector region, inspected target, shell-owned Application menu, and
-  contextual working-surface actions;
+  application-scope and subject/inspector regions, inspected target,
+  shell-owned Application menu, and contextual working-surface actions;
 - contextual working-surface action placement and responsive continuity;
 - responsive composition across viewport sizes; and
 - the data bar and Diagnostics surface.
@@ -80,29 +80,41 @@ This document consumes, without redefining:
 - the Slideable Subject Strip's inventories, representations, internal
   allocation, terminal-deficit behavior, and focus contract owned by
   [Inspect Web Navigation
-  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip).
+  Presentation](inspect-web-navigation-presentation.md#slideable-subject-strip);
+  and
+- the Query/Workspace application-scope inventory, selection, and interaction
+  owned by
+  [Inspect Web Navigation
+  Presentation](inspect-web-navigation-presentation.md#application-scope-strip).
 
 ## Shell navigation and application actions
 
 The persistent shell is two non-wrapping page-level rows:
 
 ```text
-row one: [product] [subject and inspector region]
+row one: [product] [Query | Workspace] [subject and inspector region]
          [Back | Forward] [Search] [Application menu]
 row two: [inspected target: minmax(0, 1fr)]
          [working-surface actions, when supplied]
 ```
 
-Row one contains navigation and the stable application-action home. The
-product control and Application menu occupy non-shrinking slots. The
-Navigation Presentation-owned subject/inspector region receives the primary
-flexible allocation between them, followed by the Shell Interaction-owned
-history and Search cluster. Search progresses from its full label to its
-compact label and then disappears; history disappears after Search. This
-cluster yields before the Slideable Subject Strip starts reducing active
-Subject or Inspector identity. Once those shell controls have yielded, the
-SlideStrip resolves its own normal, control-free, and terminal-deficit states
-inside the remaining page boundary.
+Row one contains navigation and the stable application-action home. The product
+control and Application menu occupy non-shrinking slots. The
+Navigation Presentation-owned application-scope strip precedes the
+subject/inspector region, which receives the primary flexible allocation. The
+Shell Interaction-owned history and Search cluster follows it. Search
+progresses from its full label to its compact label and then disappears;
+the application-scope strip yields next, while history remains available until
+a narrower width. History then disappears before the Slideable Subject Strip
+starts reducing active Subject or Inspector identity. Once those controls have
+yielded, the SlideStrip resolves its own normal, control-free, and
+terminal-deficit states inside the remaining page boundary.
+
+The application-scope strip uses a distinct quiet treatment and may be removed
+at constrained widths only after focus has left it. Query remains reachable
+through Spotlight's global keyboard entry and Workspace through hierarchical
+drill-out or a return action. On `/query`, the visible heading and
+route-specific Back action continue to orient the surface if the strip yields.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -205,9 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Source, Annotated Source, and Diagnostics are working
-surfaces rather than documents inset inside a general page. This redesign does
-not change Metadata viewer composition.
+Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
+Source, Annotated Source, and Diagnostics are working surfaces rather than
+documents inset inside a general page. The Metadata Explorer retains its
+separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -250,8 +263,35 @@ Member Overview retains package documentation, declaration copying, stable
 identity, parameters, returns, exceptions, and applicability. It removes the
 large documentation-style title and the repeated Namespace, Assembly, Package,
 and framework summary because the subject path already supplies that
-orientation. Call graph and Facts retain their owned result semantics and use
-the same full-area scroller.
+orientation.
+
+The C# declaration is the first stable artifact below the quiet member header.
+It remains anchored while package documentation is loading or resolves to a
+summary, failure, or absence state. A compact `Summary` region follows the
+declaration and keeps every documentation state visible without giving missing
+documentation the surface's highest prominence. Stable identity begins as a
+separate structured section after that region.
+
+```text
+C# declaration                                      Copy
+signature
+
+Summary
+package documentation, loading, failure, or absence
+
+Identity
+stable selector, digest, canonical signature
+```
+
+The declaration and identity use the working surface's available width while
+summary prose retains a readable line length. Subsequent documentation sections
+retain their established readable measure rather than expanding with the
+declaration and identity. At constrained widths the declaration scrolls
+horizontally without separating its Copy action, and identity labels stack
+above their values rather than forcing page-level horizontal overflow.
+
+Call graph and Facts retain their owned result semantics and use the same
+full-area scroller.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
@@ -259,6 +299,114 @@ success-shaped empty surfaces.
 
 At narrow widths, Type and Member header identity and status may elide, but the
 overload total or selected overload ordinal is not selectively hidden.
+
+### Type Metadata
+
+Type Metadata uses the full area to the right of Type navigation. It does not
+retain a centered document column or the large type hero. The persistent
+subject path remains the owner of the selected package and type hierarchy.
+
+The surface contains:
+
+```text
+Metadata                                  kind · accessibility
+type shape rows
+member composition and relationship sections
+exact type identity            TFM · library · package@version
+```
+
+The quiet header labels the lens and reports type kind and accessibility
+without competing with the subject path. Type shape rows begin at the top of
+the independently scrolling content region and use its full width. Member
+composition, interfaces, derived types, attributes, relationship graphs, and
+inspection warnings retain their owned semantics and follow in the same
+scroller.
+
+The fixed bottom context row preserves the exact type identity and package
+coordinate needed to compare or capture the projection without restoring a
+large duplicate heading. Loading and failure states retain the same header,
+scroll owner, and bottom context row; they remain visibly distinct from a
+successful empty projection.
+
+At narrow widths, header status and both context values may elide as complete
+strings. The surface retains one scroll owner and creates no page-level
+horizontal overflow.
+
+### Package Dependencies
+
+Package Dependencies uses the complete package inspector area. It does not
+retain the generic package hero or inset Package coordinate section used by
+document-style package lenses. The persistent subject path remains the owner
+of the package identity.
+
+The surface contains:
+
+```text
+Dependencies                         package and reference count or state
+Version · Framework
+target-framework groups, graph, package dependencies, assembly references
+package@version                                             active framework
+```
+
+The quiet header labels the lens and reports the selected dependency group's
+package count together with the selected assembly's direct reference count.
+A compact control row keeps Version and Framework available. Dependency-group
+selection remains with the result because it selects a manifest group rather
+than changing the active package coordinate.
+
+One independently scrolling content region retains the exact-group notice,
+target-framework selector, dependency graph, package dependency list, assembly
+references, and partial workspace warning. Selecting another manifest group
+patches its list and graph in place without changing the surface frame or
+resetting the package coordinate.
+
+The fixed bottom context row preserves the exact package coordinate and active
+framework. Loading, query failure, no-dependency, no-exact-group, graph
+failure, and partial-workspace states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from successful
+empty results.
+
+At narrow widths, the `Types` return control shares the quiet header, controls
+wrap within their row, and header and footer values may elide as complete
+strings. The surface creates no page-level horizontal overflow. This slice
+does not change dependency selection, graph construction or navigation,
+Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+the Metadata Explorer.
+
+### Package Metadata
+
+Package Metadata uses the complete package inspector area. It does not retain
+the generic package hero or inset Package coordinate section used by the other
+package lenses. The persistent subject path remains the owner of the package
+identity.
+
+The surface contains:
+
+```text
+Metadata images                                  assembly count or state
+Version · Framework · optional platform Library
+assembly image facts, heaps, and populated tables
+package@version                           TFM · optional scoped library
+```
+
+The quiet header labels the image-level lens and reports its assembly count or
+current state. A compact control row keeps Version and Framework available and,
+for the platform package, adds the scoped Library selector. The independently
+scrolling content region begins with assembly metadata rather than a repeated
+package summary. Each assembly retains its format, header facts, heaps, and
+populated-table controls, and those controls continue to open the separately
+owned Metadata Explorer.
+
+The fixed bottom context row preserves the exact package coordinate, target
+framework, and optional scoped library. Library-required, loading, failure,
+partial-failure, and no-image states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from a successful
+empty result.
+
+At narrow widths, controls wrap within their row and header and footer values
+may elide as complete strings. The surface creates no page-level horizontal
+overflow. This slice does not change the Metadata Explorer or other package
+lenses.
 
 ### Package query
 
@@ -393,9 +541,22 @@ reconstructs that label from an endpoint.
 
 One information hierarchy adapts across viewport sizes:
 
-- wide layouts retain Type or Member navigation beside a full working surface;
-- narrow layouts replace the navigation pane with a visible
-  `Types` or `Members` button that opens the shared modal navigation drawer;
+- wide layouts retain Type or Member navigation beside a full working surface,
+  using a bounded inventory column rather than a percentage split; the column
+  stays within its readable minimum and maximum while the detail pane receives
+  all remaining width, and no draggable divider is introduced;
+- narrow layouts replace the split with one presentation-local pane:
+  inventory or detail. Detail exposes a visible `Types` or `Members` button
+  that switches to the corresponding full-width inventory; activating an
+  inventory row switches back to detail, and inventory retains a visible
+  detail-return action even when filters leave no activatable row;
+- the narrow inventory/detail choice is not workspace state or product
+  navigation. Switching panes does not change the selected coordinate,
+  subject, lens, filters, canonical packet, URL, or browser history;
+- the return button shares the quiet 40-pixel working-surface header when one
+  exists. Heading-free Source and Annotated Source and document-style package
+  surfaces use a narrow-only local navigation band rather than inventing a
+  working-surface title;
 - both persistent shell rows remain one line;
 - the row-one subject/inspector region remains outside and above the
   navigation/content grid;
@@ -427,14 +588,17 @@ One information hierarchy adapts across viewport sizes:
 Responsive layout is not workspace state. Changing viewport size does not alter
 the selected coordinate, subject, lens, filters, or canonical packet.
 
-When narrowing replaces a navigation pane while focus is inside it, focus moves
-to the new `Types` or `Members` drawer button without opening the drawer. When
-widening replaces an open drawer, the drawer closes without returning focus to
-its removed invoker and focus moves to the equivalent visible navigation item,
-or to the active-subject heading when no equivalent item is rendered. When a
-closed drawer button is replaced, the same transfer occurs only if that button
-owned focus; otherwise the current focus remains unchanged. In particular,
-widening does not move focus out of another open modal.
+Activating `Types` or `Members` moves focus to the visible inventory and scrolls
+its selected row into view. Activating an inventory row moves focus to the
+return button in the resulting narrow detail pane. A filter-focus command first
+switches to inventory, then opens and focuses the applicable filter.
+
+When crossing into the narrow layout, focus inside Type or Member navigation
+keeps inventory visible; focus inside detail keeps detail visible. Otherwise
+the retained presentation-local pane remains visible. Widening reveals both
+panes without moving focus, except that focus owned by either removed
+narrow-only pane-switch control moves to the equivalent visible navigation
+list. A viewport change never moves focus out of another open modal.
 
 Density comes from removing duplication and conditionally presenting
 navigation, not from making text or controls too small to use.
@@ -447,9 +611,11 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact product-information line. It does not wrap,
 expand, or host runtime diagnostics:
 
+<!-- markdownlint-disable MD013 -->
 ```text
 dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
 ```
+<!-- markdownlint-enable MD013 -->
 
 The data bar includes:
 
@@ -577,6 +743,57 @@ with the absence of a synthesized `Default feed` control.
    no page-level horizontal overflow while preserving the overload total or
    selected overload ordinal in the rendered status.
 
+### Type Metadata working surface
+
+1. Open Type Metadata and confirm that the quiet Metadata header, full-width
+   type shape rows, scrolling relationship sections, and bottom exact-target
+   context row exactly fill the inspector pane without an inset type hero.
+2. Exercise loading, projection failure, relationship warnings, and a type with
+   enough sections to scroll. Confirm that each state keeps the same surface
+   frame, that failures remain visible, and that only the content region
+   scrolls.
+3. Repeat with a long generic type identity, long package coordinate, and a
+   narrow viewport. Confirm that header and footer values elide as complete
+   strings without selective loss or page-level horizontal overflow.
+
+### Package Metadata working surface
+
+1. Open package Metadata and confirm that the quiet header, compact Version and
+   Framework controls, assembly image facts, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Open platform Metadata before and after choosing a Library. Confirm that the
+   Library selector remains in the compact control row, the required-selection
+   state keeps the full-area frame, and the selected assembly's heap and table
+   controls still open the Metadata Explorer.
+3. Exercise loading, read failure, partial failure, no-image, and a package
+   containing enough assembly content to scroll. Confirm that only the content
+   region scrolls and that failure is never presented as successful emptiness.
+4. Repeat with long package and library names at a narrow viewport. Confirm
+   that controls wrap within their row, context values elide as complete
+   strings, and no page-level horizontal overflow appears.
+
+### Package Dependencies working surface
+
+1. Open package Dependencies and confirm that the quiet header, compact
+   Version and Framework controls, target-framework groups, dependency graph,
+   package dependencies, assembly references, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Switch manifest target-framework groups and confirm that the dependency
+   list and graph update in place while the surface frame, package coordinate,
+   and scroll ownership remain stable. Open or load a dependency from both the
+   list and graph and confirm that existing navigation behavior is preserved.
+3. Exercise loading, query failure, no declared dependencies, no exact group,
+   graph rendering failure, and partial workspace failure. Confirm that each
+   keeps the full-area frame and that failure is never presented as successful
+   emptiness.
+4. Open a package with enough graph and list content to scroll. Repeat with a
+   long package coordinate and narrow viewport; confirm that the `Types`
+   control shares the quiet header, controls wrap within their row, context
+   values elide as complete strings, and no page-level horizontal overflow
+   appears.
+
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
@@ -592,20 +809,26 @@ with the absence of a synthesized `Default feed` control.
 ### Narrow viewport
 
 1. Start from a committed Type Source state.
-2. Narrow the viewport until Type navigation moves to its drawer.
-3. Activate the visible `Types` button and confirm the drawer's accessible
-   dialog name, initial focus, focus containment, Escape dismissal, and focus
-   return.
+2. Narrow the viewport until detail occupies the full content frame and Type
+   navigation is replaced by a visible `Types` button.
+3. Activate `Types` and confirm that inventory occupies the same full content
+   frame, focus moves to its list, the selected row remains visible, and URL
+   and browser history do not change. Clear the list with filters and confirm
+   that the visible detail-return action still restores the prior detail.
 4. Confirm that both persistent shell rows remain single-line rather than
    wrapping. Confirm that the row-two target elides while preserving its
    complete accessible path, only the Slideable Subject Strip uses contiguous
    windows and edge disclosure, and the Application menu retains its row-one
    trailing slot.
-5. With focus in the wide navigation pane, narrow the viewport and confirm that
-   focus moves to the new drawer button without opening it.
-6. Open the drawer, restore the wide viewport, and confirm that the drawer
-   closes and focus moves to the equivalent visible navigation item or the
-   active-subject heading.
+5. Activate the selected Type row and confirm that detail returns, focus moves
+   to `Types`, and URL and browser history remain unchanged. Activate a
+   different row and confirm that its ordinary product navigation semantics
+   still apply before detail returns.
+6. With focus in the wide navigation pane, narrow the viewport and confirm that
+   inventory remains visible. With focus in detail, repeat and confirm that
+   detail remains visible. Restore the wide viewport and confirm both panes
+   return without disturbing focus, except that a focused narrow return button
+   transfers to the visible navigation list.
 7. Open Settings at the narrow viewport, restore the wide viewport, and confirm
    that focus remains contained in Settings.
 8. Confirm that coordinate, subject, lens,

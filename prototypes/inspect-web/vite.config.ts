@@ -8,7 +8,15 @@ export default defineConfig({
   build: {
     manifest: "manifest.json",
     rollupOptions: {
-      external: ["/inspect-web-engine.js"],
+      external: [
+        "/inspect-web-host.js",
+        "/inspect-web-package.js",
+        "/inspect-web-metadata.js",
+        "/inspect-web-analysis.js",
+        "/inspect-web-source.js",
+        "/inspect-web-call-graph.js",
+        "/inspect-web-catalog.js",
+      ],
     },
   },
 });

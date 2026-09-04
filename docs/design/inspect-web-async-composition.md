@@ -22,8 +22,9 @@ have landed through
 [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) and
 [#5005](https://github.com/richlander/dotnet-inspect/issues/5005).
 The operation-authority product component and its first Type Source adoption
-are implemented. The worker-runtime and managed-operation-bridge product
-components have not landed, so their composed behavior remains **unverified**.
+are implemented. The managed bridge's dynamic lifecycle core is implemented;
+its browser boundary and the worker-runtime product component have not landed,
+so their composed behavior remains **unverified**.
 
 ## Composition responsibility
 
@@ -47,7 +48,7 @@ The participating owners are:
   epoch identity, readiness, message validation, dispatch, liveness, draining,
   hard termination, and realm release;
 - [managed operation bridge](inspect-web-managed-operation-bridge.md), which
-  owns managed admission, keyed cancellation, progress-callback lifetime,
+  owns managed admission, keyed cancellation, nonterminal callback lifetime,
   result classification, managed quiescence, shared-waiter detachment, and
   epoch-work leases;
 - [`ts-jsexport`](ts-jsexport.md), which owns generated facade construction,
@@ -96,7 +97,7 @@ the replacement view. Its separate quiescence signal resolves only after the
 responsible owner releases the operation resources or the worker runtime
 destroys their realm.
 
-### Progress without publication confusion
+### Nonterminal events without publication confusion
 
 The feature defines the progress payload and semantic phases. The managed
 bridge scopes the synchronous callback to one admitted operation. The worker
@@ -107,6 +108,14 @@ feature observer decides how to render the admitted value.
 Progress is neither a terminal result nor proof that the DOM received a paint.
 It is also not worker task-loop liveness evidence unless the worker-runtime
 owner explicitly classifies the corresponding event that way.
+
+For async-stream adopters, the feature also defines a durable nonterminal
+payload whose item and item-failure variants remain part of the outcome.
+Operation authority publishes each current durable payload once in producer
+order and consumes stale payloads without publication. The managed bridge and
+worker runtime do not yet carry that payload; #5419 and #5418 own those
+remaining handoffs. Durable events are not progress and do not acquire
+publication authority that survives cancellation or replacement.
 
 ### Shared and speculative physical work
 
@@ -151,7 +160,8 @@ heartbeat, probe, or follow-up-request claim for the worker's own event loop.
 | Worker realm | [Worker runtime](inspect-web-worker-runtime.md#worker-epoch-identity-problem) | Worker-object identity and epoch correlation contain physical work and messages to one realm. They do not identify the logical operation. |
 | Managed admission | [Managed bridge](inspect-web-managed-operation-bridge.md#admission) | The owner-issued operation identity becomes addressable by keyed cancellation before managed work can reach its first incomplete wait. |
 | Cancellation reason | [Operation authority](inspect-web-operation-authority.md#cancellation-and-supersession) and [managed bridge](inspect-web-managed-operation-bridge.md#cancellation) | The main-thread reason is preserved as application data. Runtime exception text is not used to reconstruct it. |
-| Progress | Feature, [managed bridge](inspect-web-managed-operation-bridge.md#progress), [worker runtime](inspect-web-worker-runtime.md), and operation authority | Each owner controls one hop: meaning, callback lifetime, transport validity, and current-view admission. |
+| Progress | Feature, [managed bridge](inspect-web-managed-operation-bridge.md#nonterminal-events), [worker runtime](inspect-web-worker-runtime.md), and operation authority | Each owner controls one hop: meaning, callback lifetime, transport validity, and current-view admission. |
+| Durable nonterminal events | [Engine-to-browser async event stream](engine-browser-async-event-stream.md), feature, operation authority, and managed bridge; worker runtime after its residual | The stream and feature own meaning and retention; the managed bridge owns scoped callback lifetime and producer-order invocation; operation authority owns current-view admission and producer-order publication; the later worker transport must preserve the same typed payload without reclassifying it as progress. |
 | Terminal classification | Feature and [managed bridge](inspect-web-managed-operation-bridge.md#settlement-and-terminal-classification) | Expected feature outcomes remain typed results. Runtime, interop, or protocol failures follow their boundary owner instead of becoming success-shaped feature data. |
 | Quiescence | Operation authority, managed bridge, and worker runtime | The operation handle's quiescence follows adapter-reported release; hard realm destruction is the final release barrier for unresolved epoch resources. |
 | Sharing and cache | Feature and [managed bridge](inspect-web-managed-operation-bridge.md#shared-producer-attachment) | Logical waiter lifetime does not silently become physical producer lifetime. |
@@ -170,10 +180,10 @@ complete shape and validity rules.
 | Operation authority | Producer adapter | `OperationIdentity`, normalized cancellation reason, and producer event sink |
 | `ts-jsexport` and inspect-web consumer | Worker bootstrap | `initializeRuntime()`, `runEntryPoint()`, generated operation functions, DTOs, and authenticated synchronous callbacks |
 | Feature adapter | Worker runtime | Operation kind, payload validator, result/progress mappings, and structural liveness declaration |
-| Worker runtime | Managed bridge | Validated opaque operation ID, feature input, synchronous progress callback, cancellation request, epoch reporter, and worker-issued idle-compatible capability |
+| Worker runtime | Managed bridge | Validated opaque operation ID, feature input, synchronous nonterminal event callback, cancellation request, epoch reporter, and worker-issued idle-compatible capability |
 | Managed bridge | Worker runtime | Typed managed outcome, cancellation status, and epoch-work lease notifications |
-| Worker runtime adapter | Operation authority | Typed progress, physical terminal result, unexpected diagnostic, and physical quiescence |
-| Operation authority | Feature | Current-operation start, replacement, admitted progress, terminal or canceled outcome, and disposal events |
+| Worker runtime adapter | Operation authority | Typed progress, typed durable nonterminal event or batch, physical terminal result, unexpected diagnostic, and physical quiescence |
+| Operation authority | Feature | Current-operation start, replacement, admitted progress and durable events, terminal or canceled outcome, and disposal events |
 
 The worker protocol names and orders its own wire messages. This document uses
 the semantic handoffs above so adding or renaming a protocol envelope does not
@@ -317,10 +327,10 @@ owner's evidence cannot stand in for another owner's behavior.
 
 | Claimed behavior | Owner and gate | Current status |
 | --- | --- | --- |
-| One logical outcome, current-view publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component, gate, and first Type Source adoption implemented |
+| One logical outcome, current-view publication, ordered durable publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component, durable-publication gate, and first Type Source adoption implemented |
 | Worker message validity, epoch containment, readiness, liveness, draining, and realm release | [Worker-runtime models and `inspect-web-worker-protocol` plus `inspect-web-worker-lifecycle` Release gates](inspect-web-worker-runtime.md#required-implementation-gates) | Abstract models checked; product components and gates **unverified** |
 | DOM responsiveness while representative managed CPU work runs | Worker-runtime owner and [`inspect-web-worker-responsiveness` real-browser gate](inspect-web-worker-runtime.md#required-implementation-gates) | **Unverified** |
-| Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; product component and gate **unverified** |
+| Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; dynamic lifecycle core, managed Release sub-gate, and Browser/Wasm nonterminal event canary implemented; shared-producer attachment, epoch-work handoff, concrete export migration, and the remaining complete browser-host gate cases **unverified** |
 | Generated Task/Promise functions, authenticated callback types, initialization, and managed dispatch | [`ts-jsexport` acceptance gates](ts-jsexport.md#acceptance) and the implemented inspect-web consumer gates from #5003 and #5005 | Implemented for the current production facade |
 | Complete multi-facade module set over one runtime | [Facade-partition acceptance gates](inspect-web-jsexport-partitioning.md#acceptance) | Proposed under [#4497](https://github.com/richlander/dotnet-inspect/issues/4497); not a prerequisite for the current monolithic facade |
 | Feature result, progress meaning, cancellation checkpoints, structural yield bound, sharing, cache, retry, and rendering | The adopting feature's focused Release and browser gates | Unverified until each feature adopts the composed boundary |
@@ -343,6 +353,8 @@ Migration remains focused by owner:
    [#5092](https://github.com/richlander/dotnet-inspect/issues/5092)
    implements operation authority and adopts it in one existing source view
    without changing execution placement or feature behavior.
+   [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) extends
+   that owner with typed durable nonterminal publication for stream adopters.
 3. **Worker runtime.**
    [#5418](https://github.com/richlander/dotnet-inspect/issues/5418)
    realizes the [worker owner](inspect-web-worker-runtime.md#migration) and

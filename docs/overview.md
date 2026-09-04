@@ -62,7 +62,11 @@ substrates, and inspection producers that will extend that space.
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
-  Research into the core query assembly.
+  Research into the core query assembly. Its target
+  [workspace Research target composition](design/research-workspace-target-composition.md)
+  joins a facade's Metadata forwarding outcome through the sealed
+  Queries-to-Research population receipt to one already admitted terminal
+  Research attempt.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
@@ -136,6 +140,11 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
+- [Committed authored-corpus history](design/authored-corpus-history.md) owns
+  admission of one complete EVIL benchmark artifact as a durable observation
+  and validity of the ordered committed observation sequence. Benchmark
+  production, methodology, ratchet comparison, and history-card rendering
+  remain separate concerns.
 - [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
   use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
   execution. MTP and xUnit retain runner semantics; suite owners retain
@@ -181,10 +190,13 @@ substrates, and inspection producers that will extend that space.
   publication.
 - [`docs/design/custom-attribute-value-decoding.md`](design/custom-attribute-value-decoding.md)
   owns the safety contract for decoding custom-attribute values
-  from untrusted metadata: the alignment, bounding, and guard-work invariants
-  relating `CustomAttributeValueGuard` to SRM's decode, the two
-  width-resolution paths and the distinct mechanism each uses to stay in
-  agreement, and the bound, charging, and refusal semantics.
+  from untrusted metadata: the bounding, fail-closed, and fidelity invariants
+  for a decoder this repository will own, the format's adversarial properties
+  that force them, the two width-resolution paths, and the bound, charging, and
+  refusal semantics. That contract is **prescriptive ahead of the
+  implementation**: until #5288's slice 2 lands, `AttributeDecoder` still calls
+  SRM's `CustomAttribute.DecodeValue` behind `CustomAttributeValueGuard`, and
+  SRM becomes a test-time fidelity oracle only when it does.
   `SignatureBlobGuard` retains its structural signature bounds.
 
 ## Engineering guidance
@@ -199,6 +211,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Artifact acquisition and workspace composition](design/artifact-acquisition-and-workspaces.md):
   the target separation between storage, source adapters, multi-source
   workspace lifetimes, packages, and assembly inspection.
+- [Workspace scope and expansion](design/workspace-scope-and-expansion.md):
+  committed logical Root membership and order, closed-by-default selective
+  dependency expansion, scope revisions, logical limits, and complete
+  scope-operation results.
 - [Assembly image lifetime and MVID correctness](design/assembly-image-lifetime.md):
   the single-image inspection lifetime, source-specific cache scope, and
   non-cryptographic role of MVID-scoped metadata addresses.

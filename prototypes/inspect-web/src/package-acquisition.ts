@@ -5,40 +5,111 @@ import {
   renderInspectionErrors,
 } from "./data.ts";
 import type {
-  BrowserAccessibilityDescriptor,
-  BrowserAssemblySurface,
-  BrowserExceptionSurface,
-  BrowserMemberBodySelector,
-  BrowserMemberSurface,
-  BrowserPackageDocument,
-  BrowserPackageIcon,
-  BrowserPackageSurface,
-  BrowserParameterSurface,
-  BrowserTypeSurface,
-} from "./inspect-web-engine.d.ts";
+  BrowserAccessibilityDescriptor as AccessibilityDescriptorFromPackageFacade,
+  BrowserAssemblySurface as AssemblySurfaceFromPackageFacade,
+  BrowserExceptionSurface as ExceptionSurfaceFromPackageFacade,
+  BrowserMemberBodySelector as MemberBodySelectorFromPackageFacade,
+  BrowserMemberSurface as MemberSurfaceFromPackageFacade,
+  BrowserPackageDocument as PackageDocumentFromPackageFacade,
+  BrowserPackageIcon as PackageIconFromPackageFacade,
+  BrowserPackageSurface as PackageSurfaceFromPackageFacade,
+  BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
+  BrowserTypeSurface as TypeSurfaceFromPackageFacade,
+} from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserAccessibilityDescriptor as AccessibilityDescriptorFromCatalogFacade,
+  BrowserAssemblySurface as AssemblySurfaceFromCatalogFacade,
+  BrowserExceptionSurface as ExceptionSurfaceFromCatalogFacade,
+  BrowserMemberBodySelector as MemberBodySelectorFromCatalogFacade,
+  BrowserMemberSurface as MemberSurfaceFromCatalogFacade,
+  BrowserPackageDocument as PackageDocumentFromCatalogFacade,
+  BrowserPackageIcon as PackageIconFromCatalogFacade,
+  BrowserPackageSurface as PackageSurfaceFromCatalogFacade,
+  BrowserParameterSurface as ParameterSurfaceFromCatalogFacade,
+  BrowserTypeSurface as TypeSurfaceFromCatalogFacade,
+} from "./facades/inspect-web-catalog.d.ts";
+import type {
+  BrowserExceptionSurface as ExceptionSurfaceFromMetadataFacade,
+  BrowserMemberBodySelector as MemberBodySelectorFromMetadataFacade,
+  BrowserMemberSurface as MemberSurfaceFromMetadataFacade,
+  BrowserParameterSurface as ParameterSurfaceFromMetadataFacade,
+  BrowserTypeSurface as TypeSurfaceFromMetadataFacade,
+} from "./facades/inspect-web-metadata.d.ts";
 import type { BodyTarget } from "./member-filtering.ts";
 
+// The package, catalog and metadata facades each declare their own structurally equal
+// surface DTOs, and this application model is built from all three: `queryPackage` and the
+// platform loads publish the package facade's surface, `runHomeDemo` publishes the catalog
+// facade's, and `queryGraphMemberSurface` publishes the metadata facade's projected type.
+// These aliases are the application's own adaptation of the three owner-issued
+// declarations; no facade's declaration is imported as the owner of another's value.
+
+export type InspectedAccessibilityDescriptor =
+  | AccessibilityDescriptorFromPackageFacade
+  | AccessibilityDescriptorFromCatalogFacade;
+
+export type InspectedAssemblySurface =
+  | AssemblySurfaceFromPackageFacade
+  | AssemblySurfaceFromCatalogFacade;
+
+export type InspectedExceptionSurface =
+  | ExceptionSurfaceFromPackageFacade
+  | ExceptionSurfaceFromCatalogFacade
+  | ExceptionSurfaceFromMetadataFacade;
+
+export type InspectedMemberBodySelector =
+  | MemberBodySelectorFromPackageFacade
+  | MemberBodySelectorFromCatalogFacade
+  | MemberBodySelectorFromMetadataFacade;
+
+export type InspectedMemberSurface =
+  | MemberSurfaceFromPackageFacade
+  | MemberSurfaceFromCatalogFacade
+  | MemberSurfaceFromMetadataFacade;
+
+export type InspectedPackageDocument =
+  | PackageDocumentFromPackageFacade
+  | PackageDocumentFromCatalogFacade;
+
+export type InspectedPackageIcon =
+  | PackageIconFromPackageFacade
+  | PackageIconFromCatalogFacade;
+
+export type InspectedPackageSurface =
+  | PackageSurfaceFromPackageFacade
+  | PackageSurfaceFromCatalogFacade;
+
+export type InspectedParameterSurface =
+  | ParameterSurfaceFromPackageFacade
+  | ParameterSurfaceFromCatalogFacade
+  | ParameterSurfaceFromMetadataFacade;
+
+export type InspectedTypeSurface =
+  | TypeSurfaceFromPackageFacade
+  | TypeSurfaceFromCatalogFacade
+  | TypeSurfaceFromMetadataFacade;
+
 export interface AppParameterSurface
-  extends Omit<BrowserParameterSurface, "description"> {
+  extends Omit<InspectedParameterSurface, "description"> {
   description: string | null;
 }
 
 export interface AppMemberSurface
   extends Omit<
-    BrowserMemberSurface,
+    InspectedMemberSurface,
     "parameters" | "summary" | "returns" | "exceptions"
   > {
   parameters: AppParameterSurface[];
   summary: string | null;
   returns: string | null;
-  exceptions: BrowserExceptionSurface[];
+  exceptions: InspectedExceptionSurface[];
   documentationLoaded?: boolean;
   graphOnly?: boolean;
   graphTarget?: BodyTarget;
-  implementationBody?: BrowserMemberBodySelector;
+  implementationBody?: InspectedMemberBodySelector;
 }
 
-export interface AppTypeSurface extends Omit<BrowserTypeSurface, "api"> {
+export interface AppTypeSurface extends Omit<InspectedTypeSurface, "api"> {
   api: AppMemberSurface[];
   graphOnly?: boolean;
 }
@@ -57,13 +128,13 @@ export interface AppPackage {
     | { kind: "feed"; host: string }
     | { kind: "platform" }
     | { kind: "unknown" };
-  assemblies: BrowserAssemblySurface[];
+  assemblies: InspectedAssemblySurface[];
   types: AppTypeSurface[];
-  accessibility: BrowserAccessibilityDescriptor[];
+  accessibility: InspectedAccessibilityDescriptor[];
   totalTypes: number;
   totalMembers: number;
-  documents: BrowserPackageDocument[];
-  icon: BrowserPackageIcon | null;
+  documents: InspectedPackageDocument[];
+  icon: InspectedPackageIcon | null;
   inspectionErrors?: string[];
   inspectionError?: string;
   isRuntimePack: boolean;
@@ -91,7 +162,7 @@ export function runtimePackIsResident(
 }
 
 export function createAppMemberSurface(
-  surface: BrowserMemberSurface,
+  surface: InspectedMemberSurface,
 ): AppMemberSurface {
   return {
     ...surface,
@@ -101,7 +172,7 @@ export function createAppMemberSurface(
 }
 
 export function createAppTypeSurface(
-  surface: BrowserTypeSurface,
+  surface: InspectedTypeSurface,
 ): AppTypeSurface {
   return {
     ...surface,
@@ -138,17 +209,17 @@ export function retainGraphOnlyImplementationBody<
 
 export function graphOnlyImplementationBody(
   overload: AppMemberSurface | null | undefined,
-): BrowserMemberBodySelector | undefined {
+): InspectedMemberBodySelector | undefined {
   return overload?.graphOnly
     ? overload.implementationBody
     : undefined;
 }
 
-function packageTypes(result: BrowserPackageSurface): AppTypeSurface[] {
+function packageTypes(result: InspectedPackageSurface): AppTypeSurface[] {
   return (result.types ?? []).map(createAppTypeSurface);
 }
 
-function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {
+function surfaceInspectionErrors(result: InspectedPackageSurface): string[] {
   return result.inspectionErrors?.length
     ? [...result.inspectionErrors]
     : mergeInspectionErrorEntries([], result.inspectionError
@@ -172,7 +243,7 @@ function surfaceInspectionErrors(result: BrowserPackageSurface): string[] {
 // Splitting the checks keeps both properties: identity is required everywhere, a matching
 // descriptor only where one is actually read.
 function requireAssemblyIdentity(
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
   failureMessage: string,
 ): string {
   const defaultAssemblyId = result.defaultAssemblyId;
@@ -185,8 +256,8 @@ function requireAssemblyIdentity(
 
 // The descriptor the surface's declared default names, or null when none matches.
 function selectedAssembly(
-  result: BrowserPackageSurface,
-): BrowserAssemblySurface | null {
+  result: InspectedPackageSurface,
+): InspectedAssemblySurface | null {
   const defaultAssemblyId = result.defaultAssemblyId;
   if (typeof defaultAssemblyId !== "string"
     || defaultAssemblyId.trim().length === 0) {
@@ -197,9 +268,9 @@ function selectedAssembly(
 }
 
 function defaultAssembly(
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
   failureMessage: string,
-): BrowserAssemblySurface {
+): InspectedAssemblySurface {
   requireAssemblyIdentity(result, failureMessage);
   const assembly = selectedAssembly(result);
   if (!assembly) throw new Error(failureMessage);
@@ -207,7 +278,7 @@ function defaultAssembly(
 }
 
 export function createNuGetPackageModel(
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
 ): AppPackage {
   if (result.compileLibrary.status !== "Selected") {
     throw new Error(
@@ -242,7 +313,7 @@ export function createNuGetPackageModel(
 }
 
 export function createRuntimePackageModel(
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
 ): AppPackage {
   const assembly = defaultAssembly(
     result,
@@ -251,7 +322,7 @@ export function createRuntimePackageModel(
 }
 
 function createRuntimeAssemblyPackageModel(
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
   requestedAssembly: string,
 ): AppPackage {
   // `requestedAssembly` and the no-descriptor failure come from main (#4405); selecting
@@ -270,8 +341,8 @@ function createRuntimeAssemblyPackageModel(
 }
 
 function createRuntimePackageModelForAssembly(
-  result: BrowserPackageSurface,
-  assembly: BrowserAssemblySurface,
+  result: InspectedPackageSurface,
+  assembly: InspectedAssemblySurface,
 ): AppPackage {
   const types = packageTypes(result);
   const inspectionErrors = surfaceInspectionErrors(result);
@@ -299,7 +370,7 @@ function createRuntimePackageModelForAssembly(
 
 export function mergeRuntimePackageSurface(
   existing: AppPackage,
-  result: BrowserPackageSurface,
+  result: InspectedPackageSurface,
 ): AppPackage {
   const defaultAssemblyId = requireAssemblyIdentity(
     result,
@@ -322,7 +393,7 @@ export function mergeRuntimePackageSurface(
     acceptedTypes.push(type);
   }
 
-  const assemblyKey = (assembly: BrowserAssemblySurface) => [
+  const assemblyKey = (assembly: InspectedAssemblySurface) => [
     assembly.name.toLowerCase(),
     assembly.version ?? "",
     (assembly.culture ?? "").toLowerCase() === "neutral"
@@ -403,7 +474,7 @@ export interface PackageAcquisitionDependencies {
     packageId: string,
     version: string,
     framework: string,
-  ): Promise<BrowserPackageSurface>;
+  ): Promise<InspectedPackageSurface>;
   loadRuntimePack(framework: string, platformVersion: string): Promise<string>;
   loadRuntimePackAssembly(
     framework: string,
@@ -411,7 +482,7 @@ export interface PackageAcquisitionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<string>;
-  parseRuntimeSurface(json: string): BrowserPackageSurface;
+  parseRuntimeSurface(json: string): InspectedPackageSurface;
   runtimePackage(): AppPackage | null;
   retainPackage(packageModel: AppPackage, replacedPackage?: AppPackage | null): void;
   recordRecentPackage(id: string, version: string, framework: string): void;

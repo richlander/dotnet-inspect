@@ -32,7 +32,21 @@ provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
-participant before advancing. Progressive member call
+participant before advancing. For a remote package whose default selection
+resolves one target framework, that grouped path now consumes the shared
+artifact-backed package-role realization: the existing visible surface
+selection remains the input to ordinary library inspection while Integration
+queries use its exact body-bearing implementation participant when one exists.
+A rejected implementation remains visible without erasing an available
+surface, and asynchronous workspace close retains the artifact generation
+until both participant groups settle. Ordinary presentation retains the
+selected extraction file's timestamp rather than manufacturing a timestamp
+from the artifact stream. The artifact-backed path requires the
+binding's frozen surface role to exactly cover the command's visible selection
+and to form exact assembly-identity correspondence; other package shapes
+retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
+also keep that path because their visible selection can span tools or multiple
+package layout roles. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
@@ -347,6 +361,12 @@ framework and runtime identity when known, and the resolution policy that chose
 them. It also retains the acquisition provenance and policy inputs needed to
 decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
+
+[Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
+the committed logical Root occurrences above those physical contexts,
+closed-by-default selective dependency expansion, revision-bound scope edits,
+and closure completeness. Artifact Acquisition retains realization, admission,
+binding-context publication, query authorization, and physical lifetime.
 
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two

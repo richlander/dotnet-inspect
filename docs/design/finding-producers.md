@@ -99,9 +99,9 @@ census. Human diagnostic messages are not occurrence identity.
 **Status:** the shared Findings topology is implemented and verified by the
 gates named in
 [Finding Nomenclature](finding-nomenclature.md#typed-inspection-topology).
-`ILInspector.ILDiff` has adopted the obligations below through
-`IlAssemblyDiff.CompareMemberEndpoints`. The adjacent C# producer obligations
-remain unverified pending their focused migration.
+`ILInspector.ILDiff` and `ILInspector.Decompiler` have adopted the obligations
+below through `IlAssemblyDiff.CompareMemberEndpoints` and
+`CSharpBodyDiff.CompareMemberEndpoints`.
 
 Body differs use the shared
 [typed inspection topology](finding-nomenclature.md#typed-inspection-topology)
@@ -160,9 +160,26 @@ endpoint evidence, null rejection, retained topology, pair suppression outside
 `Complete`/`Complete`, and the absence of bespoke missing-body failures on the
 adopted path. Legacy assembly-wide and `CompareMembers` paths retain their
 existing compatibility result until their consumers migrate; they are not the
-typed endpoint path. Each remaining producer migration must name equivalent
-owner-specific gates. The Findings gates prove the shared state and transition
-contract; they do not prove adjacent producer wiring.
+typed endpoint path.
+
+The C# adoption is gated by
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
+`CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
+`PresentEndpoint_RejectsNullAndNilEvidence` in
+`CSharpMemberEndpointComparisonTests`. Together they verify the same explicit
+endpoint, topology-retention, pair-suppression, native-result, and null
+rejection obligations for the Decompiler owner, including added canonical C#
+Findings for a one-sided present method. Legacy assembly-wide and
+`CompareMembers` paths retain their existing compatibility behavior until
+their consumers migrate; they are not the typed endpoint path.
+
+Each future producer migration must name equivalent owner-specific gates. The
+Findings gates prove the shared state and transition contract; they do not
+prove adjacent producer wiring.
 
 ## 5. Choose identity and ordering semantics
 

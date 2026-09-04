@@ -403,7 +403,7 @@ internal static class DetectionTestSuite
                 "src/ILInspector.Decompiler.Tests/CSharpBodyDiffTests.cs",
                 "ILInspector test project"),
             (
-                "src/ILInspector.Analysis.CallerGraphTarget/TargetApi.cs",
+                "fixtures/analysis/ILInspector.Analysis.CallerGraphTarget/TargetApi.cs",
                 "ILInspector fixture project"),
         })
         {
@@ -809,7 +809,7 @@ internal static class DetectionTestSuite
             repository,
             body,
             "pull_request",
-            "src/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
+            "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync/Fixture.cs",
             outputs);
         AssertRouting(
             decompilerFixture,

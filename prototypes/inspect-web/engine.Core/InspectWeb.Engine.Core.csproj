@@ -6,14 +6,31 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Every capability export assembly composes the same shared workspace, coordinator, policy,
+      and DTO-neutral projection surface, and all of it is internal. The host and the tests keep
+      their existing access.
+    -->
     <InternalsVisibleTo Include="InspectWeb.Engine" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.PackageExports" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.MetadataExports" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.AnalysisExports" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.SourceExports" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.CallGraphExports" />
+    <InternalsVisibleTo Include="InspectWeb.Engine.CatalogExports" />
     <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <InternalsVisibleTo Include="TsJsExport.MultiFacade.Alpha" />
+    <InternalsVisibleTo Include="TsJsExport.MultiFacade.Beta" />
     <AdditionalFiles Include="..\engine\BannedSymbols.txt" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\..\..\src\DotnetInspector.Services\DotnetInspector.Services.csproj" />
+    <ProjectReference Include="..\..\..\src\CSharpText\CSharpText.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\..\..\src\NuGetFetch\NuGetFetch.csproj" />
   </ItemGroup>
 </Project>

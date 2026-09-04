@@ -450,9 +450,11 @@ public static class ResearchTargetResolver
             {
                 reader = source.Reader;
                 ResearchTargetInputValidationEvidence evidence =
-                    CaptureInputEvidence(reader, occurrence);
+                    ResearchInputImageValidation.Capture(reader, occurrence);
                 SetInputEvidence(requests, evidence);
-                if (ValidateImage(evidence, occurrence) is
+                if (ResearchInputImageValidation.Validate(
+                        evidence,
+                        occurrence) is
                     ResearchTargetDiagnosticKind invalid)
                 {
                     Terminate(requests, invalid);
@@ -500,58 +502,6 @@ public static class ResearchTargetResolver
                 }
             }
         }
-    }
-
-    /// <summary>
-    /// Validates that the live image, the acquisition descriptor, and the
-    /// Analysis body index all name the same assembly and the same module.
-    /// </summary>
-    static ResearchTargetInputValidationEvidence CaptureInputEvidence(
-        MetadataReader reader,
-        ImplementationComparisonInputOccurrence occurrence)
-    {
-        bool isAssembly = reader.IsAssembly;
-        AssemblyReferenceIdentity? identity = isAssembly
-            ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
-            : null;
-        Guid moduleVersionId =
-            reader.GetGuid(reader.GetModuleDefinition().Mvid);
-        return new ResearchTargetInputValidationEvidence(
-            ReadFailed: false,
-            isAssembly,
-            identity,
-            moduleVersionId,
-            occurrence.Assembly.Registration.ModuleVersionId,
-            reader.MethodDefinitions.Count,
-            Surface: null);
-    }
-
-    static ResearchTargetDiagnosticKind? ValidateImage(
-        ResearchTargetInputValidationEvidence evidence,
-        ImplementationComparisonInputOccurrence occurrence)
-    {
-        LibraryBodyModuleIdentity analysis = occurrence.BodyIndex.ModuleIdentity;
-        if (!evidence.IsAssembly)
-            return ResearchTargetDiagnosticKind.StandaloneModule;
-        if (analysis.AssemblyIdentity is null)
-            return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
-
-        AssemblyReferenceIdentity live = evidence.LiveAssemblyIdentity!;
-        if (!AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                live,
-                occurrence.Assembly.Identity)
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                live,
-                analysis.AssemblyIdentity))
-        {
-            return ResearchTargetDiagnosticKind.AssemblyIdentityMismatch;
-        }
-
-        return evidence.LiveModuleVersionId == analysis.ModuleVersionId
-                && (evidence.ArtifactModuleVersionId is not Guid artifact
-                    || artifact == evidence.LiveModuleVersionId)
-            ? null
-            : ResearchTargetDiagnosticKind.ModuleIdentityMismatch;
     }
 
     static ResearchTargetOutcome ResolveRequest(
