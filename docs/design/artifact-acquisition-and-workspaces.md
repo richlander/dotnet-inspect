@@ -2036,6 +2036,191 @@ correspondence are gated by
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
+#### Sparse selected-assembly projection
+
+[#5798](https://github.com/richlander/dotnet-inspect/issues/5798) owns the
+package-adapter projection used by bounded Package Query assembly evaluation.
+Given one acquisition-issued `PackageRootBinding`, one exact canonical
+`PackageCompileAsset` occurrence from that binding's frozen selection, an
+asynchronous candidate workspace, and explicit entry and aggregate
+retained-image bounds, the adapter projects only that asset into one
+artifact-backed participant.
+
+The caller owns why it selected the asset. The adapter does not choose a
+primary assembly, interpret compile-surface versus implementation-body intent,
+count siblings, or map package selection states into query-level
+`NotApplicable` or item-failure outcomes.
+
+`PackageCompileAsset` is publicly constructible, so value equality is not
+selection authority. The sparse projection accepts only the exact canonical
+object retained in the binding's frozen `Assets` or `ImplementationAssets`
+sequence. A newly constructed equal value, an asset from another binding, a
+same-ID value with different fields, or a candidate sequence member that is not
+in either selected sequence is rejected before content access. After
+admission, the adapter uses only fields from the canonical retained object.
+Canonical implementation assets remain admissible when the Root has an
+explicit empty compile group: this projection validates occurrence, not the
+caller's reason for selecting it.
+
+The canonical selected-asset occurrence authorizes opening its recorded
+package path. The path string alone carries no authority and is never accepted
+with a package ID as a substitute for the binding and canonical occurrence.
+
+For an admitted occurrence, the adapter:
+
+1. retains the binding's coordinate, content-generation identity, selection
+   identity, and canonical asset as package provenance;
+2. registers only that selected entry in one `ArtifactSetSession`;
+3. materializes it under both the declared and observed entry-byte limits;
+4. seals the generation all-or-nothing;
+5. invokes the assembly-inspection owner's existing artifact-backed
+   compatibility projection with a deterministic package-adapter rejection
+   carrier identity to create exactly one participant; and
+6. transfers the artifact session and query lease to that participant's
+   candidate workspace.
+
+The rejection carrier gives the Metadata bridge the nonblank identity required
+to preserve a participant when the selected image has no decoded assembly
+identity. It is deterministic for this one-asset projection and is not
+presented as artifact-derived identity. The adapter does not classify PE or
+metadata kinds or reinterpret Metadata failures. Native images, managed
+modules, malformed managed images, empty-MVID assemblies, and unsupported
+Windows Metadata retain the assembly-inspection owner's participant and
+rejection semantics unchanged.
+
+The aggregate retained-image bound covers the artifact-owned snapshot and the
+independent Metadata workspace snapshot. The sparse adapter uses the current
+artifact-backed partition: half of the aggregate bound is reserved for the
+artifact generation and the remainder for the one-participant group. The
+selected entry is therefore limited to the smaller of the explicit per-entry
+bound and the artifact share. Declared entry length is only a preflight;
+observed copying remains bounded and rejects an entry whose actual expanded
+bytes exceed the limit. For an image of `N` bytes with no stricter per-entry
+limit, an aggregate retained-image bound of `2N` admits projection while
+`2N - 1` rejects before participant publication.
+
+After caller input validation, the package-owned projection outcome is closed:
+
+- **Available** carries one operation-scoped sparse realization containing the
+  canonical selected asset, exact one-participant group and participant, and
+  the Metadata bridge's `IdentityDecoded` signal. The group is required query
+  authority; the signal prevents a consumer from treating a rejection-carrier
+  identity as decoded assembly evidence.
+- **InvalidBinding** means the Root no longer corresponds to the binding's
+  content-generation identity.
+- **InvalidSelectedAsset** means the supplied object is not an exact canonical
+  member of the binding's frozen selected sequences.
+- **SelectedEntryUnavailable** combines a missing entry with a package-content
+  implementation that returns `false` from bounded open because the current
+  `IPackageContent` boundary cannot distinguish those cases.
+- **EntryByteLimitExceeded** means an owner-recognized declared-length
+  preflight or observed artifact copy crossed the admitted entry or
+  artifact-share byte limit.
+- **ArtifactPublicationFailed** preserves the artifact owner's typed
+  publication failures.
+
+Null inputs, an invalid bound, or a workspace that is not asynchronous are
+caller contract violations and retain their existing argument or invalid-
+operation exceptions outside this outcome algebra.
+
+The adapter recognizes its own internal selected-entry-unavailable sentinel
+when `TryOpenEntry` returns `false` inside the one materialization callback.
+That preserves one package-entry open attempt while distinguishing
+`SelectedEntryUnavailable` from unrelated artifact publication failure.
+Manifest preflight and the artifact failure code
+`artifact.session.artifact-byte-limit` map to `EntryByteLimitExceeded`; other
+owner-issued publication failures remain `ArtifactPublicationFailed`.
+Product filesystem package content must implement
+`IPackageContentEntryManifest` so its known file length reaches the typed
+preflight instead of throwing an indistinguishable `InvalidDataException`
+inside materialization. For a third-party content implementation without a
+manifest, bounded-open `false` remains `SelectedEntryUnavailable` and other
+open exceptions remain publication failures.
+
+Cancellation is not an outcome arm. The operation propagates the caller's
+`OperationCanceledException` and token after cleanup. Cleanup failures remain
+secondary diagnostics and do not replace the primary failure or cancellation.
+Unexpected implementation exceptions remain exceptional rather than becoming
+success-shaped or generic typed outcomes.
+
+The current artifact materializer's `using`-declaration path can let a throwing
+stream disposal replace a cancellation raised by `ReadAsync`. #5798 must first
+close that owner-local gap by capturing the materialization failure, disposing
+separately, attaching disposal failure as cleanup evidence, and rethrowing the
+original condition. The cancellation-preservation claim remains unverified
+until the named sparse cleanup gate exercises a stream whose read is cancelled
+and whose disposal throws.
+
+An available projection is operation-scoped and resource-bearing. It supplies
+the canonical selected asset, group, participant, and `IdentityDecoded` signal
+only. Query roles, selection rationale, sibling accounting, and durable
+evidence remain consumer-owned.
+
+Artifact registration and participant remain execution authority, not durable
+query evidence. A consumer may copy the package coordinate, content-generation
+identity, selection identity, and selected asset into a resource-free receipt,
+but it cannot retain the workspace, artifact identity or registration,
+group, participant, content opener, stream, session, lease, or callback.
+
+Workspace close is the candidate release boundary. Disposing a realization
+alone does not release its transferred artifact session, so a streaming caller
+uses one candidate-scoped asynchronous workspace and closes it after all query
+callbacks are quiescent. Reusing one workspace across a corpus would retain
+prior candidate artifact sessions and is outside this sparse contract.
+
+Cancellation before publication produces no participant. Cancellation or
+failure after registration but before ownership transfer cleans up the
+artifact session and query lease without replacing the primary condition.
+Every non-available outcome publishes no participant.
+
+This linear projection adds no concurrency or scheduling state machine.
+Candidate parallelism and aggregate cross-candidate memory belong to the
+consuming stream owner. CLI and Browser/Wasm consumers use the same pathless,
+SRM-only projection under the repository's existing platform and dependency
+constraints. This focused design introduces no new platform exception or
+independent composition-absence claim.
+
+NuGet Insights demonstrates the useful portion of this shape: copy one package
+entry into a seekable candidate buffer, construct an SRM reader, and dispose
+the candidate in `finally`. Its full-package download, all-DLL scan,
+accumulated output, and server temp-file policy do not transfer.
+([driver](https://github.com/NuGet/Insights/blob/c449aa472b10aea098bf46e94767f9952fd16a60/src/Worker.Logic/Drivers/PackageAssemblyToCsv/PackageAssemblyToCsvDriver.cs#L73-L245))
+SRM independently requires readable seekable input and makes reader ownership
+explicit.
+([`PEReader`](https://github.com/dotnet/runtime/blob/bdec678032fd579854e525c5c309eac1c1dd22c8/src/libraries/System.Reflection.Metadata/src/System/Reflection/PortableExecutable/PEReader.cs#L91-L128))
+NuGet Insights' tests also show that declared stream length may be missing or
+wrong, supporting the separate observed-byte gate rather than trusting ZIP
+metadata as the limit.
+([tests](https://github.com/NuGet/Insights/blob/c449aa472b10aea098bf46e94767f9952fd16a60/test/Logic.Test/TempStream/TempStreamWriterTest.cs#L33-L120))
+
+The target Release gates are:
+
+- `SparsePackageAssemblyProjection_RejectsReconstructedOrForeignAsset`
+- `SparsePackageAssemblyProjection_UsesOnlyCanonicalAssetFields`
+- `SparsePackageAssemblyProjection_OpensSelectedPackageEntryExactlyOnce`
+- `SparsePackageAssemblyProjection_DoesNotEnumerateOrOpenSiblingEntriesAfterBinding`
+- `SparsePackageAssemblyProjection_ExactAggregatePartitionBoundary`
+- `SparsePackageAssemblyProjection_FileSystemLengthUsesManifestPreflight`
+- `SparsePackageAssemblyProjection_DeclaredOrObservedBytesMapToEntryLimit`
+- `SparsePackageAssemblyProjection_CompatibilityCasesUseMetadataOutcome`
+- `SparsePackageAssemblyProjection_RejectionCarrierIsDeterministicAndNotDecoded`
+- `SparsePackageAssemblyProjection_EmptyCompileGroupImplementationCanProject`
+- `SparsePackageAssemblyProjection_PublishesOneExactParticipantOrNone`
+- `SparsePackageAssemblyProjection_PreservesBindingCorrespondence`
+- `SparsePackageAssemblyProjection_CancellationDuringMaterializationPublishesNone`
+- `SparsePackageAssemblyProjection_CloseWaitsForActiveQueryCallback`
+- `SparsePackageAssemblyProjection_RealizationDisposeRetainsArtifactUntilWorkspaceClose`
+- `SparsePackageAssemblyProjection_TerminalPathsReleaseLeaseAndSession`
+- `SparsePackageAssemblyProjection_CleanupFailurePreservesPrimaryCondition`
+- `SparsePackageAssemblyProjection_BrowserConsumerExecutesQueryThroughGroup`
+
+The Package Query evaluator tracked by
+[#5785](https://github.com/richlander/dotnet-inspect/issues/5785) is the first
+named consumer. It owns pattern semantics, semantic work bounds, candidate
+role selection, selection-state mapping, sibling accounting, outcomes, and
+resource-free evidence; this adapter does not inspect metadata or IL and does
+not publish host events.
+
 Compile-library availability is a capability of that Root, not a precondition
 for the Root to exist. The host workspace retains every requested Root.
 `PackageAssemblyContextRealization` separately creates surface or
