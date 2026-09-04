@@ -553,8 +553,10 @@ owns the full contract and the inspect-web hosting pointer.
   `ci-required` unless parallel review is approved or conflict recovery applies.
   Query GitHub status only when the round cadence requires it; follow
   [GitHub status queries](docs/github-status-queries.md)'s bounded waiting
-  instead of polling. If an hour passes without an authored change while an
-  independent gate hasn't started, fix the sequencing or record the blocker.
+  instead of polling. During a bounded wait, fetch the live base and locally
+  test each new tip for conflicts; never report budget exhaustion without
+  checking the final tip. If an hour passes without an authored change while
+  an independent gate hasn't started, fix the sequencing or record the blocker.
 - `ci-required` is this repository's aggregate merge gate
   (`.github/workflows/ci.yml`): it passes only when the aggregate itself
   concludes `success`, and a missing aggregate is not green. Never require a

@@ -39,6 +39,14 @@ public readonly record struct SourceLinkResolution(
     int SubstitutionOffset,
     int SubstitutionLength);
 
+/// <summary>The document-specific outcome of applying a SourceLink map.</summary>
+public enum SourceLinkResolutionStatus
+{
+    Unmapped,
+    Resolved,
+    Rejected,
+}
+
 /// <summary>A SourceLink document mapping exactly as decoded from the map.</summary>
 /// <param name="Document">The document key before path normalization.</param>
 /// <param name="Url">
@@ -110,7 +118,12 @@ public partial class SourceLinkResolver
         string UrlPrefix,
         string? UrlSuffix);
 
+    private readonly record struct DocumentKey(
+        string PathPrefix,
+        bool IsPrefix);
+
     private readonly Entry[] _entries;
+    private readonly DocumentKey[] _rejectedEntries;
 
     /// <summary>
     /// The document keys exactly as authored, in document order, before separator normalization
@@ -172,6 +185,7 @@ public partial class SourceLinkResolver
         _entries = entries;
         DocumentKeys = documentKeys;
         RejectedKeys = rejectedKeys;
+        _rejectedEntries = BuildRejectedEntries(rejectedKeys);
         DocumentMappings = [];
         ParseError = parseError;
         MappingLimitExceeded = mappingLimitExceeded;
@@ -189,6 +203,7 @@ public partial class SourceLinkResolver
         _entries = Build(mappings, out var rejected);
         DocumentKeys = [.. mappings.Keys];
         RejectedKeys = rejected;
+        _rejectedEntries = BuildRejectedEntries(rejected);
         DocumentMappings = [.. mappings.Select(static mapping =>
             new SourceLinkDocumentMapping(mapping.Key, mapping.Value))];
         ParseError = null;
@@ -266,22 +281,23 @@ public partial class SourceLinkResolver
         => TryResolve(filePath, out var resolution) ? resolution.Url : null;
 
     /// <summary>
-    /// Matches a document path against the map. Returns false when no entry matches, which is
-    /// the ordinary case for a document the map does not cover.
+    /// Applies the SourceLink map while preserving whether a mapping that governed this document
+    /// was rejected. A rejected entry never shadows a valid entry that can resolve the document.
     /// </summary>
-    public bool TryResolve(string filePath, out SourceLinkResolution resolution)
+    public SourceLinkResolutionStatus Resolve(
+        string filePath,
+        out SourceLinkResolution resolution)
     {
         resolution = default;
 
-        if (string.IsNullOrEmpty(filePath))
-            return false;
-
-        // A wildcard in the document path itself is not a path; it would let one document claim
-        // a mapping meant for a whole subtree. The reference consumer refuses it, and so does this.
-        if (filePath.Contains('*', StringComparison.Ordinal))
-            return false;
+        if (string.IsNullOrEmpty(filePath)
+            || filePath.Contains('*', StringComparison.Ordinal))
+        {
+            return SourceLinkResolutionStatus.Unmapped;
+        }
 
         string path = NormalizeSeparators(filePath);
+        bool rejectedMatch = false;
 
         foreach (var entry in _entries)
         {
@@ -293,30 +309,53 @@ public partial class SourceLinkResolver
                 string remainder = path[entry.PathPrefix.Length..];
                 string substituted = SubstituteUrl(entry, remainder, out int offset, out int length);
 
-                // The entry-level probe proves that ordinary substitutions reach a content
-                // selector, but the concrete remainder can be empty or decode as blank. That can
-                // change Azure's selector binding, so validate the actual request before this
-                // specific match is allowed to outrank a less-specific entry.
                 if (!SourceLinkProvenance.CanSelectContent(
                         substituted, offset, length, out _))
                 {
+                    rejectedMatch = true;
                     continue;
                 }
 
                 resolution = new SourceLinkResolution(
                     remainder, substituted, IsPrefixMatch: true, offset, length);
-                return true;
+                return SourceLinkResolutionStatus.Resolved;
             }
 
             if (string.Equals(path, entry.PathPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 resolution = new SourceLinkResolution(
                     string.Empty, entry.UrlPrefix, IsPrefixMatch: false, -1, 0);
-                return true;
+                return SourceLinkResolutionStatus.Resolved;
             }
         }
 
-        return false;
+        if (!rejectedMatch)
+        {
+            foreach (DocumentKey key in _rejectedEntries)
+            {
+                if (key.IsPrefix
+                    ? path.StartsWith(key.PathPrefix, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(path, key.PathPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    rejectedMatch = true;
+                    break;
+                }
+            }
+        }
+
+        return rejectedMatch
+            ? SourceLinkResolutionStatus.Rejected
+            : SourceLinkResolutionStatus.Unmapped;
+    }
+
+    /// <summary>
+    /// Matches a document path against the map. Returns false when no entry matches, which is
+    /// the ordinary case for a document the map does not cover.
+    /// </summary>
+    public bool TryResolve(string filePath, out SourceLinkResolution resolution)
+    {
+        return Resolve(filePath, out resolution)
+            == SourceLinkResolutionStatus.Resolved;
     }
 
     private static string SubstituteUrl(Entry entry, string remainder, out int offset, out int length)
@@ -412,29 +451,11 @@ public partial class SourceLinkResolver
     {
         entry = default;
 
-        if (string.IsNullOrEmpty(key))
-            return false;
-
-        string normalizedKey = NormalizeSeparators(key);
-
-        int keyStar = normalizedKey.IndexOf('*', StringComparison.Ordinal);
-        bool isPrefix;
-        if (keyStar < 0)
+        if (!TryParseDocumentKey(
+                key,
+                out string normalizedKey,
+                out bool isPrefix))
         {
-            isPrefix = false;
-        }
-        else if (keyStar == normalizedKey.Length - 1)
-        {
-            // Rule 3: the wildcard is the final character, so the key is a prefix and matching is
-            // a prefix test. A prefix test cannot backtrack, which is what keeps a hostile key
-            // carrying many wildcards from costing exponential time.
-            isPrefix = true;
-            normalizedKey = normalizedKey[..keyStar];
-        }
-        else
-        {
-            // A non-final wildcard breaks rule 3, and a second wildcard leaves the first one
-            // non-final, so this single test rejects both violations.
             return false;
         }
 
@@ -486,6 +507,50 @@ public partial class SourceLinkResolver
 
         entry = new Entry(normalizedKey, isPrefix, url[..urlStar], urlSuffix);
         return true;
+    }
+
+    private static bool TryParseDocumentKey(
+        string key,
+        out string pathPrefix,
+        out bool isPrefix)
+    {
+        pathPrefix = string.Empty;
+        isPrefix = false;
+        if (string.IsNullOrEmpty(key))
+            return false;
+
+        string normalizedKey = NormalizeSeparators(key);
+        int keyStar = normalizedKey.IndexOf('*', StringComparison.Ordinal);
+        if (keyStar < 0)
+        {
+            pathPrefix = normalizedKey;
+            return true;
+        }
+
+        if (keyStar != normalizedKey.Length - 1)
+            return false;
+
+        pathPrefix = normalizedKey[..keyStar];
+        isPrefix = true;
+        return true;
+    }
+
+    private static DocumentKey[] BuildRejectedEntries(
+        IReadOnlyList<string> rejectedKeys)
+    {
+        List<DocumentKey> entries = new(rejectedKeys.Count);
+        foreach (string key in rejectedKeys)
+        {
+            if (TryParseDocumentKey(
+                    key,
+                    out string pathPrefix,
+                    out bool isPrefix))
+            {
+                entries.Add(new DocumentKey(pathPrefix, isPrefix));
+            }
+        }
+
+        return [.. entries];
     }
 
     /// <summary>
