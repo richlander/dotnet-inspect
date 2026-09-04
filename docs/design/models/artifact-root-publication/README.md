@@ -29,8 +29,8 @@ The model preserves these owner-issued join currencies:
 - the complete desired physical Root set and exact prepared subset;
 - current, expected, and candidate opaque Scope publication bases;
 - participant availability, refusal, prepared-token, and committed states;
-- cancellation and finite-deadline status at the final commit
-  linearization; and
+- exact plan/receipt cancellation authority and finite-deadline association;
+- cancellation and deadline status at the final commit linearization; and
 - process-lifetime issuance counts for physical generations and Scope bases.
 
 The final `CommitPublication` action is one atomic, non-yielding state
@@ -49,26 +49,38 @@ The finite harness uses:
 - an initial, candidate, and stale opaque Scope base;
 - one omitted old Root, one retained Root, and one prepared Root; and
 - exact, stale-composition, stale-Scope, foreign-Workspace, foreign-receipt,
-  and incomplete-desired-set scenarios.
+  cancellation-authority-mismatch, deadline-mismatch, and
+  incomplete-desired-set scenarios.
 
 The successful desired physical set retains one old Root, adopts the complete
 one-entry prepared batch, and omits another old Root. Root identities and sets
 are opaque: the model does not interpret logical membership, revision
 contents, occurrence order, policy, closure, or operation results.
 
-Before staging, the owner validates exact Workspace and receipt identity plus
-the complete desired and prepared sets. Under the shared composition gate it
-then validates runtime openness, cancellation, deadline, expected physical
-generation, and candidate-generation freshness. Participant preparation
-validates the expected opaque Scope base and consumes the participant exactly
-once. A refusal releases the receipt and all staging; an accepted token enables
-only the atomic final commit.
+Before staging, the owner validates exact Workspace and receipt identity,
+plan/receipt cancellation authority and deadline association, plus the complete
+desired and prepared sets. Under the shared composition gate it then validates
+runtime openness, cancellation, deadline, expected physical generation, and
+candidate-generation freshness. Participant preparation validates the expected
+opaque Scope base and consumes the participant exactly once. A refusal releases
+the receipt and all staging; an accepted token enables only the atomic final
+commit.
 
 Malformed input is rejected before receipt or participant consumption. The
 receipt remains caller-owned until explicit cancellation, runtime close, or
 the weakly fair finite-deadline expiry releases it. Applicability or
 participant refusal after publication processing begins instead releases the
 receipt immediately.
+
+The finite harness has one publication operation. Its ordinary owner actions
+therefore cannot independently consume the participant or reserve the
+candidate identities before their corresponding lifecycle phase:
+`RejectConsumedParticipant`, `RejectScopeCandidateIdentity`, and the two
+candidate-freshness refusal guards are consumer-composition boundaries rather
+than reachable standalone scenarios. #5796 must exercise them when its
+additional operations can make those states current. The standalone freshness
+mutations still demonstrate that reissuing either committed identity violates
+the owner invariant.
 
 ## Non-claims
 
@@ -107,6 +119,9 @@ implementation gates.
 | `PublicationCommitsAtMostOnce` | The paired publication linearization occurs at most once. |
 | `PublishedReceiptMatchesCommit` | Published receipt, participant commit, and paired publication counts agree. |
 | `RefusalPreservesBothPointers` | Every modeled rejection or refusal preserves both old current pointers and the old physical Root set. |
+| `MalformedRejectionPreservesCallerAuthority` | Pre-consumption rejection leaves the prepared receipt, participant, and provisional authority under caller ownership. |
+| `CommittedCancellationAuthorityWasExact` | A commit witnessed the receipt's exact plan cancellation authority. |
+| `CommittedDeadlineWasExact` | A commit witnessed the receipt's exact plan deadline. |
 | `Committed*Was*` properties | A commit witnessed exact Workspace, physical generation, Scope base, receipt, complete desired set, prepared participant, cancellation, deadline, and open runtime. |
 | `NoPublicationAfterRuntimeClose` | A runtime that stopped accepting work before publication cannot later publish. |
 | `FinalCommitWins` | Once the atomic commit occurs, later cancellation or deadline expiry cannot rewrite the published outcome. |
@@ -126,6 +141,8 @@ implementation gates.
 | `ReachabilityStaleScopeBaseRefusal.cfg` | Exit 12; stages physically, then reaches participant refusal of the stale Scope base without publishing. |
 | `ReachabilityForeignWorkspaceRejection.cfg` | Exit 12; reaches pre-consumption foreign-Workspace rejection. |
 | `ReachabilityForeignReceiptRejection.cfg` | Exit 12; reaches pre-consumption foreign-receipt rejection. |
+| `ReachabilityCancellationAuthorityMismatchRejection.cfg` | Exit 12; reaches pre-consumption rejection when the receipt's cancellation authority differs from the plan while caller authority remains intact. |
+| `ReachabilityDeadlineMismatchRejection.cfg` | Exit 12; reaches pre-consumption rejection when the receipt's finite deadline differs from the plan while caller authority remains intact. |
 | `ReachabilityIncompleteDesiredSetRejection.cfg` | Exit 12; reaches pre-consumption rejection of an incomplete desired set. |
 | `ReachabilityCancellationRelease.cfg` | Exit 12; cancellation wins before commit and releases the prepared receipt. |
 | `ReachabilityDeadlineRelease.cfg` | Exit 12; finite deadline expiry releases the prepared receipt. |
@@ -136,6 +153,8 @@ implementation gates.
 | `BrokenScopeBaseReuse.cfg` | Exit 12; replay reissues the committed Scope base and violates freshness. |
 | `BrokenStaleCompositionCommit.cfg` | Exit 12; bypassing the physical-generation check violates its commit witness. |
 | `BrokenStaleScopeBaseCommit.cfg` | Exit 12; bypassing the Scope-base check violates its commit witness. |
+| `BrokenCancellationAuthorityMismatchCommit.cfg` | Exit 12; bypassing shape validation commits a receipt bound to another cancellation authority. |
+| `BrokenDeadlineMismatchCommit.cfg` | Exit 12; bypassing shape validation commits a receipt bound to another finite deadline. |
 | `BrokenCancellationRetainsAuthority.cfg` | Exit 12; cancelled release retains provisional authority. |
 | `BrokenParticipantRefusalRetainsStaging.cfg` | Exit 12; participant refusal retains staged authority. |
 | `BrokenReceiptReplay.cfg` | Exit 12; a second receipt publication violates one-shot receipt use. |
@@ -165,11 +184,21 @@ used `-workers 1 -seed 1 -fp 1`.
 Checked on Linux with OpenJDK `21.0.12` and the repository-pinned immutable
 TLA+ v1.8.0 mirror build `2026.08.11.125311` (revision `0894c34`), SHA-256
 `ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f`.
-The artifact model contributed two modules and 24 configurations, all with
+The artifact model contributed two modules and 28 configurations, all with
 registered exact outcomes and none unverified within budget. Because this
 change also extends the exact-outcome manifest, the complete changed-file gate
-checked 10 modules and 113 configurations: 59 exact outcomes, no timeouts or
+checked 10 modules and 117 configurations: 63 exact outcomes, no timeouts or
 unverified results, and no unexpected semantic verdicts.
+
+`Safety.cfg` and `Liveness.cfg` exhaust the base scenario. The five original
+non-base scenarios plus the cancellation-authority and deadline mismatch
+scenarios use focused reachability configurations that stop at their named
+witness. Exact-head review additionally ran the full safety and liveness sets
+over each original non-base scenario without finding a violation; those probes
+are supporting evidence, not additional registered gates. The harness does not
+vary `SubmittedPreparedRoots` independently: its incomplete-desired-set
+scenario exercises desired-set inequality and the prepared-subset violation,
+which are the shape properties claimed by that configuration.
 
 | Configuration | Result | Generated states | Distinct states | Maximum depth |
 | --- | --- | ---: | ---: | ---: |
@@ -180,6 +209,8 @@ unverified results, and no unexpected semantic verdicts.
 | `ReachabilityStaleScopeBaseRefusal.cfg` | `NoStaleScopeBaseRefusalObserved` violated | 83 | 55 | 6 |
 | `ReachabilityForeignWorkspaceRejection.cfg` | `NoForeignWorkspaceRejectionObserved` violated | 21 | 16 | 5 |
 | `ReachabilityForeignReceiptRejection.cfg` | `NoForeignReceiptRejectionObserved` violated | 21 | 16 | 5 |
+| `ReachabilityCancellationAuthorityMismatchRejection.cfg` | `NoCancellationAuthorityMismatchRejectionObserved` violated | 21 | 16 | 5 |
+| `ReachabilityDeadlineMismatchRejection.cfg` | `NoDeadlineMismatchRejectionObserved` violated | 21 | 16 | 5 |
 | `ReachabilityIncompleteDesiredSetRejection.cfg` | `NoIncompleteDesiredSetRejectionObserved` violated | 21 | 16 | 5 |
 | `ReachabilityCancellationRelease.cfg` | `NoCancelledRefusalObserved` violated | 185 | 106 | 9 |
 | `ReachabilityDeadlineRelease.cfg` | `NoExpiredRefusalObserved` violated | 185 | 106 | 9 |
@@ -190,6 +221,8 @@ unverified results, and no unexpected semantic verdicts.
 | `BrokenScopeBaseReuse.cfg` | `ScopeBaseNeverReused` violated | 243 | 137 | 10 |
 | `BrokenStaleCompositionCommit.cfg` | `CommittedCompositionWasCurrent` violated | 64 | 39 | 5 |
 | `BrokenStaleScopeBaseCommit.cfg` | `CommittedScopeBaseWasCurrent` violated | 99 | 66 | 6 |
+| `BrokenCancellationAuthorityMismatchCommit.cfg` | `CommittedCancellationAuthorityWasExact` violated | 91 | 58 | 6 |
+| `BrokenDeadlineMismatchCommit.cfg` | `CommittedDeadlineWasExact` violated | 91 | 58 | 6 |
 | `BrokenCancellationRetainsAuthority.cfg` | `TerminalReceiptReleasesProvisionalAuthority` violated | 215 | 125 | 9 |
 | `BrokenParticipantRefusalRetainsStaging.cfg` | `ParticipantRefusalReleasesStaging` violated | 212 | 122 | 9 |
 | `BrokenReceiptReplay.cfg` | `ReceiptPublishesAtMostOnce` violated | 243 | 137 | 10 |

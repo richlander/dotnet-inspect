@@ -4,8 +4,10 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/artifact-root-publication/BrokenCancellationAuthorityMismatchCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenCancellationRetainsAuthority.cfg=12
 docs/design/models/artifact-root-publication/BrokenCompositionIdentityReuse.cfg=12
+docs/design/models/artifact-root-publication/BrokenDeadlineMismatchCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenIncompleteDesiredSetCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenParticipantRefusalRetainsStaging.cfg=12
 docs/design/models/artifact-root-publication/BrokenParticipantReplay.cfg=12
@@ -16,8 +18,10 @@ docs/design/models/artifact-root-publication/BrokenStaleCompositionCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenStaleScopeBaseCommit.cfg=12
 docs/design/models/artifact-root-publication/BrokenTornPairedPublication.cfg=12
 docs/design/models/artifact-root-publication/Liveness.cfg=0
+docs/design/models/artifact-root-publication/ReachabilityCancellationAuthorityMismatchRejection.cfg=12
 docs/design/models/artifact-root-publication/ReachabilityCancellationRelease.cfg=12
 docs/design/models/artifact-root-publication/ReachabilityCommittedReplayAndCancellation.cfg=12
+docs/design/models/artifact-root-publication/ReachabilityDeadlineMismatchRejection.cfg=12
 docs/design/models/artifact-root-publication/ReachabilityDeadlineRelease.cfg=12
 docs/design/models/artifact-root-publication/ReachabilityForeignReceiptRejection.cfg=12
 docs/design/models/artifact-root-publication/ReachabilityForeignWorkspaceRejection.cfg=12

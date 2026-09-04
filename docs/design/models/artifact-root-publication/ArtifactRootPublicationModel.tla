@@ -28,10 +28,14 @@ CONSTANTS
     IncompleteDesiredScenario,
     Scenario
 
+CancellationAuthorityMismatchScenario == "CancellationAuthorityMismatch"
+DeadlineMismatchScenario == "DeadlineMismatch"
+
 Scenarios ==
     {BaseScenario, StaleCompositionScenario, StaleScopeScenario,
      ForeignWorkspaceScenario, ForeignReceiptScenario,
-     IncompleteDesiredScenario}
+     IncompleteDesiredScenario, CancellationAuthorityMismatchScenario,
+     DeadlineMismatchScenario}
 
 ASSUME
     /\ Scenario \in Scenarios
@@ -72,6 +76,20 @@ SubmittedDesiredRootsMC ==
 
 SubmittedPreparedRootsMC == PreparedRootsMC
 
+PlanCancellationAuthorityMC == "CancellationAuthority"
+
+ReceiptCancellationAuthorityMC ==
+    IF Scenario = CancellationAuthorityMismatchScenario
+    THEN "OtherCancellationAuthority"
+    ELSE PlanCancellationAuthorityMC
+
+PlanDeadlineMC == "Deadline"
+
+ReceiptDeadlineMC ==
+    IF Scenario = DeadlineMismatchScenario
+    THEN "OtherDeadline"
+    ELSE PlanDeadlineMC
+
 VARIABLES
     runtimeState,
     currentComposition,
@@ -102,6 +120,10 @@ INSTANCE ArtifactRootPublicationLifecycle WITH
     PlanWorkspace <- PlanWorkspaceMC,
     Receipt <- receipt,
     PlanReceipt <- PlanReceiptMC,
+    PlanCancellationAuthority <- PlanCancellationAuthorityMC,
+    ReceiptCancellationAuthority <- ReceiptCancellationAuthorityMC,
+    PlanDeadline <- PlanDeadlineMC,
+    ReceiptDeadline <- ReceiptDeadlineMC,
     InitialComposition <- composition0,
     ExpectedComposition <- ExpectedCompositionMC,
     CandidateComposition <- composition1,

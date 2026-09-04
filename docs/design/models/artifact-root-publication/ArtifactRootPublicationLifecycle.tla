@@ -15,6 +15,10 @@ CONSTANTS
     PlanWorkspace,
     Receipt,
     PlanReceipt,
+    PlanCancellationAuthority,
+    ReceiptCancellationAuthority,
+    PlanDeadline,
+    ReceiptDeadline,
     InitialComposition,
     ExpectedComposition,
     CandidateComposition,
@@ -54,11 +58,13 @@ Results == {"None", "Rejected", "Refused", "Published"}
 
 ValidationKeys ==
     {"Workspace", "Composition", "ScopeBase", "Receipt", "DesiredSet",
-     "Participant", "Cancellation", "Deadline", "Runtime"}
+     "Participant", "CancellationAuthority", "DeadlineIdentity",
+     "Cancellation", "Deadline", "Runtime"}
 
 EventNames ==
     {"Staged", "TokenPrepared", "Published",
      "ForeignWorkspaceRejected", "ForeignReceiptRejected",
+     "CancellationAuthorityMismatchRejected", "DeadlineMismatchRejected",
      "IncompleteDesiredSetRejected", "StaleCompositionRefused",
      "StaleScopeBaseRefused", "CancelledRefused", "ExpiredRefused",
      "RuntimeClosedRefused", "ParticipantRefused",
@@ -108,6 +114,8 @@ TerminalParticipant ==
 ShapeValid ==
     /\ PlanWorkspace = Workspace
     /\ PlanReceipt = Receipt
+    /\ PlanCancellationAuthority = ReceiptCancellationAuthority
+    /\ PlanDeadline = ReceiptDeadline
     /\ SubmittedDesiredRoots = CompleteDesiredRoots
     /\ SubmittedPreparedRoots = PreparedRoots
     /\ SubmittedPreparedRoots \subseteq SubmittedDesiredRoots
@@ -157,6 +165,10 @@ ValidationSnapshot ==
                 currentScopeBase = ExpectedScopeBase
           [] key = "Receipt" ->
                 PlanReceipt = Receipt
+          [] key = "CancellationAuthority" ->
+                PlanCancellationAuthority = ReceiptCancellationAuthority
+          [] key = "DeadlineIdentity" ->
+                PlanDeadline = ReceiptDeadline
           [] key = "DesiredSet" ->
                 /\ SubmittedDesiredRoots = CompleteDesiredRoots
                 /\ SubmittedPreparedRoots = PreparedRoots
@@ -177,6 +189,14 @@ MalformedEvents ==
     \union
     (IF PlanReceipt # Receipt
      THEN {"ForeignReceiptRejected"}
+     ELSE {})
+    \union
+    (IF PlanCancellationAuthority # ReceiptCancellationAuthority
+     THEN {"CancellationAuthorityMismatchRejected"}
+     ELSE {})
+    \union
+    (IF PlanDeadline # ReceiptDeadline
+     THEN {"DeadlineMismatchRejected"}
      ELSE {})
     \union
     (IF \/ SubmittedDesiredRoots # CompleteDesiredRoots
@@ -698,6 +718,13 @@ RefusalPreservesBothPointers ==
            /\ currentScopeBase = InitialScopeBase
            /\ currentRoots = InitialRoots
 
+MalformedRejectionPreservesCallerAuthority ==
+    result = "Rejected"
+        => /\ receiptState = "Prepared"
+           /\ participantState = "Available"
+           /\ provisionalAuthority
+           /\ ~stagingAuthority
+
 CommittedWorkspaceWasExact ==
     receiptState = "Published"
         => validationAtCommit["Workspace"]
@@ -713,6 +740,14 @@ CommittedScopeBaseWasCurrent ==
 CommittedReceiptWasExact ==
     receiptState = "Published"
         => validationAtCommit["Receipt"]
+
+CommittedCancellationAuthorityWasExact ==
+    receiptState = "Published"
+        => validationAtCommit["CancellationAuthority"]
+
+CommittedDeadlineWasExact ==
+    receiptState = "Published"
+        => validationAtCommit["DeadlineIdentity"]
 
 CommittedDesiredSetWasComplete ==
     receiptState = "Published"
@@ -772,6 +807,12 @@ NoForeignWorkspaceRejectionObserved ==
 
 NoForeignReceiptRejectionObserved ==
     "ForeignReceiptRejected" \notin events
+
+NoCancellationAuthorityMismatchRejectionObserved ==
+    "CancellationAuthorityMismatchRejected" \notin events
+
+NoDeadlineMismatchRejectionObserved ==
+    "DeadlineMismatchRejected" \notin events
 
 NoIncompleteDesiredSetRejectionObserved ==
     "IncompleteDesiredSetRejected" \notin events
