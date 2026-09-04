@@ -564,6 +564,18 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   expect(targetbar.x).toBe(0);
   expect(targetbar.x + targetbar.width).toBeCloseTo(1200, 0);
 
+  await page.setViewportSize({ width: 1165, height: 900 });
+  await expect(page.locator("#open-search")).toBeHidden();
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeVisible();
+  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
+
+  await page.setViewportSize({ width: 1160, height: 900 });
+  await expect(page.locator("#open-search")).toBeHidden();
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
+  await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
+
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(page.locator("#open-search")).toBeHidden();
   expect(await page.evaluate(() => window.focusWorkbenchSearchProbe()))

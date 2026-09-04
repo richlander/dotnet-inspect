@@ -5393,7 +5393,7 @@ function bindScopeBarEvents() {
           preserveState: true,
           returnFocus: "application-query",
         });
-      } else {
+      } else if (scope() !== "workspace") {
         selectWorkspaceApplicationScope();
       }
     },
@@ -7921,9 +7921,8 @@ function openPackageQueryRoute(
 function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   const pkg = state.package;
   if (!pkg) return;
-  let navigationSeq: number | null = null;
+  const navigationSeq = navigationSequence.begin();
   if (fromPackageQuery) {
-    navigationSeq = navigationSequence.begin();
     packageQueryController.cancel();
     packageQueryHandoffNavigationSeq = null;
     state.packageQueryOpen = false;
@@ -7935,27 +7934,27 @@ function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  if (fromPackageQuery) {
-    const successor = resolvePackageQueryWorkspaceSuccessor(
-      () => buildStateUrl(),
-      () => {
-        const fallback = buildPackageRootStateUrl(location.href, {
-          package: pkg.id,
-          version: pkg.version,
-          framework: pkg.activeFramework,
-          lens: state.packageLens,
-        });
-        fallback.hash = "workspace";
-        return fallback;
+  const successor = resolvePackageQueryWorkspaceSuccessor(
+    () => buildStateUrl(),
+    () => {
+      const fallback = buildPackageRootStateUrl(location.href, {
+        package: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        lens: state.packageLens,
       });
-    if (!successor.projected) {
-      appendQueryNotice(
-        `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
-          || "workspace URL encoding failed."}`);
-    }
-    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
-    workspaceLocation.push(successor.url.toString());
+      fallback.hash = "workspace";
+      return fallback;
+    });
+  if (!successor.projected) {
+    appendQueryNotice(
+      `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
+        || "workspace URL encoding failed."}`);
   }
+  if (fromPackageQuery) {
+    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
+  }
+  workspaceLocation.push(successor.url.toString());
   render();
 }
 

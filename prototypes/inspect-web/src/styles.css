@@ -109,7 +109,7 @@ body {
 .titlebar {
   --shell-product-width: 176px;
   --shell-application-width: 47px;
-  --shell-row-gaps: 24px;
+  --shell-row-gaps: 32px;
   --shell-subject-preferred-width: 720px;
   display: flex;
   align-items: center;
@@ -2771,7 +2771,14 @@ kbd {
   .query-row-meta button { flex-basis: 100%; margin-left: 0; }
 }
 
+@media (max-width: 1170px) {
+  .titlebar .title-search { display: none; }
+}
+
 @media (max-width: 1160px) {
+  .titlebar {
+    --shell-row-gaps: 24px;
+  }
   .titlebar > .application-scope-region:not(:focus-within) { display: none; }
 }
 
