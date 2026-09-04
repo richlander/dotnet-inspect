@@ -211,6 +211,7 @@ import {
   type CallGraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
+import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
 import {
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
@@ -1452,11 +1453,13 @@ function recordNav() {
 }
 
 function navBack() {
+  closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.back();
 }
 
 function navForward() {
+  closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.forward();
 }
@@ -1604,6 +1607,9 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
+const graphExplorer = createGraphExplorer(document);
+let graphExplorerNavigationFocusPending = false;
+let graphExplorerOriginKey: string | null = null;
 type MermaidModule = typeof import("mermaid");
 type MarkedModule = typeof import("marked");
 type DomPurifyModule = typeof import("dompurify");
@@ -3076,6 +3082,15 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  const graphExplorerWasOpen = graphExplorer.isOpen;
+  graphExplorer.beforeRender(callGraphExplorerKey());
+  if (graphExplorerWasOpen && !graphExplorer.isOpen) {
+    graphExplorerNavigationFocusPending = !state.settings && !state.keyboardHelp
+      && !state.explorer?.open && !workbenchModalOwnsFocus();
+  }
+  if (graphExplorerNavigationFocusPending) {
+    queueMicrotask(restoreGraphExplorerNavigationFocus);
+  }
   if (!workspaceOccurrenceViewIsVisible()
     && (state.workspaceOccurrenceSignature
       || state.workspaceOccurrences)) {
@@ -3264,6 +3279,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
+  const callGraphPageContext =
+    activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
   const inspectorPanelSemantics = hasEffectiveInspector()
@@ -3291,8 +3308,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind
-          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext
+          ? `<div class="working-surface-actions" role="group" aria-label="${callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${callGraphPageContext
+                ? `<button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>`
+                : ""}
               ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
                 : ""}
@@ -3408,6 +3428,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
+  graphExplorer.afterRender(callGraphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
@@ -5270,6 +5291,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
+    content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
@@ -6103,6 +6125,7 @@ function renderAndFocusAnnotated(
 }
 
 function openAnnotatedSourceModal() {
+  graphExplorer.close(false);
   if (!state.memberAnnotated) return;
   invalidateMemberDestinationWork(state);
   state.annotatedDestinationError = "";
@@ -6305,6 +6328,7 @@ function bindEvents() {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
+  bindGraphExplore(document, openCallGraphExplorer);
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -7541,7 +7565,8 @@ function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
     || state.docViewerOpen
-    || state.memberAnnotatedModal !== null;
+    || state.memberAnnotatedModal !== null
+    || graphExplorer.isOpen;
 }
 
 function resolvedWorkspaceShareTabs():
@@ -9991,6 +10016,72 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
+function callGraphExplorerKey(): string | null {
+  if (state.home || state.loading || state.error || state.packageQueryOpen
+    || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
+    || state.spotlightOpen || state.docViewerOpen || state.graphSourceOpen
+    || state.memberAnnotatedModal || scope() !== "member"
+    || state.memberSection !== "call-graph") return null;
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : null;
+  return type && overload && state.package
+    ? JSON.stringify([
+        packageIdentityKey(state.package),
+        memberRequestSignature(type, overload, true),
+      ])
+    : null;
+}
+
+function callGraphExplorerTarget() {
+  const key = callGraphExplorerKey();
+  const content = document.querySelector<HTMLElement>("[data-call-graph-surface]");
+  const invoker = document.querySelector<HTMLElement>("#call-graph-explore");
+  return key && content && invoker
+    ? {
+        key,
+        title: "Call graph",
+        context: currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
+        content,
+        invoker,
+      }
+    : null;
+}
+
+function openCallGraphExplorer() {
+  const target = callGraphExplorerTarget();
+  if (!target) return;
+  graphExplorerOriginKey = target.key;
+  graphExplorer.open(target);
+}
+
+function restoreGraphExplorerNavigationFocus() {
+  if (!graphExplorerNavigationFocusPending) return;
+  if (state.settings || state.keyboardHelp || state.explorer?.open
+    || workbenchModalOwnsFocus()) {
+    graphExplorerNavigationFocusPending = false;
+    return;
+  }
+  if (state.loading || state.graphMemberNavigationTitle || state.platformDrillLoading) return;
+  graphExplorerNavigationFocusPending = false;
+  const explore = document.querySelector<HTMLButtonElement>("#call-graph-explore");
+  if (callGraphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {
+    explore.focus({ preventScroll: true });
+  } else {
+    focusLevelOneHeading();
+  }
+  app.removeAttribute("tabindex");
+}
+
+function closeGraphExplorerForNavigation() {
+  if (!graphExplorer.close(false)) return;
+  graphExplorerNavigationFocusPending = true;
+  app.tabIndex = -1;
+  app.focus({ preventScroll: true });
+}
+
 function platformCrumbTrail() {
   const root = state.memberCallGraph?.callees?.label
     ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
@@ -10134,6 +10225,7 @@ async function navigateToGraphMember(
   section: "overview" | "source" = "overview",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
@@ -10167,6 +10259,7 @@ async function navigateToUnprojectedGraphMember(
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
@@ -10664,6 +10757,7 @@ function navigateToRuntimeMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "call-graph" = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   activatePackage(pack);
   const targetLibrary = libraryKey(type);
@@ -10731,6 +10825,7 @@ function stripArity(name: string) {
 }
 
 async function openGraphSource(request: GraphSourceRequest, title: string) {
+  graphExplorer.close(false);
   return sourceInspection.openGraphSource(request, title);
 }
 
@@ -10967,6 +11062,7 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "source" = "overview",
 ) {
+  closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
@@ -12159,7 +12255,8 @@ function registerContainedShortcuts(
 }
 
 function workspaceKeyboardContextIsActive(): boolean {
-  return !state.explorer?.open
+  return !graphExplorer.isOpen
+    && !state.explorer?.open
     && !state.settings
     && !state.keyboardHelp
     && !state.home
@@ -12296,6 +12393,11 @@ registerContainedShortcuts(
   "graph-source.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
   graphSourceContextIsActive,
+);
+registerContainedShortcuts(
+  "graph-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  () => graphExplorer.isOpen,
 );
 
 keybindings.register({
@@ -12593,6 +12695,7 @@ function clearNavigationError() {
 }
 
 function dismissModalsForRoutedNavigation() {
+  closeGraphExplorerForNavigation();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
