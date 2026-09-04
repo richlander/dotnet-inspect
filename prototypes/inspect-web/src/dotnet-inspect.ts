@@ -398,6 +398,7 @@ import {
   validPackageQueryPrefix,
   withHistoryEntryId,
   type PackageQueryReturnFocus,
+  type PackageQueryWorkspaceSuccessor,
 } from "./package-query-route.ts";
 import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
@@ -8933,7 +8934,11 @@ function openPackageQueryRoute(
 
 function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   const pkg = state.package;
-  if (!pkg) return;
+  const returningToEmptyWorkspace =
+    fromPackageQuery
+    && pkg === null
+    && state.packageQueryReturnFocus === "workspace-add";
+  if (!pkg && !returningToEmptyWorkspace) return;
   const navigationSeq = navigationSequence.begin();
   if (fromPackageQuery) {
     packageQueryController.cancel();
@@ -8948,18 +8953,28 @@ function selectWorkspaceApplicationScope(fromPackageQuery = false) {
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
-  const successor = resolvePackageQueryWorkspaceSuccessor(
-    () => buildStateUrl(),
-    () => {
-      const fallback = buildPackageRootStateUrl(location.href, {
-        package: pkg.id,
-        version: pkg.version,
-        framework: pkg.activeFramework,
-        lens: state.packageLens,
+  let successor: PackageQueryWorkspaceSuccessor;
+  if (returningToEmptyWorkspace) {
+    successor = {
+      url: new URL("/demos", location.href),
+      projected: true,
+      projectionError: null,
+    };
+  } else {
+    if (!pkg) return;
+    successor = resolvePackageQueryWorkspaceSuccessor(
+      () => buildStateUrl(),
+      () => {
+        const fallback = buildPackageRootStateUrl(location.href, {
+          package: pkg.id,
+          version: pkg.version,
+          framework: pkg.activeFramework,
+          lens: state.packageLens,
+        });
+        fallback.hash = "workspace";
+        return fallback;
       });
-      fallback.hash = "workspace";
-      return fallback;
-    });
+  }
   if (!successor.projected) {
     appendQueryNotice(
       `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
@@ -9150,7 +9165,8 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceAvailable: state.package !== null,
+    workspaceAvailable: state.package !== null
+      || state.packageQueryReturnFocus === "workspace-add",
     rowActionLabel: packageQueryWorkspaceDisposition === "add"
       ? "Add to workspace"
       : "Open in workspace",

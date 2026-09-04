@@ -141,6 +141,22 @@ test("Workspace package editing stays available while activation actions load or
   assert.match(render(true), /Reading package activation actions/);
   assert.match(render(true), /data-workspace-remove=/);
   assert.match(render(true), /aria-label="Inspect System\.Text\.Json when its action is ready"/);
+  const refreshing = renderWorkspaceView({
+    occurrences: [{
+      action: "stale-action",
+      package: "System.Text.Json",
+      version: "10.0.0",
+      framework: "net10.0",
+    }],
+    packages,
+    demos: [],
+    demoError: "",
+    loading: true,
+    error: "",
+    escapeHtml,
+  });
+  assert.doesNotMatch(refreshing, /data-workspace-activate=/);
+  assert.match(refreshing, /disabled aria-label="Inspect System\.Text\.Json when its action is ready"/);
   assert.match(render(false, "Acquisition failed"), /Acquisition failed/);
   assert.match(render(false, "Acquisition failed"), /Retry package actions/);
   assert.match(

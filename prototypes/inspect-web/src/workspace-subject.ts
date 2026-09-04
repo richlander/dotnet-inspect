@@ -108,7 +108,7 @@ export function renderWorkspaceView(
       && candidate.version.toLowerCase() === pkg.version.toLowerCase()
       && candidate.framework.toLowerCase()
         === pkg.activeFramework.toLowerCase());
-    const inspectAction = occurrence
+    const inspectAction = occurrence && !loading
       ? `<button type="button" data-workspace-activate="${escapeHtml(occurrence.action)}" aria-label="Inspect ${escapeHtml(pkg.id)}">Inspect</button>`
       : `<button type="button" disabled aria-label="Inspect ${escapeHtml(pkg.id)} when its action is ready">Inspect</button>`;
     return `<li class="workspace-occurrence-row">
