@@ -93,7 +93,12 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
-  query results.
+  query results. Its
+  [Package Query assembly-pattern
+  evaluation](design/package-query-assembly-evaluation.md) owner defines
+  bounded one-candidate primary-assembly evaluation and resource-free
+  package-plus-selected-asset semantic evidence without realizing unrelated
+  package assemblies.
 - `src/DotnetInspector.Artifacts/` is the package- and Metadata-free contract
   floor for generation-scoped artifact identity, typed provenance and
   diagnostics, acquisition outcomes, and owner-issued guarded access.

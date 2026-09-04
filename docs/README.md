@@ -108,6 +108,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
+| [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Bounded one-candidate primary-assembly selection, semantic pattern confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |
