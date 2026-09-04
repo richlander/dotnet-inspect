@@ -10,7 +10,8 @@ export function isPackageQueryPath(pathname: string): boolean {
 export type PackageQueryReturnFocus =
   | "application-query"
   | "home-search"
-  | "package-search";
+  | "package-search"
+  | "workspace-add";
 
 export interface PackageQueryHistory {
   predecessorEntryId: string;
@@ -74,7 +75,8 @@ export function readPackageQueryHistory(
     && predecessorEntryId.length > 0
     && (returnFocus === "application-query"
       || returnFocus === "home-search"
-      || returnFocus === "package-search")
+      || returnFocus === "package-search"
+      || returnFocus === "workspace-add")
     ? { predecessorEntryId, returnFocus }
     : null;
 }

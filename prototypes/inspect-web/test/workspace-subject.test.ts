@@ -68,7 +68,7 @@ test("Workspace occurrence actions are visible only in the rendered Workspace vi
   }
 });
 
-test("Workspace details render product occurrences as opaque actions", () => {
+test("Workspace details render exact-package editing with product activation actions", () => {
   const packages: PackageControlPackage[] = [{
     id: "System.Text.Json",
     version: "10.0.0",
@@ -105,19 +105,32 @@ test("Workspace details render product occurrences as opaque actions", () => {
   assert.match(html, /aria-label="Open demo System\.Text\.Json"/);
   assert.match(
     html,
-    /data-workspace-activate="opaque-action"[\s\S]*system\.text\.json/);
+    /System\.Text\.Json[\s\S]*data-workspace-activate="opaque-action"/);
+  assert.match(html, /data-workspace-add[\s\S]*Add package/);
+  assert.match(html, /data-workspace-clear[\s\S]*Clear/);
+  assert.match(
+    html,
+    /data-workspace-remove="system\.text\.json\|10\.0\.0\|net10\.0"/);
+  assert.match(html, /data-workspace-remove-position="0"/);
+  assert.match(html, /aria-label="Remove System\.Text\.Json from the Workspace"/);
   assert.match(html, /Platform[\s\S]*Microsoft\.NETCore\.App/);
-  assert.doesNotMatch(html, /data-workspace-close/);
+  assert.doesNotMatch(html, /microsoft\.netcore\.app\|10\.0\.0\|net10\.0/);
 });
 
-test("Workspace details distinguish loading, empty, and failure", () => {
+test("Workspace package editing stays available while activation actions load or fail", () => {
+  const packages: PackageControlPackage[] = [{
+    id: "System.Text.Json",
+    version: "10.0.0",
+    activeFramework: "net10.0",
+    isRuntimePack: false,
+  }];
   const render = (
     loading: boolean,
     error = "",
     demoError = "",
   ) => renderWorkspaceView({
     occurrences: [],
-    packages: [],
+    packages,
     demos: [],
     demoError,
     loading,
@@ -125,15 +138,33 @@ test("Workspace details distinguish loading, empty, and failure", () => {
     escapeHtml,
   });
 
-  assert.match(render(true), /Reading Workspace package occurrences/);
-  assert.match(render(false), /No packages are loaded/);
+  assert.match(render(true), /Reading package activation actions/);
+  assert.match(render(true), /data-workspace-remove=/);
+  assert.match(render(true), /aria-label="Inspect System\.Text\.Json when its action is ready"/);
+  const refreshing = renderWorkspaceView({
+    occurrences: [{
+      action: "stale-action",
+      package: "System.Text.Json",
+      version: "10.0.0",
+      framework: "net10.0",
+    }],
+    packages,
+    demos: [],
+    demoError: "",
+    loading: true,
+    error: "",
+    escapeHtml,
+  });
+  assert.doesNotMatch(refreshing, /data-workspace-activate=/);
+  assert.match(refreshing, /disabled aria-label="Inspect System\.Text\.Json when its action is ready"/);
   assert.match(render(false, "Acquisition failed"), /Acquisition failed/);
+  assert.match(render(false, "Acquisition failed"), /Retry package actions/);
   assert.match(
     render(false, "", "Product demos are unavailable"),
     /Product demos are unavailable/);
 });
 
-test("Workspace selection and activation dispatch separate actions", () => {
+test("Workspace selection, editing, and activation dispatch separate actions", () => {
   setProductHomeDemoCatalog([{
     id: "stj-serializer",
     title: "System.Text.Json",
@@ -148,6 +179,19 @@ test("Workspace selection and activation dispatch separate actions", () => {
     dataset: { workspaceActivate: "opaque-action" },
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`activate:${name}`, listener),
+  };
+  const add = {
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`add:${name}`, listener),
+  };
+  const remove = {
+    dataset: { workspaceRemove: "package-key" },
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`remove:${name}`, listener),
+  };
+  const clear = {
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`clear:${name}`, listener),
   };
   const demo = {
     dataset: { workspaceDemo: "stj-serializer" },
@@ -164,12 +208,17 @@ test("Workspace selection and activation dispatch separate actions", () => {
       listeners.set(`retry:${name}`, listener),
   };
   const root = {
-    querySelector: (selector: string) =>
-      selector === "[data-workspace-default]" ? select : retry,
-    querySelectorAll: (selector: string) =>
-      selector === "[data-workspace-activate]"
-        ? [activate]
-        : [demo, invalidDemo],
+    querySelector: (selector: string) => {
+      if (selector === "[data-workspace-default]") return select;
+      if (selector === "[data-workspace-add]") return add;
+      if (selector === "[data-workspace-clear]") return clear;
+      return retry;
+    },
+    querySelectorAll: (selector: string) => {
+      if (selector === "[data-workspace-activate]") return [activate];
+      if (selector === "[data-workspace-remove]") return [remove];
+      return [demo, invalidDemo];
+    },
   };
   const calls: string[] = [];
 
@@ -182,6 +231,15 @@ test("Workspace selection and activation dispatch separate actions", () => {
       onActivate: action => {
         calls.push(`activate:${action}`);
       },
+      onAdd: () => {
+        calls.push("add");
+      },
+      onRemove: packageKey => {
+        calls.push(`remove:${packageKey}`);
+      },
+      onClear: () => {
+        calls.push("clear");
+      },
       onDemo: id => {
         calls.push(`demo:${id}`);
       },
@@ -192,12 +250,18 @@ test("Workspace selection and activation dispatch separate actions", () => {
 
   listeners.get("select:click")?.(fakeDom.event());
   listeners.get("activate:click")?.(fakeDom.event());
+  listeners.get("add:click")?.(fakeDom.event());
+  listeners.get("remove:click")?.(fakeDom.event());
+  listeners.get("clear:click")?.(fakeDom.event());
   listeners.get("demo:click")?.(fakeDom.event());
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
     "select",
     "activate:opaque-action",
+    "add",
+    "remove:package-key",
+    "clear",
     "demo:stj-serializer",
     "retry",
   ]);
@@ -275,4 +339,86 @@ test("Workspace focus survives catalog rerenders by stable action identity", () 
       closest: () => null,
     })),
     null);
+});
+
+test("Workspace editing focus survives rerenders and falls back after removal", () => {
+  const focused: string[] = [];
+  const add = {
+    dataset: {},
+    hasAttribute: (name: string) => name === "data-workspace-add",
+  };
+  const clear = {
+    dataset: {},
+    hasAttribute: (name: string) => name === "data-workspace-clear",
+  };
+  const remove = {
+    dataset: {
+      workspaceRemove: "package-key",
+      workspaceRemovePosition: "2",
+    },
+    hasAttribute: () => false,
+  };
+
+  assert.deepEqual(
+    captureWorkspaceFocus(fakeDom.htmlElement({
+      closest: () => add,
+    })),
+    { kind: "add" });
+  assert.deepEqual(
+    captureWorkspaceFocus(fakeDom.htmlElement({
+      closest: () => clear,
+    })),
+    { kind: "clear" });
+  assert.deepEqual(
+    captureWorkspaceFocus(fakeDom.htmlElement({
+      closest: () => remove,
+    })),
+    { kind: "remove", position: 2 });
+
+  const priorRemove = {
+    dataset: {
+      workspaceRemove: "prior-key",
+      workspaceRemovePosition: "1",
+    },
+    focus: () => focused.push("prior"),
+  };
+  const addReplacement = {
+    focus: () => focused.push("add"),
+  };
+  const clearReplacement = {
+    focus: () => focused.push("clear"),
+  };
+  const root = fakeDom.parentNode({
+    querySelector: (selector: string) => {
+      if (selector === "[data-workspace-add]") return addReplacement;
+      if (selector === "[data-workspace-clear]:not(:disabled)")
+        return clearReplacement;
+      return null;
+    },
+    querySelectorAll: (selector: string) =>
+      selector === "[data-workspace-remove]" ? [priorRemove] : [],
+  });
+
+  assert.equal(restoreWorkspaceFocus(root, { kind: "add" }), true);
+  assert.equal(restoreWorkspaceFocus(root, { kind: "clear" }), true);
+  assert.equal(
+    restoreWorkspaceFocus(root, { kind: "remove", position: 2 }),
+    true);
+  assert.deepEqual(focused, ["add", "clear", "prior"]);
+});
+
+test("Empty Workspace keeps Add available and disables Clear", () => {
+  const html = renderWorkspaceView({
+    occurrences: [],
+    packages: [],
+    demos: [],
+    demoError: "",
+    loading: false,
+    error: "",
+    escapeHtml,
+  });
+
+  assert.match(html, /data-workspace-add[\s\S]*Add package/);
+  assert.match(html, /data-workspace-clear disabled/);
+  assert.match(html, /No packages are loaded in this Workspace/);
 });

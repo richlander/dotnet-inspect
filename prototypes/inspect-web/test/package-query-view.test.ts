@@ -135,8 +135,26 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /1M\+ downloads/);
   assert.match(html, /streaming…/);
   assert.match(html, /data-query-cancel="1"/);
+  assert.match(html, /Open in workspace/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
+});
+
+test("a Workspace-origin query labels its package action as Add", () => {
+  const state: PackageQueryState = {
+    request: createQueryRequest("System.*"),
+    outcome: appendRows(emptyOutcome(), [row("System.Text.Json")]),
+  };
+
+  const html = renderPackageQueryView({
+    state,
+    availableFacets: FACETS,
+    rowActionLabel: "Add to workspace",
+    escapeHtml,
+  });
+
+  assert.match(html, /Add to workspace/);
+  assert.doesNotMatch(html, /Open in workspace/);
 });
 
 test("streaming progress renders with and without matching rows", () => {

@@ -26,6 +26,11 @@ export interface CatalogRequestDependencies {
   updatePackageVersionSelect: (packageId: string) => void;
 }
 
+export function resetCatalogRequestLoading(state: CatalogRequestState) {
+  state.dotnetReleasesLoading = false;
+  state.packageVersionsLoading = {};
+}
+
 export function compareVersionsDesc(a: string, b: string) {
   const parse = (value: string): Array<number | string> =>
     value.split(/[.\-+]/).map(part =>

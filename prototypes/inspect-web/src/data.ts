@@ -465,6 +465,23 @@ export interface RemoveWorkspacePackageResult<T> {
   closed: T | null;
 }
 
+export interface ReplaceWorkspacePackagesResult<T> {
+  packages: [T];
+  discarded: T[];
+}
+
+export function replaceWorkspacePackages<T extends PackageIdentity>(
+  packages: readonly T[],
+  packageModel: T,
+): ReplaceWorkspacePackagesResult<T> {
+  const packageKey = packageIdentityKey(packageModel);
+  return {
+    packages: [packageModel],
+    discarded: packages.filter(item =>
+      packageIdentityKey(item) !== packageKey),
+  };
+}
+
 export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
   packages: readonly T[],
   activePackage: T | null,

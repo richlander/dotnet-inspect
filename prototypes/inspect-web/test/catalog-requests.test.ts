@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createCatalogRequests,
+  resetCatalogRequestLoading,
   type CatalogRequestDependencies,
   type CatalogRequestState,
   type DotnetRelease,
@@ -293,4 +294,23 @@ test("package rejection removes loading state after resident removal", async () 
 
   assert.equal(state.packageVersionsLoading["example.package"], undefined);
   assert.deepEqual(harness.packageUpdates, []);
+});
+
+test("rollback clears transient catalog loading markers so requests can restart", async () => {
+  const state = createState();
+  const pkg = { id: "Example.Package" };
+  state.package = pkg;
+  state.packages = [pkg];
+  state.dotnetReleasesLoading = true;
+  state.packageVersionsLoading["example.package"] = true;
+  const harness = createHarness(state);
+
+  resetCatalogRequestLoading(state);
+  await harness.requests.ensureDotnetReleases();
+  await harness.requests.ensurePackageVersions(pkg);
+
+  assert.equal(harness.releaseQueries, 1);
+  assert.deepEqual(harness.versionQueries, ["example.package"]);
+  assert.equal(state.dotnetReleasesLoading, false);
+  assert.equal(state.packageVersionsLoading["example.package"], false);
 });

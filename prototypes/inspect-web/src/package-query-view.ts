@@ -215,6 +215,7 @@ export function bindPackageQueryView(
 
 function renderRow(
   row: QueryResultRow,
+  actionLabel: string,
   escapeHtml: (value: unknown) => string,
 ): string {
   const evidence = row.evidence
@@ -235,7 +236,7 @@ function renderRow(
         ${row.producer
           ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}
-        <button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">Open in workspace</button>
+        <button type="button" data-query-row-open="${escapeHtml(row.packageId)}" data-query-row-version="${escapeHtml(row.version)}">${escapeHtml(actionLabel)}</button>
       </div>
     </article>`;
 }
@@ -401,6 +402,7 @@ export interface RenderPackageQueryOptions {
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
   workspaceAvailable?: boolean;
+  rowActionLabel?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -413,6 +415,7 @@ export function renderPackageQueryView(
     availableFacets,
     navigationError = "",
     workspaceAvailable = false,
+    rowActionLabel = "Open in workspace",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -427,7 +430,7 @@ export function renderPackageQueryView(
       </section>`
     : "";
   const rows = state.outcome.rows
-    .map(row => renderRow(row, escapeHtml))
+    .map(row => renderRow(row, rowActionLabel, escapeHtml))
     .join("");
   const results = rows
     ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`

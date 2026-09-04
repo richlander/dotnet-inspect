@@ -2120,3 +2120,35 @@ test("Workspace selection is observational and occurrence activation executes", 
       "data-workspace-execution",
       "occurrence-0");
 });
+
+test("Workspace package controls keep editing focus through Remove and Clear", async ({
+  page,
+}) => {
+  await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const add = page.locator("[data-workspace-add]");
+  await add.click();
+  await expect(page.locator("body"))
+    .toHaveAttribute("data-workspace-add-scope", "packages");
+
+  const firstRemove = page.locator("[data-workspace-remove]").first();
+  await firstRemove.focus();
+  await firstRemove.click();
+  await expect(page.locator("[data-workspace-remove]")).toHaveCount(3);
+  await expect(page.locator("[data-workspace-remove]").first()).toBeFocused();
+  await expect(page.locator(".workspace-occurrence strong").first())
+    .toHaveText("Microsoft.Extensions.DependencyInjection");
+
+  const lastRemove = page.locator("[data-workspace-remove]").last();
+  await lastRemove.focus();
+  await lastRemove.click();
+  await expect(page.locator("[data-workspace-remove]")).toHaveCount(2);
+  await expect(page.locator("[data-workspace-remove]").last()).toBeFocused();
+
+  await page.locator("[data-workspace-clear]").click();
+  await expect(page.locator("[data-workspace-remove]")).toHaveCount(0);
+  await expect(page.locator("[data-workspace-add]")).toBeFocused();
+  await expect(page.locator("[data-workspace-clear]")).toBeDisabled();
+  await expect(page.getByText("No packages are loaded in this Workspace."))
+    .toBeVisible();
+});
