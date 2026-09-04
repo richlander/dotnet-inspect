@@ -1,3 +1,4 @@
+using System.Net;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -62,6 +63,35 @@ static class AuthoredRebuildFidelity
         HttpClientFactory.Initialize(new HttpClientFactoryOptions());
         using var httpClient = HttpClientFactory.CreateClient();
         var fetcher = new SourceFetcher(HttpClientFactory.SharedUntrustedFetch);
+        IReadOnlyList<AuthoredRebuildFidelityResult> results =
+            await EvaluateAssembliesAsync(
+                assemblies,
+                cap,
+                httpClient,
+                fetcher);
+
+        WriteReport(results, maxExamples);
+        return results.Any(result =>
+            result.Outcome is AuthoredRebuildOutcome.RecompileFailed
+                or AuthoredRebuildOutcome.ContextFailed
+                or AuthoredRebuildOutcome.SourceFailed)
+            ? 1
+            : 0;
+    }
+
+    internal static async Task<IReadOnlyList<AuthoredRebuildFidelityResult>>
+        EvaluateAssembliesAsync(
+            IReadOnlyList<string> assemblies,
+            int cap,
+            HttpClient httpClient,
+            SourceFetcher fetcher,
+            IPdbStore? pdbStore = null)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cap);
+        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(fetcher);
+
         List<AuthoredRebuildFidelityResult> results = [];
 
         foreach (string assemblyPath in assemblies)
@@ -87,53 +117,101 @@ static class AuthoredRebuildFidelity
                 continue;
             }
 
-            using var source = SourceLinkService.Open(assemblyPath);
-            await AcquirePdbAsync(source, httpClient);
+            SourceLinkService? source = null;
+            Exception? pdbAcquisitionFailure = null;
+            try
+            {
+                source = SourceLinkService.Open(assemblyPath);
+                await AcquirePdbAsync(
+                    source,
+                    httpClient,
+                    pdbStore: pdbStore);
+            }
+            catch (Exception ex) when (IsPdbAcquisitionFailure(ex))
+            {
+                pdbAcquisitionFailure = ex;
+            }
             IReadOnlyList<MetadataReference> compilationReferences =
                 decompilerResults.FirstOrDefault()?.FinalRequest?
                     .CompilationClosure?.References
                 ?? ReturnToSender.CompilationReferences(
                     assemblyPath).ToArray();
-            var buildContext = AssessBuildContext(
-                SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
-                MetadataFindings.InspectCompilationOptions(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                MetadataFindings.InspectCompilationReferences(
-                    source.Context,
-                    new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                compilationReferences);
+            AuthoredBuildContextAssessment buildContext =
+                source is null
+                    ? new AuthoredBuildContextAssessment(
+                        AuthoredBuildContextStatus.Failed,
+                        IsDeterministic: false,
+                        "Portable PDB acquisition failed before build-context inspection.")
+                    : AssessBuildContext(
+                        SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
+                        MetadataFindings.InspectCompilationOptions(
+                            source.Context,
+                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
+                        MetadataFindings.InspectCompilationReferences(
+                            source.Context,
+                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
+                        compilationReferences);
 
-            foreach (var decompilerResult in decompilerResults)
+            using (source)
             {
-                if (results.Count >= cap)
-                    break;
+                foreach (var decompilerResult in decompilerResults)
+                {
+                    if (results.Count >= cap)
+                        break;
 
-                AuthoredRebuildFidelityResult evaluated =
-                    await EvaluateAsync(
-                    source,
-                    fetcher,
-                    decompilerResult,
-                    buildContext);
-                results.Add(
-                    evaluated with
+                    AuthoredRebuildFidelityResult evaluated;
+                    if (pdbAcquisitionFailure is not null)
                     {
-                        DecompilerLane =
-                            evaluated.DecompilerLane with
-                            {
-                                FinalRequest = null,
-                            },
-                    });
+                        evaluated = new AuthoredRebuildFidelityResult(
+                            decompilerResult,
+                            AuthoredRebuildOutcome.SourceFailed,
+                            ChecksumVerification: null,
+                            buildContext,
+                            "Portable PDB acquisition failed: "
+                                + pdbAcquisitionFailure.Message,
+                            ImplementationDiff: null);
+                    }
+                    else if (source is { Context.NeedsPdb: true })
+                    {
+                        evaluated = new AuthoredRebuildFidelityResult(
+                            decompilerResult,
+                            AuthoredRebuildOutcome.SourceAbsent,
+                            ChecksumVerification: null,
+                            buildContext,
+                            source.Context.WindowsPdbDetected
+                                ? "A Windows PDB was found, but portable-PDB source mapping is unavailable."
+                                : "No matching portable PDB is available.",
+                            ImplementationDiff: null);
+                    }
+                    else
+                    {
+                        if (source is null)
+                        {
+                            throw new InvalidOperationException(
+                                "PDB acquisition completed without a source context or failure.");
+                        }
+
+                        evaluated = await EvaluateAsync(
+                            source,
+                            fetcher,
+                            decompilerResult,
+                            buildContext);
+                    }
+
+                    results.Add(
+                        evaluated with
+                        {
+                            DecompilerLane =
+                                evaluated.DecompilerLane with
+                                {
+                                    FinalRequest = null,
+                                },
+                        });
+                }
             }
         }
 
-        WriteReport(results, maxExamples);
-        return results.Any(result =>
-            result.Outcome is AuthoredRebuildOutcome.RecompileFailed
-                or AuthoredRebuildOutcome.ContextFailed
-                or AuthoredRebuildOutcome.SourceFailed)
-            ? 1
-            : 0;
+        return results;
     }
 
     internal static async Task<AuthoredRebuildFidelityResult> EvaluateAsync(
@@ -263,6 +341,35 @@ static class AuthoredRebuildFidelity
         int? expectedParameterCount,
         out string body,
         out string? printerBody)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out body,
+            out printerBody,
+            out bool hasBody)
+            && hasBody;
+
+    internal static bool IsBodylessTarget(
+        string memberSource,
+        string metadataMethodName,
+        int expectedParameterCount)
+        => TryMatchTargetBodies(
+            memberSource,
+            metadataMethodName,
+            expectedParameterCount,
+            out string body,
+            out _,
+            out bool hasBody)
+            && !hasBody;
+
+    static bool TryMatchTargetBodies(
+        string memberSource,
+        string metadataMethodName,
+        int? expectedParameterCount,
+        out string body,
+        out string? printerBody,
+        out bool hasBody)
     {
         ArgumentNullException.ThrowIfNull(memberSource);
         ArgumentException.ThrowIfNullOrWhiteSpace(metadataMethodName);
@@ -275,6 +382,7 @@ static class AuthoredRebuildFidelity
         bool ambiguous = false;
         body = "";
         printerBody = null;
+        hasBody = false;
         foreach (var member in root.DescendantNodes()
             .OfType<MemberDeclarationSyntax>()
             .Where(candidate => candidate.Parent is ClassDeclarationSyntax))
@@ -292,15 +400,22 @@ static class AuthoredRebuildFidelity
             bestScore = candidate.Score;
             body = candidate.Body.Legacy;
             printerBody = candidate.Body.Printer;
+            hasBody = candidate.Body.HasBody;
             ambiguous = false;
         }
 
-        return bestScore >= 0 && !ambiguous && body.Length > 0;
+        return bestScore >= 0 && !ambiguous;
     }
 
-    readonly record struct ExtractedBody(string Legacy, string? Printer)
+    readonly record struct ExtractedBody(
+        string Legacy,
+        string? Printer,
+        bool HasBody = true)
     {
-        public static ExtractedBody None => new("", Printer: null);
+        public static ExtractedBody None => new(
+            "",
+            Printer: null,
+            HasBody: false);
     }
 
     static (int Score, ExtractedBody Body) MemberBody(
@@ -351,13 +466,21 @@ static class AuthoredRebuildFidelity
                     identity,
                     AccessorBodyText(property, SyntaxKind.SetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "get_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "get_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(indexer, SyntaxKind.GetAccessorDeclaration)),
             IndexerDeclarationSyntax indexer
-                when AccessorNameMatches(identity, "set_", "Item")
+                when IndexerAccessorMatches(
+                    identity,
+                    "set_",
+                    indexer,
+                    expectedParameterCount)
                 => ScoredBody(
                     indexer.ExplicitInterfaceSpecifier,
                     identity,
@@ -380,8 +503,56 @@ static class AuthoredRebuildFidelity
                     eventDeclaration.ExplicitInterfaceSpecifier,
                     identity,
                     AccessorBodyText(eventDeclaration, SyntaxKind.RemoveAccessorDeclaration)),
+            OperatorDeclarationSyntax op
+                when string.Equals(
+                    CSharpSourceIdentityContext.OperatorMetadataName(op),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        op.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    op.Body,
+                    op.ExpressionBody,
+                    ReturnsVoid(op.ReturnType))),
+            ConversionOperatorDeclarationSyntax conversion
+                when string.Equals(
+                    CSharpSourceIdentityContext.ConversionOperatorMetadataName(
+                        conversion),
+                    identity.SimpleName,
+                    StringComparison.Ordinal)
+                    && ParameterCountMatches(
+                        conversion.ParameterList.Parameters.Count,
+                        expectedParameterCount)
+                => (2, BodyText(
+                    conversion.Body,
+                    conversion.ExpressionBody,
+                    returnsVoid: false)),
             _ => (-1, ExtractedBody.None),
         };
+
+    static bool IndexerAccessorMatches(
+        MetadataMethodIdentity identity,
+        string prefix,
+        IndexerDeclarationSyntax indexer,
+        int? expectedParameterCount)
+    {
+        int parameterCount = indexer.ParameterList.Parameters.Count
+            + (prefix == "set_" ? 1 : 0);
+        if (!ParameterCountMatches(parameterCount, expectedParameterCount))
+            return false;
+
+        string? declaredName =
+            CSharpSourceIdentityContext.IndexerMetadataName(indexer);
+        if (declaredName is not null)
+            return AccessorNameMatches(identity, prefix, declaredName);
+
+        // The PDB body slicer can omit an IndexerName attribute outside its
+        // vouched declaration range. The exact mapped MethodDef supplies the
+        // accessor name; equal-rank neighboring indexers remain ambiguous.
+        return identity.SimpleName.StartsWith(prefix, StringComparison.Ordinal)
+            && identity.SimpleName.Length > prefix.Length;
+    }
 
     static bool ParameterCountMatches(int actual, int? expected)
         => expected is null || actual == expected.Value;
@@ -549,9 +720,14 @@ static class AuthoredRebuildFidelity
                     or SyntaxKind.RemoveAccessorDeclaration);
         }
 
+        ArrowExpressionClauseSyntax? expressionBody = declaration switch
+        {
+            PropertyDeclarationSyntax property => property.ExpressionBody,
+            IndexerDeclarationSyntax indexer => indexer.ExpressionBody,
+            _ => null,
+        };
         if (accessorKind == SyntaxKind.GetAccessorDeclaration
-            && declaration is PropertyDeclarationSyntax
-                { ExpressionBody: { } expressionBody })
+            && expressionBody is not null)
         {
             return new($"return {expressionBody.Expression};", Printer: null);
         }
@@ -899,21 +1075,83 @@ static class AuthoredRebuildFidelity
 
     internal static async Task AcquirePdbAsync(
         SourceLinkService source,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        string? packageName = null,
+        string? packageVersion = null,
+        IPdbStore? pdbStore = null)
     {
+        if (source.Context.HasPdb
+            && source.Context.PdbId is null
+            && string.Equals(
+                source.Context.PdbLocation,
+                "Standalone",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The standalone Portable PDB identity cannot be verified "
+                + "because the assembly has no Portable CodeView entry.");
+        }
+
         if (!source.Context.NeedsPdb || source.Context.PdbId is not { } pdb)
             return;
 
-        var result = await new SymbolPackageDownloader(httpClient).DownloadPdbAsync(
+        using var failureScope =
+            FeedFailureTelemetry.Scope(mergeIntoParent: false);
+        FeedFailureCollector failures = FeedFailureTelemetry.Current!;
+        var downloader = pdbStore is null
+            ? new SymbolPackageDownloader(httpClient)
+            : new SymbolPackageDownloader(httpClient, pdbStore);
+        var result = await downloader.DownloadPdbAsync(
             pdb.Guid,
             pdb.Age,
             pdb.PdbFileName,
             pdb.IsPortable,
             source.Context.AssemblyPath,
+            packageName,
+            packageVersion,
             portablePdbStamp: pdb.Stamp);
         if (result.PdbFilePath is not null)
+        {
             source.LoadPdb(result.PdbFilePath, "Symbol Package", result.SymbolServer);
+            return;
+        }
+
+        if (result.StoreFailure is { } storeFailure)
+        {
+            throw new IOException(
+                storeFailure switch
+                {
+                    PortablePdbStoreFailureKind.ReadFailed =>
+                        "The PDB store could not read cached Portable PDB content.",
+                    PortablePdbStoreFailureKind.InvalidCachedContent =>
+                        "The PDB store returned malformed or mismatched cached content.",
+                    PortablePdbStoreFailureKind.PublicationNotRetained =>
+                        "The PDB store did not retain verified Portable PDB content.",
+                    _ => "The PDB store could not provide verified Portable PDB content.",
+                });
+        }
+
+        if (failures.HasFailures)
+        {
+            throw new HttpRequestException(
+                "Portable PDB sources did not answer: "
+                + string.Join(
+                    "; ",
+                    failures.Failures.Select(static failure =>
+                        failure.Status == HttpStatusCode.OK
+                            ? "a source returned invalid or mismatched Portable PDB content"
+                            : $"{failure.StatusText} while {failure.PhaseText}")));
+        }
     }
+
+    internal static bool IsPdbAcquisitionFailure(Exception exception)
+        => exception is IOException
+            or UnauthorizedAccessException
+            or BadImageFormatException
+            or InvalidDataException
+            or InvalidOperationException
+            or HttpRequestException
+            or TaskCanceledException;
 
     static void WriteReport(
         IReadOnlyList<AuthoredRebuildFidelityResult> results,
