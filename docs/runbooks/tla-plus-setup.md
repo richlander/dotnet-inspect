@@ -23,7 +23,7 @@ apply to `tla2tools.jar`: no mainstream package manager (`apt`, `brew`,
 `winget`, `choco`, `scoop`) carries the CLI jar. Homebrew's only TLA+ artifact
 is the `tla+-toolbox` cask — the GUI IDE, not the CLI tools, and macOS-only —
 so it does not give a cross-platform, scriptable install and is not used here.
-Pin and download `tla2tools.jar` directly from the project's GitHub releases
+Pin and download `tla2tools.jar` from the immutable mirror release named below
 on every OS instead.
 
 ## Pin one TLA+ version across every OS
@@ -32,17 +32,22 @@ Use the same `tla2tools.jar` release on every machine so model-checking
 results are reproducible across contributors and OSes. As of this writing the
 pinned release is:
 
-- **Version:** `v1.8.0` ("The Clarke" release) — currently a GitHub
-  **prerelease**, not the "latest" stable tag. Agents in this repository are
-  standardized on it (confirmed TLC build `2026.09.03.193042`, rev
-  `1239539`), so pin to it rather than the older
-  stable `v1.7.4` to stay consistent with work already done.
-- **Source:** <https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0>
+- **Upstream version:** `v1.8.0` ("The Clarke" release), currently published
+  as a rolling GitHub prerelease channel rather than an immutable release.
+- **TLC build:** `2026.08.11.125311`
+- **Upstream source:** <https://github.com/tlaplus/tlaplus/releases/tag/v1.8.0>
+- **Immutable distribution:**
+  <https://github.com/zactionsz/tla-tools/releases/tag/tla2tools-2026.08.11.125311>
 - **Asset:** `tla2tools.jar`
-- **SHA-256:** `16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b` —
-  CI verifies this on every run (cache hit or fresh download), since a
-  cache key alone is not an integrity check against a substituted release
-  asset. Update it alongside the version when the pin changes.
+- **SHA-256:** `ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f`
+
+The upstream `v1.8.0` channel continuously replaces its asset and deletes the
+previous bytes, so its tag-relative URL is not a durable pin. The mirror
+preserves the upstream build under a build-specific tag and records the
+original upstream asset identity and digest. It is a distribution point, not a
+trust root: CI verifies the repository-pinned SHA-256 on every run, including
+cache hits. Update the build-specific URL, cache key, and digest together when
+the pin changes.
 
 Model READMEs retain the tool hashes and build identities used for their
 recorded historical runs; updating the repository's current pin does not
@@ -53,18 +58,22 @@ rewrite that evidence.
 the install path used here, on top of being macOS-only and installing the GUI
 app rather than the jar.)
 
-Because `v1.8.0` is a prerelease, `.../releases/latest` (used by both the
-GitHub UI default view and tools that resolve "latest") will not surface it —
-always fetch the exact tagged asset URL below, never a "latest" alias:
+Always fetch the exact build-specific mirror URL, never the rolling upstream
+tag or a `latest` alias:
 
 ```bash
-curl -fLO https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+curl -fLO https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar
+echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  tla2tools.jar" \
+  | sha256sum -c -
 ```
 
 Put `tla2tools.jar` somewhere stable (for example `~/.local/share/tlaplus/` on
 Linux/macOS or `%LOCALAPPDATA%\tlaplus\` on Windows) and reference it by full
 path or via `CLASSPATH`/`java -jar`, rather than copying it per-worktree. When
 the pinned version changes, update this file and re-download on every OS.
+On macOS, use `shasum -a 256 -c -` in place of `sha256sum -c -`. On Windows,
+compare `(Get-FileHash .\tla2tools.jar -Algorithm SHA256).Hash` with the pinned
+digest before using the jar.
 
 ## Java prerequisite
 

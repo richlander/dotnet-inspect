@@ -203,30 +203,29 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/share/tlaplus/tla2tools.jar
-          # Include the asset digest so a recreated tagged release cannot
-          # reuse cached bytes from the prior asset.
-          key: tla2tools-v1.8.0-16b8cd970e07147f
+          # Include the asset digest so a later pin cannot reuse cached bytes
+          # from a different build.
+          key: tla2tools-v1.8.0-ab323b79802aedc3
 
-      # Pinned per docs/runbooks/tla-plus-setup.md: v1.8.0 is a GitHub
-      # prerelease, so it is never resolved by a "latest" alias -- always
-      # fetch this exact tagged asset URL.
+      # Pinned per docs/runbooks/tla-plus-setup.md: upstream v1.8.0 is a
+      # rolling channel whose prior assets disappear. Fetch the immutable
+      # mirrored build instead of the mutable upstream tag.
       - name: Download tla2tools.jar
         if: steps.cache-tla.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.local/share/tlaplus
           curl -fLo ~/.local/share/tlaplus/tla2tools.jar \
-            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+            https://github.com/zactionsz/tla-tools/releases/download/tla2tools-2026.08.11.125311/tla2tools.jar
 
-      # A cache key alone is not an integrity check: a substituted release
-      # asset served under the same tag, or a poisoned cache entry, would
-      # otherwise execute unverified bytecode via the "Run TLA+ checks"
-      # step below with no diagnostic. Verify on every run -- cache hits
-      # included -- not only right after a fresh download.
+      # A cache key alone is not an integrity check: substituted release bytes
+      # or a poisoned cache entry would otherwise execute unverified bytecode
+      # via the "Run TLA+ checks" step below with no diagnostic. Verify on
+      # every run -- cache hits included -- not only after a fresh download.
       - name: Verify tla2tools.jar checksum
         run: |
           set -euo pipefail
-          echo "16b8cd970e07147ff91f126baecba7edd98202e5ab33220a42f8f4358ee94b2b  $HOME/.local/share/tlaplus/tla2tools.jar" \
+          echo "ab323b79802aedc3203b3f9af37c6aca3ed43f4e0225b36f2aa77b26de46c05f  $HOME/.local/share/tlaplus/tla2tools.jar" \
             | sha256sum -c -
 
       - name: Run TLA+ checks
