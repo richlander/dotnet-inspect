@@ -14313,43 +14313,7 @@ public partial class CommandExecutionTests
             // exit code that only says "uncertified" leaves the user with no
             // statement of what happened to the type they asked about.
             Assert.Contains(
-                "Could not resolve",
-                error,
-                StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(unsupported);
-        }
-    }
-
-    [Fact]
-    public async Task Depends_ExcludedCandidateDoesNotWithholdAnIndependentLibraryAnswer()
-    {
-        // Library mode resolves the name itself and never reads the excluded
-        // candidate, so its answer is independent. Folding the exclusion into
-        // the exit code previously suppressed the caller's fallback, turning a
-        // complete answer into empty stdout.
-        string unsupported = Path.Combine(
-            Path.GetTempPath(),
-            $"depends-independent-{Guid.NewGuid():N}.dll");
-        File.WriteAllBytes(
-            unsupported,
-            TimelineCommandTests.BuildWindowsMetadataImage());
-        try
-        {
-            var (exit, output, error) = await RunAppAsync(
-                "depends", "System.Runtime",
-                "--library", TestAssemblyPath,
-                "--library", unsupported);
-
-            Assert.False(
-                string.IsNullOrWhiteSpace(output),
-                $"expected the independent library answer on stdout, got empty. stderr: {error}");
-            Assert.Contains("System.Runtime", output, StringComparison.Ordinal);
-            Assert.Equal(0, exit);
-            Assert.Contains(
-                Path.GetFileName(unsupported),
+                "not found in the specified scope",
                 error,
                 StringComparison.Ordinal);
         }

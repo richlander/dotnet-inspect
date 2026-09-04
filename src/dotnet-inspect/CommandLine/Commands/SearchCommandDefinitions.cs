@@ -550,14 +550,12 @@ public static class SearchCommandDefinitions
                 };
 
                 // Library mode resolves the name itself and never consults the
-                // excluded candidate, so its answer stands on its own. Only when
-                // it also fails is the reply an absence claim, and an absence
-                // cannot be certified once a candidate was excluded.
-                var libraryExitCode =
-                    await DependsCommand.ExecuteLibraryDependsAsync(libOptions);
-                return libraryExitCode != 0 && outcome.Uncertified
-                    ? DependsCommand.UncertifiedScanExitCode
-                    : libraryExitCode;
+                // excluded candidate, so its answer stands on its own. It is
+                // also unreachable while a candidate was excluded: an explicit
+                // source option is what makes exclusion possible, and that same
+                // option suppresses this fallback.
+                return await DependsCommand.ExecuteLibraryDependsAsync(
+                    libOptions);
             }
 
             if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
