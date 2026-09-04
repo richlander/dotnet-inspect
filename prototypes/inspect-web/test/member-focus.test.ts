@@ -63,9 +63,15 @@ function createMemberFocusRestorer() {
       document: MockDocument,
       snapshot: MemberFocusSnapshot,
       requestFrame: (callback: FrameRequestCallback) => number,
+      isCurrent?: () => boolean,
     ) {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      restorer.schedule(document as unknown as Document, snapshot, requestFrame);
+      const domDocument = document as unknown as Document;
+      restorer.schedule(
+        domDocument,
+        snapshot,
+        requestFrame,
+        isCurrent);
     },
   };
 }
@@ -177,6 +183,86 @@ test("navigation focus and scroll survive completion before loading focus restor
   assert.equal(current.selector, "#unrelated");
   assert.equal(current.focusLost, false);
   assert.equal(elements.get("#type-list")!.scrollTop, 87);
+});
+
+test("a focused Type row survives an asynchronous replacement render", () => {
+  const { document, element } = createDocument();
+  element("#type-list", {
+    id: "type-list",
+    dataset: {
+      navScope: "types",
+      navSelection: "type:Example.Type",
+    },
+  });
+  const initialRow = element("#initial-type", {
+    dataset: { type: "Example.Type" },
+  });
+  document.activeElement = initialRow;
+  const snapshot = captureMemberFocus(document);
+
+  initialRow.isConnected = false;
+  document.activeElement = document.body;
+  const replacementRow = element("#replacement-type", {
+    dataset: { type: "Example.Type" },
+  });
+
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementRow);
+});
+
+test("focused Type filter controls survive replacement renders", () => {
+  for (const [key, value] of [
+    ["kindFilter", "class"],
+    ["namespace", "System.Text.Json"],
+    ["accessChip", "public"],
+    ["libraryChip", "System.Text.Json"],
+  ] as const) {
+    const { document, element } = createDocument();
+    const initial = element(`#initial-${key}`, {
+      dataset: { [key]: value },
+    });
+    document.activeElement = initial;
+    const snapshot = captureMemberFocus(document);
+
+    initial.isConnected = false;
+    document.activeElement = document.body;
+    const replacement = element(`#replacement-${key}`, {
+      dataset: { [key]: value },
+    });
+
+    restoreMemberFocus(document, snapshot, callback => {
+      callback(0);
+      return 1;
+    });
+
+    assert.equal(document.activeElement, replacement);
+  }
+});
+
+test("a focused filter disclosure survives an asynchronous replacement render", () => {
+  const { document, element } = createDocument();
+  const initialSummary = element("#type-filter-summary", {
+    id: "type-filter-summary",
+  });
+  document.activeElement = initialSummary;
+  const snapshot = captureMemberFocus(document);
+
+  initialSummary.isConnected = false;
+  document.activeElement = document.body;
+  const replacementSummary = element("#type-filter-summary", {
+    id: "type-filter-summary",
+  });
+
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementSummary);
 });
 
 test("stable annotated source segments retain focus across member completion renders", () => {
@@ -422,6 +508,35 @@ test("deferred restoration does not steal intentionally moved focus", () => {
   callbacks.shift()!(0);
 
   assert.equal(document.activeElement, unrelated);
+});
+
+test("external focus authority invalidates a queued restoration", () => {
+  const { document, element } = createDocument();
+  const initial = element("#initial", { id: "initial" });
+  const replacement = element("#type-list", { id: "type-list" });
+  document.activeElement = initial;
+  const snapshot = {
+    ...captureMemberFocus(document),
+    selector: "#type-list",
+  };
+  const callbacks: FrameRequestCallback[] = [];
+  let current = true;
+  const restorer = createMemberFocusRestorer();
+
+  restorer.schedule(
+    document,
+    snapshot,
+    callback => {
+      callbacks.push(callback);
+      return callbacks.length;
+    },
+    () => current);
+  document.activeElement = document.body;
+  current = false;
+  callbacks.shift()!(0);
+
+  assert.notEqual(document.activeElement, replacement);
+  assert.equal(document.activeElement, document.body);
 });
 
 test("newer caret restoration invalidates older queued callbacks", () => {

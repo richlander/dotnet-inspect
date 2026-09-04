@@ -1,4 +1,5 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
+import { renderContentNavigationCloseButton } from "./content-frame.ts";
 import type { KeybindingRegistry } from "./keybinding-registry.ts";
 import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 
@@ -319,16 +320,19 @@ export function renderTypeNav(options: TypeNavOptions): string {
     typeDisplayName, kindIcon, shortKind,
   } = options;
   return `
-    <aside class="type-browser" aria-label="Public types">
+    <aside id="content-navigation-pane" class="type-browser" aria-label="Public types">
       <div class="browser-head">
         <div>
           <span class="pane-label">PUBLIC TYPES</span>
           <span class="result-count">${visible.length} shown</span>
         </div>
-        <button class="tiny-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">×</button>
+        <div class="browser-head-actions">
+          <button class="tiny-button" id="clear-filter" title="Clear filters" aria-label="Clear filters">×</button>
+          ${renderContentNavigationCloseButton()}
+        </div>
       </div>
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
-        <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+        <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">
           <span aria-hidden="true">/</span>
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
@@ -397,12 +401,13 @@ export function renderMemberNav(options: MemberNavOptions): string {
       : `overload:${selectedMemberKey}:${selectedOverloadIndex}`)
     : "";
   return `
-    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
+    <aside id="content-navigation-pane" class="type-browser member-nav" aria-label="Members of ${escapeHtml(typeDisplayName(type))}">
       <div class="browser-head">
         <div>
           <span class="pane-label">MEMBERS</span>
           <span class="result-count">${visibleMemberCount} of ${memberCount}</span>
         </div>
+        ${renderContentNavigationCloseButton()}
       </div>
       <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
         <span class="chevron">‹</span>
