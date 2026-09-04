@@ -9,6 +9,7 @@ docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecy
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
 docs/design/models/research-workspace-target-composition/BlockedTerminalCensusUnavailable.cfg=0
+docs/design/models/research-workspace-target-composition/BroaderResearchPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/BrokenBindingDrift.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenCensusSubstitution.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenCrossSideEndpoint.cfg=12

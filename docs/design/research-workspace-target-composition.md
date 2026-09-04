@@ -185,24 +185,26 @@ Composition validates one side in this order:
    input;
 3. the population receipt is valid for the exact operation, question, side,
    and Research admission;
-4. every group participant's current `BindingPolicy.Version` remains
+4. the request kind is `Carried`; unsupported `ExactAddress` scope rejects
+   before Metadata resolution;
+5. every group participant's current `BindingPolicy.Version` remains
    reference-identical to the group's captured version before Metadata
    resolution;
-5. Metadata resolves the exact declaring-type request from the retained root
+6. Metadata resolves the exact declaring-type request from the retained root
    through `AssemblyContextTypeResolutionQuery`;
-6. every participant policy used by resolution still exposes that exact
+7. every participant policy used by resolution still exposes that exact
    captured version after resolution;
-7. a resolved terminal definition maps by acquisition registration to exactly
+8. a resolved terminal definition maps by acquisition registration to exactly
    one participant and sealed Queries input in the same group and side;
-8. the population receipt maps that Queries input to exactly one Research
+9. the population receipt maps that Queries input to exactly one Research
    input;
-9. the complete Research resolution contains exactly one attempt for that
+10. the complete Research resolution contains exactly one attempt for that
    input, selection scope, question, side, and terminal domain;
-10. the exact terminal domain-side census is `Healthy`;
-11. that attempt's physical assembly, MVID-scoped address, declaring type, and
+11. the exact terminal domain-side census is `Healthy`;
+12. that attempt's physical assembly, MVID-scoped address, declaring type, and
     relationship role agree with the terminal definition and selection intent;
     and
-12. the root attempt has the matching direct or forwarded shape below.
+13. the root attempt has the matching direct or forwarded shape below.
 
 The first failed check determines the typed composition result. Later checks
 do not run, and no partial receipt escapes. A binding-policy version mismatch
@@ -360,11 +362,15 @@ The model rechecks the imported forwarding safety properties and checks that:
 - every resolution reaches either a composed or unavailable terminal result.
 
 Exact-outcome configurations require direct and forwarded completion, blocked
-census unavailability, exact-address rejection, and rejection of a missing
-group participant input, a duplicated participant occurrence, and an extra
-foreign input. The forwarded-completion scenario retains the facade's blocked
-census while selecting the distinct healthy terminal census. The two-sided
-divergent-domain handoff remains outside this side-local model and unverified.
+census unavailability, exact-address rejection before owner resolution, and
+rejection of a missing group participant input, a duplicated participant
+occurrence, an extra foreign input, and a Research result broader than the
+sealed population. The forwarded-completion scenario retains the facade's
+blocked census while selecting the distinct healthy terminal census. The
+blocked-terminal scenario derives its blocked health from another exact
+side-local failed attempt in the terminal domain rather than assigning blocked
+health to a singleton resolved attempt. The two-sided divergent-domain handoff
+remains outside this side-local model and unverified.
 
 Focused mutations substitute the facade, cross the comparison side, reconstruct
 the Research input without the receipt, relabel the root attempt, select a
@@ -448,6 +454,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_RejectsWrongSideScopeAndDomainMappings`
 - `WorkspaceResearchTarget_RejectsForeignOrIncompletePopulationReceipt`
 - `WorkspaceResearchTarget_RejectsExtraForeignPopulationMember`
+- `WorkspaceResearchTarget_RejectsBroaderResearchPopulation`
 - `AssemblyContextTypeResolutionQuery_RootBindingPolicyVersionDriftThrows`
 - `AssemblyContextTypeResolutionQuery_NonRootBindingPolicyVersionDriftThrows`
 - `WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows`

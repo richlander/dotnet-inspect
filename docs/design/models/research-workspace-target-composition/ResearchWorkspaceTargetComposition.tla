@@ -49,14 +49,18 @@ Assemblies == {Facade, Target, Other}
 Sides == {Before, After}
 Groups == {GroupBefore, GroupAfter}
 Receipts == {ReceiptBefore, ReceiptAfter, ForeignReceipt}
+QueryPeerId == <<"QueryPeer", QueryQuestion>>
+ResearchPeerId == <<"ResearchPeer", ResearchOperation>>
+AttemptPeerId == <<"AttemptPeer", ResearchOperation>>
 QueryIds ==
-    {QueryRootId, QueryTerminalSelectedId, QueryTerminalOppositeId}
+    {QueryRootId, QueryTerminalSelectedId, QueryTerminalOppositeId,
+     QueryPeerId}
 ResearchIds ==
     {ResearchRootId, ResearchTerminalSelectedId,
-     ResearchTerminalOppositeId, FreshResearchId}
+     ResearchTerminalOppositeId, ResearchPeerId, FreshResearchId}
 AttemptIds ==
     {AttemptRootId, AttemptTerminalSelectedId,
-     AttemptTerminalOppositeId, FreshAttemptId}
+     AttemptTerminalOppositeId, AttemptPeerId, FreshAttemptId}
 DomainIds ==
     {DomainRootId, DomainTerminalSelectedId,
      DomainTerminalOppositeId, DomainOtherSelectedId}
@@ -79,9 +83,9 @@ ASSUME
     /\ Cardinality(Sides) = 2
     /\ Cardinality(Groups) = 2
     /\ Cardinality(Receipts) = 3
-    /\ Cardinality(QueryIds) = 3
-    /\ Cardinality(ResearchIds) = 4
-    /\ Cardinality(AttemptIds) = 4
+    /\ Cardinality(QueryIds) = 4
+    /\ Cardinality(ResearchIds) = 5
+    /\ Cardinality(AttemptIds) = 5
     /\ Cardinality(DomainIds) = 4
     /\ Cardinality(CensusIds) = 4
     /\ QueryOperation # ResearchOperation
@@ -126,13 +130,13 @@ VARIABLES
     terminalSealedSelected,
     terminalAdmittedOpposite,
     terminalSealedOpposite,
+    terminalResearchMappedSelected,
+    terminalDomainHasBlockingPeer,
     duplicateSealedSelected,
     foreignSealedSelected,
     terminalCandidate,
     rootAttemptKind,
     terminalAttemptKind,
-    rootDomainHealth,
-    terminalDomainHealth,
     requestKind,
     capturedBinding,
     receiptMap,
@@ -156,10 +160,10 @@ bindingVars == <<liveBinding, bindingAdvanced>>
 inputVars ==
     <<rootSealed, terminalAdmittedSelected, terminalSealedSelected,
       terminalAdmittedOpposite, terminalSealedOpposite,
+      terminalResearchMappedSelected, terminalDomainHasBlockingPeer,
       duplicateSealedSelected, foreignSealedSelected, terminalCandidate,
-      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
-      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
-      attemptMap, censusMap>>
+      rootAttemptKind, terminalAttemptKind, requestKind, capturedBinding,
+      receiptMap, attemptMap, censusMap>>
 
 outputVars ==
     <<compositionPhase, effectiveQueryInput, effectiveResearchAttempt,
@@ -171,12 +175,12 @@ vars ==
       terminalAssembly, liveBinding, bindingAdvanced, rootSealed,
       terminalAdmittedSelected, terminalSealedSelected,
       terminalAdmittedOpposite, terminalSealedOpposite,
+      terminalResearchMappedSelected, terminalDomainHasBlockingPeer,
       duplicateSealedSelected, foreignSealedSelected, terminalCandidate,
-      rootAttemptKind, terminalAttemptKind, rootDomainHealth,
-      terminalDomainHealth, requestKind, capturedBinding, receiptMap,
-      attemptMap, censusMap, compositionPhase, effectiveQueryInput,
-      effectiveResearchAttempt, effectiveCensus, retainedRootAttempt,
-      retainedHops, retainedBinding>>
+      rootAttemptKind, terminalAttemptKind, requestKind, capturedBinding,
+      receiptMap, attemptMap, censusMap, compositionPhase,
+      effectiveQueryInput, effectiveResearchAttempt, effectiveCensus,
+      retainedRootAttempt, retainedHops, retainedBinding>>
 
 Forwarding ==
     INSTANCE TypeForwardingResolution WITH
@@ -227,6 +231,7 @@ ResearchIdForQuery(queryId) ==
             ResearchTerminalSelectedId
       [] queryId = QueryTerminalOppositeId ->
             ResearchTerminalOppositeId
+      [] queryId = QueryPeerId -> ResearchPeerId
 
 AttemptIdForResearch(researchId) ==
     CASE researchId = ResearchRootId -> AttemptRootId
@@ -234,6 +239,7 @@ AttemptIdForResearch(researchId) ==
             AttemptTerminalSelectedId
       [] researchId = ResearchTerminalOppositeId ->
             AttemptTerminalOppositeId
+      [] researchId = ResearchPeerId -> AttemptPeerId
 
 DomainIdForResearch(researchId) ==
     CASE researchId = ResearchRootId -> DomainRootId
@@ -241,6 +247,8 @@ DomainIdForResearch(researchId) ==
             DomainTerminalSelectedId
       [] researchId = ResearchTerminalOppositeId ->
             DomainTerminalOppositeId
+      [] researchId = ResearchPeerId ->
+            DomainTerminalSelectedId
 
 CensusIdForDomain(domainId) ==
     CASE domainId = DomainRootId -> CensusRootId
@@ -259,6 +267,17 @@ QueryInput(side, assembly) ==
      registration |->
         [group |-> GroupFor(side), assembly |-> assembly]]
 
+PeerAssembly ==
+    IF terminalCandidate = Target THEN Other ELSE Target
+
+PeerQueryInput ==
+    [id |-> QueryPeerId,
+     operation |-> QueryOperation,
+     question |-> QueryQuestion,
+     side |-> SelectedSide,
+     registration |->
+        [group |-> GroupFor(SelectedSide), assembly |-> PeerAssembly]]
+
 ResearchInput(id, side, queryInput) ==
     [id |-> id,
      operation |-> ResearchOperation,
@@ -267,68 +286,156 @@ ResearchInput(id, side, queryInput) ==
      receipt |-> ReceiptFor(side),
      queryInput |-> queryInput]
 
+SealedQueryIds ==
+    (IF rootSealed THEN {QueryRootId} ELSE {})
+    \cup
+    (IF terminalSealedSelected
+        THEN {QueryTerminalSelectedId}
+        ELSE {})
+    \cup
+    (IF terminalSealedOpposite
+        THEN {QueryTerminalOppositeId}
+        ELSE {})
+    \cup
+    (IF terminalDomainHasBlockingPeer
+        THEN {QueryPeerId}
+        ELSE {})
+
+ActiveReceiptQueryIds ==
+    (IF rootSealed THEN {QueryRootId} ELSE {})
+    \cup
+    (IF terminalResearchMappedSelected
+        THEN {QueryTerminalSelectedId}
+        ELSE {})
+    \cup
+    (IF terminalSealedOpposite
+        THEN {QueryTerminalOppositeId}
+        ELSE {})
+    \cup
+    (IF terminalDomainHasBlockingPeer
+        THEN {QueryPeerId}
+        ELSE {})
+
 ReceiptMapValue ==
-    [queryId \in QueryIds |->
-        CASE queryId = QueryRootId ->
-                ResearchInput(
-                    ResearchRootId,
-                    SelectedSide,
-                    QueryInput(SelectedSide, Facade))
-          [] queryId = QueryTerminalSelectedId ->
-                ResearchInput(
-                    ResearchTerminalSelectedId,
-                    SelectedSide,
-                    QueryInput(SelectedSide, terminalCandidate))
-          [] queryId = QueryTerminalOppositeId ->
-                ResearchInput(
-                    ResearchTerminalOppositeId,
-                    OppositeSide,
-                    QueryInput(OppositeSide, terminalCandidate))]
+    [active |-> ActiveReceiptQueryIds,
+     values |->
+        [queryId \in QueryIds |->
+            CASE queryId = QueryRootId ->
+                    ResearchInput(
+                        ResearchRootId,
+                        SelectedSide,
+                        QueryInput(SelectedSide, Facade))
+              [] queryId = QueryTerminalSelectedId ->
+                    ResearchInput(
+                        ResearchTerminalSelectedId,
+                        SelectedSide,
+                        QueryInput(SelectedSide, terminalCandidate))
+              [] queryId = QueryTerminalOppositeId ->
+                    ResearchInput(
+                        ResearchTerminalOppositeId,
+                        OppositeSide,
+                        QueryInput(OppositeSide, terminalCandidate))
+              [] queryId = QueryPeerId ->
+                    ResearchInput(
+                        ResearchPeerId,
+                        SelectedSide,
+                        PeerQueryInput)]]
+
+OwnerResearchIds ==
+    {ResearchRootId, ResearchTerminalSelectedId,
+     ResearchTerminalOppositeId, ResearchPeerId}
+
+ActiveAttemptResearchIds ==
+    {ResearchIdForQuery(queryId) :
+        queryId \in ReceiptMapValue.active}
 
 AttemptMapValue ==
-    [researchId \in
-        {ResearchRootId, ResearchTerminalSelectedId,
-         ResearchTerminalOppositeId} |->
-        [id |-> AttemptIdForResearch(researchId),
-         input |->
-            CASE researchId = ResearchRootId ->
-                    ReceiptMapValue[QueryRootId]
-              [] researchId = ResearchTerminalSelectedId ->
-                    ReceiptMapValue[QueryTerminalSelectedId]
-              [] researchId = ResearchTerminalOppositeId ->
-                    ReceiptMapValue[QueryTerminalOppositeId],
-         domain |-> DomainIdForResearch(researchId),
-         kind |->
-            IF researchId = ResearchRootId
-               THEN rootAttemptKind
-               ELSE terminalAttemptKind]]
+    [active |-> ActiveAttemptResearchIds,
+     values |->
+        [researchId \in OwnerResearchIds |->
+            [id |-> AttemptIdForResearch(researchId),
+             input |->
+                CASE researchId = ResearchRootId ->
+                        ReceiptMapValue.values[QueryRootId]
+                  [] researchId = ResearchTerminalSelectedId ->
+                        ReceiptMapValue.values[QueryTerminalSelectedId]
+                  [] researchId = ResearchTerminalOppositeId ->
+                        ReceiptMapValue.values[QueryTerminalOppositeId]
+                  [] researchId = ResearchPeerId ->
+                        ReceiptMapValue.values[QueryPeerId],
+             domain |-> DomainIdForResearch(researchId),
+             kind |->
+                CASE researchId = ResearchRootId ->
+                        rootAttemptKind
+                  [] researchId = ResearchPeerId -> "Failed"
+                  [] OTHER -> terminalAttemptKind]]]
+
+ActiveCensusDomainIds ==
+    {DomainIdForResearch(researchId) :
+        researchId \in AttemptMapValue.active}
+
+ResearchIdsForDomainSide(domainId, side) ==
+    {researchId \in AttemptMapValue.active :
+        /\ AttemptMapValue.values[researchId].domain = domainId
+        /\ AttemptMapValue.values[researchId].input.side = side}
+
+OwnerAttemptIds(domainId, side) ==
+    {AttemptMapValue.values[researchId].id :
+        researchId \in ResearchIdsForDomainSide(domainId, side)}
+
+RootCensusHealth ==
+    IF rootAttemptKind \in {"Resolved", "NotFound"}
+       THEN "Healthy"
+       ELSE "Blocked"
+
+SelectedTerminalCensusHealth ==
+    IF /\ ~terminalDomainHasBlockingPeer
+       /\ terminalAttemptKind \in {"Resolved", "NotFound"}
+       THEN "Healthy"
+       ELSE "Blocked"
+
+OppositeTerminalCensusHealth ==
+    IF terminalAttemptKind \in {"Resolved", "NotFound"}
+       THEN "Healthy"
+       ELSE "Blocked"
 
 CensusMapValue ==
-    [domainId \in DomainIds |->
-        CASE domainId = DomainRootId ->
-                [id |-> CensusRootId,
-                 domain |-> DomainRootId,
-                 side |-> SelectedSide,
-                 attempts |-> {AttemptRootId},
-                 health |-> rootDomainHealth]
-          [] domainId = DomainTerminalSelectedId ->
-                [id |-> CensusTerminalSelectedId,
-                 domain |-> DomainTerminalSelectedId,
-                 side |-> SelectedSide,
-                 attempts |-> {AttemptTerminalSelectedId},
-                 health |-> terminalDomainHealth]
-          [] domainId = DomainTerminalOppositeId ->
-                [id |-> CensusTerminalOppositeId,
-                 domain |-> DomainTerminalOppositeId,
-                 side |-> OppositeSide,
-                 attempts |-> {AttemptTerminalOppositeId},
-                 health |-> terminalDomainHealth]
-          [] domainId = DomainOtherSelectedId ->
-                [id |-> CensusOtherSelectedId,
-                 domain |-> DomainOtherSelectedId,
-                 side |-> SelectedSide,
-                 attempts |-> {},
-                 health |-> "Healthy"]]
+    [active |-> ActiveCensusDomainIds,
+     values |->
+        [domainId \in DomainIds |->
+            CASE domainId = DomainRootId ->
+                    [id |-> CensusRootId,
+                     domain |-> DomainRootId,
+                     side |-> SelectedSide,
+                     attempts |->
+                        OwnerAttemptIds(
+                            DomainRootId,
+                            SelectedSide),
+                     health |-> RootCensusHealth]
+              [] domainId = DomainTerminalSelectedId ->
+                    [id |-> CensusTerminalSelectedId,
+                     domain |-> DomainTerminalSelectedId,
+                     side |-> SelectedSide,
+                     attempts |->
+                        OwnerAttemptIds(
+                            DomainTerminalSelectedId,
+                            SelectedSide),
+                     health |-> SelectedTerminalCensusHealth]
+              [] domainId = DomainTerminalOppositeId ->
+                    [id |-> CensusTerminalOppositeId,
+                     domain |-> DomainTerminalOppositeId,
+                     side |-> OppositeSide,
+                     attempts |->
+                        OwnerAttemptIds(
+                            DomainTerminalOppositeId,
+                            OppositeSide),
+                     health |-> OppositeTerminalCensusHealth]
+              [] domainId = DomainOtherSelectedId ->
+                    [id |-> CensusOtherSelectedId,
+                     domain |-> DomainOtherSelectedId,
+                     side |-> SelectedSide,
+                     attempts |-> {},
+                     health |-> "Healthy"]]]
 
 ChosenSide ==
     IF /\ CompositionMutationMode = "CrossSide"
@@ -358,7 +465,8 @@ ChosenSealed ==
 
 ChosenQueryInput == QueryInput(ChosenSide, ChosenAssembly)
 
-LegitimateResearchInput == receiptMap[ChosenQueryInput.id]
+LegitimateResearchInput ==
+    receiptMap.values[ChosenQueryInput.id]
 
 ReconstructedResearchInput ==
     [id |-> FreshResearchId,
@@ -373,7 +481,7 @@ ChosenResearchInput ==
        THEN ReconstructedResearchInput
        ELSE IF /\ CompositionMutationMode = "UseFacade"
                /\ Len(hops) > 0
-            THEN receiptMap[QueryTerminalSelectedId]
+            THEN receiptMap.values[QueryTerminalSelectedId]
        ELSE LegitimateResearchInput
 
 ChosenAttemptKind ==
@@ -393,24 +501,24 @@ ReconstructedAttempt ==
 ChosenResearchAttempt ==
     IF CompositionMutationMode = "ReconstructReceipt"
        THEN ReconstructedAttempt
-       ELSE attemptMap[ChosenResearchInput.id]
+       ELSE attemptMap.values[ChosenResearchInput.id]
 
 ChosenCensus ==
     IF CompositionMutationMode = "SubstituteCensus"
-       THEN censusMap[DomainOtherSelectedId]
-       ELSE censusMap[ChosenResearchAttempt.domain]
+       THEN censusMap.values[DomainOtherSelectedId]
+       ELSE censusMap.values[ChosenResearchAttempt.domain]
 
 RelabeledRootAttempt ==
-    [id |-> attemptMap[ResearchRootId].id,
-     input |-> attemptMap[ResearchRootId].input,
-     domain |-> attemptMap[ResearchRootId].domain,
+    [id |-> attemptMap.values[ResearchRootId].id,
+     input |-> attemptMap.values[ResearchRootId].input,
+     domain |-> attemptMap.values[ResearchRootId].domain,
      kind |-> "Resolved"]
 
 ChosenRootAttempt ==
     IF /\ CompositionMutationMode = "RelabelRoot"
        /\ Len(hops) > 0
        THEN RelabeledRootAttempt
-       ELSE attemptMap[ResearchRootId]
+    ELSE attemptMap.values[ResearchRootId]
 
 ChosenHops ==
     IF /\ CompositionMutationMode = "DropPath"
@@ -422,13 +530,18 @@ BindingReady ==
     \/ liveBinding = capturedBinding
     \/ CompositionMutationMode = "IgnoreBindingDrift"
 
+RequestReady == requestKind = "Carried"
+
 ResolutionReady == terminalKind = "Resolved"
 
 AssociationReady ==
-    /\ requestKind = "Carried"
+    /\ RequestReady
     /\ rootSealed
     /\ ChosenAdmitted
     /\ ChosenSealed
+    /\ ChosenQueryInput.id \in receiptMap.active
+    /\ \/ ChosenResearchInput.id \in attemptMap.active
+       \/ CompositionMutationMode = "ReconstructReceipt"
     /\ \/ ChosenAssembly = Facade
        \/ ChosenAssembly = terminalCandidate
        \/ CompositionMutationMode = "SubstituteParticipant"
@@ -439,6 +552,7 @@ ExpectedRootAttempt ==
        ELSE rootAttemptKind = "DeclaringTypeForwarded"
 
 ExactCensusReady ==
+    /\ ChosenCensus.domain \in censusMap.active
     /\ ChosenCensus.domain = ChosenResearchAttempt.domain
     /\ ChosenCensus.side = ChosenResearchAttempt.input.side
     /\ ChosenResearchAttempt.id \in ChosenCensus.attempts
@@ -459,6 +573,7 @@ AttemptReady ==
 PopulationReady ==
     /\ rootSealed
     /\ terminalAdmittedSelected = terminalSealedSelected
+    /\ receiptMap.active = SealedQueryIds
     /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
 
@@ -468,16 +583,13 @@ CiInputConstraint ==
     /\ terminalSealedSelected
     /\ terminalAdmittedOpposite
     /\ terminalSealedOpposite
+    /\ terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
     /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ rootAttemptKind \in
         {"Resolved", "DeclaringTypeForwarded"}
     /\ terminalAttemptKind = "Resolved"
-    /\ rootDomainHealth =
-        IF rootAttemptKind = "DeclaringTypeForwarded"
-           THEN "Blocked"
-           ELSE "Healthy"
-    /\ terminalDomainHealth = "Healthy"
     /\ requestKind = "Carried"
 
 Init ==
@@ -488,15 +600,15 @@ Init ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ terminalResearchMappedSelected \in BOOLEAN
+    /\ terminalDomainHasBlockingPeer \in BOOLEAN
+    /\ (terminalDomainHasBlockingPeer =>
+        terminalResearchMappedSelected)
     /\ duplicateSealedSelected \in BOOLEAN
     /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
     /\ terminalAttemptKind \in AttemptKinds
-    /\ rootDomainHealth \in DomainHealthKinds
-    /\ (rootAttemptKind = "DeclaringTypeForwarded" =>
-        rootDomainHealth = "Blocked")
-    /\ terminalDomainHealth \in DomainHealthKinds
     /\ requestKind \in RequestKinds
     /\ capturedBinding = InitialBinding
     /\ receiptMap = ReceiptMapValue
@@ -513,12 +625,14 @@ Init ==
 ResolveStep ==
     /\ compositionPhase = "Resolving"
     /\ PopulationReady
+    /\ RequestReady
     /\ Forwarding!Advance
     /\ UNCHANGED <<bindingVars, inputVars, outputVars>>
 
 BindingAdvanceStep ==
     /\ compositionPhase = "Resolving"
     /\ PopulationReady
+    /\ RequestReady
     /\ BindingLifecycle!Advance
     /\ UNCHANGED <<resolutionVars, inputVars, outputVars>>
 
@@ -535,6 +649,12 @@ PublishNonSuccess(phase) ==
 RejectPopulation ==
     /\ compositionPhase = "Resolving"
     /\ ~PopulationReady
+    /\ PublishNonSuccess("Rejected")
+
+RejectUnsupportedRequest ==
+    /\ compositionPhase = "Resolving"
+    /\ PopulationReady
+    /\ ~RequestReady
     /\ PublishNonSuccess("Rejected")
 
 DetectBindingFault ==
@@ -613,6 +733,7 @@ CompleteUnavailableMutation ==
 
 Next ==
     \/ RejectPopulation
+    \/ RejectUnsupportedRequest
     \/ ResolveStep
     \/ BindingAdvanceStep
     \/ DetectBindingFault
@@ -637,13 +758,13 @@ TypeOK ==
     /\ terminalSealedSelected \in BOOLEAN
     /\ terminalAdmittedOpposite \in BOOLEAN
     /\ terminalSealedOpposite \in BOOLEAN
+    /\ terminalResearchMappedSelected \in BOOLEAN
+    /\ terminalDomainHasBlockingPeer \in BOOLEAN
     /\ duplicateSealedSelected \in BOOLEAN
     /\ foreignSealedSelected \in BOOLEAN
     /\ terminalCandidate \in {Target, Other}
     /\ rootAttemptKind \in RootAttemptKinds
     /\ terminalAttemptKind \in AttemptKinds
-    /\ rootDomainHealth \in DomainHealthKinds
-    /\ terminalDomainHealth \in DomainHealthKinds
     /\ requestKind \in RequestKinds
     /\ capturedBinding = InitialBinding
     /\ receiptMap = ReceiptMapValue
@@ -697,7 +818,18 @@ InvalidPopulationIsRejectedBeforeResolution ==
     ~PopulationReady =>
         /\ resolutionPhase = "Probing"
         /\ Len(hops) = 0
+        /\ liveBinding = InitialBinding
+        /\ ~bindingAdvanced
         /\ compositionPhase \in {"Resolving", "Rejected"}
+
+UnsupportedRequestIsRejectedBeforeResolution ==
+    /\ PopulationReady
+    /\ ~RequestReady
+    => /\ resolutionPhase = "Probing"
+       /\ Len(hops) = 0
+       /\ liveBinding = InitialBinding
+       /\ ~bindingAdvanced
+       /\ compositionPhase \in {"Resolving", "Rejected"}
 
 SelectedEndpointBelongsToRequestedSide ==
     effectiveQueryInput # NoOutcome =>
@@ -715,10 +847,12 @@ SelectedEndpointMatchesResolvedTerminal ==
 
 SelectedResearchAttemptUsesPopulationReceipt ==
     effectiveResearchAttempt # NoOutcome =>
+        /\ effectiveQueryInput.id \in receiptMap.active
+        /\ effectiveResearchAttempt.input.id \in attemptMap.active
         /\ effectiveResearchAttempt.input =
-            receiptMap[effectiveQueryInput.id]
+            receiptMap.values[effectiveQueryInput.id]
         /\ effectiveResearchAttempt =
-            attemptMap[effectiveResearchAttempt.input.id]
+            attemptMap.values[effectiveResearchAttempt.input.id]
 
 SelectedResearchInputMatchesSelectedQueryInput ==
     effectiveResearchAttempt # NoOutcome =>
@@ -727,8 +861,9 @@ SelectedResearchInputMatchesSelectedQueryInput ==
 
 SelectedCensusMatchesAttempt ==
     effectiveCensus # NoOutcome =>
+        /\ effectiveResearchAttempt.domain \in censusMap.active
         /\ effectiveCensus =
-            censusMap[effectiveResearchAttempt.domain]
+            censusMap.values[effectiveResearchAttempt.domain]
         /\ effectiveCensus.side =
             effectiveResearchAttempt.input.side
         /\ effectiveResearchAttempt.id
@@ -744,7 +879,7 @@ SelectedDomainIsHealthy ==
 
 RootAttemptIsPreserved ==
     retainedRootAttempt # NoOutcome =>
-        retainedRootAttempt = attemptMap[ResearchRootId]
+        retainedRootAttempt = attemptMap.values[ResearchRootId]
 
 ForwardingEvidenceIsPreserved ==
     effectiveResearchAttempt # NoOutcome =>
@@ -805,29 +940,29 @@ ResearchCompletionHasSelectedEndpoint ==
 
 StableScenarioInputs(
         rootKind,
-        rootHealth,
-        terminalHealth,
+        terminalAttemptScenarioKind,
+        hasBlockingPeer,
         targetRequestKind) ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
     /\ terminalAdmittedOpposite
     /\ terminalSealedOpposite
+    /\ terminalResearchMappedSelected
+    /\ terminalDomainHasBlockingPeer = hasBlockingPeer
     /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ terminalCandidate = Target
     /\ rootAttemptKind = rootKind
-    /\ terminalAttemptKind = "Resolved"
-    /\ rootDomainHealth = rootHealth
-    /\ terminalDomainHealth = terminalHealth
+    /\ terminalAttemptKind = terminalAttemptScenarioKind
     /\ requestKind = targetRequestKind
     /\ liveBinding = InitialBinding
 
 DirectCompletionInputConstraint ==
     /\ StableScenarioInputs(
         "Resolved",
-        "Healthy",
-        "Healthy",
+        "Resolved",
+        FALSE,
         "Carried")
     /\ current = Facade
     /\ path = <<Facade>>
@@ -848,31 +983,38 @@ ForwardedResolvedRouteConstraint ==
 ForwardedCompletionInputConstraint ==
     /\ StableScenarioInputs(
         "DeclaringTypeForwarded",
-        "Blocked",
-        "Healthy",
+        "Resolved",
+        FALSE,
         "Carried")
     /\ ForwardedResolvedRouteConstraint
 
 BlockedTerminalCensusInputConstraint ==
     /\ StableScenarioInputs(
         "DeclaringTypeForwarded",
-        "Blocked",
-        "Blocked",
+        "Resolved",
+        TRUE,
         "Carried")
     /\ ForwardedResolvedRouteConstraint
 
 ExactAddressInputConstraint ==
-    /\ StableScenarioInputs(
-        "DeclaringTypeForwarded",
-        "Blocked",
-        "Healthy",
-        "ExactAddress")
-    /\ ForwardedResolvedRouteConstraint
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ terminalAdmittedOpposite
+    /\ terminalSealedOpposite
+    /\ terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
+    /\ ~duplicateSealedSelected
+    /\ ~foreignSealedSelected
+    /\ requestKind = "ExactAddress"
+    /\ liveBinding = InitialBinding
 
 MissingTerminalPopulationInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ ~terminalSealedSelected
+    /\ ~terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
     /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
     /\ liveBinding = InitialBinding
@@ -881,6 +1023,8 @@ ForeignPopulationInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
+    /\ terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
     /\ ~duplicateSealedSelected
     /\ foreignSealedSelected
     /\ liveBinding = InitialBinding
@@ -889,8 +1033,21 @@ DuplicatePopulationInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
     /\ terminalSealedSelected
+    /\ terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
     /\ duplicateSealedSelected
     /\ ~foreignSealedSelected
+    /\ liveBinding = InitialBinding
+
+BroaderResearchPopulationInputConstraint ==
+    /\ rootSealed
+    /\ ~terminalAdmittedSelected
+    /\ ~terminalSealedSelected
+    /\ terminalResearchMappedSelected
+    /\ ~terminalDomainHasBlockingPeer
+    /\ ~duplicateSealedSelected
+    /\ ~foreignSealedSelected
+    /\ requestKind = "Carried"
     /\ liveBinding = InitialBinding
 
 DirectScenarioCompletesWithRoot ==
@@ -915,6 +1072,9 @@ ForeignPopulationBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 DuplicatePopulationBecomesRejected ==
+    <> (compositionPhase = "Rejected")
+
+BroaderResearchPopulationBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 CompositionConverges ==
