@@ -126,13 +126,78 @@ jobs:
           index="$site/index.html"
           receipt=artifacts/inspect-web-publish/async-lowering.json
           test -f "$index"
-          jq -e '.schema == 4 and .method == "InspectionEngine.AsyncLoweringCanary" and .lowering == "compiler" and .result == "inspect-web-async-lowering-ok" and .assembly_count == 2 and .async_method_count > 0 and .compiler_async_method_count == .async_method_count and .runtime_async_method_count == 0 and .repository_project_count > 0 and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.publish_core_assembly_sha256 | test("^[0-9a-f]{64}$")) and (.published_webcil_file | test("^InspectWeb\\.Engine\\.[A-Za-z0-9]+\\.wasm$")) and (.published_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.published_core_webcil_file | test("^InspectWeb\\.Engine\\.Core\\.[A-Za-z0-9]+\\.wasm$")) and (.published_core_webcil_sha256 | test("^[0-9a-f]{64}$")) and (.contract_sha256 | test("^[0-9a-f]{64}$"))' "$receipt" >/dev/null
-          webcil=$(jq -r '.published_webcil_file' "$receipt")
-          core_webcil=$(jq -r '.published_core_webcil_file' "$receipt")
-          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.*.wasm' ! -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-          test "$(find "$site/_framework" -maxdepth 1 -type f -name 'InspectWeb.Engine.Core.*.wasm' | wc -l)" -eq 1
-          test "$(sha256sum "$site/_framework/$webcil" | awk '{print $1}')" = "$(jq -r '.published_webcil_sha256' "$receipt")"
-          test "$(sha256sum "$site/_framework/$core_webcil" | awk '{print $1}')" = "$(jq -r '.published_core_webcil_sha256' "$receipt")"
+          jq -e '
+            .schema == 5
+            and .method == "InspectionEngine.AsyncLoweringCanary"
+            and .lowering == "compiler"
+            and .result == "inspect-web-async-lowering-ok"
+            and .facade_count == 7
+            and .assembly_count == 7
+            and .js_export_method_count == 48
+            and .async_method_count > 0
+            and .compiler_async_method_count == .async_method_count
+            and .runtime_async_method_count == 0
+            and .repository_project_count > 0
+            and (.repository_projects | length) == .repository_project_count
+            and .repository_projects == (.repository_projects | sort | unique)
+            and (.repository_project_sha256 | test("^[0-9a-f]{64}$"))
+            and ([.assemblies[].name] == [
+              "InspectWeb.Engine",
+              "InspectWeb.Engine.AnalysisExports",
+              "InspectWeb.Engine.CallGraphExports",
+              "InspectWeb.Engine.CatalogExports",
+              "InspectWeb.Engine.MetadataExports",
+              "InspectWeb.Engine.PackageExports",
+              "InspectWeb.Engine.SourceExports"
+            ])
+            and ([.assemblies[].module] == [
+              "inspect-web-host",
+              "inspect-web-analysis",
+              "inspect-web-call-graph",
+              "inspect-web-catalog",
+              "inspect-web-metadata",
+              "inspect-web-package",
+              "inspect-web-source"
+            ])
+            and all(.assemblies[];
+              .file == (.name + ".dll")
+              and (.publish_assembly_sha256 | test("^[0-9a-f]{64}$"))
+              and .generated_source_file == (.name + ".ts")
+              and (.generated_source_sha256 | test("^[0-9a-f]{64}$"))
+              and .declaration_file == (.module + ".d.ts")
+              and (.declaration_sha256 | test("^[0-9a-f]{64}$"))
+              and .published_js_file == (.module + ".js")
+              and (.published_js_sha256 | test("^[0-9a-f]{64}$"))
+              and .webcil_assembly == .name
+              and (. as $assembly | $assembly.published_webcil_file | startswith($assembly.name + "."))
+              and (.published_webcil_file | test("^InspectWeb\\.Engine(\\.[A-Za-z0-9]+)*\\.[A-Za-z0-9]+\\.wasm$"))
+              and (.published_webcil_sha256 | test("^[0-9a-f]{64}$"))
+              and .js_export_method_count > 0
+              and .async_method_count > 0
+              and .compiler_async_method_count == .async_method_count
+              and .runtime_async_method_count == 0)
+            and ([.assemblies[].js_export_method_count] | add) == .js_export_method_count
+            and ([.assemblies[].async_method_count] | add) == .async_method_count
+            and ([.assemblies[].compiler_async_method_count] | add) == .compiler_async_method_count
+            and ([.assemblies[].runtime_async_method_count] | add) == .runtime_async_method_count
+            and .smoke.initialized_facades == [.assemblies[] | {
+              assembly: .name,
+              module: .module
+            }]
+            and .smoke.sdk_create_count == 1
+            and .smoke.sdk_runtime_count == 1
+            and .smoke.entry_point_count == 0
+            and .smoke.async_lowering_canary == "inspect-web-async-lowering-ok"
+          ' "$receipt" >/dev/null
+          expected_modules=$(jq -r '.assemblies[].published_js_file' "$receipt" | sort)
+          published_modules=$(find "$site" -maxdepth 1 -type f -name 'inspect-web-*.js' -printf '%f\n' | sort)
+          test "$published_modules" = "$expected_modules"
+          while IFS=$'\t' read -r js_file js_sha webcil_file webcil_sha; do
+            test "$(sha256sum "$site/$js_file" | awk '{print $1}')" = "$js_sha"
+            test "$(sha256sum "$site/_framework/$webcil_file" | awk '{print $1}')" = "$webcil_sha"
+          done < <(jq -r '.assemblies[] | [.published_js_file, .published_js_sha256, .published_webcil_file, .published_webcil_sha256] | @tsv' "$receipt")
+          test ! -f "$site/inspect-web-engine.js"
+          test ! -f "$site/inspect-web-engine.ts"
           test -f "$site/staticwebapp.config.json"
           test -f "$api/host.json"
           test -f "$api/functions.metadata"
