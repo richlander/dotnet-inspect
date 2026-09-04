@@ -92,6 +92,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  parseWorkspaceLocation,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   retainedPlatformTargetVersion,
@@ -374,6 +375,7 @@ import type {
   BrowserBuildIdentity,
   BrowserCallGraph,
   BrowserCallGraphTarget,
+  BrowserHomeDemoResolveResult,
   BrowserHomeDemoRunResult,
   BrowserMemberSurface,
   BrowserPackageCacheStats,
@@ -601,6 +603,9 @@ function loadPlatformRecent() {
 
 const retryUnavailable = "unavailable" as const;
 type RetryAction = (() => void | Promise<unknown>) | null;
+type WorkspaceRestoreFailureHandler = (
+  message: string,
+) => void;
 type ErrorRetryAction = RetryAction | typeof retryUnavailable;
 
 interface SpotlightCache {
@@ -915,6 +920,7 @@ interface CanonicalWorkspaceRestoreSnapshot {
   state: AppState;
   hasWorkspace: boolean;
   navigation: NavigationHistorySnapshot<WorkspaceView>;
+  failedWorkspaceUrlState: FailedWorkspaceUrlState | null;
 }
 
 function captureCanonicalWorkspaceRestoreSnapshot():
@@ -957,6 +963,9 @@ CanonicalWorkspaceRestoreSnapshot {
     },
     hasWorkspace: state.package !== null,
     navigation: navigationHistory.snapshot(),
+    failedWorkspaceUrlState: failedWorkspaceUrlState
+      ? structuredClone(failedWorkspaceUrlState)
+      : null,
   };
 }
 
@@ -966,6 +975,9 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   clearWorkspacePackages();
   Object.assign(state, snapshot.state);
   navigationHistory.restore(snapshot.navigation);
+  failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
+    ? structuredClone(snapshot.failedWorkspaceUrlState)
+    : null;
   spotlightCache = null;
   persistRecentPackages();
   persistPlatformRecent();
@@ -1416,9 +1428,51 @@ const workspaceLocation = createWorkspaceLocationPersistence({
   decode: value => inspectDecodeWorkspaceShareState(value),
   encode: stateJson => inspectEncodeWorkspaceShareState(stateJson),
 });
+let pendingDemoNavigation: {
+  navigationSeq: number;
+  destination: string;
+} | null = null;
 
 function parseLocation() {
   return workspaceLocation.parseCurrent();
+}
+
+function parseWorkspaceHref(href: string): ParsedLocation {
+  const url = new URL(href, location.href);
+  return parseWorkspaceLocation({
+    href: url.href,
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
+  }, value => inspectDecodeWorkspaceShareState(value));
+}
+
+function beginDemoNavigation(destination: string): number {
+  const navigationSeq = navigationSequence.begin();
+  stageDemoNavigation(navigationSeq, destination);
+  return navigationSeq;
+}
+
+function stageDemoNavigation(
+  navigationSeq: number,
+  destination: string,
+): void {
+  pendingDemoNavigation = { navigationSeq, destination };
+}
+
+function commitDemoNavigation(navigationSeq: number): boolean {
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || pendingDemoNavigation?.navigationSeq !== navigationSeq) return false;
+  workspaceLocation.push(pendingDemoNavigation.destination);
+  pendingDemoNavigation = null;
+  return true;
+}
+
+function cancelDemoNavigation(navigationSeq?: number): void {
+  if (navigationSeq === undefined
+    || pendingDemoNavigation?.navigationSeq === navigationSeq) {
+    pendingDemoNavigation = null;
+  }
 }
 
 type ParsedLocation = ParsedWorkspaceLocation;
@@ -2989,16 +3043,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       })}
 
       <div class="notice-stack">
-        ${visibleQueryNotice()
-          ? `<div class="query-notice" role="alert">
-              <span class="query-notice-glyph">⚠</span>
-              <span class="query-notice-text">${escapeHtml(visibleQueryNotice())}</span>
-              ${state.queryNotice && state.queryNoticeRetryAction
-                ? '<button id="retry-notice" type="button">retry</button>'
-                : ""}
-              <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
-            </div>`
-          : ""}
+        ${renderQueryNotice()}
         ${pkg.inspectionError
           ? `<div class="query-notice" role="alert">
               <span class="query-notice-glyph">⚠</span>
@@ -3117,6 +3162,9 @@ function renderWorkspaceCatalogView() {
           navigationHistory.canBack(),
           navigationHistory.canForward()),
       })}
+      <div class="notice-stack">
+        ${renderQueryNotice()}
+      </div>
       <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
         ${renderWorkspaceNavPane()}
         <section class="detail-pane">
@@ -7194,6 +7242,8 @@ function workspaceUrlProjection() {
 
 function syncUrl() {
   if (currentPackageQueryHandoff()) return;
+  if (pendingDemoNavigation
+    && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
     if (state.atPackageRoot && state.package && !state.loading) {
@@ -7628,6 +7678,20 @@ function visibleQueryNotice() {
     .join(" ");
 }
 
+function renderQueryNotice() {
+  const notice = visibleQueryNotice();
+  return notice
+    ? `<div class="query-notice" role="alert">
+        <span class="query-notice-glyph">⚠</span>
+        <span class="query-notice-text">${escapeHtml(notice)}</span>
+        ${state.queryNotice && state.queryNoticeRetryAction
+          ? '<button id="retry-notice" type="button">retry</button>'
+          : ""}
+        <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+      </div>`
+    : "";
+}
+
 function retainFailedWorkspaceUrl() {
   const failedState = failedWorkspaceUrlState;
   const retainedState = retainWorkspaceUrlPreservation(
@@ -7833,34 +7897,129 @@ function openDefaultWorkspace(): void {
 }
 
 function runHomeDemo(kind: ProductHomeDemoId) {
-  const resolveResult = inspectResolveHomeDemo(kind);
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  let resolveResult: BrowserHomeDemoResolveResult;
+  try {
+    resolveResult = inspectResolveHomeDemo(kind);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      true);
+    return;
+  }
   const resolved = resolveResult.found ? resolveResult.demo : null;
   if (!resolved) {
-    state.error = `Unknown product home demo '${kind}'.`;
-    state.errorTitle = "Demo failed";
-    state.home = true;
-    render();
+    failDemoWorkspaceOpen(
+      kind,
+      `Unknown product home demo '${kind}'.`,
+      snapshot,
+      false);
     return;
   }
   state.home = false;
-  const link = productHomeDemoLocationHref(
-    resolved,
-    inspectEncodeWorkspaceShareState);
-  if (!link) {
-    observeAsync(runCallGraphDemo(kind), "Loading the call graph demo");
+  let link: string | null;
+  try {
+    link = productHomeDemoLocationHref(
+      resolved,
+      inspectEncodeWorkspaceShareState);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      false);
     return;
   }
-  const navigationSeq = navigationSequence.begin();
-  workspaceLocation.push(link);
-  const loc = parseLocation();
+  if (!link) {
+    observeAsync(
+      runCallGraphDemo(kind, snapshot),
+      "Loading the call graph demo");
+    return;
+  }
+  let destination: string;
+  let loc: ParsedLocation;
+  try {
+    destination = new URL(link, location.href).toString();
+    loc = parseWorkspaceHref(destination);
+  } catch (error) {
+    failDemoWorkspaceOpen(
+      kind,
+      errorMessage(error),
+      snapshot,
+      false);
+    return;
+  }
+  const navigationSeq = beginDemoNavigation(destination);
   observeAsync(
-    restoreWorkspaceFromLocation(
+    restoreHomeDemoWorkspace(
+      kind,
+      loc,
+      navigationSeq,
+      snapshot),
+    "Loading the demo workspace");
+}
+
+async function restoreHomeDemoWorkspace(
+  demoId: ProductHomeDemoId,
+  loc: ParsedLocation,
+  navigationSeq: number,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+): Promise<void> {
+  try {
+    await restoreWorkspaceFromLocation(
       loc,
       loc,
       navigationSeq,
-      undefined,
-      true),
-    "Loading the demo workspace");
+      snapshot,
+      true,
+      message => failDemoWorkspaceOpen(
+        demoId,
+        message,
+        snapshot,
+        true));
+  } catch (error) {
+    if (navigationSequence.isCurrent(navigationSeq)) {
+      failDemoWorkspaceOpen(
+        demoId,
+        errorMessage(error),
+        snapshot,
+        true);
+    }
+  } finally {
+    cancelDemoNavigation(navigationSeq);
+  }
+}
+
+function failDemoWorkspaceOpen(
+  demoId: ProductHomeDemoId,
+  message: string,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  retryable: boolean,
+): void {
+  restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+  state.credits = false;
+  state.loading = false;
+  state.home = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.workspaceSubjectOpen = true;
+  state.atPackageRoot = true;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  const retry = retryable ? () => runHomeDemo(demoId) : null;
+  appendQueryNotice(`Demo failed: ${message}`, retry);
+  render();
+  afterCurrentNavigationFrame(() => {
+    if (!restoreWorkspaceFocus(document, { kind: "demo", id: demoId })) {
+      focusWorkspace(document);
+    }
+  });
 }
 
 // Return to the intro/home page without tearing down the warm engine or the loaded packages.
@@ -7939,9 +8098,13 @@ function focusInspectionResult(navigationSeq: number): void {
   });
 }
 
+function packageQuerySearchReturnFocusIsPending(): boolean {
+  return state.packageQueryReturnFocusPending
+    && state.packageQueryReturnFocus === "package-search";
+}
+
 function restorePackageQueryReturnFocus() {
-  if (!state.packageQueryReturnFocusPending
-    || state.packageQueryReturnFocus !== "package-search") return;
+  if (!packageQuerySearchReturnFocusIsPending()) return;
   afterCurrentNavigationFrame(() => {
     if (focusWorkbenchSearch(document)) {
       state.packageQueryReturnFocus = null;
@@ -10558,9 +10721,10 @@ async function loadRuntimePackAssembly(
   };
 }
 
-async function runCallGraphDemo(demoId: ProductHomeDemoId) {
-  const retry = () =>
-    observeAsync(runCallGraphDemo(demoId), "Loading the call graph demo");
+async function runCallGraphDemo(
+  demoId: ProductHomeDemoId,
+  snapshot: CanonicalWorkspaceRestoreSnapshot,
+) {
   const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
@@ -10572,14 +10736,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   render();
 
   const fail = (error: unknown) => {
-    state.loading = false;
-    state.error = errorMessage(error);
-    state.errorTitle = "Call graph demo failed";
-    state.errorDetail = error instanceof Error
-      ? error.stack || error.message
-      : String(error);
-    state.retryAction = retry;
-    render();
+    failDemoWorkspaceOpen(
+      demoId,
+      errorMessage(error),
+      snapshot,
+      true);
   };
   let result: BrowserHomeDemoRunResult;
   try {
@@ -10591,11 +10752,11 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
   }
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (!result.found) {
-    state.loading = false;
-    state.error = `Unknown product home demo '${demoId}'.`;
-    state.errorTitle = "Call graph demo failed";
-    state.retryAction = null;
-    render();
+    failDemoWorkspaceOpen(
+      demoId,
+      `Unknown product home demo '${demoId}'.`,
+      snapshot,
+      false);
     return;
   }
   if (!result.activation || !result.callGraph) {
@@ -10697,11 +10858,17 @@ async function runCallGraphDemo(demoId: ProductHomeDemoId) {
       overload,
       true);
     state.loading = false;
-    workspaceLocation.push(buildStateUrl().toString());
+    stageDemoNavigation(navigationSeq, buildStateUrl().toString());
     render();
     await renderMermaidCallGraph();
+    if (!commitDemoNavigation(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
+    syncUrl();
     focusInspectionResult(navigationSeq);
   } catch (error) {
+    cancelDemoNavigation(navigationSeq);
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     fail(error);
   }
@@ -10718,33 +10885,64 @@ async function restoreWorkspaceFromLocation(
     ? captureCanonicalWorkspaceRestoreSnapshot()
     : null,
   focusResult = false,
+  failureHandler: WorkspaceRestoreFailureHandler | null = null,
 ) {
   if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (loc.routeFailure) {
-    failWorkspaceRoute(loc.routeFailure.message);
+    if (failureHandler) {
+      failureHandler(loc.routeFailure.message);
+    } else {
+      failWorkspaceRoute(loc.routeFailure.message);
+    }
     return;
   }
   if (!clearWorkspaceRouteFailure()) {
+    if (failureHandler) {
+      failureHandler("The existing package route could not be cleared.");
+      return;
+    }
     render();
     return;
   }
   if (loc.hasWorkspaceState && !loc.shareState) {
-    failCanonicalWorkspaceRestore(
-      loc,
-      deep,
-      loc.workspaceNotice
-        || "The shared workspace packet could not be restored.",
-      canonicalSnapshot,
-      null);
+    const message = loc.workspaceNotice
+      || "The shared workspace packet could not be restored.";
+    if (failureHandler) {
+      failureHandler(message);
+    } else {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        message,
+        canonicalSnapshot,
+        null);
+    }
     return;
   }
-  if (!loc.package) return;
+  if (!loc.package) {
+    failureHandler?.(
+      "The resolved product demo did not identify a package.");
+    return;
+  }
   const retryRestore = () => restoreWorkspaceFromLocation(
     loc,
     deep,
     undefined,
     undefined,
-    focusResult);
+    focusResult,
+    failureHandler);
+  const failRestore = (message: string) => {
+    if (failureHandler) {
+      failureHandler(message);
+    } else {
+      failCanonicalWorkspaceRestore(
+        loc,
+        deep,
+        message,
+        canonicalSnapshot,
+        retryRestore);
+    }
+  };
   state.queryNotice = loc.workspaceNotice || "";
   state.queryNoticeRetryAction = null;
   state.home = false;
@@ -10835,17 +11033,13 @@ async function restoreWorkspaceFromLocation(
   const canonicalTabsPreserved = !loc.shareState
     || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs);
   if (loc.shareState && (failedTabCount > 0 || !canonicalTabsPreserved)) {
-    failCanonicalWorkspaceRestore(
-      loc,
-      deep,
+    failRestore(
       state.queryNotice
-        || (failedTabCount > 0
-          ? "The shared workspace could not be restored completely."
-          : canonicalTabCountPreserved
-            ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
-            : "The shared workspace coordinates did not remain distinct after resolution."),
-      canonicalSnapshot,
-      retryRestore);
+      || (failedTabCount > 0
+        ? "The shared workspace could not be restored completely."
+        : canonicalTabCountPreserved
+          ? "A shared workspace coordinate resolved to a different version or framework than the packet requested."
+          : "The shared workspace coordinates did not remain distinct after resolution."));
     return;
   }
 
@@ -10867,16 +11061,13 @@ async function restoreWorkspaceFromLocation(
           deep,
           navigationSeq,
           canonicalSnapshot,
-          focusResult));
+          focusResult,
+          failureHandler));
       if (!navigationSequence.isCurrent(navigationSeq)) return;
       if (!scoped) {
         if (loc.shareState) {
-          failCanonicalWorkspaceRestore(
-            loc,
-            deep,
-            `The shared Platform library '${loc.library}' could not be restored.`,
-            canonicalSnapshot,
-            retryRestore);
+          failRestore(
+            `The shared Platform library '${loc.library}' could not be restored.`);
         }
         return;
       }
@@ -10885,12 +11076,7 @@ async function restoreWorkspaceFromLocation(
         targetModel,
         loc.library);
       if (loc.shareState && libraryFailure) {
-        failCanonicalWorkspaceRestore(
-          loc,
-          deep,
-          libraryFailure,
-          canonicalSnapshot,
-          retryRestore);
+        failRestore(libraryFailure);
         return;
       }
     }
@@ -10899,12 +11085,7 @@ async function restoreWorkspaceFromLocation(
       ? canonicalViewRestorationFailure(targetModel, deep, loc.lens)
       : null;
     if (loc.shareState && viewFailure) {
-      failCanonicalWorkspaceRestore(
-        loc,
-        deep,
-        viewFailure,
-        canonicalSnapshot,
-        retryRestore);
+      failRestore(viewFailure);
       return;
     }
     applyDeepLink(deep);
@@ -10912,7 +11093,12 @@ async function restoreWorkspaceFromLocation(
     state.loading = false;
     render();
     await loadSelectionData();
-    if (focusResult && navigationSequence.isCurrent(navigationSeq)) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (failureHandler) {
+      if (!commitDemoNavigation(navigationSeq)) return;
+      syncUrl();
+    }
+    if (focusResult) {
       focusInspectionResult(navigationSeq);
     }
   } else if (!isRuntimePackId(target.id)) {
@@ -10928,17 +11114,32 @@ async function restoreWorkspaceFromLocation(
         queryNotice: state.queryNotice
       });
     if (loaded && focusResult && navigationSequence.isCurrent(navigationSeq)) {
+        if (failureHandler) {
+          if (!commitDemoNavigation(navigationSeq)) return;
+          syncUrl();
+        }
+        render();
       focusInspectionResult(navigationSeq);
+    } else if (!loaded && failureHandler
+      && navigationSequence.isCurrent(navigationSeq)) {
+      failRestore(
+        state.error || state.queryNotice
+        || `Couldn’t load ${target.id}@${target.version}.`);
     }
   } else {
     state.loading = false;
-    const failure =
+    const runtimeFailure =
       runtimeFailureMessage
       || state.runtimePackError
       || "Couldn’t load the requested .NET Platform.";
-    state.error = state.queryNotice
-      ? `${state.queryNotice} ${failure}`
-      : failure;
+    const failure = state.queryNotice
+      ? `${state.queryNotice} ${runtimeFailure}`
+      : runtimeFailure;
+    if (failureHandler) {
+      failRestore(failure);
+      return;
+    }
+    state.error = failure;
     state.errorTitle = "Platform failed";
     state.retryAction = retryRestore;
     render();
@@ -11168,8 +11369,10 @@ async function bootstrap() {
       state.atPackageRoot = true;
       state.diag = computeDiagnostics(tStart, tEngine, performance.now());
       render();
-      afterCurrentNavigationFrame(() =>
-        focusWorkspace(document));
+      if (!packageQuerySearchReturnFocusIsPending()) {
+        afterCurrentNavigationFrame(() =>
+          focusWorkspace(document));
+      }
       return;
     }
     await restoreInitialWorkspace();
@@ -11795,8 +11998,10 @@ window.addEventListener("popstate", () => {
     state.workspaceSubjectOpen = true;
     state.atPackageRoot = true;
     state.loading = !state.engineReady;
+    const focusWorkspaceOnEntry =
+      !packageQuerySearchReturnFocusIsPending();
     render();
-    if (state.engineReady) {
+    if (state.engineReady && focusWorkspaceOnEntry) {
       afterCurrentNavigationFrame(() =>
         focusWorkspace(document));
     }

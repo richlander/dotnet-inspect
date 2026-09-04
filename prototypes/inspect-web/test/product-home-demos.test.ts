@@ -204,6 +204,12 @@ function parseDemoHref(href: string) {
   };
 }
 
+test("demo workspace links are rooted independently of the catalog route", () => {
+  const href = demoHref(stjResolved);
+  assert.ok(href);
+  assert.equal(new URL(href, "https://inspect.local/demos").pathname, "/");
+});
+
 function requiredItem<T>(values: readonly T[], index: number, label: string): T {
   const value = values[index];
   assert.ok(value, `missing ${label} at index ${index}`);

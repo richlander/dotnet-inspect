@@ -75,7 +75,7 @@ function locationHref(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", encodeWorkspaceShareState(state, encode));
-  return `?${params.toString()}`;
+  return `/?${params.toString()}`;
 }
 
 const BROWSER_RUNTIME_PACKAGE = "Microsoft.NETCore.App";

@@ -2624,6 +2624,9 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(
     history,
     /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\);\s*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
+  assert.match(
+    history,
+    /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!packageQuerySearchReturnFocusIsPending\(\);\s*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
   assert.doesNotMatch(
     appSource,
     /preserveUrlThroughNextRender/);
@@ -2638,7 +2641,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /if \(state\.loading \|\| state\.error\) \{[\s\S]*return;\s*\}\s*retainFailedWorkspaceUrl\(\);\s*if \(state\.home\)/);
   assert.match(
     appSource,
-    /navigation: navigationHistory\.snapshot\(\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\)/);
+    /navigation: navigationHistory\.snapshot\(\),\s*failedWorkspaceUrlState: failedWorkspaceUrlState[\s\S]*structuredClone\(failedWorkspaceUrlState\)[\s\S]*navigationHistory\.restore\(snapshot\.navigation\);[\s\S]*failedWorkspaceUrlState = snapshot\.failedWorkspaceUrlState[\s\S]*structuredClone\(snapshot\.failedWorkspaceUrlState\)/);
   assert.match(
     appSource,
     /captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*sourceInspection\.cancelCurrentRequest\(\);\s*cancelAnnotatedSourceRequest\(state\)[\s\S]*structuredClone\(state\.packages\)/);
@@ -2704,7 +2707,7 @@ test("malformed package routes use the contained restore failure path", () => {
     ?? "";
   assert.match(
     restore,
-    /canonicalSnapshot = loc\.hasWorkspaceState\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*if \(loc\.routeFailure\) \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);\s*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*render\(\);\s*return;\s*\}/);
+    /canonicalSnapshot = loc\.hasWorkspaceState\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)[\s\S]*if \(loc\.routeFailure\) \{[\s\S]*if \(failureHandler\) \{\s*failureHandler\(loc\.routeFailure\.message\);\s*\} else \{\s*failWorkspaceRoute\(loc\.routeFailure\.message\);[\s\S]*return;\s*\}\s*if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*render\(\);\s*return;\s*\}/);
 
   const initial = appSource.match(
     /async function restoreInitialWorkspace\(\)[\s\S]*?\n}\n\nfunction isStyleTier/)?.[0]
@@ -2745,6 +2748,9 @@ test("malformed package routes use the contained restore failure path", () => {
     appSource.match(
       /<span class="query-notice-text">\${escapeHtml\(visibleQueryNotice\(\)\)}<\/span>/g,
     )?.length,
+    1);
+  assert.equal(
+    appSource.match(/\${renderQueryNotice\(\)}/g)?.length,
     2);
   assert.match(
     appSource,
@@ -2802,7 +2808,14 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     runHomeDemo,
-    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*workspaceLocation\.push\(link\);[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*undefined,\s*true\)/);
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*message => failDemoWorkspaceOpen\(/);
+  assert.match(
+    runHomeDemo,
+    /async function restoreHomeDemoWorkspace\([\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(snapshot\);[\s\S]*const retry = retryable \? \(\) => runHomeDemo\(demoId\) : null;[\s\S]*appendQueryNotice\(`Demo failed: \$\{message\}`, retry\);[\s\S]*restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
+  assert.match(
+    runHomeDemo,
+    /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*const navigationSeq = beginDemoNavigation\(destination\)/);
+  assert.doesNotMatch(runHomeDemo, /workspaceLocation\.replace\("\/demos"/);
   assert.doesNotMatch(runHomeDemo, /type: loc\.type/);
   const restoreWorkspace =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction applyLocationView/)?.[0]
@@ -2814,7 +2827,7 @@ test("home demos restore the complete parsed location", () => {
     appSource,
     /function applyLocationView\(loc: ParsedLocation\) \{\s*state\.lens = loc\.lens \|\| "api";\s*state\.atPackageRoot = loc\.atPackageRoot \|\| false;\s*state\.workspaceSubjectOpen =\s*loc\.workspaceSubjectOpen && state\.atPackageRoot;\s*state\.packageLens = loc\.packageLens \|\| "overview";/);
   const callGraphDemo =
-    appSource.match(/async function runCallGraphDemo\(demoId: ProductHomeDemoId\) \{[\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
+    appSource.match(/async function runCallGraphDemo\([\s\S]*?\n}\n\n\/\/ Loads the full/)?.[0]
     ?? "";
   assert.match(callGraphDemo, /result = await inspectRunHomeDemo\(demoId\)/);
   assert.doesNotMatch(callGraphDemo, /callGraphDemoRunnerSpec|loadPackage\(/);
@@ -2823,25 +2836,31 @@ test("home demos restore the complete parsed location", () => {
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
-    /state\.loading = false;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*await renderMermaidCallGraph\(\);\s*focusInspectionResult\(navigationSeq\)/);
+    /state\.loading = false;\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*await renderMermaidCallGraph\(\);\s*if \(!commitDemoNavigation\(navigationSeq\)\) \{\s*cancelDemoNavigation\(navigationSeq\);\s*return;\s*\}\s*syncUrl\(\);\s*focusInspectionResult\(navigationSeq\)/);
   assert.match(
     callGraphDemo,
     /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
   assert.match(
     restoreWorkspace,
-    /await loadSelectionData\(\);\s*if \(focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*focusInspectionResult\(navigationSeq\);/);
+    /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);\s*\}\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
   assert.match(
     restoreWorkspace,
-    /const retryRestore = \(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*undefined,\s*focusResult\)/);
+    /commitWorkspaceShareBasis\(loc\.shareState\);\s*state\.loading = false;\s*render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(failureHandler\) \{\s*if \(!commitDemoNavigation\(navigationSeq\)\) return;\s*syncUrl\(\);/);
+  assert.match(
+    restoreWorkspace,
+    /if \(!clearWorkspaceRouteFailure\(\)\) \{\s*if \(failureHandler\) \{\s*failureHandler\("The existing package route could not be cleared\."\);[\s\S]*if \(!loc\.package\) \{\s*failureHandler\?\.\(\s*"The resolved product demo did not identify a package\."\)/);
+  assert.match(
+    restoreWorkspace,
+    /const retryRestore = \(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*undefined,\s*focusResult,\s*failureHandler\)/);
   assert.match(
     restoreWorkspace,
     /failCanonicalWorkspaceRestore\([\s\S]*canonicalSnapshot,\s*retryRestore\)/);
   assert.match(
     restoreWorkspace,
-    /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot,\s*focusResult\)/);
+    /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot,\s*focusResult,\s*failureHandler\)/);
   assert.match(
     restoreWorkspace,
-    /const loaded = await loadPackage\([\s\S]*if \(loaded && focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*focusInspectionResult\(navigationSeq\);[\s\S]*state\.retryAction = retryRestore/);
+    /const loaded = await loadPackage\([\s\S]*if \(loaded && focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*focusInspectionResult\(navigationSeq\);[\s\S]*state\.retryAction = retryRestore/);
   const platformHistory =
     appSource.match(/async function restorePlatformScopeThenDeepLink\([\s\S]*?\n}\n\n\/\/ Load and scope/)?.[0]
     ?? "";
@@ -2930,7 +2949,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /packageQueryController\.cancel\(\);\s*state\.packageQueryOpen = false;\s*const navigationSeq = navigationSequence\.begin\(\);\s*packageQueryHandoffNavigationSeq = navigationSeq;[\s\S]*await loadPackage\([\s\S]*\{ navigationSeq }\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{\s*if \(packageQueryHandoffNavigationSeq === navigationSeq\)\s*packageQueryHandoffNavigationSeq = null;\s*return;\s*\}[\s\S]*packageQueryHandoffNavigationSeq = null;\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\)/);
   assert.match(
     syncUrl,
-    /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
+    /function syncUrl\(\) \{\s*if \(currentPackageQueryHandoff\(\)\) return;\s*if \(pendingDemoNavigation[\s\S]*navigationSequence\.isCurrent\(pendingDemoNavigation\.navigationSeq\)\) return;\s*if \(retainFailedWorkspaceUrl\(\)\) return;/);
   assert.match(
     handoff,
     /state\.packageQueryNavigationError = failure;[\s\S]*data-query-row-open=/);
@@ -2983,7 +3002,10 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /function openCredits\(\) \{[\s\S]*?navigationSequence\.begin\(\);\s*state\.loading = false;\s*state\.packageQueryOpen = false/);
   assert.match(
     appSource,
-    /function restorePackageQueryReturnFocus\(\) \{\s*if \(!state\.packageQueryReturnFocusPending[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+    /function packageQuerySearchReturnFocusIsPending\(\): boolean \{\s*return state\.packageQueryReturnFocusPending\s*&& state\.packageQueryReturnFocus === "package-search";\s*\}[\s\S]*function restorePackageQueryReturnFocus\(\) \{\s*if \(!packageQuerySearchReturnFocusIsPending\(\)\) return;[\s\S]*focusLevelOneHeading\(\)[\s\S]*state\.packageQueryReturnFocus = null;\s*state\.packageQueryReturnFocusPending = false/);
+  assert.match(
+    appSource,
+    /if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.diag = computeDiagnostics\([\s\S]*render\(\);\s*if \(!packageQuerySearchReturnFocusIsPending\(\)\) \{\s*afterCurrentNavigationFrame\(\(\) =>\s*focusWorkspace\(document\)\)/);
   assert.match(
     appSource,
     /function afterCurrentNavigationFrame\(action: \(\) => void\) \{\s*const navigationSeq = navigationSequence\.current\(\);[\s\S]*if \(navigationSequence\.isCurrent\(navigationSeq\)\) action\(\)/);
