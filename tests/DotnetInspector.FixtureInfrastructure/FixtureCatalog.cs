@@ -902,7 +902,7 @@ public static class FixtureCatalog
             "DiffAsmFixtures.Target" => "fixtures/diff/DiffAsmFixtures.Target",
             "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
-            "DotnetInspector.HostileNameFixtures" => "src/DotnetInspector.HostileNameFixtures",
+            "DotnetInspector.HostileNameFixtures" => "fixtures/cli/DotnetInspector.HostileNameFixtures",
             "DotnetInspector.RestoredProjectFixtures" => "src/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "src/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
