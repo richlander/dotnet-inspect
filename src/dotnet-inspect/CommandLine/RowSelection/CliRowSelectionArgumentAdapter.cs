@@ -208,6 +208,27 @@ internal static class CliRowSelectionArgumentAdapter
                 capabilities));
     }
 
+    internal static bool IsOwnedOptionToken(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        int argumentIndex,
+        string alias)
+    {
+        ArgumentNullException.ThrowIfNull(parseResult);
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentException.ThrowIfNullOrEmpty(alias);
+        ArgumentOutOfRangeException.ThrowIfNegative(argumentIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(
+            argumentIndex,
+            arguments.Count);
+
+        return IsOwnedOptionToken(
+            MapArguments(
+                parseResult,
+                arguments)[argumentIndex],
+            alias);
+    }
+
     private static BoundOption[] BoundOptions(
         CliRowSelectionOptionBindings bindings)
     {

@@ -87,9 +87,20 @@ public static class PackageOptionsParser
 
         bool showVersionsWithFeed =
             parseResult.GetValue(args.VersionsWithFeedOption);
+        bool showVersionList =
+            parseResult.GetValue(args.VersionsOption);
         bool showPluralVersions =
             showVersionsWithFeed
-            || parseResult.GetValue(args.VersionsOption);
+            || showVersionList;
+        if ((showVersionList && showVersionsWithFeed)
+            || (showPluralVersions
+                && (bareVersion || showLatestVersion)))
+        {
+            return new InvalidArguments(
+                "--versions and --versions-with-feed cannot be combined "
+                + "with each other, --version, or --latest-version.");
+        }
+
         bool showVersions =
             bareVersion
             || showLatestVersion

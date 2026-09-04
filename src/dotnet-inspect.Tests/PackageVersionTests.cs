@@ -368,6 +368,76 @@ public class PackageVersionTests
     }
 
     [Fact]
+    public async Task UnadoptedCommand_ValuedVersionSelectorDoesNotReportAdoptedReplacement()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library",
+            "System.Console",
+            "--versions=2");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain(
+            "no longer accepts a count",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Unrecognized command or argument '--versions=2'",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Versions_ValuedSelectorHonorsRequiredValueOwnership()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+        [
+            "package",
+            "--out",
+            "--versions",
+            "2"
+        ];
+
+        Assert.False(
+            CommandLineBuilder.TryGetStaleArgumentError(
+                args,
+                root,
+                out _));
+        Assert.Empty(root.Parse(args).Errors);
+    }
+
+    [Theory]
+    [InlineData("--versions", "--version")]
+    [InlineData("--versions", "--latest-version")]
+    [InlineData("--versions-with-feed", "--version")]
+    [InlineData("--versions-with-feed", "--latest-version")]
+    [InlineData("--versions", "--versions-with-feed")]
+    public async Task Versions_ConflictingSelectorsRejectBeforeAcquisition(
+        string pluralSelector,
+        string conflictingSelector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            pluralSelector,
+            "-n",
+            "2",
+            conflictingSelector);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Versions_RowSelectionCannotBypassInvocationLowering()
     {
         var root = CommandLineBuilder.CreateRootCommand();

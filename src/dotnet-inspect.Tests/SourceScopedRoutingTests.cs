@@ -489,6 +489,47 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("1.0.0", "1.0.0", "2.0.0")]
+    [InlineData("latest", "2.0.0", "1.0.0")]
+    public async Task ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow(
+        string requestedVersion,
+        string expectedVersion,
+        string excludedVersion)
+    {
+        string packageName = $"PinnedSemantic{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0"],
+                [
+                    "package",
+                    $"{packageName}@{requestedVersion}",
+                    "--versions",
+                    "-n",
+                    "1",
+                    "--json",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(
+            $"""
+            "version": "{expectedVersion}"
+            """,
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"""
+            "version": "{excludedVersion}"
+            """,
+            output,
+            StringComparison.Ordinal);
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task StableSingleVersionListingDoesNotFallBackToPrerelease()
     {
@@ -1155,7 +1196,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 return new VersionFeedHandler(
                     SecondSource,
                     packageName,
-                    "2.0.0",
+                    ["2.0.0"],
                     refusedStatus: null,
                     requireAuthorization: false,
                     new ConcurrentQueue<string>(),
@@ -1651,6 +1692,23 @@ public sealed class SourceScopedRoutingTests : IDisposable
             string version,
             string[] args,
             HttpStatusCode? refusedStatus = null,
+            bool requireAuthorization = false) =>
+        await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            [version],
+            args,
+            refusedStatus,
+            requireAuthorization);
+
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        ConcurrentQueue<string> Requests)> RunOnlineVersionFeedCommandAsync(
+            string packageName,
+            IReadOnlyList<string> versions,
+            string[] args,
+            HttpStatusCode? refusedStatus = null,
             bool requireAuthorization = false)
     {
         var requests = new ConcurrentQueue<string>();
@@ -1658,7 +1716,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             innerHandler => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requireAuthorization,
                 requests,
@@ -1669,7 +1727,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             _ => new VersionFeedHandler(
                 SecondSource,
                 packageName,
-                version,
+                versions,
                 refusedStatus,
                 requireAuthorization,
                 requests,
@@ -1712,7 +1770,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     private sealed class VersionFeedHandler(
         string sourceUrl,
         string packageName,
-        string version,
+        IReadOnlyList<string> versions,
         HttpStatusCode? refusedStatus,
         bool requireAuthorization,
         ConcurrentQueue<string> requests,
@@ -1772,9 +1830,8 @@ public sealed class SourceScopedRoutingTests : IDisposable
                     """,
                 _ when url.Equals(
                     $"{SecondFlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase) => $$"""
-                    {"versions":["{{version}}"]}
-                    """,
+                    StringComparison.OrdinalIgnoreCase) =>
+                    $$"""{"versions":[{{string.Join(",", versions.Select(static version => $"\"{version}\""))}}]}""",
                 _ => null,
             };
 

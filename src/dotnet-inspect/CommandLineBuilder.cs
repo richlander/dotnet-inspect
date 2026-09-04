@@ -76,12 +76,18 @@ public static class CommandLineBuilder
         out string? error)
     {
         ParseResult rawParse = rootCommand.Parse(args);
-        bool isPackageSearch =
+        bool isExplicitPackageVersionCommand =
             rawParse.CommandResult.Command.Name
-                == PackageSearchCommand.Name;
+                == PackageCommand.Name;
+        bool supportsValuedVersionSelectorGuidance =
+            isExplicitPackageVersionCommand
+            || ArgumentPreprocessor.IsImplicitPackageCandidate(args);
         return ArgumentPreprocessor.TryGetStaleArgumentError(
             args,
-            isPackageSearch,
+            rawParse,
+            supportsValuedVersionSelectorGuidance,
+            requireOwnedVersionSelector:
+                isExplicitPackageVersionCommand,
             out error);
     }
 

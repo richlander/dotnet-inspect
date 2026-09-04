@@ -71,18 +71,26 @@ public static class ArgumentPreprocessor
     /// </summary>
     public static bool TryGetStaleArgumentError(
         string[] args,
-        bool isPackageSearch,
+        ParseResult rawParse,
+        bool supportsValuedVersionSelectorGuidance,
+        bool requireOwnedVersionSelector,
         out string? error)
     {
         if (TryGetStaleDirectionFlagError(args, out error))
             return true;
 
-        return !isPackageSearch
-            && TryGetValuedVersionSelectorError(args, out error);
+        return supportsValuedVersionSelectorGuidance
+            && TryGetValuedVersionSelectorError(
+                args,
+                rawParse,
+                requireOwnedVersionSelector,
+                out error);
     }
 
     private static bool TryGetValuedVersionSelectorError(
         string[] args,
+        ParseResult rawParse,
+        bool requireOwnedVersionSelector,
         out string? error)
     {
         error = null;
@@ -106,6 +114,15 @@ public static class ArgumentPreprocessor
             };
             if (option is null)
                 continue;
+            if (requireOwnedVersionSelector
+                && !CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
+                    rawParse,
+                    args,
+                    index,
+                    option))
+            {
+                continue;
+            }
 
             bool hasInlineValue = token.Length > option.Length;
             bool hasSeparatedNumericValue =
@@ -185,6 +202,26 @@ public static class ArgumentPreprocessor
         "package", "project", "library", "api", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
+    internal static bool IsImplicitPackageCandidate(string[] args)
+    {
+        int firstPositional = FindFirstPositionalArgument(args);
+        if (firstPositional < 0
+            || KnownCommands.Contains(args[firstPositional]))
+        {
+            return false;
+        }
+
+        if (!CommandLineHelpers.TryClassifyAsFilePath(
+                args[firstPositional],
+                out _,
+                out string? nupkgPath))
+        {
+            return true;
+        }
+
+        return nupkgPath is not null;
+    }
+
     /// <summary>
     /// Resets the HeadLines value. Used for testing.
     /// </summary>
@@ -225,32 +262,7 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        // Find the first positional argument, skipping any leading options
-        int firstPositional = -1;
-        for (int i = 0; i < args.Length; i++)
-        {
-            var token = args[i];
-            if (!token.StartsWith('-'))
-            {
-                firstPositional = i;
-                break;
-            }
-
-            var optionName = token.Split('=', 2)[0];
-            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
-            {
-                continue;
-            }
-
-            if (OptionsWithFollowingValue.Contains(optionName)
-                && !token.Contains('=', StringComparison.Ordinal)
-                && i + 1 < args.Length
-                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
-            {
-                i++;
-            }
-        }
-
+        int firstPositional = FindFirstPositionalArgument(args);
         if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
         {
             if (CommandLineHelpers.TryClassifyAsFilePath(args[firstPositional], out var dllPath, out var nupkgPath))
@@ -272,6 +284,34 @@ public static class ArgumentPreprocessor
         }
 
         return args;
+    }
+
+    private static int FindFirstPositionalArgument(string[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            var token = args[i];
+            if (!token.StartsWith('-'))
+            {
+                return i;
+            }
+
+            var optionName = token.Split('=', 2)[0];
+            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+            {
+                continue;
+            }
+
+            if (OptionsWithFollowingValue.Contains(optionName)
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+            }
+        }
+
+        return -1;
     }
 
     internal static string[] RewriteLineWindowShorthand(

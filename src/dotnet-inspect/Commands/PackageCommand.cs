@@ -8,6 +8,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.RowSelection;
 using NuGetFetch;
 using PackageExtractor = DotnetInspector.Packages.PackageExtractor;
 using DotnetInspector.Sections;
@@ -461,10 +462,14 @@ public class PackageCommand
                 versionQueryPinned = null;
                 options = options with { ForceLatest = true };
             }
+            bool singleVersionListing =
+                options.Limit == 1
+                || HasSemanticSingleVersionLimit(
+                    options.VersionRowSelection);
             using var requestScope = RequestTelemetry.Scope($"package {normalizedName}", "package versions");
 
             if (!string.IsNullOrEmpty(versionQueryPinned)
-                && options.Limit == 1
+                && singleVersionListing
                 && !options.ForceLatest)
             {
                 if (!options.IncludeUnlisted
@@ -554,7 +559,7 @@ public class PackageCommand
                 return 1;
             }
 
-            if (options.Limit == 1 && options.ForceLatest)
+            if (singleVersionListing && options.ForceLatest)
             {
                 var sources = NuGetSourceResolver.ResolveSourcesForPackage(
                     options.SourceOptions,
@@ -1326,6 +1331,15 @@ public class PackageCommand
         selected = Array.Empty<T>();
         return false;
     }
+
+    private static bool HasSemanticSingleVersionLimit(
+        RowSelectionIntent<string>? intent) =>
+        intent?.Operations.Any(
+            static operation =>
+                operation.Kind is
+                    RowSelectionStageKind.Head
+                    or RowSelectionStageKind.Tail
+                && operation.Count == 1) == true;
 
     private static void WriteVersionLookupFailure(
         string packageName,
