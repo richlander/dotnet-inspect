@@ -95,6 +95,9 @@ interface TestHarness {
 
 interface HarnessOptions {
   readonly bootstrap?: () => void | Promise<void>;
+  readonly encodeBootstrap?: (
+    bootstrap: string,
+  ) => BoundedPayloadDecodeResult<unknown>;
   readonly encodeInput?: (
     input: string,
   ) => BoundedPayloadDecodeResult<unknown>;
@@ -354,7 +357,8 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     clock: environment,
     lifecycle: environment,
     bootstrap: {
-      encode: bootstrap => ({ kind: "decoded", value: bootstrap }),
+      encode: options.encodeBootstrap
+        ?? (bootstrap => ({ kind: "decoded", value: bootstrap })),
       diagnostic: diagnosticDecoder(),
     },
     diagnostic: diagnosticDecoder(),
@@ -555,6 +559,69 @@ test("epoch tokens are positive, monotonic, non-reused, and exhaust visibly", ()
   assert.deepEqual(allocator.allocate(), { kind: "allocated", token: 2 });
   assert.deepEqual(allocator.allocate(), { kind: "exhausted" });
   assert.deepEqual(allocator.allocate(), { kind: "exhausted" });
+});
+
+test("bootstrap encoding reserves start ownership before reentrant start", async () => {
+  let harness: TestHarness;
+  let nestedStart: ReturnType<TestHarness["host"]["start"]> | null = null;
+  harness = createHarness({
+    encodeBootstrap: bootstrap => {
+      nestedStart = harness.host.start("nested");
+      return { kind: "decoded", value: bootstrap };
+    },
+  });
+
+  assert.deepEqual(harness.host.start("outer"), {
+    kind: "started",
+    epochToken: 1,
+  });
+  assert.deepEqual(nestedStart, {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+  assert.deepEqual(
+    operationMessages(harness.workers[0]!),
+    ["initialize"],
+  );
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.workers[0]!.terminateCount, 0);
+});
+
+test("bootstrap encoding disposal prevents post-disposal epoch creation", () => {
+  let harness: TestHarness;
+  harness = createHarness({
+    encodeBootstrap: bootstrap => {
+      harness.host.dispose();
+      return { kind: "decoded", value: bootstrap };
+    },
+    startupBudgetMilliseconds: 10,
+  });
+
+  assert.deepEqual(harness.host.start("bootstrap"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
+  assert.deepEqual(harness.host.snapshot(), {
+    epochToken: null,
+    phase: "absent",
+    closure: null,
+    heldOperations: 0,
+    activeOperations: 0,
+    compactControlRecords: 0,
+    activeEpochWork: 0,
+    outstandingProbeSequence: null,
+    deferredControlProbe: false,
+    lastTaskEvidenceOrigin: null,
+  });
+  assert.deepEqual(harness.workers[0]!.receivedMessages, []);
+  assert.equal(harness.workers[0]!.terminateCount, 0);
+  harness.environment.advanceActive(100);
+  assert.equal(harness.failures.length, 0);
+  assert.deepEqual(harness.host.start("later"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
 });
 
 test("synchronous Initialize send failure rejects start without reusing its token", async () => {

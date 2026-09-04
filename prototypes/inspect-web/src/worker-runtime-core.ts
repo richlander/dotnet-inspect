@@ -607,6 +607,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   readonly #unsubscribeLifecycle: () => void;
   #current: MainEpoch<TDiagnostic> | null = null;
   #disposed = false;
+  #startPending = false;
 
   constructor(
     options: WorkerRuntimeHostOptions<TBootstrap, TDiagnostic>,
@@ -746,11 +747,24 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   start(bootstrap: TBootstrap): WorkerRuntimeEpochStartResult {
     if (this.#disposed)
       return { kind: "rejected", reason: "host-disposed" };
+    if (this.#startPending)
+      return { kind: "rejected", reason: "epoch-active" };
     const current = this.#current;
     if (current !== null && current.phase !== "closed")
       return { kind: "rejected", reason: "epoch-active" };
 
+    this.#startPending = true;
+    try {
+      return this.#startReserved(bootstrap);
+    } finally {
+      this.#startPending = false;
+    }
+  }
+
+  #startReserved(bootstrap: TBootstrap): WorkerRuntimeEpochStartResult {
     const encoded = this.#options.bootstrap.encode(bootstrap);
+    if (this.#disposed)
+      return { kind: "rejected", reason: "host-disposed" };
     if (encoded.kind === "rejected") {
       return {
         kind: "rejected",
@@ -789,7 +803,21 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         detail: error,
       };
     }
+    if (this.#disposed) {
+      this.#terminateUnownedTransport(transport);
+      return { kind: "rejected", reason: "host-disposed" };
+    }
     const now = this.#options.clock.now();
+    if (this.#disposed) {
+      this.#terminateUnownedTransport(transport);
+      return { kind: "rejected", reason: "host-disposed" };
+    }
+    const probeSequences = this.#options.createProbeSequenceAllocator?.()
+      ?? new WorkerProbeSequenceAllocator();
+    if (this.#disposed) {
+      this.#terminateUnownedTransport(transport);
+      return { kind: "rejected", reason: "host-disposed" };
+    }
     const epoch: MainEpoch<TDiagnostic> = {
       token: allocation.token,
       transport,
@@ -806,8 +834,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       operations: new Map(),
       held: [],
       commands: new Map(),
-      probeSequences: this.#options.createProbeSequenceAllocator?.()
-        ?? new WorkerProbeSequenceAllocator(),
+      probeSequences,
       probe: null,
       deferredControlProbe: false,
       lastTaskEvidenceOrigin: null,
@@ -825,8 +852,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       realmReleased: false,
     };
     this.#current = epoch;
+    let detach: (() => void) | null = null;
     try {
-      epoch.detach = transport.bind({
+      detach = transport.bind({
         message: (source, data) => {
           this.receiveMessage(source, data);
         },
@@ -841,10 +869,18 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       this.#fail(epoch, "startup", error, true);
       return {
         kind: "rejected",
-        reason: "worker-creation-failed",
+        reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
         detail: error,
       };
     }
+    if (epoch.phase === "closed") {
+      this.#detachUnownedTransport(detach);
+      return {
+        kind: "rejected",
+        reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
+      };
+    }
+    epoch.detach = detach;
 
     const initialization = this.#post(epoch, {
       protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
@@ -858,11 +894,39 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (initialization.kind === "failed") {
       return {
         kind: "rejected",
-        reason: "worker-creation-failed",
+        reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
         detail: initialization.error,
       };
     }
+    if (this.#epochClosed(epoch)) {
+      return {
+        kind: "rejected",
+        reason: this.#disposed ? "host-disposed" : "worker-creation-failed",
+      };
+    }
     return { kind: "started", epochToken: epoch.token };
+  }
+
+  #epochClosed(epoch: MainEpoch<TDiagnostic>): boolean {
+    return epoch.phase === "closed";
+  }
+
+  #terminateUnownedTransport(
+    transport: WorkerRuntimeTransportBinding,
+  ): void {
+    try {
+      transport.source.terminate();
+    } catch (error: unknown) {
+      this.#reportCallbackError(error);
+    }
+  }
+
+  #detachUnownedTransport(detach: () => void): void {
+    try {
+      detach();
+    } catch (error: unknown) {
+      this.#reportCallbackError(error);
+    }
   }
 
   restart(): void {

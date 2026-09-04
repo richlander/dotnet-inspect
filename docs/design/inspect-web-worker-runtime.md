@@ -299,6 +299,15 @@ One runtime host has at most one live epoch. Creation commits the epoch and
 both the source object and epoch; matching message text from another source is
 stale.
 
+The host reserves one start transition before invoking the bootstrap encoder
+or any other consumer-supplied creation callout. A nested `start()` therefore
+rejects as `epoch-active` rather than constructing a competing realm. The host
+rechecks terminal disposal after each pre-commit callout. If disposal occurred,
+the outer start rejects as `host-disposed`; a transport already created but not
+installed is terminated before return. Once the epoch is installed, reentrant
+disposal or failure uses ordinary hard termination, and the outer start cannot
+return a success-shaped epoch after that closure.
+
 The first main-to-worker envelope supplies the protocol version, epoch token,
 structured-clone-safe bootstrap input, the expected idle-heartbeat interval,
 and the total idle allowance after host scheduling tolerance. The worker
@@ -997,6 +1006,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   invalid traffic failing rather than producing stale diagnostics;
 - synchronous `Initialize` send failure rejecting the epoch start after
   preserving failure reporting, realm release, and token non-reuse;
+- bootstrap encoding reserving start ownership before callout, with reentrant
+  start rejecting as `epoch-active` and reentrant disposal rejecting the outer
+  start as `host-disposed` without creating a post-disposal epoch;
 - terminal host disposal rejecting later starts after closing the current
   realm and lifecycle subscriptions;
 - heterogeneous main and fake-worker operation catalogs whose independently
