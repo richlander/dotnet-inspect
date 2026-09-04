@@ -337,6 +337,8 @@ interface MainEpoch<TDiagnostic> {
     string,
     MainOperationRecord<TDiagnostic>
   >;
+  envelopeDispatchActive: boolean;
+  readonly pendingEnvelopes: RawWorkerToMainEnvelope[];
   readonly deferredPhysicalClosures: Set<MainOperationRecord<TDiagnostic>>;
   readonly held: MainOperationRecord<TDiagnostic>[];
   readonly commands: Map<string, DeferredCommand>;
@@ -354,7 +356,7 @@ interface MainEpoch<TDiagnostic> {
   producerCallouts: number;
   closurePublicationActive: boolean;
   terminationAttempted: boolean;
-  terminationSucceeded: boolean;
+  physicalDestructionEstablished: boolean;
   terminationFinalizing: boolean;
   terminationFinalized: boolean;
   realmReleased: boolean;
@@ -712,7 +714,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       || this.#unownedTerminationFailed) return;
     const epoch = this.#current;
     if (epoch !== null
-      && (epoch.bindingPending || !epoch.terminationSucceeded)) return;
+      && (epoch.bindingPending
+        || !epoch.physicalDestructionEstablished)) return;
     for (const error of this.#releaseSubscriptions())
       this.#reportCallbackError(error);
   }
@@ -772,7 +775,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (current !== null
       && (current.phase !== "closed"
         || current.bindingPending
-        || !current.terminationSucceeded)) {
+        || !current.physicalDestructionEstablished)) {
       return { kind: "rejected", reason: "epoch-active" };
     }
 
@@ -823,7 +826,9 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       this.#reportFailure(failure);
       return {
         kind: "rejected",
-        reason: "worker-creation-failed",
+        reason: this.#disposed
+          ? "host-disposed"
+          : "worker-creation-failed",
         detail: error,
       };
     }
@@ -858,6 +863,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       preparedOperations: new Map(),
       flushingPreparedOperations: false,
       operations: new Map(),
+      envelopeDispatchActive: false,
+      pendingEnvelopes: [],
       deferredPhysicalClosures: new Set(),
       held: [],
       commands: new Map(),
@@ -875,7 +882,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       producerCallouts: 0,
       closurePublicationActive: false,
       terminationAttempted: false,
-      terminationSucceeded: false,
+      physicalDestructionEstablished: false,
       terminationFinalizing: false,
       terminationFinalized: false,
       realmReleased: false,
@@ -991,19 +998,44 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       this.#protocolFailure(epoch, decoded.failure);
       return;
     }
+    epoch.pendingEnvelopes.push(decoded.value);
+    this.#drainEnvelopes(epoch);
+  }
 
+  #dispatchDecodedEnvelope(
+    epoch: MainEpoch<TDiagnostic>,
+    envelope: RawWorkerToMainEnvelope,
+  ): void {
     if (epoch.phase === "starting") {
-      this.#receiveStarting(epoch, decoded.value);
+      this.#receiveStarting(epoch, envelope);
       return;
     }
     if (epoch.phase === "flushing"
       || epoch.phase === "ready"
       || epoch.phase === "suspect") {
-      this.#receiveReady(epoch, decoded.value);
+      this.#receiveReady(epoch, envelope);
       return;
     }
     if (epoch.phase === "draining")
-      this.#receiveDraining(epoch, decoded.value);
+      this.#receiveDraining(epoch, envelope);
+  }
+
+  #drainEnvelopes(
+    epoch: MainEpoch<TDiagnostic>,
+  ): void {
+    if (epoch.envelopeDispatchActive) return;
+    epoch.envelopeDispatchActive = true;
+    try {
+      while (epoch.pendingEnvelopes.length > 0
+        && epoch.phase !== "closed"
+        && this.#current === epoch) {
+        const envelope = epoch.pendingEnvelopes.shift();
+        if (envelope !== undefined)
+          this.#dispatchDecodedEnvelope(epoch, envelope);
+      }
+    } finally {
+      epoch.envelopeDispatchActive = false;
+    }
   }
 
   receiveWorkerError(
@@ -1026,8 +1058,13 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   ): void {
     const epoch = this.#current;
     if (epoch === null
-      || epoch.phase === "closed"
       || source !== epoch.source) {
+      return;
+    }
+    epoch.physicalDestructionEstablished = true;
+    if (epoch.phase === "closed") {
+      this.#finalizeHardTerminationIfReady(epoch);
+      this.#releaseDisposedSubscriptionsIfSafe();
       return;
     }
     if (epoch.phase === "draining") {
@@ -2267,6 +2304,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         this.#publishOperationClosure(record);
       if (closure.kind === "unexpected-failure")
         this.#reportFailure(closure.failure);
+      this.#deferNeverPostedHeldClosures(epoch);
 
       if (immediate) {
         this.#hardTerminate(epoch);
@@ -2375,6 +2413,17 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     this.#closeDrainedRealmIfReleased(epoch);
   }
 
+  #deferNeverPostedHeldClosures(
+    epoch: MainEpoch<TDiagnostic>,
+  ): void {
+    const records = epoch.held.splice(0);
+    for (const record of records) {
+      if (record.phase !== "held") continue;
+      record.phase = "physically-closed";
+      epoch.deferredPhysicalClosures.add(record);
+    }
+  }
+
   #retireOperationIfComplete(
     epoch: MainEpoch<TDiagnostic>,
     record: MainOperationRecord<TDiagnostic>,
@@ -2405,6 +2454,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       epoch.phase = "closed";
       epoch.held.length = 0;
       epoch.commands.clear();
+      epoch.pendingEnvelopes.length = 0;
       epoch.probe = null;
       epoch.deferredControlProbe = false;
       epoch.epochWork.clear();
@@ -2425,14 +2475,14 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         }
         try {
           epoch.source.terminate();
-          epoch.terminationSucceeded = true;
+          epoch.physicalDestructionEstablished = true;
         } catch (error: unknown) {
           cleanupErrors.push(error);
         }
       } finally {
         this.#terminationPending = false;
       }
-      if (this.#disposed && epoch.terminationSucceeded)
+      if (this.#disposed && epoch.physicalDestructionEstablished)
         cleanupErrors.push(...this.#releaseSubscriptions());
       for (const error of cleanupErrors)
         this.#reportCallbackError(error);
@@ -2451,7 +2501,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (epoch.phase !== "closed"
       || epoch.bindingPending
       || !epoch.terminationAttempted
-      || !epoch.terminationSucceeded
+      || !epoch.physicalDestructionEstablished
       || this.#terminationPending
       || epoch.producerCallouts !== 0
       || epoch.closurePublicationActive

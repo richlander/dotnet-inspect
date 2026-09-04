@@ -426,6 +426,13 @@ uses the ordinary post-readiness operation and control protocol. The host keeps
 the flush barrier closed to warm activation until every held start has been
 posted; it does not misclassify a response to an already-posted start as
 pre-readiness traffic.
+If posting one held start synchronously commits epoch closure, every later
+record still in the held queue is known never to have reached the Worker. The
+host fixes all assigned logical outcomes first, publishes the one runtime
+failure, and only then records those never-posted records as physically closed,
+reports quiescence, and releases their retained state. They do not consume the
+drain budget while the already-posted record supplies the remaining physical
+release evidence.
 A held record never becomes an accepted worker record merely because the realm
 became ready; it remains awaiting the worker's explicit `Accepted` response.
 
@@ -640,7 +647,16 @@ liveness evidence. The valid response still commits its physical meaning:
 acceptance records admission, rejection records never-admitted closure, and a
 cancellation acknowledgment records release progress. Those transitions
 permit later settlement or acknowledgment to drain naturally but do not renew
-task-loop evidence. A matching acknowledgment or other register retirement
+task-loop evidence. The host dispatches every decoded Worker envelope through
+one epoch-local FIFO. An envelope received reentrantly during response,
+terminal, diagnostic, or quiescence callbacks joins the same queue behind every
+earlier arrival and cannot start a nested drain. This serialization preserves
+cross-operation multiplexing, prevents a same-record settlement or
+cancellation acknowledgment from being rejected against the record's
+pre-response phase, and prevents a later probe acknowledgment from overtaking
+an earlier command response. If hard termination revokes the source before
+dispatch, destruction supersedes the queued physical evidence. A matching
+acknowledgment or other register retirement
 discharges every mark for that probe; it cannot accuse a response that arrives
 after the register has moved to a later probe. This proof uses local posting
 order and the response's existing operation correlation; it does not add a
@@ -911,12 +927,17 @@ authority is revoked immediately, but detach, termination, finalization, and
 realm release wait for that return. The host then attempts detach before
 termination under the ordinary shutdown barrier.
 
-Successful return from `Worker.terminate()` is the host's evidence that
-physical destruction completed. If termination throws, the host reports the
-callback failure but leaves the epoch unreleased, refuses replacement startup,
-and, for disposal, retains its clock and lifecycle subscriptions rather than
-claiming that teardown completed. A detach failure does not have that effect
-when termination succeeds.
+Successful return from `Worker.terminate()` is the host's ordinary evidence
+that physical destruction completed. A browser worker crash event independently establishes that the realm is
+already gone, whether it arrives before or after a failed termination attempt.
+The host still attempts detach and `Worker.terminate()` cleanup when the crash
+arrives first, but a throwing termination call cannot revoke that destruction
+evidence or block finalization, realm release, and replacement startup. Without
+crash-established physical loss, a termination throw leaves the epoch
+unreleased, refuses replacement startup, and, for disposal, retains its clock
+and lifecycle subscriptions rather than claiming that teardown completed.
+Every termination throw remains a callback diagnostic. A detach failure does
+not block release when either destruction proof exists.
 
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
@@ -1140,7 +1161,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   unresolved command's remaining active-time grace, plus asynchronous
   cancellation that cannot be overtaken by a later probe, and a physically
   valid later response applying admission, rejection, or cancellation-release
-  state after proving the missing acknowledgment so draining can complete;
+  state after proving the missing acknowledgment so draining can complete,
+  same-record physical evidence deferred until its triggering response commits,
+  nested cross-operation response replay preserving FIFO order, and a probe
+  acknowledgment unable to overtake an earlier acceptance;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded
@@ -1160,7 +1184,8 @@ deterministic scheduling rather than a real browser worker. It includes:
   worker-declared, or worker-crash fault arrives during draining, with
   post-readiness worker `error` and `messageerror` permitting natural
   operation and epoch-work release before the bounded fallback, including
-  synchronous faults during the post-`Ready` held-start flush;
+  synchronous faults during the post-`Ready` held-start flush and immediate
+  quiescence for later never-posted held starts after closure publication;
 - registered idle-compatible producer classes receiving opaque capabilities,
   with separately constructed equivalent main and worker registries accepting
   legitimate leases, initialization rejecting a worker registry configured for
@@ -1178,9 +1203,11 @@ deterministic scheduling rather than a real browser worker. It includes:
   and disposal during pre-commit transport creation deferring subscription
   cleanup through successful termination, cleanup diagnostics observing the
   completed barrier, bind-time closure retaining the returned detach capability
-  before teardown and release, termination failure
-  withholding realm release, replacement, and disposal subscription cleanup,
-  and preserved realm-release ordering, plus
+  before teardown and release, termination failure without independent crash
+  evidence withholding realm release, replacement, and disposal subscription
+  cleanup, crash-established physical loss surviving a throwing cleanup call,
+  disposal during a throwing creation call retaining `host-disposed` as the
+  returned classification, and preserved realm-release ordering, plus
   synchronous fake-worker admission aborting before invocation when its
   response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not

@@ -89,6 +89,7 @@ interface TestHarness {
   readonly producerClasses: WorkerProducerClassRegistry;
   readonly workerProducerClasses: readonly WorkerProducerClassRegistry[];
   readonly workers: readonly TestWorker[];
+  readonly transportSources: readonly WorkerRuntimeSource[];
   readonly host: TestHost;
   readonly adapter: TestAdapter;
   readonly failures: WorkerRuntimeFailure<TestDiagnostic>[];
@@ -326,6 +327,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
   const producerClasses = createProducerClasses(producerClassDefinitions);
   const workerCount = options.workerCount ?? 1;
   const workers: TestWorker[] = [];
+  const transportSources: WorkerRuntimeSource[] = [];
   const workerProducerClasses: WorkerProducerClassRegistry[] = [];
   for (let index = 0; index < workerCount; index++) {
     const operations = new FakeWorkerOperationCatalog();
@@ -432,6 +434,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
               binding.source.terminate();
             },
           };
+          transportSources.push(source);
           return {
             source,
             bind: nextHandlers => {
@@ -535,6 +538,7 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
     producerClasses,
     workerProducerClasses,
     workers,
+    transportSources,
     host,
     adapter,
     failures,
@@ -778,6 +782,29 @@ test("creation-time disposal retains subscriptions after failed unowned terminat
     harness.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
     [terminationError],
   );
+});
+
+test("disposal during throwing creation remains the authoritative result", () => {
+  const creationError = new Error("creation failed after disposal");
+  let harness: TestHarness;
+  harness = createHarness({
+    create: () => {
+      harness.host.dispose();
+      throw creationError;
+    },
+  });
+
+  assert.deepEqual(harness.host.start("bootstrap"), {
+    kind: "rejected",
+    reason: "host-disposed",
+    detail: creationError,
+  });
+  assert.equal(harness.failures[0]?.kind, "startup");
+  assert.equal(harness.failures[0]?.diagnostic.detail, creationError);
+  assert.deepEqual(harness.host.start("later"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
 });
 
 test("bind-time Ready cannot bypass initialization dispatch", () => {
@@ -1411,6 +1438,58 @@ test("readiness-flush worker error uses bounded post-readiness draining", async 
     error: "boundary:worker-message",
   });
   await handle.quiesced;
+});
+
+test("readiness-flush failure releases later never-posted held starts", async () => {
+  const bootstrap = deferred<void>();
+  const settlement = deferred<TestSettlement>();
+  const harness = createHarness({
+    bootstrap: () => bootstrap.promise,
+    invoke: () => settlement.promise,
+    synchronousStartError: new Error("flush failed"),
+  });
+  assert.equal(harness.host.start("bootstrap").kind, "started");
+  harness.environment.flushTasks();
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `flush-failure-${id++}`;
+      })(),
+    },
+  });
+  const first = session(harness.adapter, authority);
+  const second = session(harness.adapter, authority);
+  const firstHandle = started(
+    first.session.start("first", harness.adapter),
+  );
+  const secondHandle = started(
+    second.session.start("second", harness.adapter),
+  );
+
+  bootstrap.resolve(undefined);
+  await harness.environment.flushAsync();
+
+  assert.deepEqual(operationMessages(harness.workers[0]!), [
+    "initialize",
+    "start",
+  ]);
+  assert.equal(harness.host.snapshot().heldOperations, 0);
+  assert.equal(harness.host.snapshot().activeOperations, 1);
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "boundary:worker-message",
+  });
+  await secondHandle.quiesced;
+
+  settlement.resolve({ kind: "succeeded", value: "late" });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "failed",
+    error: "boundary:worker-message",
+  });
+  await firstHandle.quiesced;
 });
 
 test("matching Ready ends the startup deadline before held-start flush", async () => {
@@ -3077,6 +3156,334 @@ test("a later serialized response proves a missing ProbeAcknowledged while heart
   await Promise.all([firstHandle.quiesced, secondHandle.quiesced]);
 });
 
+test("a response proving a missing probe retains reentrant physical evidence", async () => {
+  const settlements = [
+    deferred<TestSettlement>(),
+    deferred<TestSettlement>(),
+  ];
+  let invocation = 0;
+  let accepted = 0;
+  let secondHandle: OperationHandle<string, string> | null = null;
+  let harness: TestHarness;
+  harness = createHarness({
+    invoke: () => settlements[invocation++]!.promise,
+    omitResponse: kind => {
+      if (kind === "probe-acknowledged") return true;
+      if (kind !== "accepted") return false;
+      accepted++;
+      return accepted === 2;
+    },
+    controlResponseGraceMilliseconds: 5,
+    failure: () => {
+      const current = secondHandle;
+      assert.notEqual(current, null);
+      if (current === null) return;
+      harness.workers[0]!.emitRaw(workerEnvelope(1, {
+        kind: "settled",
+        operation: {
+          operationId: current.id,
+          operationSequence: 2,
+        },
+        settlement: { kind: "succeeded", value: "physical" },
+      }));
+    },
+  });
+  await startReady(harness);
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `reentrant-response-${id++}`;
+      })(),
+    },
+  });
+  const first = session(harness.adapter, authority);
+  const firstHandle = started(
+    first.session.start("first", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+  harness.environment.advanceActive(20);
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().outstandingProbeSequence, 1);
+
+  const second = session(harness.adapter, authority);
+  secondHandle = started(
+    second.session.start("second", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "accepted",
+    operation: {
+      operationId: secondHandle.id,
+      operationSequence: 2,
+    },
+    allowance: { kind: "bounded", maxSilentActiveMilliseconds: 20 },
+  }));
+
+  assert.equal(harness.failures[0]?.kind, "control-response");
+  assert.equal(harness.host.snapshot().phase, "draining");
+  assert.equal(harness.host.snapshot().activeOperations, 1);
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "boundary:control-response",
+  });
+  await secondHandle.quiesced;
+
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "settled",
+    operation: {
+      operationId: firstHandle.id,
+      operationSequence: 1,
+    },
+    settlement: { kind: "succeeded", value: "physical" },
+  }));
+  assert.equal(harness.host.snapshot().phase, "closed");
+  await firstHandle.quiesced;
+});
+
+test("response FIFO does not let a probe acknowledgment overtake acceptance", async () => {
+  const settlements = [
+    deferred<TestSettlement>(),
+    deferred<TestSettlement>(),
+  ];
+  let invocation = 0;
+  let accepted = 0;
+  let secondHandle: OperationHandle<string, string> | null = null;
+  let harness: TestHarness;
+  harness = createHarness({
+    invoke: () => settlements[invocation++]!.promise,
+    omitResponse: kind => {
+      if (kind === "probe-acknowledged") return true;
+      if (kind !== "accepted") return false;
+      accepted++;
+      return accepted === 2;
+    },
+    controlResponseGraceMilliseconds: 5,
+  });
+  await startReady(harness);
+  const page = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `response-fifo-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind !== "terminal") return undefined;
+        const second = secondHandle;
+        assert.notEqual(second, null);
+        if (second === null) return undefined;
+        harness.workers[0]!.emitRaw(workerEnvelope(1, {
+          kind: "accepted",
+          operation: {
+            operationId: second.id,
+            operationSequence: 2,
+          },
+          allowance: {
+            kind: "bounded",
+            maxSilentActiveMilliseconds: 20,
+          },
+        }));
+        harness.workers[0]!.emitRaw(workerEnvelope(1, {
+          kind: "probe-acknowledged",
+          probeSequence: 1,
+        }));
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
+  const secondSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: () => undefined },
+  });
+  const firstHandle = started(
+    firstSession.start("first", harness.adapter),
+  );
+  secondHandle = started(
+    secondSession.start("second", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+  harness.environment.advanceActive(5);
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().outstandingProbeSequence, 1);
+
+  settlements[0]!.resolve({ kind: "succeeded", value: "first" });
+  await harness.environment.flushAsync();
+
+  assert.equal(harness.failures.length, 0);
+  assert.equal(harness.host.snapshot().outstandingProbeSequence, null);
+  assert.equal(harness.host.snapshot().activeOperations, 1);
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "succeeded",
+    value: "first",
+  });
+  await firstHandle.quiesced;
+
+  settlements[1]!.resolve({ kind: "succeeded", value: "second" });
+  await harness.environment.flushAsync();
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "succeeded",
+    value: "second",
+  });
+  await secondHandle.quiesced;
+});
+
+test("operation response replay preserves FIFO across nested callbacks", async () => {
+  const settlements = [
+    deferred<TestSettlement>(),
+    deferred<TestSettlement>(),
+    deferred<TestSettlement>(),
+  ];
+  let invocation = 0;
+  let secondHandle: OperationHandle<string, string> | null = null;
+  let thirdHandle: OperationHandle<string, string> | null = null;
+  let harness: TestHarness;
+  harness = createHarness({
+    invoke: () => settlements[invocation++]!.promise,
+    omitResponse: kind => kind === "accepted",
+  });
+  await startReady(harness);
+  const page = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `multiplexed-response-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind !== "terminal") return undefined;
+        const second = secondHandle;
+        const third = thirdHandle;
+        assert.notEqual(second, null);
+        assert.notEqual(third, null);
+        if (second === null || third === null) return undefined;
+        harness.workers[0]!.emitRaw(workerEnvelope(1, {
+          kind: "rejected",
+          operation: {
+            operationId: second.id,
+            operationSequence: 2,
+          },
+          error: "second-rejected",
+          diagnostic: { code: "rejected", detail: "second" },
+        }));
+        harness.workers[0]!.emitRaw(workerEnvelope(1, {
+          kind: "accepted",
+          operation: {
+            operationId: third.id,
+            operationSequence: 3,
+          },
+          allowance: {
+            kind: "bounded",
+            maxSilentActiveMilliseconds: 20,
+          },
+        }));
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
+  const secondSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind !== "terminal") return undefined;
+        const third = thirdHandle;
+        assert.notEqual(third, null);
+        if (third === null) return undefined;
+        harness.workers[0]!.emitRaw(workerEnvelope(1, {
+          kind: "settled",
+          operation: {
+            operationId: third.id,
+            operationSequence: 3,
+          },
+          settlement: { kind: "succeeded", value: "third" },
+        }));
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
+  const thirdSession = page.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: { publish: () => undefined },
+    diagnostic: { report: () => undefined },
+  });
+  const firstHandle = started(
+    firstSession.start("first", harness.adapter),
+  );
+  secondHandle = started(
+    secondSession.start("second", harness.adapter),
+  );
+  thirdHandle = started(
+    thirdSession.start("third", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  harness.workers[0]!.emitRaw(workerEnvelope(1, {
+    kind: "rejected",
+    operation: {
+      operationId: firstHandle.id,
+      operationSequence: 1,
+    },
+    error: "first-rejected",
+    diagnostic: { code: "rejected", detail: "first" },
+  }));
+
+  assert.equal(harness.failures.length, 0);
+  assert.equal(harness.host.snapshot().phase, "ready");
+  assert.equal(harness.host.snapshot().activeOperations, 0);
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "failed",
+    error: "first-rejected",
+  });
+  await firstHandle.quiesced;
+  assert.deepEqual(await secondHandle.outcome, {
+    kind: "failed",
+    error: "second-rejected",
+  });
+  await secondHandle.quiesced;
+  assert.deepEqual(await thirdHandle.outcome, {
+    kind: "succeeded",
+    value: "third",
+  });
+  await thirdHandle.quiesced;
+});
+
 test("deferred control coverage dispatches after an older probe retires", async () => {
   const settlement = deferred<TestSettlement>();
   let omitFirstProbe = true;
@@ -4492,6 +4899,96 @@ test("worker crash is an exact immediate boundary and natural release closes dra
   assert.equal(natural.host.snapshot().phase, "closed");
   assert.equal(natural.environment.now(), 0);
   await naturalHandle.quiesced;
+});
+
+test("crash-established physical loss survives a throwing termination call", async () => {
+  const terminationError = new Error("terminate after crash failed");
+  const harness = createHarness({
+    workerCount: 2,
+    terminate: () => {
+      throw terminationError;
+    },
+  });
+  await startReady(harness);
+
+  harness.host.receiveWorkerCrash(
+    harness.transportSources[0]!,
+    "physical loss",
+  );
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(
+    harness.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [terminationError],
+  );
+  assert.deepEqual(harness.host.start("replacement"), {
+    kind: "started",
+    epochToken: 2,
+  });
+  await harness.environment.flushAsync();
+  assert.equal(harness.host.snapshot().phase, "ready");
+});
+
+test("crash-established physical loss permits disposal subscription cleanup", async () => {
+  const terminationError = new Error("terminate after crash failed");
+  const clockError = new Error("clock cleanup failed");
+  const lifecycleError = new Error("lifecycle cleanup failed");
+  const harness = createHarness({
+    terminate: () => {
+      throw terminationError;
+    },
+    clockUnsubscribeError: clockError,
+    lifecycleUnsubscribeError: lifecycleError,
+  });
+  await startReady(harness);
+
+  harness.host.receiveWorkerCrash(
+    harness.transportSources[0]!,
+    "physical loss",
+  );
+  harness.host.dispose();
+
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(
+    harness.runtimeDiagnostics.map(diagnostic => diagnostic.detail),
+    [terminationError, clockError, lifecycleError],
+  );
+  assert.deepEqual(harness.host.start("later"), {
+    kind: "rejected",
+    reason: "host-disposed",
+  });
+});
+
+test("a crash after failed termination completes deferred realm release", async () => {
+  const terminationError = new Error("termination failed before crash");
+  const harness = createHarness({
+    workerCount: 2,
+    terminate: () => {
+      throw terminationError;
+    },
+  });
+  await startReady(harness);
+
+  harness.host.restart();
+
+  assert.equal(harness.host.snapshot().phase, "closed");
+  assert.deepEqual(harness.releasedEpochs, []);
+  assert.deepEqual(harness.host.start("blocked"), {
+    kind: "rejected",
+    reason: "epoch-active",
+  });
+
+  harness.host.receiveWorkerCrash(
+    harness.transportSources[0]!,
+    "later physical loss",
+  );
+
+  assert.deepEqual(harness.releasedEpochs, [1]);
+  assert.deepEqual(harness.host.start("replacement"), {
+    kind: "started",
+    epochToken: 2,
+  });
 });
 
 test("draining stops admission synchronously", async () => {
