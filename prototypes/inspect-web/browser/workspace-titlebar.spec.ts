@@ -668,8 +668,6 @@ test("keyboard tab activation preserves focus across shell replacement", async (
   await type.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(packageSubject).toBeFocused();
-  await expect(packageSubject).toHaveAttribute("aria-selected", "false");
-  await page.keyboard.press("Enter");
   await expect(packageSubject).toHaveAttribute("aria-selected", "true");
   await expect(packageSubject).toBeFocused();
 });
@@ -786,7 +784,11 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await expect(memberSubject).toHaveAttribute("aria-selected", "true");
   await memberSubject.focus();
   await page.keyboard.press("ArrowLeft");
-  await expect(page.locator('[data-scope="type"]')).toBeFocused();
+  const typeSubject = page.locator('[data-scope="type"]');
+  await expect(typeSubject).toBeFocused();
+  await expect(typeSubject).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowRight");
+  await expect(memberSubject).toBeFocused();
   await expect(memberSubject).toHaveAttribute("aria-selected", "true");
   await overview.focus();
   await page.keyboard.press("ArrowRight");
@@ -1267,7 +1269,6 @@ test("manual windows survive resize and reset with inspector inventory", async (
   await page.keyboard.press("ArrowLeft");
   const typeSubject = page.locator('[data-scope="type"]');
   await expect(typeSubject).toBeFocused();
-  await page.keyboard.press("Enter");
   await expect(typeSubject).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".slide-strip-inspector")).toHaveAttribute(
     "data-mode",
