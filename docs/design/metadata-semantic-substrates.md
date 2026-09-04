@@ -1,9 +1,9 @@
 # Metadata semantic substrates
 
-A **Metadata semantic substrate** authenticates higher-level structural meaning
+A **Metadata semantic substrate** authenticates higher-level meaning
 from physical metadata and publishes immutable typed outcomes that independent
 higher layers can consume. It sits above raw row and blob decoding and below
-consumer semantics: it establishes what the metadata structurally asserts and
+consumer semantics: it establishes the meaning the metadata supports and
 takes no position on IL-body attribution, source reconstruction, project policy,
 recommendation, or presentation.
 
@@ -103,8 +103,9 @@ publication, identity, construction, and boundary contracts below.
 ### Worked admissions
 
 **Property backing storage - admit; accessor association rides along.** These
-are two meanings. Accessor association is structural: `MethodSemantics` states
-it directly, so it is a helper rather than an independently admissible meaning.
+are two meanings. Accessor association fails requirement 1: a single
+`MethodSemantics` row states it outright, so it is a helper rather than an
+independently admissible meaning. Its evidence grade is structural.
 Backing-storage association is conventional: it rests on the
 `<Prop>k__BackingField` grammar
 (`src/ILInspector.MetadataPrimitives/GeneratedNameGrammar.cs:57`-`58`), not on a
@@ -138,8 +139,8 @@ A substrate declares each distinction reachable through its chosen contract:
 - **Resolved** - the meaning was established, with supporting evidence.
 - **Absent** - the metadata is well formed and the meaning does not apply.
 - **Malformed** - relevant metadata is present but cannot be decoded.
-- **Ambiguous** - multiple candidates satisfy the structural test and no rule
-  selects one.
+- **Ambiguous** - multiple candidates satisfy the substrate's matching test
+  and no rule selects one.
 - **Unsupported** - the shape decodes but falls outside the declared scope.
 - **Budget-limited** - a declared work or resource bound stopped derivation.
 - **Unexamined** - the substrate deliberately did not look.
@@ -265,8 +266,8 @@ behavior gate of its own.
 
 Each admitting issue and PR carries the evidence for requirement 3. Each
 implemented substrate names gates for its construction totality, bounds,
-identity, evidence lifetime, and routing obligations, or records the applicable
-property as `unverified`.
+identity, evidence lifetime, correct outcome classification, and evidence
+labelling, or records the applicable property as `unverified`.
 
 An adoption replacing a consumer's private derivation changes behavior wherever
 the two disagree. The adopting owner must demonstrate equivalence or document

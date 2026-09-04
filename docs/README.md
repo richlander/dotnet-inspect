@@ -109,10 +109,13 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
+| [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Proposed, design-locked, not-yet-implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
 | [Inspection Layers](design/inspection-layers.md) | Layering and consumer-boundary rules between Metadata, Analysis, CSharpText, CSharp, Research, and the CLI. |
+| [Metadata Semantic Substrates](design/metadata-semantic-substrates.md) | Admission, typed outcomes, identity, evidence, bounds, and consumer boundaries for shared metadata-derived meaning. |
 | [Workspace Research Target Composition](design/research-workspace-target-composition.md) | Queries-owned association from a workspace facade through Metadata forwarding evidence and the Queries-to-Research population receipt to one exact Research target attempt. |
+| [Direct-member Comparison](design/direct-member-comparison.md) | Queries-owned designated local C#/IL comparison, explicit Research/publication prerequisites, and production adoption and legacy-retirement ledger. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
@@ -141,7 +144,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
 | [Committed Authored-Corpus History](design/authored-corpus-history.md) | Admission, ordered observation addressing, sequence validity, provenance, compatibility, and consumer trust for the committed EVIL benchmark history. |
-| [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
+| [Source-Oracle Candidate Ledger](design/source-oracle-candidate-ledger.md) | Denominator-complete candidate-file verdicts, accepted baseline evidence, deterministic next-enrollment ranking, provenance disclosure, and archive limits. |
+| [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures.  |
 
 ### Contributor workflow and process docs
 
@@ -152,6 +156,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
 | [Fixture Governance](fixture-governance.md) | Placement, project-boundary axes, catalog metadata, consumer rules, and expectation ownership for compiled fixtures and test-local samples. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
+| [Agent Model Mapping](agent-models.md) | Contributor-guidance model names, exact dispatch IDs, and runtime availability resolution. |
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
 | [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
 | [Stacked PRs](stacked-prs.md) | Mechanics for stacking multiple PRs for a multi-slice issue. |
