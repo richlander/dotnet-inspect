@@ -21,8 +21,7 @@ This owner defines:
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
-  Keyboard help, the narrow navigation drawer, and the full-bleed Annotated
-  Source viewer;
+  Keyboard help, and the full-bleed Annotated Source viewer;
 - the classification that Home, Workspace, Package query, and Diagnostics are
   routed full-bleed surfaces rather than dialogs;
 - Spotlight Search's input and package-scope behavior;
@@ -247,8 +246,8 @@ invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
 return target; dismissal does not reopen the menu.
 
-Spotlight, Open, Settings, Keyboard help, the narrow navigation drawer, and the
-full-bleed Annotated Source viewer are modal dialogs:
+Spotlight, Open, Settings, Keyboard help, and the full-bleed Annotated Source
+viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -545,9 +544,9 @@ outcomes.
    background content, and focus return for each.
 3. Launch Diagnostics from Settings and Spotlight and confirm that focus moves
    to the routed Diagnostics heading rather than back to the modal invoker.
-4. Commit navigation from Search, Open, and the narrow drawer and confirm that
+4. Commit navigation from Search and Open and confirm that
    focus moves to the resulting active-subject heading.
-5. Return typed failures from Search, Open, and the narrow drawer and confirm
+5. Return typed failures from Search and Open and confirm
    that the prior surface and history remain active, the failure is visible,
    and focus moves to the surviving modal invoker or retained surface heading.
 6. Keep a modal open across product-maintenance renderer replacement and confirm
