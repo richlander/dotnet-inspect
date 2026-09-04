@@ -273,10 +273,12 @@ import {
 } from "./graph-source.ts";
 import {
   annotatedFocusSelector,
+  captureAnnotatedSourceScroll,
   renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
+  restoreAnnotatedSourceScroll,
   type AnnotatedSourceAction,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
@@ -6036,7 +6038,7 @@ function scheduleAnnotatedFocus(
     ? target
     : annotatedFocusSelector(target, surface);
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(selector)?.focus();
+    document.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
   });
 }
 
@@ -6044,7 +6046,9 @@ function renderAndFocusAnnotated(
   target: AnnotatedFocusTarget | string,
   surface: "embedded" | "modal" = "modal",
 ) {
+  const scroll = captureAnnotatedSourceScroll(document);
   render();
+  restoreAnnotatedSourceScroll(document, scroll);
   scheduleAnnotatedFocus(target, surface);
 }
 

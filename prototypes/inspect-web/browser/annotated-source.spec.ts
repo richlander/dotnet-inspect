@@ -65,6 +65,48 @@ test("annotation rows preserve the anchored source indentation", async ({ page }
   expect(Math.abs(invocationBox.x - annotationBox.x)).toBeLessThan(1);
 });
 
+test("finding chips open detail without jumping the source", async ({ page }) => {
+  await page.addStyleTag({
+    content: ".annotated-reader { height: 150px !important; }",
+  });
+  const source = page.locator(
+    '.annotated-source-code[data-annotated-surface="embedded"]',
+  );
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-embedded-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
+test("modal finding chips preserve the source pane position", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: `
+      .annotated-modal-source .annotated-source-code {
+        min-height: 900px !important;
+        overflow: visible !important;
+      }
+    `,
+  });
+  const source = page.locator(".annotated-modal-source");
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-modal-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
 test("pointer hit testing prefers the product-issued invocation node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const invocation = page.locator(

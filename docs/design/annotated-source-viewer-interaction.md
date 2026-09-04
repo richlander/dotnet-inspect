@@ -282,6 +282,10 @@ hidden medium. An annotation chip is an additional spatial opener, never the
 only way to inspect a Finding. The inspector-action identity set is exactly the
 consumed Finding census; annotation eligibility must not filter it.
 
+Opening detail moves focus to the detail heading without changing the current
+source, control, or inspector scroll positions. Focus placement must not scroll
+the source away from the annotation chip that opened the detail.
+
 Closing detail leaves the current surface, primary selection, active
 annotations, media, and coordinate visibility unchanged. It clears only the
 transient detail and restores focus to the exact opener if it still exists:
@@ -483,6 +487,8 @@ Conformance requires:
 - replacement-render tests proving stable addressable-source focus, plus shell
   containment tests proving rejected documents remain visible, dismissible
   without revalidation, and focused at the embedded rejection after dismissal;
+- real-browser tests proving embedded and modal Finding annotation chips open
+  focused detail without changing the current source scroll position;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.

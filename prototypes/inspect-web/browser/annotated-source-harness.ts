@@ -1,9 +1,11 @@
 import {
   annotatedFocusSelector,
   bindAnnotatedSource,
+  captureAnnotatedSourceScroll,
   renderAnnotatedSource,
   renderAnnotatedSourcePageActions,
   renderAnnotatedSourceModal,
+  restoreAnnotatedSourceScroll,
 } from "../src/annotated-source.ts";
 import type {
   AnnotatedSourceAction,
@@ -124,6 +126,7 @@ function renderAndFocus(
   target: AnnotatedFocusTarget | string | null = null,
   surface: "embedded" | "modal" = modal ? "modal" : "embedded",
 ): void {
+  const scroll = captureAnnotatedSourceScroll(app);
   app.innerHTML = `
     <main id="harness-background" class="detail-pane"
       style="height: 100%"${modal ? " inert" : ""}>
@@ -170,11 +173,12 @@ function renderAndFocus(
         })
       : ""}`;
   bindAnnotatedSource(app, { onAction });
+  restoreAnnotatedSourceScroll(app, scroll);
   if (!target) return;
   const selector = typeof target === "string"
     ? target
     : annotatedFocusSelector(target, surface);
-  app.querySelector<HTMLElement>(selector)?.focus();
+  app.querySelector<HTMLElement>(selector)?.focus({ preventScroll: true });
 }
 
 function closeModal(): void {
