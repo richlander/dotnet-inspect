@@ -230,6 +230,7 @@ InspectionWorkspaceIdentity              artifact owner
         ScopeLimits
         |
         +-- WorkspaceScopeSnapshot
+              Scope publication base
               Physical composition epoch
               Ordered current Root descriptors
               ClosureObservation
@@ -288,6 +289,7 @@ new mutation.
 ```text
 WorkspaceScopeSnapshot
   Revision                WorkspaceScopeRevision
+  PublicationBase         WorkspaceScopePublicationBaseIdentity
   PhysicalComposition     ArtifactRootCompositionGenerationIdentity
   Roots                   ordered WorkspaceRootOccurrenceDescriptor sequence
   Closure                 WorkspaceClosureObservation
@@ -296,11 +298,29 @@ WorkspaceScopeSnapshot
 
 The immutable revision carries logical membership and expansion policy. The
 snapshot additionally projects current adjacent-owner realization status, one
-exact parent-owned physical-composition epoch, one closure observation, and one
-preparing operation without pretending that uncommitted Roots are members. A
-closure-only publication or physical re-realization can replace the snapshot's
-physical epoch, Root projections, and closure observation without changing the
-logical revision identity.
+exact Scope publication-base issuance, one exact parent-owned
+physical-composition epoch, one closure observation, and one preparing
+operation without pretending that uncommitted Roots are members. A closure-only
+publication or physical re-realization can replace the snapshot's publication
+base, physical epoch, Root projections, and closure observation without
+changing the logical revision identity.
+
+`WorkspaceScopePublicationBaseIdentity` is opaque, process-local, and
+process-lifetime non-reused. The scope owner issues one fresh value for the
+initial snapshot and every later current-snapshot pointer swap, including
+preparation progress, membership, policy, closure-only, physical-refresh,
+cancellation, supersession, and failure publication. Equality proves only one
+exact Scope pointer issuance. It is not a revision, closure observation,
+physical-composition identity, operation authority, portable value, or access
+grant.
+
+Scope-only preparation progress, cancellation, supersession, and failure
+pointer swaps observe the shared runtime composition gate but need no Artifact
+publication plan when physical composition is unchanged. Each issues a fresh
+Scope publication base. After the final parent participant is constructed, no
+ordinary progress publication may invalidate it; cancellation or supersession
+must enter the same gate and either replace its expected base before
+`PrepareCommit` or lose to the parent's final non-yielding commit.
 
 `WorkspaceScopePreparationDescriptor` carries only the operation identity and
 kind, requested Root count, non-retaining adjacent-owner progress evidence,
@@ -669,14 +689,17 @@ mutation-authority admission. In deterministic order it validates:
    and evidence correspondence.
 
 The first failure is returned. A pre-admission expired deadline returns typed
-`Rejected(DeadlineExpired)`; deadline expiry after admission returns
-`Cancelled`. A stale, foreign, malformed, over-limit, or otherwise invalid
-Replace or Clear cannot supersede current preparation. A non-current base
-revision therefore returns `Rejected(RevisionMismatch)` even while another
-mutation is preparing; only a fully valid current submission can return
-`Rejected(Busy)` or exercise Replace/Clear supersession. `Superseded` is
-reserved for an admitted preparation later displaced by a valid Replace or
-Clear.
+`Rejected(DeadlineExpired)`. Deadline expiry or caller cancellation after
+admission returns `Cancelled` only when observed before the parent
+publication's final recheck; it releases preparation and leaves the prior
+revision current. Once the parent's non-yielding commit begins, publication
+wins and the preconstructed Scope result is `Committed`. A stale, foreign,
+malformed, over-limit, or otherwise invalid Replace or Clear cannot supersede
+current preparation. A non-current base revision therefore returns
+`Rejected(RevisionMismatch)` even while another mutation is preparing; only a
+fully valid current submission can return `Rejected(Busy)` or exercise
+Replace/Clear supersession. `Superseded` is reserved for an admitted
+preparation later displaced by a valid Replace or Clear.
 
 The singular optional occurrence is only the explicit activation-intent target.
 The complete snapshot reports every other retained or added occurrence in a
@@ -701,9 +724,11 @@ accepted the complete envelope and operation-specific request.
 - A completion displaced after admission returns `Superseded`; it cannot rebase
   itself onto the replacement.
 - Every preparing operation exposes one exact cancellation action and carries a
-  finite preparation deadline. Caller cancellation or deadline expiry returns
-  `Cancelled`, releases provisional resources, and leaves the prior revision
-  current.
+  finite preparation deadline. Caller cancellation or deadline expiry observed
+  before the parent's final recheck returns `Cancelled`, releases provisional
+  resources, and leaves the prior revision current. After the final
+  non-yielding commit starts, publication wins and returns the committed
+  result.
 - Failure leaves the prior revision current.
 
 This is intentionally smaller than a general transaction scheduler. Browser
@@ -1003,21 +1028,27 @@ contract for every logical publication:
    `ArtifactRootCompositionGenerationIdentity`. Refresh every retained Root
    projection and use only owner-validated current generation references.
 3. Ask source and Artifact Acquisition owners to prepare exact unmatched Root
-   candidates. Required Add or Replace candidates use one all-or-failure
-   preparation batch. Expansion may prepare independently optional candidates
-   in separate batches and retain only the successful receipts while recording
-   exact typed failure evidence.
+   candidates. Required Add or Replace candidates form one logical
+   all-or-failure set that may use one or more preparation receipts so
+   post-realization duplicate correspondence can release independently; any
+   required failure releases all successful receipts and prevents publication.
+   Expansion instead prepares independently optional candidates and retains
+   only the successful receipts while recording exact typed failure evidence.
 4. Construct one complete `ArtifactRootPublicationPlan`: retain every desired
    current physical Root by correspondence and generation, adopt every entry
    from every listed successful receipt exactly once, omit physical Roots to be
    retired, and carry the exact Workspace, composition generation, deadline,
    cancellation, and ordered desired physical set.
 5. Supply one sealed `ArtifactRootScopePublicationParticipant` containing the
-   exact current logical base revision, operation identity, prevalidated
-   resource-free candidate revision and closure, complete result, and optional
-   requested occurrence. Its side-effect-free `PrepareCommit` revalidates those
-   Scope-owned facts under the shared runtime gate and returns only the
-   parent's private no-fail current-state pointer-swap token.
+   exact current `WorkspaceScopePublicationBaseIdentity`, operation identity,
+   prevalidated resource-free candidate revision and closure, result facts,
+   optional requested occurrence, and one fresh non-reused next Scope
+   publication base. Its side-effect-free `PrepareCommit` revalidates those
+   Scope-owned facts under the shared runtime gate, consumes the parent's exact
+   unpublished candidate physical-composition identity and projected Roots,
+   constructs the complete immutable candidate snapshot and operation result,
+   and returns only the parent's private no-fail current-state pointer-swap
+   token. Refusal discards the candidate Scope base without reuse.
 6. Invoke `PublishArtifactRootComposition`. Success returns the fresh physical-
    composition identity and exact point-in-time Root projections while the
    participant token publishes the logical state in the same non-yielding
@@ -1076,6 +1107,8 @@ Before implementation, a focused TLA+ model under
 - one current revision per accepting runtime Workspace;
 - one current closure observation over that revision and its evaluated
   physical bindings;
+- one fresh process-lifetime non-reused Scope publication base per current
+  snapshot pointer swap;
 - complete resource-free typed Root descriptors for every committed occurrence;
 - at most one preparing mutation;
 - Replace Scope and Clear supersession;
@@ -1086,6 +1119,7 @@ Before implementation, a focused TLA+ model under
 - retired revisions and snapshots retain no physical artifact resource;
 - no provisional-resource leak after failure or supersession;
 - cancellation and deadline settlement without publication;
+- parent commit wins once its final non-yielding region begins;
 - no partial explicit Add or Replace Scope publication;
 - atomic bounded expansion publication with visible incomplete evidence;
 - no complete closure while a current non-Ready or newly admitted Root remains
@@ -1120,6 +1154,7 @@ The implementation must demonstrate:
 | Add two unresolved requests that realize to equal correspondence | The first realized request determines order; one occurrence is appended and the redundant provisional resource releases |
 | Slow Add completes after Clear | Clear remains current; the Add is superseded and releases its provisional resources |
 | User cancels a slow Add | The Add returns `Cancelled`, the prior revision remains current, and provisional resources release |
+| Cancellation arrives after the parent final commit starts | Publication wins; the complete committed logical and physical result returns rather than a false `Cancelled` result |
 | Prefix scope matches text but evidence is only an `AssemblyRef` | No expansion; the exact unsupported boundary remains visible |
 | One successful expansion appends a Root while another dependency is outside the registered scopes | `NotEvaluated` retains the new-Root frontier and the same-operation outside-boundary evidence |
 | Two dependency relationships name the same exact acquisition coordinate with one remaining Root slot | One candidate is prepared and admitted; both relationships settle against it and neither becomes `CapacityDeclined` |
@@ -1129,6 +1164,8 @@ The implementation must demonstrate:
 | Restore Roots and typed expansion scopes | One `ReplaceScope` publishes both sequences or neither; no prior policy leaks into the restored revision |
 | Open one fully pinned exact Root already present | `ReplaceScope` retains its exact occurrence without source or artifact preparation |
 | All eligible dependencies are already admitted and two are outside the scopes | A closure-only observation is complete for the exact current Ready Root coverage and retains the two declined boundaries |
+| A closure-only publication is retried with an equivalent new participant | The prior Scope publication base is stale even though membership revision is unchanged; no second logical or physical publication occurs |
+| A delayed participant waits through several later Scope publications | Every pointer swap issues a fresh non-reused publication base, so the old participant cannot become current again through ABA |
 | Closed Workspace evaluates external dependencies | A closure-only `ClosedBoundary` observation retains the observed outside-boundary evidence and invokes no source or artifact owner |
 | Closed Workspace receives producer-bound dependency evidence | `ClosedBoundary` retains the typed bound marker and still invokes no source or artifact owner |
 | Dependency evidence covers only one of several current Ready Roots | `Rejected(EvidenceMismatch)`; the current unevaluated frontier remains visible |
@@ -1158,6 +1195,7 @@ or artifact evidence later claimed by those owners.
 | --- | --- |
 | `InitialSnapshot_IsEmptyClosedAndBoundToExactWorkspace` | One exact runtime Workspace starts with one empty revision and closed observation, and no portable or display identity aliases it. |
 | `LogicalRevision_IsCompleteImmutableAndDistinct` | Every logical membership or expansion-policy publication returns one immutable complete revision with a fresh revision identity. |
+| `ScopePublicationBase_IsFreshDistinctAndNonReusable` | Initial state and every current-snapshot pointer swap issue one fresh process-lifetime non-reused base; refused candidate bases never become current or reusable. |
 | `ClosureObservation_IsExactAndDistinct` | Every closure publication or invalidation carries a fresh identity, exact source revision, and exact evaluated Artifact Root generation references. |
 | `RetiredScopeState_RetainsNoArtifactResources` | Revisions, snapshots, closure observations, and operation results retain no Root realization, package content, binding, context, lease, or provisional receipt. |
 | `OccurrenceDescriptor_PreservesTypedRootFactsWithoutResources` | Every occurrence retains its Package/non-package discriminator and exact adjacent-owner coordinate descriptor without retaining a physical artifact resource. |
@@ -1174,7 +1212,7 @@ or artifact evidence later claimed by those owners.
 | `Clear_SupersedesPreparationAndCommitsEmptyClosedRevision` | Clear needs no Root preparation, becomes current through the parent receipt-free publication gate, and prevents stale preparation from publishing. |
 | `OrdinaryMutation_WhilePreparingReturnsBusy` | A second non-superseding mutation is visibly refused rather than queued or raced. |
 | `ValidationPrecedesBusyOrSupersession` | Structural, envelope, deadline, Workspace, revision, evidence, and operation-specific validation returns its exact rejection before `Busy` or Replace/Clear supersession. |
-| `CancellationOrDeadline_ReleasesPreparationAndPreservesRevision` | Exact cancellation and finite deadline expiry settle preparation without publication or leaked resources. |
+| `CancellationOrDeadline_RespectsParentCommitLinearization` | Cancellation or finite deadline expiry observed before the parent final recheck releases preparation and preserves the prior revision; after final commit begins, publication wins and returns Committed. |
 | `StaleCompletion_ReleasesReceiptWithoutPublication` | Revision movement prevents parent publication and releases every provisional resource. |
 | `ExpansionScopeVocabulary_IsClosedTypedAndDeduplicated` | Only the three version-1 typed arms register, and equal scopes retain one first-ordered value. |
 | `DuplicateExpansionScopeRegistration_PreservesClosure` | Equal registration returns `NoEffect` without discarding evaluated closure evidence. |
@@ -1201,7 +1239,7 @@ or artifact evidence later claimed by those owners.
 | `RootCapacity_RejectionPreservesCurrentRevision` | A thirty-third distinct Root fails visibly without truncation or replacement. |
 | `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
 | `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
-| `ScopePublication_UsesArtifactRootPublicationPlan` | Every membership, policy, or closure publication supplies one complete parent-owned physical plan and sealed Scope participant; the parent gate changes both current states or neither. |
+| `ScopePublication_UsesArtifactRootPublicationPlan` | Every membership, policy, closure, or refresh publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. |
 | `EveryOperationResultCarriesCompleteCurrentSnapshot` | Committed, no-effect, rejected, failed, cancelled, and superseded results require no host reconstruction; Unavailable is explicitly historical and carries no current authority. |
 | `CurrentSnapshot_BindsOnePhysicalCompositionEpoch` | One returned current snapshot carries the owner-issued composition identity and complete Root projections from that epoch; physical movement causes complete refresh or typed refusal, never a mixed-epoch view. |
 | `OwnerPolicyExpansion_CarriesNoActivationAuthority` | Dependency following cannot move Navigation focus. |
