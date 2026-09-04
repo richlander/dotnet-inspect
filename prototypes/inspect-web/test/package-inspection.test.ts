@@ -16,10 +16,12 @@ import type {
 } from "../src/package-acquisition.ts";
 import type {
   BrowserPackageDependencies,
+} from "../src/facades/inspect-web-package.d.ts";
+import type {
   BrowserPackageIntegrations,
   BrowserPackageOpportunities,
   BrowserPerformanceMember,
-} from "../src/inspect-web-engine.d.ts";
+} from "../src/facades/inspect-web-analysis.d.ts";
 import type { PackageMetadata } from "../src/metadata-viewer.ts";
 
 const selectedCompileLibrary = {

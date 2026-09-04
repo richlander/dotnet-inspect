@@ -22,7 +22,7 @@ import type {
   BrowserWorkspaceShareState,
   BrowserWorkspaceShareTab,
   BrowserWorkspaceShareView,
-} from "./inspect-web-engine.d.ts";
+} from "./facades/inspect-web-catalog.d.ts";
 
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.

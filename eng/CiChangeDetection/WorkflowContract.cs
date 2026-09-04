@@ -51,14 +51,15 @@ internal static partial class WorkflowContract
             changes,
             "steps",
             "jobs.changes");
-        if (steps.Children.Count != 5)
+        if (steps.Children.Count != 6)
         {
             throw new InvalidOperationException(
                 "jobs.changes must contain checkout, setup, self-test, " +
-                "provenance, and planning steps.");
+                "provenance, planning, and TLA+ scope upload steps.");
         }
 
         ValidateCheckoutStep(steps);
+        ValidateTlaScopeUploadStep(steps);
 
         List<(int Index, YamlMappingNode Step)> selfTestSteps = [];
         for (int index = 0; index < steps.Children.Count; index++)
@@ -195,24 +196,15 @@ internal static partial class WorkflowContract
             "jobs.tla-plus checkout step");
         RequireExactKeys(
             checkout,
-            ["uses", "with"],
+            ["uses"],
             "jobs.tla-plus checkout step");
         RequireScalarValue(
             checkout,
             "uses",
             "actions/checkout@v7",
             "jobs.tla-plus checkout step");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                checkout,
-                "with",
-                "jobs.tla-plus checkout step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["fetch-depth"] = "0",
-            },
-            "jobs.tla-plus checkout step.with");
 
+        List<YamlMappingNode> downloads = [];
         List<YamlMappingNode> scopeTests = [];
         List<YamlMappingNode> runs = [];
         foreach (YamlNode stepNode in steps.Children)
@@ -222,6 +214,9 @@ internal static partial class WorkflowContract
                 "jobs.tla-plus step");
             switch (GetOptionalScalar(step, "name"))
             {
+                case "Download TLA+ scope evidence":
+                    downloads.Add(step);
+                    break;
                 case "Self-test TLA+ runner scope":
                     scopeTests.Add(step);
                     break;
@@ -230,6 +225,33 @@ internal static partial class WorkflowContract
                     break;
             }
         }
+
+        if (downloads.Count != 1)
+        {
+            throw new InvalidOperationException(
+                "Expected one jobs.tla-plus scope download step.");
+        }
+        RequireExactKeys(
+            downloads[0],
+            ["name", "uses", "with"],
+            "jobs.tla-plus scope download step");
+        RequireScalarValue(
+            downloads[0],
+            "uses",
+            "actions/download-artifact@v8",
+            "jobs.tla-plus scope download step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                downloads[0],
+                "with",
+                "jobs.tla-plus scope download step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}",
+                ["path"] = "${{ runner.temp }}/ci-plan",
+            },
+            "jobs.tla-plus scope download step.with");
 
         if (scopeTests.Count != 1)
         {
@@ -264,10 +286,14 @@ internal static partial class WorkflowContract
                 "jobs.tla-plus run step"),
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["CI_BEFORE_SHA"] =
-                    "${{ github.event.pull_request.base.sha || " +
-                    "github.event.merge_group.base_sha || " +
-                    "github.event.before }}",
+                ["TLA_SCOPE_ARTIFACT"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.artifact }}",
+                ["TLA_SCOPE_FRAMING"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.framing }}",
+                ["TLA_SCOPE_RECORD_COUNT"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.recordCount }}",
+                ["TLA_SCOPE_SHA256"] =
+                    "${{ fromJSON(needs.changes.outputs.plan).scopes.tla.sha256 }}",
             },
             "jobs.tla-plus run step.env");
 
@@ -276,21 +302,84 @@ internal static partial class WorkflowContract
             "run",
             "jobs.tla-plus run step");
         if (!run.Contains(
-                "git diff --no-renames --name-only -z " +
-                "\"$CI_BEFORE_SHA\" HEAD --",
+                "[ \"$TLA_SCOPE_ARTIFACT\" != \"ci-plan-tla-paths0\" ]",
                 StringComparison.Ordinal)
             || !run.Contains(
-                "eng/run-tla-checks.sh --changed-files0",
+                "[ \"$TLA_SCOPE_FRAMING\" != " +
+                "\"pathBytesNulTerminated\" ]",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "actual_sha256=$(sha256sum \"$scope_file\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "\"$actual_sha256\" != \"$TLA_SCOPE_SHA256\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "tr -cd '\\000' < \"$scope_file\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "\"$actual_record_count\" != " +
+                "\"$TLA_SCOPE_RECORD_COUNT\"",
+                StringComparison.Ordinal)
+            || !run.Contains(
+                "eng/run-tla-checks.sh --changed-files0 < \"$scope_file\"",
                 StringComparison.Ordinal)
             || run.Contains(
                 "eng/run-tla-checks.sh --all",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "git diff",
+                StringComparison.Ordinal)
+            || run.Contains(
+                "CI_BEFORE_SHA",
                 StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
-                "jobs.tla-plus must pipe the base-to-head changed-file " +
-                "stream to the scoped TLA+ runner without a whole-repository " +
+                "jobs.tla-plus must verify and consume the planner-produced " +
+                "scope without independent provenance or a whole-repository " +
                 "fallback.");
         }
+    }
+
+    private static void ValidateTlaScopeUploadStep(YamlSequenceNode steps)
+    {
+        YamlMappingNode upload = RequireMapping(
+            steps.Children[5],
+            "jobs.changes TLA+ scope upload step");
+        RequireExactKeys(
+            upload,
+            ["name", "if", "uses", "with"],
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "name",
+            "Upload TLA+ scope evidence",
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "if",
+            "fromJSON(steps.plan.outputs.plan).validations.tla",
+            "jobs.changes TLA+ scope upload step");
+        RequireScalarValue(
+            upload,
+            "uses",
+            "actions/upload-artifact@v7",
+            "jobs.changes TLA+ scope upload step");
+        RequireExactScalarValues(
+            GetRequiredMapping(
+                upload,
+                "with",
+                "jobs.changes TLA+ scope upload step"),
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] =
+                    "${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}",
+                ["path"] =
+                    "${{ runner.temp }}/ci-plan/${{ fromJSON(steps.plan.outputs.plan).scopes.tla.artifact }}",
+                ["if-no-files-found"] = "error",
+                ["retention-days"] = "1",
+            },
+            "jobs.changes TLA+ scope upload step.with");
     }
 
     private static void ValidateWorkflowTriggers(YamlMappingNode root)
