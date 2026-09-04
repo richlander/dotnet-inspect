@@ -10709,7 +10709,9 @@ public partial class CommandExecutionTests
             "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
             "-S", selector, "--json", "--tips", "q");
 
-        if (exact)
+        bool codeSectionFailure =
+            exact && selector != SectionNames.SourceDiff;
+        if (codeSectionFailure)
         {
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -11003,7 +11005,7 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 section == SectionNames.PdbSource
                     ? ApiCommand.BodylessMemberNote
-                    : "PDB Source unavailable",
+                    : "Source diff unavailable",
                 bare.Output);
             Assert.Equal(0, count.Exit);
             Assert.Empty(count.Error);
@@ -11104,7 +11106,7 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_SourceDiff_BodylessMember_ReportsPdbSourceUnavailable()
+    public async Task Member_SourceDiff_BodylessMember_ReportsComparisonUnavailable()
     {
         // The bodyless explanation is prose about the member, not source text, so the diff must
         // report its "before" side unavailable rather than diffing the explanation (#3299).
@@ -11115,7 +11117,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("PDB Source unavailable", output);
+        Assert.Contains("PDB comparison unavailable", output);
         Assert.DoesNotContain("has no IL body", output);
     }
 
@@ -11129,8 +11131,8 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Source Diff", output);
-        Assert.Contains("--- PDB Source", output);
-        Assert.Contains("+++ Decompiled Source", output);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
         // The decompiled side is the accessor's own body, spelled with its metadata name.
         Assert.Contains("set_MaxDepth", output);
     }
@@ -16157,17 +16159,17 @@ public partial class CommandExecutionTests
             OverloadIndex = member.DeclaringOverloadIndex ?? 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.SourceDiff },
             Verbosity = Verbosity.Detailed,
-            MethodSource = new MethodSourceContext(
+            MemberSourceComparison = MemberSourceComparisonTestData.Create(
+                type,
+                member,
                 """
                 public int AddOne(int value)
                 {
                     return value + 2;
                 }
                 """,
-                SourceUrl: "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
-                ChecksumAlgorithm: "SHA256",
-                Checksum: "0123456789ABCDEF",
-                ChecksumVerification: checksumVerification)
+                "    public int AddOne(int value) => value + 1;",
+                checksumVerification),
         };
 
         var (exit, output, error) = await ConsoleCapture.RunAsync(
@@ -16181,8 +16183,8 @@ public partial class CommandExecutionTests
             "PDB source: https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
             output);
         Assert.Contains(expectedIntegrity, output);
-        Assert.Contains("--- PDB Source", output);
-        Assert.Contains("+++ Decompiled Source", output);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
         Assert.Contains("-    return value + 2;", output);
         Assert.Contains("+public int AddOne(int value) => value + 1;", output);
         Assert.DoesNotContain("## PDB Source", output);
@@ -16205,7 +16207,14 @@ public partial class CommandExecutionTests
 
         string authored = string.Join(
             "\n",
-            Enumerable.Range(1, 120).Select(index => $"authored-line-{index}"));
+            [
+                "public int AddOne(int value)",
+                "{",
+                .. Enumerable.Range(1, 120)
+                    .Select(index => $"    // authored-line-{index}"),
+                "    return value + 2;",
+                "}",
+            ]);
         MemberOptions Options(Verbosity verbosity) => new()
         {
             AssemblyPath = TestAssemblyPath,
@@ -16217,12 +16226,11 @@ public partial class CommandExecutionTests
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { SectionNames.SourceDiff },
             Verbosity = verbosity,
-            MethodSource = new MethodSourceContext(
+            MemberSourceComparison = MemberSourceComparisonTestData.Create(
+                type,
+                member,
                 authored,
-                "https://raw.githubusercontent.com/example/repo/0123456789abcdef/Fixture.cs",
-                "SHA256",
-                "0123456789ABCDEF",
-                SourceChecksumVerification.Exact),
+                "    public int AddOne(int value) => value + 1;"),
         };
 
         var (normalExit, normalOutput, normalError) = await ConsoleCapture.RunAsync(
@@ -16256,7 +16264,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, detailedExit);
         Assert.Empty(detailedError);
         Assert.Contains("```diff", detailedOutput);
-        Assert.Contains("-authored-line-60", detailedOutput);
+        Assert.Contains("-    // authored-line-60", detailedOutput);
     }
 
     [Fact]

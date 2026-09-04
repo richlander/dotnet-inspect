@@ -4,6 +4,7 @@ using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -480,28 +481,98 @@ public static class MemberCommand
                         Path.GetFullPath(tokenOriginAssembly))
                     ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
-                var resolved = await ApiCommand.ResolveMethodSourceAsync(
-                    methodSourceAssemblyPath, sourceTypeName,
-                    sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
-                    sourceOverloadIndex,
-                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken,
-                    tokenOriginAssembly,
-                    sourceMember?.MetadataToken ?? 0,
-                    sourceAssembly,
-                    packageName,
-                    packageVersion);
-
-                effectiveOptions = effectiveOptions with
+                if (ApiCommand.GetRequestedMemberSections(
+                        apiType,
+                        effectiveOptions)
+                        .Contains(SectionNames.SourceDiff)
+                    && sourceMember?.MetadataToken is not null)
                 {
-                    MethodSource = resolved.Source,
-                    MemberHasNoBody = resolved.MemberHasNoBody,
-                    MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
-                    MemberSourceTooComplex = resolved.MemberSourceTooComplex,
-                    MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
-                    PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
-                    PdbPath = resolved.PdbPath
-                };
+                    ResolvedAssemblyReference comparisonAssembly =
+                        sourceAssembly?.Path is { } sourceAssemblyPath
+                        && LibraryMetadataService
+                            .ReferenceTreePathComparer(OperatingSystem.IsWindows())
+                            .Equals(
+                                Path.GetFullPath(sourceAssemblyPath),
+                                Path.GetFullPath(tokenOriginAssembly))
+                            ? sourceAssembly
+                            : ResolvedAssemblyReference.CreateFromPath(
+                                tokenOriginAssembly,
+                                AssemblyResolutionProvenance.Local(
+                                    "member source comparison"));
+                    var bindingPolicy = new AssemblyDependencyResolver(
+                        new AssemblyDependencyResolutionOptions(
+                            tokenOriginAssembly)
+                        {
+                            ProjectAssetsPath =
+                                effectiveOptions.ProjectAssetsPath,
+                            TargetFramework = effectiveOptions.Tfm,
+                            IncludeDepsJsonAssets = false,
+                            IncludeAspNetCoreSharedFramework = false,
+                            PreferImplementationAssemblies = true,
+                            AllowPlatformAssemblyVersionRollForward = true,
+                        });
+                    var participant = new AssemblyContextParticipant(
+                        comparisonAssembly,
+                        bindingPolicy);
+                    using var workspace = new InspectionWorkspace();
+                    using AssemblyContextGroup group =
+                        workspace.CreateAssemblyContextGroup([participant]);
+                    var queryContext = new AssemblyContextSourceQueryContext(
+                        context.HttpClient,
+                        FileSystemPdbStore.CreateDefault(),
+                        new SourcePolicyPackageSourceAuthorization(
+                            effectiveOptions.SourceOptions),
+                        new SourceFetcher(
+                            DotnetInspector.Core.HttpClientFactory
+                                .SharedUntrustedFetch))
+                    {
+                        RepositoryPaths =
+                            effectiveOptions.SourceRepositories,
+                        NuGetSourceOptions =
+                            effectiveOptions.SourceOptions,
+                        AllowLocalSourceReads = true,
+                        AllowAdjacentPdbReads = true,
+                        Log = logger.Log,
+                    };
+                    AssemblyMemberSourceComparisonEntry comparison =
+                        await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                            group,
+                            participant,
+                            AssemblyMemberSourceRequest.From(
+                                apiType,
+                                sourceMember,
+                                effectiveOptions.RenderOptions),
+                            queryContext);
+                    effectiveOptions = effectiveOptions with
+                    {
+                        MemberSourceComparison = comparison
+                    };
+                }
+                else
+                {
+                    var resolved = await ApiCommand.ResolveMethodSourceAsync(
+                        methodSourceAssemblyPath, sourceTypeName,
+                        sourceMember?.Name ?? effectiveOptions.MemberFilter.First(),
+                        sourceOverloadIndex,
+                        effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
+                        sourceMetadataToken,
+                        tokenOriginAssembly,
+                        sourceMember?.MetadataToken ?? 0,
+                        sourceAssembly,
+                        packageName,
+                        packageVersion);
+
+                    effectiveOptions = effectiveOptions with
+                    {
+                        MethodSource = resolved.Source,
+                        MemberHasNoBody = resolved.MemberHasNoBody,
+                        MemberHasNoPdbDeclaration = resolved.MemberHasNoPdbDeclaration,
+                        MemberSourceTooComplex = resolved.MemberSourceTooComplex,
+                        MemberSourceCoordinatesInvalid = resolved.MemberSourceCoordinatesInvalid,
+                        PdbSourceUnavailableReason = resolved.PdbSourceUnavailableReason,
+                        PdbPath = resolved.PdbPath
+                    };
+                }
             }
 
             if (effectiveOptions.EffectiveDiscovery)

@@ -58,9 +58,14 @@ on that same resolution and retained assembly evidence. A host cannot provide
 two independently resolved endpoint subjects and ask the query to treat them as
 one comparison.
 
-An accessor body selected independently from its owning property or event is
-not silently promoted to a whole-member comparison. The existing exact-member
-request and physical-token rules remain authoritative.
+A property or event accessor request remains a request for its physical
+MethodDef. Metadata owns the deterministic projection from the API surface's
+property or event row to its getter, setter, adder, or remover method model.
+The query accepts that projected method only when both its physical token and
+member anchor match the request. PDB evidence may therefore contain the owning
+source property or event declaration while decompiled evidence contains the
+selected physical accessor; the query does not promote any other owner row or
+guess an accessor from its display name.
 
 ## Result
 
@@ -141,6 +146,12 @@ The endpoint attempts are independent after the shared resolution. PDB failure
 does not prevent decompilation. PDB success does not suppress decompilation.
 A decompilation failure does not discard complete verified PDB evidence.
 
+Portable-PDB acquisition is pathless by default. A content-only host probes
+embedded PDB evidence and the configured symbol services without consulting an
+ambient assembly path. A path-backed host may explicitly enable adjacent-PDB
+reads; that capability is separate from permission to read checksum-mapped
+local source files. Enabling either capability does not imply the other.
+
 The query reuses existing source-query helpers rather than implementing another
 SourceLink map reader, checksum verifier, source fetcher, member resolver, or
 decompiler path. Shared helpers may be extracted within
@@ -202,6 +213,10 @@ Release query tests prove:
 - a resolution-time inspection failure produces explicit `Failed`;
 - retained-image rejection produces explicit `Rejected`;
 - both attempts refer to the same resolved MethodDef and retained participant;
+- a physical property or event accessor resolves through the shared metadata
+  projection while retaining its exact token and anchor;
+- adjacent portable PDBs are considered only when the host explicitly enables
+  that path-backed capability, while the default remains pathless;
 - cancellation during either attempt does not publish a partial success;
 - binding-policy invalidation during either attempt produces `Failed` and does
   not combine stale and current evidence; and

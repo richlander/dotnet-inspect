@@ -1,0 +1,146 @@
+namespace ILInspector.Metadata;
+
+/// <summary>
+/// Projects property and event rows into the physical accessor methods that own their bodies.
+/// </summary>
+public static class ApiMemberAccessors
+{
+    public static IEnumerable<ApiMember> Create(
+        ApiMember member,
+        ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(type);
+
+        string declaringType = string.IsNullOrEmpty(member.DeclaringType)
+            ? type.FullName
+            : member.DeclaringType;
+        switch (member.Kind)
+        {
+            case "property":
+                if (member.GetterToken is { } getter)
+                {
+                    yield return Accessor(
+                        member,
+                        declaringType,
+                        $"get_{member.Name}",
+                        getter,
+                        "get",
+                        valueReturning: true);
+                }
+                if (member.SetterToken is { } setter)
+                {
+                    yield return Accessor(
+                        member,
+                        declaringType,
+                        $"set_{member.Name}",
+                        setter,
+                        "set",
+                        valueReturning: false);
+                }
+                break;
+            case "event":
+                if (member.AdderToken is { } adder)
+                {
+                    yield return Accessor(
+                        member,
+                        declaringType,
+                        $"add_{member.Name}",
+                        adder,
+                        "add",
+                        valueReturning: false);
+                }
+                if (member.RemoverToken is { } remover)
+                {
+                    yield return Accessor(
+                        member,
+                        declaringType,
+                        $"remove_{member.Name}",
+                        remover,
+                        "remove",
+                        valueReturning: false);
+                }
+                break;
+        }
+    }
+
+    static ApiMember Accessor(
+        ApiMember owner,
+        string declaringType,
+        string name,
+        int token,
+        string accessorKind,
+        bool valueReturning)
+    {
+        ApiSignature? ownerModel = owner.SignatureModel;
+        string valueType =
+            ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
+        List<ApiParameter> parameters =
+            ownerModel?.Parameters is { Count: > 0 } indexParameters
+                ? indexParameters.Select(CloneParameter).ToList()
+                : [];
+        string returnType;
+        if (valueReturning)
+        {
+            returnType = valueType;
+        }
+        else
+        {
+            returnType = "void";
+            parameters.Add(
+                new ApiParameter
+                {
+                    Name = "value",
+                    Type = valueType,
+                });
+        }
+
+        ApiAccessor? accessorEntry =
+            ownerModel?.Accessors.FirstOrDefault(
+                accessor => accessor.Kind == accessorKind);
+        string? accessibility =
+            string.IsNullOrEmpty(accessorEntry?.Accessibility)
+                ? owner.Accessibility
+                : accessorEntry.Accessibility;
+        string renderedParameters = string.Join(
+            ", ",
+            parameters.Select(
+                parameter =>
+                    $"{parameter.TypeWithModifier} {parameter.Name}"));
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "method",
+            MetadataToken = token,
+            DeclaringType = declaringType,
+            ReturnType = returnType,
+            Signature =
+                $"{returnType} {name}({renderedParameters})",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = returnType,
+                Parameters = parameters,
+            },
+            IsStatic = owner.IsStatic,
+            IsVirtual = owner.IsVirtual,
+            IsAbstract = owner.IsAbstract,
+            IsOverride = owner.IsOverride,
+            IsSealed = owner.IsSealed,
+            IsUnsafe = owner.IsUnsafe,
+            Accessibility = accessibility,
+            Documentation = owner.Documentation,
+        };
+    }
+
+    static ApiParameter CloneParameter(ApiParameter parameter) => new()
+    {
+        Name = parameter.Name,
+        Type = parameter.Type,
+        CanonicalType = parameter.CanonicalType,
+        Modifier = parameter.Modifier,
+        HasDefault = parameter.HasDefault,
+        DefaultValueText = parameter.DefaultValueText,
+        Attributes = [.. parameter.Attributes],
+    };
+}

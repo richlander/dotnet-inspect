@@ -28,6 +28,7 @@
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
+    <Project Path="src/DotnetInspector.Presentation.Tests/DotnetInspector.Presentation.Tests.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
     <Project Path="src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />

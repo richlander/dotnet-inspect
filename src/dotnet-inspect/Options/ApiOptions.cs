@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
@@ -334,6 +335,7 @@ public record MemberOptions : ApiOptions
     public string? MemberDigest { get; init; }
     public int? MemberGenericArity { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
+    public AssemblyMemberSourceComparisonEntry? MemberSourceComparison { get; init; }
 
     /// <summary>
     /// True when the selected member carries no IL body — an abstract, interface, extern, or

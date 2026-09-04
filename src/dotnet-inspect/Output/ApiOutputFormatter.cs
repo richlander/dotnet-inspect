@@ -1478,99 +1478,7 @@ public static class ApiOutputFormatter
     /// <c>remove_Name</c>) so graph roots and breadcrumbs read as the real method.
     /// </summary>
     internal static IEnumerable<ApiMember> AccessorMethods(ApiMember member, ApiType type)
-    {
-        var declaringType = string.IsNullOrEmpty(member.DeclaringType) ? type.FullName : member.DeclaringType!;
-        switch (member.Kind)
-        {
-            case "property":
-                // A getter returns the property type and takes only the index parameters; a
-                // setter (and both event accessors) returns void and takes a trailing `value`.
-                if (member.GetterToken is { } getter)
-                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, "get", valueReturning: true);
-                if (member.SetterToken is { } setter)
-                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, "set", valueReturning: false);
-                break;
-            case "event":
-                if (member.AdderToken is { } adder)
-                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, "add", valueReturning: false);
-                if (member.RemoverToken is { } remover)
-                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, "remove", valueReturning: false);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Builds a method member for one accessor with a structured signature derived from the
-    /// owner property/event, so declaration-rendering sections (Decompiled/Annotated Source,
-    /// the overlays) print a real method header (<c>public string get_Name()</c>) rather than
-    /// the owner's bare return type. The value type is the property/event type; a value-
-    /// returning accessor (a getter) returns it and carries only the index parameters, while a
-    /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
-    /// Modifiers mirror the accessor: virtual/override/sealed/abstract/static come from the
-    /// owner (both accessors share the property/event slot), while accessibility uses the
-    /// per-accessor entry (a <c>private set</c> stays private) and only falls back to the
-    /// owner's when the accessor declares none — events carry no per-accessor entry and so
-    /// inherit the event's accessibility.
-    /// </summary>
-    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
-    {
-        var ownerModel = owner.SignatureModel;
-        var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
-        var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
-            ? indexParameters.Select(CloneAccessorParameter).ToList()
-            : new List<ApiParameter>();
-        string returnType;
-        if (valueReturning)
-        {
-            returnType = valueType;
-        }
-        else
-        {
-            returnType = "void";
-            parameters.Add(new ApiParameter { Name = "value", Type = valueType });
-        }
-
-        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind);
-        var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
-            ? owner.Accessibility
-            : accessorEntry!.Accessibility;
-
-        var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
-        return new ApiMember
-        {
-            Name = name,
-            Kind = "method",
-            MetadataToken = token,
-            DeclaringType = declaringType,
-            ReturnType = returnType,
-            Signature = $"{returnType} {name}({renderedParameters})",
-            SignatureModel = new ApiSignature
-            {
-                MemberName = name,
-                ReturnType = returnType,
-                Parameters = parameters,
-            },
-            IsStatic = owner.IsStatic,
-            IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract,
-            IsOverride = owner.IsOverride,
-            IsSealed = owner.IsSealed,
-            IsUnsafe = owner.IsUnsafe,
-            Accessibility = accessibility,
-            Documentation = owner.Documentation,
-        };
-    }
-
-    static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
-    {
-        Name = parameter.Name,
-        Type = parameter.Type,
-        CanonicalType = parameter.CanonicalType,
-        Modifier = parameter.Modifier,
-        HasDefault = parameter.HasDefault,
-        DefaultValueText = parameter.DefaultValueText,
-        Attributes = [.. parameter.Attributes],
-    };
+        => ApiMemberAccessors.Create(member, type);
 
     internal static void PopulateIndexSections(
         TypeView view,
@@ -1585,8 +1493,7 @@ public static class ApiOutputFormatter
         ApiOptions? options = null)
     {
         var request = new MemberCodeProvider.Request(
-            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource)
-                || requestedSections.Contains(SectionNames.SourceDiff),
+            DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),

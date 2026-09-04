@@ -59,6 +59,13 @@ public sealed class AssemblyContextSourceQueryContext
     /// filesystem implicitly.
     /// </summary>
     public bool AllowLocalSourceReads { get; init; }
+
+    /// <summary>
+    /// Allows a path-backed host to probe the portable PDB adjacent to the
+    /// selected assembly. Disabled by default so content-only hosts keep the
+    /// pathless acquisition boundary.
+    /// </summary>
+    public bool AllowAdjacentPdbReads { get; init; }
     public Action<string>? Log { get; init; }
 }
 
@@ -1036,8 +1043,12 @@ public static class AssemblyContextSourceQuery
         SourceLinkService source;
         try
         {
-            source =
-                SourceLinkService.OpenEmbeddedPdbOnly(
+            source = context.AllowAdjacentPdbReads
+                ? SourceLinkService.Open(
+                    retained,
+                    context.Log,
+                    context.SourceLinkCache)
+                : SourceLinkService.OpenEmbeddedPdbOnly(
                     retained,
                     readLimits,
                     context.Log,
@@ -1126,7 +1137,24 @@ public static class AssemblyContextSourceQuery
             match = candidate;
         }
 
-        return match is null ? null : (type, match);
+        if (match is not null)
+            return (type, match);
+
+        foreach (ApiMember accessor in type.Members.SelectMany(
+            member => ApiMemberAccessors.Create(member, type)))
+        {
+            if (accessor.MetadataToken != request.MetadataToken
+                || ApiMemberIdentity.GetMemberAnchor(type, accessor)
+                    != request.Member)
+            {
+                continue;
+            }
+
+            type.Members = [accessor];
+            return (type, accessor);
+        }
+
+        return null;
     }
 
     static AssemblyPdbSourceProvenance PdbProvenance(

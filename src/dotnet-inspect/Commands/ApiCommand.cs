@@ -10,6 +10,8 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using Markout;
 using Markout.Formatting;
@@ -2567,17 +2569,7 @@ public class ApiCommand
             if (options is MemberOptions mo5
                 && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
             {
-                if (mo5.MethodSource is { } resolvedSource)
-                {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
-                }
-                else if (PdbSourceUnavailableNote(mo5) is { } note)
-                {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
-                    view.MemberCode.PdbSourceUnavailable = true;
-                }
+                PopulatePdbSource(view, mo5);
             }
 
             PopulateSourceDiff(
@@ -2585,7 +2577,7 @@ public class ApiCommand
                 GetRequestedMemberSections(type, options),
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true },
-                (options as MemberOptions)?.MethodSource,
+                (options as MemberOptions)?.MemberSourceComparison,
                 options.UserVerbosity >= Verbosity.Detailed);
 
         }
@@ -3413,24 +3405,14 @@ public class ApiCommand
 
                 if (requestedSections.Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]))
                 {
-                    if (memberOptions.MethodSource is { } resolvedSource)
-                    {
-                        view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
-                    }
-                    else if (PdbSourceUnavailableNote(memberOptions) is { } note)
-                    {
-                        view.MemberCode ??= new MemberCodeView();
-                        view.MemberCode.PdbSourceCode = new Markout.CodeSection("csharp", note);
-                        view.MemberCode.PdbSourceUnavailable = true;
-                    }
+                    PopulatePdbSource(view, memberOptions);
                 }
                 PopulateSourceDiff(
                     view,
                     requestedSections,
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid,
-                    memberOptions.MethodSource,
+                    memberOptions.MemberSourceComparison,
                     memberOptions.UserVerbosity >= Verbosity.Detailed);
             }
 
@@ -3584,12 +3566,48 @@ public class ApiCommand
                             ? $"// {reason}"
                             : null;
 
+    private static void PopulatePdbSource(
+        TypeView view,
+        MemberOptions options)
+    {
+        if (PdbAttempt(options.MemberSourceComparison)
+            is AssemblyMemberPdbSourceAttempt.Available available)
+        {
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.PdbSourceCode =
+                new Markout.CodeSection(
+                    "csharp",
+                    available.Inspection.Text!);
+            return;
+        }
+
+        string? note = options.MemberSourceComparison is { } comparison
+            ? $"// {PdbSourceUnavailableReason(comparison)}"
+            : options.MethodSource is { } resolvedSource
+                ? null
+                : PdbSourceUnavailableNote(options);
+        if (options.MethodSource is { } source
+            && options.MemberSourceComparison is null)
+        {
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.PdbSourceCode =
+                new Markout.CodeSection("csharp", source.SourceCode);
+        }
+        else if (note is not null)
+        {
+            view.MemberCode ??= new MemberCodeView();
+            view.MemberCode.PdbSourceCode =
+                new Markout.CodeSection("csharp", note);
+            view.MemberCode.PdbSourceUnavailable = true;
+        }
+    }
+
     private static void PopulateSourceDiff(
         TypeView view,
         IReadOnlySet<string> requestedSections,
         bool sourceTooComplex,
         bool sourceCoordinatesInvalid,
-        MethodSourceContext? source,
+        AssemblyMemberSourceComparisonEntry? comparison,
         bool detailed)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
@@ -3611,28 +3629,52 @@ public class ApiCommand
             return;
         }
 
-        SourceDiffOutput diff = SourceTextDiffRenderer.CreateOutput(
-                // The unavailable note is an explanation, not source text: leave the diff's
-                // "before" side unavailable so it reports that rather than diffing the note.
-                view.MemberCode.PdbSourceUnavailable ? null : view.MemberCode.PdbSourceCode.Content,
-                view.MemberCode.DecompiledSourceCode.Content,
-                SectionNames.PdbSource,
-                "Decompiled Source",
-                detailed);
-        if (source is { HasChecksumEvidence: true })
+        if (comparison is null)
+        {
+            view.MemberCode.SourceDiffCode = new SourceDiffOutput(
+                "Member source comparison was not available.");
+            return;
+        }
+
+        MemberSourceDiffPresentationResult result =
+            MemberSourceDiffPresentationAdapter.Create(comparison);
+        SourceDiffOutput diff = result switch
+        {
+            MemberSourceDiffPresentationResult.Available available =>
+                SourceTextDiffRenderer.CreateOutput(
+                    available.Presentation,
+                    detailed),
+            MemberSourceDiffPresentationResult.Failed failed =>
+                new SourceDiffOutput(
+                    $"Source diff projection failed: {failed.Failure.Detail}"),
+            MemberSourceDiffPresentationResult.Unavailable unavailable =>
+                new SourceDiffOutput(
+                    SourceDiffUnavailableReason(unavailable.Comparison)),
+            _ => throw new InvalidOperationException(
+                "Unknown member source diff presentation result."),
+        };
+
+        if (PdbAttempt(comparison)
+                is AssemblyMemberPdbSourceAttempt.Available pdb
+            && pdb.Inspection.Document is { } document
+            && document.ChecksumAlgorithm is { Length: > 0 } checksumAlgorithm
+            && document.Checksum is { Length: > 0 } checksum
+            && pdb.Inspection.ChecksumVerification is
+                SourceChecksumVerification.Exact
+                    or SourceChecksumVerification.LineEndingNormalized)
         {
             string location = CSharpText.CSharpIdentifier.ContainRenderedText(
-                source.SourceUrl ?? "portable-PDB source document");
+                document.ResolvedUrl ?? document.OriginalPath);
             string algorithm = CSharpText.CSharpIdentifier.ContainRenderedText(
-                source.ChecksumAlgorithm!);
-            string checksum = CSharpText.CSharpIdentifier.ContainRenderedText(
-                source.Checksum!);
-            string integrity = source.ChecksumVerification switch
+                checksumAlgorithm);
+            string containedChecksum =
+                CSharpText.CSharpIdentifier.ContainRenderedText(checksum);
+            string integrity = pdb.Inspection.ChecksumVerification switch
             {
                 SourceChecksumVerification.Exact =>
-                    $"PDB source document bytes match portable-PDB {algorithm} checksum {checksum}.",
+                    $"PDB source document bytes match portable-PDB {algorithm} checksum {containedChecksum}.",
                 SourceChecksumVerification.LineEndingNormalized =>
-                    $"PDB source document matches portable-PDB {algorithm} checksum {checksum} "
+                    $"PDB source document matches portable-PDB {algorithm} checksum {containedChecksum} "
                     + "after CR/LF normalization.",
                 _ => throw new InvalidOperationException("Checksum evidence requires a successful verification."),
             };
@@ -3643,6 +3685,102 @@ public class ApiCommand
 
         view.MemberCode.SourceDiffCode = diff;
     }
+
+    private static AssemblyMemberPdbSourceAttempt? PdbAttempt(
+        AssemblyMemberSourceComparisonEntry? comparison)
+        => comparison switch
+        {
+            AssemblyMemberSourceComparisonEntry.Available available =>
+                available.Pdb,
+            AssemblyMemberSourceComparisonEntry.Unavailable unavailable =>
+                unavailable.Pdb,
+            _ => null,
+        };
+
+    private static string SourceDiffUnavailableReason(
+        AssemblyMemberSourceComparisonEntry comparison)
+        => comparison switch
+        {
+            AssemblyMemberSourceComparisonEntry.Available available =>
+                available.Pdb
+                    is AssemblyMemberPdbSourceAttempt.Unavailable
+                    ? $"Source diff unavailable: PDB comparison unavailable: "
+                        + $"{PdbAttemptReason(available.Pdb)}."
+                    : $"Source diff unavailable: Decompiled comparison unavailable: "
+                        + $"{DecompilerAttemptReason(available.Decompiled)}.",
+            AssemblyMemberSourceComparisonEntry.Unavailable unavailable =>
+                $"Source diff unavailable: PDB comparison unavailable: "
+                + $"{PdbAttemptReason(unavailable.Pdb)}; "
+                + "Decompiled comparison unavailable: "
+                + $"{DecompilerAttemptReason(unavailable.Decompiled)}.",
+            AssemblyMemberSourceComparisonEntry.NotFound notFound =>
+                $"Source diff unavailable: {notFound.Failure.Detail}",
+            AssemblyMemberSourceComparisonEntry.Failed failed =>
+                $"Source diff unavailable: {failed.Failure.Detail}",
+            AssemblyMemberSourceComparisonEntry.Rejected =>
+                "Source diff unavailable because the selected assembly image was rejected.",
+            _ => throw new InvalidOperationException(
+                "Unknown member source comparison result."),
+        };
+
+    private static string PdbSourceUnavailableReason(
+        AssemblyMemberSourceComparisonEntry comparison)
+        => PdbAttempt(comparison) is { } attempt
+            ? PdbAttemptReason(attempt)
+            : comparison switch
+            {
+                AssemblyMemberSourceComparisonEntry.NotFound notFound =>
+                    notFound.Failure.Detail,
+                AssemblyMemberSourceComparisonEntry.Failed failed =>
+                    failed.Failure.Detail,
+                AssemblyMemberSourceComparisonEntry.Rejected =>
+                    "The selected assembly image was rejected.",
+                _ => "PDB source is unavailable.",
+            };
+
+    private static string PdbAttemptReason(
+        AssemblyMemberPdbSourceAttempt attempt)
+        => attempt switch
+        {
+            AssemblyMemberPdbSourceAttempt.Available =>
+                "PDB comparison is available",
+            AssemblyMemberPdbSourceAttempt.Unavailable unavailable =>
+                unavailable.Inspection.Outcome switch
+                {
+                    PdbMemberSourceOutcome.PortablePdbUnavailable =>
+                        NoPortablePdbReason,
+                    PdbMemberSourceOutcome.PortablePdbAcquisitionFailed =>
+                        "Portable PDB acquisition failed.",
+                    PdbMemberSourceOutcome.SourceMappingUnavailable =>
+                        NoPdbSourceMappingReason,
+                    PdbMemberSourceOutcome.NoVouchedDeclaration =>
+                        NoPdbDeclarationNote.TrimStart('/', ' '),
+                    PdbMemberSourceOutcome.SourceTooComplex =>
+                        SourceTooComplexNote.TrimStart('/', ' '),
+                    PdbMemberSourceOutcome.InvalidSequencePointCoordinates =>
+                        SourceCoordinatesInvalidNote.TrimStart('/', ' '),
+                    PdbMemberSourceOutcome.SourceExtractionFailed
+                        or PdbMemberSourceOutcome.InspectionFailed =>
+                        PdbSourceInspectionFailedReason,
+                    _ => NoMatchingPdbSourceReason,
+                },
+            _ => throw new InvalidOperationException(
+                "Unknown PDB source attempt."),
+        };
+
+    private static string DecompilerAttemptReason(
+        AssemblyMemberDecompiledSourceAttempt attempt)
+        => attempt switch
+        {
+            AssemblyMemberDecompiledSourceAttempt.Available =>
+                "available",
+            AssemblyMemberDecompiledSourceAttempt.Unavailable unavailable =>
+                unavailable.Status == Decompiler.MemberBodyProductionStatus.Absent
+                    ? "the member has no renderable body"
+                    : "decompilation failed",
+            _ => throw new InvalidOperationException(
+                "Unknown decompiled source attempt."),
+        };
 
     private static void WriteJsonTypeOutput(ApiType type, ApiOptions options)
     {
