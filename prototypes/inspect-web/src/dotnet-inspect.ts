@@ -245,9 +245,11 @@ import {
 } from "./scope-bar.ts";
 import {
   bindWorkspaceSubject,
+  captureWorkspaceFocus,
   focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView as renderWorkspaceViewPure,
+  restoreWorkspaceFocus,
   workspaceOccurrenceActionsAreVisible,
 } from "./workspace-subject.ts";
 import {
@@ -2785,6 +2787,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const scopeBarFocus = focusedElement
     ? captureScopeBarFocus(focusedElement)
     : null;
+  const workspaceFocus = captureWorkspaceFocus(focusedElement);
   scopeBarBinding?.disconnect();
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
@@ -2843,6 +2846,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ?.focus({ preventScroll: true });
       } else if (applicationMenuHadFocus) {
         focusApplicationMenuButton(document);
+      } else if (workspaceFocus) {
+        restoreWorkspaceFocus(document, workspaceFocus);
       }
       if (scopeBarOwnsFocus) {
         let restored = false;
@@ -3050,6 +3055,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
       ?.focus({ preventScroll: true });
   } else if (applicationMenuHadFocus) {
     focusApplicationMenuButton(document);
+  } else if (workspaceFocus) {
+    restoreWorkspaceFocus(document, workspaceFocus);
   }
   if (scopeBarOwnsFocus) {
     let restored = false;

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindWorkspaceSubject,
+  captureWorkspaceFocus,
   focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView,
+  restoreWorkspaceFocus,
   workspaceOccurrenceActionsAreVisible,
 } from "../src/workspace-subject.ts";
 import type { PackageControlPackage } from "../src/package-controls.ts";
@@ -213,4 +215,64 @@ test("Workspace focus targets the always-visible Workspace", () => {
 
   assert.equal(focusWorkspace(fakeDom.parentNode(root)), true);
   assert.equal(focused, true);
+});
+
+test("Workspace focus survives catalog rerenders by stable action identity", () => {
+  setProductHomeDemoCatalog([{
+    id: "stj-serializer",
+    title: "System.Text.Json",
+    summary: "Browse a real package API",
+  }]);
+  const focused: string[] = [];
+  const workspace = {
+    dataset: {},
+    hasAttribute: (name: string) => name === "data-workspace-default",
+  };
+  assert.deepEqual(
+    captureWorkspaceFocus(fakeDom.htmlElement({
+      closest: (selector: string) =>
+        selector.includes("[data-workspace-default]") ? workspace : null,
+    })),
+    { kind: "workspace" });
+
+  const demo = {
+    dataset: { workspaceDemo: "stj-serializer" },
+    hasAttribute: () => false,
+    focus: () => focused.push("demo"),
+  };
+  const active = fakeDom.htmlElement({
+    closest: (selector: string) =>
+      selector.includes("[data-workspace-demo]") ? demo : null,
+  });
+  const captured = captureWorkspaceFocus(active);
+  assert.deepEqual(captured, { kind: "demo", id: "stj-serializer" });
+
+  const replacement = {
+    dataset: { workspaceDemo: "stj-serializer" },
+    focus: () => focused.push("replacement"),
+  };
+  const workspaceReplacement = {
+    focus: () => focused.push("workspace"),
+  };
+  const root = fakeDom.parentNode({
+    querySelector: (selector: string) =>
+      selector === "[data-workspace-default]"
+        ? workspaceReplacement
+        : null,
+    querySelectorAll: (selector: string) =>
+      selector === "[data-workspace-demo]" ? [replacement] : [],
+  });
+  assert.equal(
+    restoreWorkspaceFocus(root, { kind: "workspace" }),
+    true);
+  assert.equal(
+    captured && restoreWorkspaceFocus(root, captured),
+    true);
+  assert.deepEqual(focused, ["workspace", "replacement"]);
+
+  assert.equal(
+    captureWorkspaceFocus(fakeDom.htmlElement({
+      closest: () => null,
+    })),
+    null);
 });

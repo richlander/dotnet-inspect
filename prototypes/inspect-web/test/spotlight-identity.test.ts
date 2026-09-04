@@ -1245,6 +1245,19 @@ test("keyboard help projects available global and current graph bindings", () =>
   assert.match(
     appSource,
     /const workspaceDrillInIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && state\.package !== null/);
+  const renderWorkspaceFocus =
+    appSource.match(
+      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
+    )?.[0]
+    ?? "";
+  assert.equal(
+    renderWorkspaceFocus.match(
+      /restoreWorkspaceFocus\(document, workspaceFocus\)/g,
+    )?.length,
+    2);
+  assert.match(
+    renderWorkspaceFocus,
+    /const workspaceFocus = captureWorkspaceFocus\(focusedElement\);[\s\S]*renderWorkspaceCatalogView\(\);[\s\S]*else if \(workspaceFocus\) \{\s*restoreWorkspaceFocus\(document, workspaceFocus\);[\s\S]*recordNav\(\);\s*return;/);
   assert.match(
     appSource,
     /function drillIn\(\) \{\s*if \(scope\(\) === "workspace"\) \{\s*if \(!state\.package\) return;/);

@@ -43,6 +43,10 @@ export interface WorkspaceOccurrenceVisibility {
   hasPackage: boolean;
 }
 
+export type WorkspaceFocusTarget =
+  | { kind: "workspace" }
+  | { kind: "demo"; id: string };
+
 export function workspaceOccurrenceActionsAreVisible(
   state: WorkspaceOccurrenceVisibility,
 ): boolean {
@@ -177,4 +181,39 @@ export function focusWorkspace(
   const button = root.querySelector<HTMLElement>("[data-workspace-default]");
   button?.focus();
   return Boolean(button);
+}
+
+export function captureWorkspaceFocus(
+  element: HTMLElement | null,
+): WorkspaceFocusTarget | null {
+  const target = element?.closest<HTMLElement>(
+    "[data-workspace-default], [data-workspace-demo]");
+  if (!target) return null;
+  if (target.hasAttribute("data-workspace-default")) {
+    return { kind: "workspace" };
+  }
+  const demo = target.dataset.workspaceDemo;
+  if (demo !== undefined) {
+    return { kind: "demo", id: demo };
+  }
+  return null;
+}
+
+export function restoreWorkspaceFocus(
+  root: ParentNode,
+  target: WorkspaceFocusTarget,
+): boolean {
+  let element: HTMLElement | null = null;
+  switch (target.kind) {
+    case "workspace":
+      element = root.querySelector<HTMLElement>("[data-workspace-default]");
+      break;
+    case "demo":
+      element = [...root.querySelectorAll<HTMLElement>("[data-workspace-demo]")]
+        .find(candidate => candidate.dataset.workspaceDemo === target.id)
+        ?? null;
+      break;
+  }
+  element?.focus({ preventScroll: true });
+  return element !== null;
 }
