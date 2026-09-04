@@ -12,6 +12,7 @@ docs/design/models/research-workspace-target-composition/BlockedTerminalCensusUn
 docs/design/models/research-workspace-target-composition/BroaderResearchPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/BrokenBindingDrift.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenCensusSubstitution.cfg=12
+docs/design/models/research-workspace-target-composition/BrokenCrossScope.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenCrossSideEndpoint.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenFacadeEndpoint.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenForwardingEvidence.cfg=12
@@ -25,6 +26,7 @@ docs/design/models/research-workspace-target-composition/DuplicatePopulationReje
 docs/design/models/research-workspace-target-composition/ExactAddressRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ForeignPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ForwardedCompletion.cfg=0
+docs/design/models/research-workspace-target-composition/ImageOpenFailureUnavailable.cfg=0
 docs/design/models/research-workspace-target-composition/MissingTerminalPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionCiLiveness.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionCiSafety.cfg=0

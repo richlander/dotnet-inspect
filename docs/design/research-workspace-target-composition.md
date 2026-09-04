@@ -14,11 +14,11 @@ owner.
 
 The exact claim is:
 
-> Given one complete Research target resolution over participants already
-> admitted to one binding-consistent workspace group, Queries may replace the
-> caller-designated root as the effective target only by joining Metadata's
-> terminal definition registration through the sealed Queries-to-Research
-> population receipt to that exact participant's resolved Research attempt.
+> Given one complete Research target resolution over exactly the population
+> represented by one sealed Queries-to-Research receipt, Queries may replace
+> the caller-designated root as the effective target only by joining Metadata's
+> terminal definition registration through that receipt to the exact
+> participant's resolved attempt in the requested Research selection scope.
 
 The composition retains the caller-designated root attempt and a
 capability-free projection of the complete Metadata forwarding outcome. It
@@ -71,9 +71,10 @@ selection scope.
 | The root defines the declaring type and its Research attempt is `Resolved`. | The root attempt remains the effective endpoint. Metadata forwarding hops are empty. |
 | The root forwards the declaring type, Metadata reaches a terminal definition in an already admitted participant, and that participant's exact Research attempt is `Resolved`. | The terminal attempt becomes the effective endpoint. The root's `Unavailable/DeclaringTypeForwarded` attempt and the complete ordered forwarding path remain visible evidence. |
 | Metadata cannot reach a terminal definition. | Composition is typed unavailable and retains a capability-free projection of the exact Metadata outcome. No effective endpoint is published. |
+| `AssemblyContextTypeResolutionQuery` cannot retain one participant image and returns query-level `Rejected`. | Composition is typed unavailable and retains a capability-free projection of the failing participant and `CandidateOpenFailure`. Metadata forwarding and endpoint selection do not begin. |
 | Metadata reaches a definition whose acquisition registration is not one sealed input in this group and side. | Composition is rejected as a correspondence failure. A same-named participant cannot substitute. |
 | The terminal participant is admitted only as reference evidence, or its Research attempt is not `Resolved`. | Composition is typed unavailable and retains that exact attempt. |
-| The terminal attempt's Research domain-side census is blocked. | Composition is typed unavailable. A locally resolved attempt does not override Research's domain health. |
+| The terminal attempt's Research domain-side census is blocked. | Composition is typed unavailable. Queries consumes Research's owner-derived attempt and census together; it does not synthesize a resolved attempt inside a blocked same-side census. |
 | Population receipt, scope, side, domain, module, or terminal-definition evidence does not agree. | Composition is rejected. No partial endpoint is published. |
 | The binding-policy version changes during one synchronous composition. | The query throws `InvalidOperationException`, matching existing assembly-context query behavior. No typed result is published. |
 
@@ -99,6 +100,12 @@ One side-local composition request contains:
 The group, population, receipt, and Research result all belong to the same
 live query invocation. A public request does not accept a previously published
 composition receipt or a caller-authored mapping.
+
+The receipt's active Queries-input domain and the complete Research
+resolution's active input domain are validated independently and must match
+exactly. A valid receipt does not authorize a stale, broader, or different
+Research resolution, even when every individual input value is otherwise
+well-formed.
 
 The caller-designated root participates by exact
 `AssemblyAcquisitionRegistration` reference. Assembly name, path, MVID,
@@ -164,14 +171,22 @@ remains represented:
 
 The inert receipt retains materialized subjects, opaque ids, classification,
 a Queries-owned `WorkspaceTypeResolutionEvidence` projection, and the exact
-root and effective Research attempts. The projection preserves the Metadata
-outcome arm and the facts needed by this contract: terminal acquisition
-registration and durable definition identity/address for success, ordered
-forwarding-hop source registrations and typed declaration/target/scope
-evidence, or materialized typed non-success evidence. It does not retain the
-`TypeResolutionOutcome`, `TypeForwardingHop`, `ResolvedAssemblyCandidate`, or
-`ResolvedAssemblyReference` objects, because those object graphs can expose an
-image-opening callback or retain snapshot content.
+root and effective Research attempts. That projection is a closed union:
+
+- `Available` preserves the Metadata outcome arm and the facts needed by this
+  contract: terminal acquisition registration and durable definition
+  identity/address for success, ordered forwarding-hop source registrations
+  and typed declaration/target/scope evidence, or materialized typed
+  non-success evidence.
+- `QueryRejected` preserves the failing participant's acquisition registration,
+  `CandidateOpenFailureKind`, and inert failure detail when
+  `AssemblyContextTypeResolutionQuery` cannot retain one participant image.
+
+Neither arm retains the `TypeResolutionOutcome`, `TypeForwardingHop`,
+`ResolvedAssemblyCandidate`, or `ResolvedAssemblyReference` objects, because
+those object graphs can expose an image-opening callback or retain snapshot
+content. The `QueryRejected` arm likewise materializes failure detail rather
+than retaining a query or image-access capability.
 
 The receipt retains no group, participant, image opener, resolver, stream,
 callback, lease, or cleanup authority. Projection is semantic preservation of
@@ -188,26 +203,31 @@ Composition validates one side in this order:
    input;
 3. the population receipt is valid for the exact operation, question, side,
    and Research admission;
-4. the request kind is `Carried`; unsupported `ExactAddress` scope rejects
+4. the complete Research resolution's active inputs are exactly the receipt's
+   active Research inputs, and its selected scope, domains, requests, attempts,
+   and censuses are parented by the exact requested `ResearchTargetScopeId`;
+5. the request kind is `Carried`; unsupported `ExactAddress` scope rejects
    before Metadata resolution;
-5. every group participant's current `BindingPolicy.Version` remains
+6. every group participant's current `BindingPolicy.Version` remains
    reference-identical to the group's captured version before Metadata
    resolution;
-6. Metadata resolves the exact declaring-type request from the retained root
-   through `AssemblyContextTypeResolutionQuery`;
-7. every participant policy used by resolution still exposes that exact
+7. `AssemblyContextTypeResolutionQuery` retains the participants and resolves
+   the exact declaring-type request from the retained root; its outer
+   `Rejected` arm becomes `Unavailable` with capability-free `QueryRejected`
+   evidence before Metadata forwarding or endpoint selection;
+8. every participant policy used by resolution still exposes that exact
    captured version after resolution;
-8. a resolved terminal definition maps by acquisition registration to exactly
+9. a resolved terminal definition maps by acquisition registration to exactly
    one participant and sealed Queries input in the same group and side;
-9. the population receipt maps that Queries input to exactly one Research
+10. the population receipt maps that Queries input to exactly one Research
    input;
-10. the complete Research resolution contains exactly one attempt for that
+11. the complete Research resolution contains exactly one attempt for that
    input, selection scope, question, side, and terminal domain;
-11. the exact terminal domain-side census is `Healthy`;
-12. that attempt's physical assembly, MVID-scoped address, declaring type, and
+12. the exact terminal domain-side census is `Healthy`;
+13. that attempt's physical assembly, MVID-scoped address, declaring type, and
     relationship role agree with the terminal definition and selection intent;
     and
-13. the root attempt has the matching direct or forwarded shape below.
+14. the root attempt has the matching direct or forwarded shape below.
 
 The first failed check determines the typed composition result. Later checks
 do not run, and no partial receipt escapes. A binding-policy version mismatch
@@ -259,8 +279,9 @@ Expected non-success is closed into two Queries-owned categories:
 
 - `Unavailable` means valid owner outcomes supplied no usable effective
   implementation attempt or supplied a blocked terminal domain-side census. It
-  retains the capability-free Metadata projection or exact inert Research
-  outcome that stopped composition.
+  also covers query-level participant image-open rejection before Metadata
+  resolution. It retains the capability-free `Available` or `QueryRejected`
+  projection, or the exact inert Research outcome, that stopped composition.
 - `Rejected` means the supplied owner-issued evidence could not form the exact
   association chain: foreign root, missing, duplicate, or extra population
   member, invalid receipt, unsupported exact-address scope, wrong side, scope,
@@ -352,10 +373,16 @@ The model rechecks the imported forwarding safety properties and checks that:
 
 - a missing or extra sealed input rejects the population before Metadata
   resolution begins;
+- a valid receipt paired with a broader Research result rejects before
+  Metadata resolution begins;
+- a query-level participant image-open rejection becomes unavailable before
+  forwarding or binding advances;
 - a selected endpoint belongs to the requested side and admitted group;
 - terminal ownership is preserved rather than reset to the facade;
 - pre-existing Research attempts, domain health, and Queries-to-Research
   correspondence are consumed rather than fabricated or reconstructed;
+  - the selected attempt, census, domain, and retained root attempt belong to
+    the exact requested selection scope;
   - the selected Research input still contains the exact terminal acquisition
     registration carried by the selected Queries input;
   - the exact domain-side census and its attempt set cannot be replaced by a
@@ -365,24 +392,27 @@ The model rechecks the imported forwarding safety properties and checks that:
 - every resolution reaches either a composed or unavailable terminal result.
 
 Exact-outcome configurations require direct and forwarded completion, blocked
-census unavailability, exact-address rejection before owner resolution, and
-rejection of a missing group participant input, a duplicated participant
+census unavailability from one owner-valid failed terminal attempt, query-level
+image-open unavailability, exact-address rejection before owner resolution,
+and rejection of a missing group participant input, a duplicated participant
 occurrence, an extra foreign input, and a Research result broader than the
-sealed population. The forwarded-completion scenario retains the facade's
-blocked census while selecting the distinct healthy terminal census. The
-blocked-terminal scenario derives its blocked health from another exact
-side-local failed attempt in the terminal domain rather than assigning blocked
-health to a singleton resolved attempt. The two-sided divergent-domain handoff
-remains outside this side-local model and unverified.
+otherwise valid sealed receipt. The forwarded-completion scenario retains the
+facade's blocked census while selecting the distinct healthy terminal census.
+The model does not construct the impossible state in which one same-side
+terminal-domain attempt is resolved while a peer in that domain fails:
+Research classifies multiple same-side domain inputs as `DomainAmbiguous`
+before either can resolve. The two-sided divergent-domain handoff remains
+outside this side-local model and unverified.
 
 Focused mutations substitute the facade, cross the comparison side, reconstruct
-the Research input without the receipt, relabel the root attempt, select a
-non-resolved attempt, substitute another terminal participant behind a
-collapsed query id, substitute another domain's healthy census, drop the
-forwarding path, ignore binding-version drift, or invoke Research without an
-endpoint. The model abstracts image reads, detailed attempt payloads,
-acquisition, concurrency, and presentation. TLC evidence applies to the model;
-the implementation gates below remain required.
+the Research input without the receipt, substitute another selection scope,
+relabel the root attempt, select a non-resolved attempt, substitute another
+terminal participant behind a collapsed query id, substitute another domain's
+healthy census, drop the forwarding path, ignore binding-version drift, or
+invoke Research without an endpoint. The model abstracts image bytes and
+detailed failure payloads, detailed attempt payloads, acquisition, concurrency,
+and presentation. TLC evidence applies to the model; the implementation gates
+below remain required.
 
 ## Demo
 
@@ -448,6 +478,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_ForwardedRootAttemptRemainsUnavailable`
 - `WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath`
 - `WorkspaceResearchTarget_UnboundTerminalIsUnavailable`
+- `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
 - `WorkspaceResearchTarget_MissingTerminalPopulationMemberIsRejected`
 - `WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected`
 - `WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute`
@@ -455,6 +486,7 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_BlockedTerminalDomainIsUnavailable`
 - `WorkspaceResearchTarget_RejectsExactAddressScope`
 - `WorkspaceResearchTarget_RejectsWrongSideScopeAndDomainMappings`
+- `WorkspaceResearchTarget_RejectsCrossSelectionScopeAttemptAndCensus`
 - `WorkspaceResearchTarget_RejectsForeignOrIncompletePopulationReceipt`
 - `WorkspaceResearchTarget_RejectsExtraForeignPopulationMember`
 - `WorkspaceResearchTarget_RejectsBroaderResearchPopulation`

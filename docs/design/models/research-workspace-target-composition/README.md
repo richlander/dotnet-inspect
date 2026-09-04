@@ -21,16 +21,17 @@ binding-policy-version replacement. The composition adds:
   sides;
 - selected-side duplicate-occurrence and foreign-input facts that distinguish
   an exact population from repeated or broader sealed populations;
-- explicit active receipt, attempt, and census domains that distinguish
-  published Research evidence from bounded total value slots;
+- independent active receipt and complete Research domains, plus active attempt
+  and census domains, that distinguish exact current evidence from stale or
+  broader owner results and bounded total value slots;
 - acquisition-registration-shaped participant identity;
 - opaque Queries, Research, attempt, domain, and census ids joined by immutable
   owner-issued maps;
+- two opaque selection-scope identities that expose cross-scope substitution;
 - one immutable admitted terminal candidate chosen before Metadata resolution;
 - pre-existing root and terminal attempt kinds plus exact domain-side census
   records;
-- one exact selected-side peer occurrence whose failed attempt can block the
-  terminal census while leaving the chosen terminal attempt resolved; and
+- query-level participant image availability before Metadata forwarding; and
 - composed, unavailable, rejected, contract-fault, and completed terminal
   states.
 
@@ -51,26 +52,29 @@ side
   + owner-issued binding version
   + terminal acquisition registration
   + query operation and question
+  + exact Research selection scope
   + query input
   + projected Research input
   + Research domain and pre-existing attempt
 ```
 
-The concrete product also retains the exact selection-scope identity,
-catalog-generation identity, domain-side census, and MVID-scoped address
-evidence. The model represents carried versus exact-address request kind,
-terminal-domain health, and attempt identity, while abstracting the detailed
+The concrete product also retains catalog-generation identity, domain-side
+census payload, and MVID-scoped address evidence. The model represents exact
+selection-scope identity, carried versus exact-address request kind,
+terminal-domain health, and attempt identity, while abstracting those detailed
 payloads.
 
 The receipt, attempt, and census maps are installed in `Init` and never change.
 Each separates an active owner-published domain from total bounded value slots
-used by mutations. Population validity requires the active receipt domain to
-equal the sealed Queries population before either imported owner advances.
-Their opaque ids model already completed owner work; no composition transition
-constructs a Research identity, attempt, domain, or census. The peer ids are
-model-only tagged tuple witnesses whose components are never inspected. TLA+
-record values encode owner-issued associations, not permission for product
-composition to derive those identities from semantic fields.
+used by mutations. Population validity independently requires the active
+receipt domain to equal the sealed Queries population and the complete
+Research input domain to equal that receipt before either imported owner
+advances. Their opaque ids model already completed owner work; no composition
+transition constructs a Research identity, attempt, domain, scope, or census.
+The two scope ids are model-only tagged tuple witnesses whose components are
+never inspected. TLA+ record values encode owner-issued associations, not
+permission for product composition to derive those identities from semantic
+fields.
 
 ## Imported contract
 
@@ -87,10 +91,12 @@ owner is invoked, so it does not claim temporal refinement for those inputs.
 `AssemblyBindingPolicyVersionLifecycle`. The safety configuration rechecks
 fresh replacement and `BindingBehaviorRefinesOwner`.
 
-For a valid population and carried request, the composition calls
-`Forwarding!Advance` and `BindingLifecycle!Advance`; it does not copy either
-owner's transitions. An invalid population or unsupported exact-address
-request rejects before those actions. Once forwarding reaches `Terminal`,
+For a valid population, carried request, and successfully retained participant
+set, the composition calls `Forwarding!Advance` and
+`BindingLifecycle!Advance`; it does not copy either owner's transitions. An
+invalid population or unsupported exact-address request rejects before those
+actions. A query-level participant image-open rejection becomes unavailable
+without invoking either imported owner. Once forwarding reaches `Terminal`,
 Queries either selects the pre-existing attempt, reports typed non-success, or
 detects binding-version drift as a contract fault.
 
@@ -102,18 +108,22 @@ The safety configuration checks that:
   before forwarding resolution;
 - an unsupported exact-address request rejects before forwarding or binding
   advances;
+- a query-level image-open failure becomes unavailable before forwarding or
+  binding advances;
 - a selected endpoint belongs to the requested side and its admitted group;
 - a selected endpoint is the exact terminal assembly from Metadata;
 - the exact Research attempt comes from the Queries-to-Research projection;
 - the selected Research input retains the selected Queries input's exact
   terminal acquisition registration;
 - the selected census is the exact domain-side census containing that attempt;
+- the selected attempt, census, and retained root attempt belong to the exact
+  requested selection scope;
 - the selected attempt is resolved;
 - the selected terminal domain is healthy;
 - the pre-existing root attempt is preserved;
 - forwarding hops and the captured binding-policy version are preserved;
 - direct resolution retains the facade root;
-- a forwarded root remains input-locally unavailable; and
+- a forwarded root remains input-locally unavailable;
 - only carried requests select an endpoint;
 - an unusable attempt or census becomes unavailable before later root-shape
   rejection;
@@ -133,14 +143,15 @@ accepting any converged phase:
 
 | Configuration | Required outcome | Generated / distinct | Maximum depth |
 | --- | --- | ---: | ---: |
-| `DirectCompletion.cfg` | A valid direct definition completes with the facade root. | 55,318 / 8 | 4 |
-| `ForwardedCompletion.cfg` | A valid one-hop route with a blocked facade census completes from the healthy terminal census. | 55,384 / 20 | 7 |
-| `BlockedTerminalCensusUnavailable.cfg` | A resolved terminal attempt remains unavailable when another exact side-local failed attempt blocks its census. | 55,381 / 17 | 6 |
-| `ExactAddressRejected.cfg` | An exact-address request rejects before either imported owner advances. | 55,368 / 144 | 2 |
-| `MissingTerminalPopulationRejected.cfg` | A group participant missing from the sealed population is rejected before resolution. | 55,872 / 1,152 | 2 |
-| `DuplicatePopulationRejected.cfg` | A duplicated sealed occurrence for one group participant is rejected before resolution. | 55,872 / 1,152 | 2 |
-| `ForeignPopulationRejected.cfg` | An extra sealed input outside the group is rejected before resolution. | 55,872 / 1,152 | 2 |
-| `BroaderResearchPopulationRejected.cfg` | A Research map containing an unsealed terminal input is rejected before resolution. | 55,584 / 576 | 2 |
+| `DirectCompletion.cfg` | A valid direct definition completes with the facade root. | 147,478 / 8 | 4 |
+| `ForwardedCompletion.cfg` | A valid one-hop route with a blocked facade census completes from the healthy terminal census. | 147,544 / 20 | 7 |
+| `BlockedTerminalCensusUnavailable.cfg` | An owner-valid failed terminal attempt and blocked census remain unavailable. | 147,541 / 17 | 6 |
+| `ImageOpenFailureUnavailable.cfg` | Query-level participant image rejection becomes unavailable before either imported owner advances. | 147,458 / 4 | 2 |
+| `ExactAddressRejected.cfg` | An exact-address request rejects before either imported owner advances. | 147,600 / 288 | 2 |
+| `MissingTerminalPopulationRejected.cfg` | A group participant missing from the sealed population is rejected before resolution. | 148,032 / 1,152 | 2 |
+| `DuplicatePopulationRejected.cfg` | A duplicated sealed occurrence for one group participant is rejected before resolution. | 148,032 / 1,152 | 2 |
+| `ForeignPopulationRejected.cfg` | An extra sealed input outside the group is rejected before resolution. | 148,032 / 1,152 | 2 |
+| `BroaderResearchPopulationRejected.cfg` | A valid root-only receipt paired with a Research result containing an additional terminal input is rejected before resolution. | 147,744 / 576 | 2 |
 
 ## Mutation configurations
 
@@ -149,6 +160,7 @@ accepting any converged phase:
 | `BrokenFacadeEndpoint.cfg` | Replaces a forwarded terminal assembly with the facade. | Violates `SelectedEndpointMatchesResolvedTerminal`. |
 | `BrokenCrossSideEndpoint.cfg` | Selects the terminal participant from the opposite comparison side. | Violates `SelectedEndpointBelongsToRequestedSide`. |
 | `BrokenResearchReceipt.cfg` | Reconstructs a Research input with a foreign receipt token. | Violates `SelectedResearchAttemptUsesPopulationReceipt`. |
+| `BrokenCrossScope.cfg` | Substitutes a resolved attempt and healthy census from another selection scope. | Violates `SelectedScopeMatchesRequest`. |
 | `BrokenTerminalCorrespondence.cfg` | Reuses a sealed candidate's collapsed query id for another terminal assembly. | Violates `SelectedResearchInputMatchesSelectedQueryInput`. |
 | `BrokenCensusSubstitution.cfg` | Substitutes a healthy census for another domain and attempt set. | Violates `SelectedCensusMatchesAttempt`. |
 | `BrokenRootRelabel.cfg` | Relabels the pre-existing forwarded root attempt as resolved. | Violates `RootAttemptIsPreserved`. |
@@ -167,19 +179,19 @@ After. Boolean admission and sealing facts distinguish a usable terminal,
 an admitted but unsealed input, and an out-of-group target without enumerating
 irrelevant participant subsets. Separate Booleans represent a repeated sealed
 occurrence, an extra selected-side input outside the group, and a selected
-terminal Research-map member, making multiplicity, group membership, and
-active-domain equality independently checkable. The immutable terminal
-candidate represents the already populated participant whose owner-issued maps
-may satisfy the route; nondeterministically choosing `Target` or `Other` covers
-both possible terminal identities without deriving a map from the later
-forwarding result.
+terminal receipt member and complete Research member, making multiplicity,
+group membership, receipt-domain equality, and Research-domain equality
+independently checkable. The immutable terminal candidate represents the
+already populated participant whose owner-issued maps may satisfy the route;
+nondeterministically choosing `Target` or `Other` covers both possible
+terminal identities without deriving a map from the later forwarding result.
 
-A model-only exact peer occurrence uses whichever non-facade assembly is not
-the terminal candidate. Its failed attempt occupies the selected terminal
-domain and makes that complete side-local census blocked while the chosen
-terminal attempt remains resolved. Without the peer, census health derives
-only from the represented attempt kind. A `DeclaringTypeForwarded` root
-attempt therefore has a blocked facade census, while exact forwarded completion
+Census health derives from the represented attempt kind. A failed terminal
+attempt therefore has an owner-valid blocked census and remains unavailable. A
+same-side domain with multiple inputs is not represented as one resolved
+attempt plus one failed peer because Research classifies that domain
+`DomainAmbiguous` before either request resolves. A `DeclaringTypeForwarded`
+root attempt has a blocked facade census, while exact forwarded completion
 uses the distinct healthy terminal census.
 
 The single binding lifecycle abstracts the invariant shared by every
@@ -210,12 +222,12 @@ runs every configuration in a selected model directory. Entries in
 `eng/tla-expected-exit-codes.txt` additionally require the listed
 configurations to produce their exact semantic verdict.
 
-All 22 configurations are exact-outcome gates. The exhaustive safety and
-liveness configurations retain the complete input cross-product and now fit
-the shared CI runner's 120-second per-configuration budget. The `CiSafety` and
+All 24 configurations are exact-outcome gates. The exhaustive safety and
+liveness configurations retain the complete input cross-product and fit the
+shared runner's 600-second per-configuration budget. The `CiSafety` and
 `CiLiveness` configurations retain a fast successful-owner-input check, while
-the eight exact scenarios force promised terminal classifications and the ten
-mutations force their intended safety violations.
+the nine exact scenarios force promised terminal classifications and the
+eleven focused mutations force their intended safety violations.
 
 ## Recorded result
 
@@ -224,25 +236,26 @@ scenario configurations:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Exhaustive safety | 581,816 | 467,768 | 10 | All composition invariants passed over valid, missing, duplicated, extra, broader, and unsupported-request inputs. |
-| Exhaustive liveness | 581,816 | 467,768 | 10 | `CompositionConverges` passed. |
-| CI safety | 59,682 | 3,338 | 10 | Exact-population carried inputs passed all safety checks and both behavior refinements. |
-| CI liveness | 59,682 | 3,338 | 10 | `CompositionConverges` passed over exact-population carried inputs. |
+| Exhaustive safety | 609,080 | 533,048 | 10 | All composition invariants passed over valid, missing, duplicated, extra, broader, unsupported-request, and query-image-rejection inputs. |
+| Exhaustive liveness | 609,080 | 533,048 | 10 | `CompositionConverges` passed. |
+| CI safety | 151,842 | 3,338 | 10 | Exact-population carried inputs with retained images passed all safety checks and both behavior refinements. |
+| CI liveness | 151,842 | 3,338 | 10 | `CompositionConverges` passed over exact-population carried inputs with retained images. |
 
 Every mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken facade endpoint | 263,301 / 227,995 | 6 | A forwarding chain reached another assembly, but composition selected the facade. |
-| Broken cross-side endpoint | 286,642 / 245,135 | 6 | A forwarded endpoint used the opposite side's group and input identities. |
-| Broken Research receipt | 118,997 / 118,068 | 3 | The endpoint attempt carried a reconstructed Research input with a foreign receipt token. |
-| Broken terminal correspondence | 273,896 / 234,906 | 6 | Another terminal assembly reused the admitted candidate's collapsed query id. |
-| Broken census substitution | 117,178 / 116,648 | 3 | A healthy census from another domain and attempt set replaced the exact terminal census. |
-| Broken root relabel | 272,214 / 234,534 | 6 | A forwarded root attempt was retained as resolved instead of `DeclaringTypeForwarded`. |
-| Broken non-resolved attempt | 274,212 / 235,771 | 6 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
-| Broken forwarding evidence | 272,676 / 234,873 | 6 | A forwarded endpoint completed with an empty retained path. |
-| Broken binding drift | 147,472 / 136,180 | 4 | Composition published after the owner-issued binding version advanced. |
-| Broken unavailable invocation | 141,722 / 135,242 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
+| Broken facade endpoint | 147,612 / 34 | 7 | A forwarding chain reached another assembly, but composition selected the facade. |
+| Broken cross-side endpoint | 147,612 / 34 | 7 | A forwarded endpoint used the opposite side's group and input identities. |
+| Broken Research receipt | 147,612 / 34 | 7 | The endpoint attempt carried a reconstructed Research input with a foreign receipt token. |
+| Broken cross-scope endpoint | 147,612 / 34 | 7 | A coherent resolved attempt, domain, and healthy census from another selection scope became effective. |
+| Broken terminal correspondence | 147,612 / 34 | 7 | Another terminal assembly reused the admitted candidate's collapsed query id. |
+| Broken census substitution | 147,612 / 34 | 7 | A healthy census from another domain and attempt set replaced the exact terminal census. |
+| Broken root relabel | 147,612 / 34 | 7 | A forwarded root attempt was retained as resolved instead of `DeclaringTypeForwarded`. |
+| Broken non-resolved attempt | 147,612 / 34 | 7 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
+| Broken forwarding evidence | 147,612 / 34 | 7 | A forwarded endpoint completed with an empty retained path. |
+| Broken binding drift | 147,618 / 37 | 7 | Composition published after the owner-issued binding version advanced. |
+| Broken unavailable invocation | 147,616 / 124 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
 
 The runs used TLC build `2026.09.01.002747`, revision `95b800c`, from the
 repository-pinned TLA+ v1.8.0 `tla2tools.jar`. The checked jar SHA-256 was
