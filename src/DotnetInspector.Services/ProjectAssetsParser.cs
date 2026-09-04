@@ -126,8 +126,8 @@ public static class ProjectAssetsParser
         {
             Path.Combine(projectDir, "obj", "project.assets.json"),
             Path.Combine(projectDir, "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
-            Path.Combine(projectDir, "..", "..", "..", "artifacts", "obj", projectName, "project.assets.json"),
-            Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json")
+            Path.Combine(projectDir, "artifacts", "obj", projectName, "project.assets.json"),
+            Path.Combine(projectDir, "..", "..", "..", "artifacts", "obj", projectName, "project.assets.json")
         };
 
         foreach (var candidate in candidatePaths)

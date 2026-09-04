@@ -929,6 +929,34 @@ public class ProjectAssetsParserTests
     }
 
     [Fact]
+    public void TryFindAssets_GroupedRepositoryPrefersProjectLocalArtifacts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
+        var projectDir = Path.Combine(root, "fixtures", "queries", "Sample");
+        var repositoryAssetsDir = Path.Combine(root, "artifacts", "obj", "Sample");
+        var localAssetsDir = Path.Combine(projectDir, "artifacts", "obj", "Sample");
+        Directory.CreateDirectory(projectDir);
+        Directory.CreateDirectory(repositoryAssetsDir);
+        Directory.CreateDirectory(localAssetsDir);
+        var csproj = Path.Combine(projectDir, "Sample.csproj");
+        var repositoryAssets = Path.Combine(repositoryAssetsDir, "project.assets.json");
+        var localAssets = Path.Combine(localAssetsDir, "project.assets.json");
+        File.WriteAllText(csproj, "<Project/>");
+        File.WriteAllText(repositoryAssets, """{"source":"repository"}""");
+        File.WriteAllText(localAssets, """{"source":"project"}""");
+        try
+        {
+            Assert.True(ProjectAssetsParser.TryFindAssets(csproj, out var found, out var status));
+            Assert.Equal(ProjectAssetsStatus.Found, status);
+            Assert.Equal(Path.GetFullPath(localAssets), found);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void TryFindAssets_ProjectWithoutRestore_ReturnsAssetsNotRestored()
     {
         var dir = Path.Combine(Path.GetTempPath(), $"pa-test-{Guid.NewGuid():N}");
