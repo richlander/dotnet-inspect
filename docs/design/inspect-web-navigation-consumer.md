@@ -434,7 +434,8 @@ Search, and loaded-package occurrence activation, follows the same push
 classification so Back returns to the catalog. If a catalog-origin NuGet
 package or Platform-library acquisition fails, the consumer restores the prior
 Workspace and catalog, restarts derived Workspace occurrence discovery,
-surfaces retry there, and returns focus to the stable Search control without
+surfaces retry there, and returns focus to the stable Search control when it is
+rendered or otherwise to the retained surface's level-one heading, without
 committing a destination.
 
 ### Package query entry and return

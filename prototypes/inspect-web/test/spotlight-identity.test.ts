@@ -2931,7 +2931,7 @@ test("catalog package acquisition failure restores warm and cold workspaces loca
     /const openedFromProductDemos =\s*isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
   assert.match(
     spotlightPackageLoad,
-    /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => loadPackageFromSpotlight\(id, version, framework\),\s*\(\) => focusWorkbenchSearch\(document\),\s*\)/);
+    /failureHandler: message =>\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => loadPackageFromSpotlight\(id, version, framework\),\s*focusWorkbenchSearchOrHeading,\s*\)/);
   assert.match(
     spotlightPackageLoad,
     /if \(loaded \|\| !catalogSnapshot\) focusTypeList\(focusGeneration\)/);
@@ -2959,7 +2959,10 @@ test("catalog package acquisition failure restores warm and cold workspaces loca
     /const openedFromProductDemos =\s*!scopeOnly && isProductHomeDemosPath\(location\.pathname\);\s*spotlight\.reset\(\);\s*const catalogSnapshot = openedFromProductDemos\s*\? captureCanonicalWorkspaceRestoreSnapshot\(\)\s*: null;/);
   assert.match(
     platformLibraryLoad,
-    /if \(!loaded\) \{[\s\S]*const message = failureMessage[\s\S]*if \(catalogSnapshot\) \{\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack\),\s*\(\) => focusWorkbenchSearch\(document\),\s*\);[\s\S]*return undefined;[\s\S]*\}\s*state\.error = message;/);
+    /if \(!loaded\) \{[\s\S]*const message = failureMessage[\s\S]*if \(catalogSnapshot\) \{\s*failWorkspaceCatalogAction\(\s*message,\s*catalogSnapshot,\s*\(\) => openPlatformLibrary\(assembly, pack\),\s*focusWorkbenchSearchOrHeading,\s*\);[\s\S]*return undefined;[\s\S]*\}\s*state\.error = message;/);
+  assert.match(
+    appSource,
+    /function focusWorkbenchSearchOrHeading\(\): boolean \{\s*return focusWorkbenchSearch\(document\) \|\| focusLevelOneHeading\(\);\s*}/);
 });
 
 test("catalog rollback reacquires Workspace occurrences with current authority", () => {

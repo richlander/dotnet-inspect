@@ -6817,7 +6817,7 @@ async function loadPackageFromSpotlight(
               message,
               catalogSnapshot,
               () => loadPackageFromSpotlight(id, version, framework),
-              () => focusWorkbenchSearch(document),
+              focusWorkbenchSearchOrHeading,
             ),
         }
       : {});
@@ -6908,7 +6908,7 @@ async function openPlatformLibrary(
           message,
           catalogSnapshot,
           () => openPlatformLibrary(assembly, pack),
-          () => focusWorkbenchSearch(document),
+          focusWorkbenchSearchOrHeading,
         );
         return undefined;
       }
@@ -8232,6 +8232,10 @@ function focusLevelOneHeading(): boolean {
   heading.tabIndex = -1;
   heading.focus();
   return true;
+}
+
+function focusWorkbenchSearchOrHeading(): boolean {
+  return focusWorkbenchSearch(document) || focusLevelOneHeading();
 }
 
 function focusInspectionResult(navigationSeq: number): void {
