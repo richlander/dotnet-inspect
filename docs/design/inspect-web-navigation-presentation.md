@@ -542,13 +542,12 @@ or display text.
 A `Selection required` Member state remains distinct from unavailable or
 failed. Its hierarchy item is enabled, labelled `Choose a member`, carries no
 product action ID, and uses `aria-controls` to identify the Member choices
-surface. It is neither `aria-current` nor `aria-disabled`; at a narrow viewport
-it also uses `aria-haspopup="dialog"` for the shared modal navigation drawer.
+surface. It is neither `aria-current` nor `aria-disabled`.
 Activation is a local presentation action: it closes the hierarchy menu and
 moves focus to the first owner-ordered visible Member row in the navigation
 pane. If host filters hide every row, focus moves to the Member text filter
-instead. At a narrow viewport the UI opens the Member drawer before applying
-the same row-or-filter focus rule, so focus remains contained in the modal.
+instead. At a narrow viewport the UI first switches the content frame to its
+Member inventory pane, then applies the same row-or-filter focus rule.
 Each row's product-issued activation state governs any later commit. Opening
 the choices changes no snapshot, URL, or history and does not invent a default
 Member.
@@ -721,7 +720,7 @@ This owner renders product-issued Type inventory rows and their activation
 descriptors. Package and Library navigation may also expose Types where their
 owning lens requires it, but no second Library filter is introduced. Placement
 beside Type and Member working surfaces and replacement by the narrow
-navigation drawer are owned by
+inventory/detail push state are owned by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#responsive-composition).
 
 ## Non-claims
@@ -837,7 +836,7 @@ are proved by the gates in
    and narrow layouts and confirm that it focuses or opens the product-issued
    Member choices without selecting one or changing snapshot, URL, or history.
    Apply filters that hide every Member row and confirm that the same action
-   focuses the Member text filter, remaining inside the narrow modal drawer.
+   focuses the Member text filter in the visible narrow inventory pane.
 7. Supply a typed transition failure and confirm that it is visible without the
    UI selecting another subject and that focus returns to the subject
    menu-button invoker.
