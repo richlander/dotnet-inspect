@@ -571,7 +571,9 @@ public static class FixtureCatalog
             FixtureIds.ServicesRouteLearningContract,
             "DotnetInspector.Services.RouteLearning.Contract",
             "DotnetInspector.Services.RouteLearning.Middle.dll",
-            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            Boundaries(
+                FixtureBoundary.AssemblyName,
+                FixtureBoundary.CrossAssemblyBoundary),
             "services", "binding", "route-learning", "compile-contract");
 
     public static readonly FixtureDefinition ServicesRouteLearningMiddle =
@@ -588,7 +590,10 @@ public static class FixtureCatalog
             "DotnetInspector.Services.RouteLearning.Consumer",
             "DotnetInspector.Services.RouteLearning.Consumer.dll",
             ["services", "binding", "route-learning", "consumer"],
-            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            Boundaries(
+                FixtureBoundary.CrossAssemblyBoundary,
+                FixtureBoundary.PostBuildTransformation,
+                FixtureBoundary.SidecarAsset),
             Asset(
                 "middle",
                 "DotnetInspector.Services.RouteLearning.Consumer",

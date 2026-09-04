@@ -269,6 +269,20 @@ public class FixtureCatalogTests
             reference => reference.StartsWith(
                 "DotnetInspector.Services.RouteLearning.",
                 StringComparison.Ordinal));
+        string unrelatedDirectory = Assert.IsType<string>(
+            Path.GetDirectoryName(
+                FixtureCatalog.ServicesRouteLearningUnrelated
+                    .AssemblyPath()));
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    unrelatedDirectory,
+                    "DotnetInspector.Services.RouteLearning.Middle.dll")));
+        Assert.False(
+            File.Exists(
+                Path.Combine(
+                    unrelatedDirectory,
+                    "DotnetInspector.Services.RouteLearning.Base.dll")));
     }
 
     static void AssertFixtureFileName(FixtureDefinition fixture, string expectedFileName)
