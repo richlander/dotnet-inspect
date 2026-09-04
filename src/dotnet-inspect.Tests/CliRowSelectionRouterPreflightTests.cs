@@ -226,6 +226,23 @@ public sealed class CliRowSelectionRouterPreflightTests
             explicitLimit.RequestKind);
         Assert.Equal(1, explicitLimit.Position);
 
+        CliRowSelectionRouteEnvelopeResult attachedExplicitLimit =
+            Evaluate(
+                [
+                    "Target",
+                    "-n=5"
+                ],
+                declared,
+                undeclared);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            attachedExplicitLimit.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Limit,
+            attachedExplicitLimit.RequestKind);
+        Assert.Equal(1, attachedExplicitLimit.Position);
+
         CandidateFixture alsoUndeclared =
             new(
                 "also-undeclared",
@@ -248,6 +265,22 @@ public sealed class CliRowSelectionRouterPreflightTests
         Assert.Equal(
             CliRowSelectionCapabilities.HeadTail,
             unsupported.Failure!.MissingCapabilities);
+
+        CliRowSelectionRouteEnvelopeResult attachedUnsupported =
+            Evaluate(
+                [
+                    "Target",
+                    "-n:5"
+                ],
+                undeclared,
+                alsoUndeclared);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .UnsupportedCapability,
+            attachedUnsupported.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Limit,
+            attachedUnsupported.RequestKind);
 
         CliRowSelectionRouteEnvelopeResult unboundBare =
             Evaluate(
@@ -315,6 +348,60 @@ public sealed class CliRowSelectionRouterPreflightTests
         Assert.Equal(
             CliRowSelectionCapabilities.Window,
             unsupported.Failure!.MissingCapabilities);
+
+        CliRowSelectionRouteEnvelopeResult attachedUnsupportedWindow =
+            Evaluate(
+                [
+                    "Target",
+                    "--rows=1..2"
+                ],
+                noWindow,
+                alsoNoWindow);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .UnsupportedCapability,
+            attachedUnsupportedWindow.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Rows,
+            attachedUnsupportedWindow.RequestKind);
+
+        CliRowSelectionRouteEnvelopeResult attachedMixedWindow =
+            Evaluate(
+                [
+                    "Target",
+                    "--rows:1..2"
+                ],
+                window,
+                noWindow);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            attachedMixedWindow.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Rows,
+            attachedMixedWindow.RequestKind);
+
+        CliRowSelectionRouteEnvelopeResult neighboringAttachedWindow =
+            Evaluate(
+                [
+                    "Target",
+                    "-5",
+                    "--rows=2..4"
+                ],
+                new CandidateFixture(
+                    "all-capabilities"),
+                new CandidateFixture(
+                    "headtail-only",
+                    capabilities:
+                        CliRowSelectionCapabilities.HeadTail));
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            neighboringAttachedWindow.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Rows,
+            neighboringAttachedWindow.RequestKind);
+        Assert.Equal(2, neighboringAttachedWindow.Position);
 
         CandidateFixture semanticOnly =
             new(
@@ -444,6 +531,26 @@ public sealed class CliRowSelectionRouterPreflightTests
             CliRowSelectionOccurrenceKind.OrderBy,
             firstUnsupported.RequestKind);
         Assert.Equal(1, firstUnsupported.Position);
+
+        CliRowSelectionRouteEnvelopeResult attachedTop =
+            Evaluate(
+                [
+                    "Target",
+                    "--top=3"
+                ],
+                new CandidateFixture(
+                    "top-capable"),
+                new CandidateFixture(
+                    "not-top-capable",
+                    capabilities:
+                        CliRowSelectionCapabilities.None));
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            attachedTop.Outcome);
+        Assert.Equal(
+            CliRowSelectionOccurrenceKind.Top,
+            attachedTop.RequestKind);
     }
 
     [Fact]
@@ -615,6 +722,82 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void DeferredLineModifierCannotChangeEarlierCountMeaning()
+    {
+        CandidateFixture lineIsRequiredValue =
+            new(
+                "line-is-required-value",
+                declarations:
+                    RowDeclarations.All
+                    & ~RowDeclarations.Lines,
+                requiredArity:
+                    ArgumentArity.ExactlyOne);
+        CandidateFixture lineIsModifier =
+            new(
+                "line-is-modifier",
+                requiredArity:
+                    ArgumentArity.ZeroOrOne);
+
+        CliRowSelectionRouteEnvelopeResult result =
+            Evaluate(
+                [
+                    "Target",
+                    "-n",
+                    "2",
+                    "--required",
+                    "--lines"
+                ],
+                lineIsRequiredValue,
+                lineIsModifier);
+
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.Deferred,
+            result.Outcome);
+        Assert.Equal([4], result.DeferredPositions);
+    }
+
+    [Fact]
+    public void MixedMeaningsDoNotSelectACandidateKind()
+    {
+        CandidateFixture topMeaning =
+            new("top-meaning");
+        CandidateFixture rowsMeaning =
+            new(
+                "rows-meaning",
+                rowsName: "--top",
+                omitTopOrderBindings: true);
+
+        CliRowSelectionRouteEnvelopeResult result =
+            Evaluate(
+                [
+                    "Target",
+                    "--top",
+                    "2"
+                ],
+                topMeaning,
+                rowsMeaning);
+        CliRowSelectionRouteEnvelopeResult reversed =
+            Evaluate(
+                [
+                    "Target",
+                    "--top",
+                    "2"
+                ],
+                rowsMeaning,
+                topMeaning);
+
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome
+                .ExplicitCommandRequired,
+            result.Outcome);
+        Assert.Equal(result.Outcome, reversed.Outcome);
+        Assert.Null(result.RequestKind);
+        Assert.Null(reversed.RequestKind);
+        Assert.Equal(1, result.Position);
+        Assert.Equal(result.Position, reversed.Position);
+    }
+
+    [Fact]
     public void CandidateBindingsMayOmitTopGrammar()
     {
         CandidateFixture windowOnly =
@@ -693,12 +876,13 @@ public sealed class CliRowSelectionRouterPreflightTests
             RowDeclarations childDeclarations =
                 RowDeclarations.None,
             string? extraOptionName = null,
-            bool omitTopOrderBindings = false)
+            bool omitTopOrderBindings = false,
+            string rowsName = "--rows")
         {
             Option<string[]> limit =
                 RowValueOption("-n");
             Option<string[]> rows =
-                RowValueOption("--rows");
+                RowValueOption(rowsName);
             Option<string[]>? top =
                 omitTopOrderBindings
                     ? null

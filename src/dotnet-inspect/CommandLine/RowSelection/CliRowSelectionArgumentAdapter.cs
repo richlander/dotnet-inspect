@@ -651,7 +651,8 @@ internal static class CliRowSelectionArgumentAdapter
         {
             ParsedArgument argument =
                 parsedArguments[index];
-            if (optionResults.Any(
+            if (!HasOptionToken(argument)
+                && optionResults.Any(
                     option =>
                         option.Option.Arity.MinimumNumberOfValues > 0
                         && argument.Tokens.Any(

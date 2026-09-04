@@ -125,7 +125,7 @@ internal sealed class CliRowSelectionRouteEnvelopeResult
 
     public static CliRowSelectionRouteEnvelopeResult
         ExplicitCommandRequired(
-            CliRowSelectionOccurrenceKind kind,
+            CliRowSelectionOccurrenceKind? kind,
             int position) =>
         new(
             CliRowSelectionRouteEnvelopeOutcome
@@ -257,10 +257,21 @@ internal static class CliRowSelectionRouteEnvelope
                 {
                     return CliRowSelectionRouteEnvelopeResult
                         .ExplicitCommandRequired(
-                            request.Kind,
+                            request.MeaningsDiffer
+                                ? null
+                                : request.Kind,
                             request.Position);
                 }
 
+                continue;
+            }
+
+            if (scan.LineSelectionDeferred
+                && request.Kind is
+                    CliRowSelectionOccurrenceKind.Limit
+                    or CliRowSelectionOccurrenceKind.Head
+                    or CliRowSelectionOccurrenceKind.Tail)
+            {
                 continue;
             }
 
@@ -511,6 +522,7 @@ internal static class CliRowSelectionRouteEnvelope
             new List<RequestToken>();
         var deferredPositions =
             new SortedSet<int>();
+        bool lineSelectionDeferred = false;
 
         for (int position = 0;
             position < arguments.Count;
@@ -572,6 +584,13 @@ internal static class CliRowSelectionRouteEnvelope
 
             if (requiredClaims.Any(claimed => claimed))
             {
+                lineSelectionDeferred |=
+                    meanings.Any(
+                        meaning =>
+                            meaning is
+                                CliRowSelectionOccurrenceKind.Lines
+                                or CliRowSelectionOccurrenceKind
+                                    .TailLines);
                 deferredPositions.Add(position);
                 continue;
             }
@@ -645,7 +664,8 @@ internal static class CliRowSelectionRouteEnvelope
         return new(
             requests,
             deferredPositions.ToArray(),
-            lineSelection);
+            lineSelection,
+            lineSelectionDeferred);
     }
 
     private static IReadOnlyList<
@@ -850,5 +870,6 @@ internal static class CliRowSelectionRouteEnvelope
     private sealed record RequestScan(
         IReadOnlyList<RequestToken> Requests,
         IReadOnlyList<int> DeferredPositions,
-        bool LineSelection);
+        bool LineSelection,
+        bool LineSelectionDeferred);
 }
