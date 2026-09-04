@@ -279,17 +279,38 @@ frontier. Shape frontiers record both the accepted current shape and the desired
 frontier shape. ReturnToSender catalog rows can also carry body-scoped fragment
 expectations; those match only the decompiled target body, not the reconstructed
 type shell, so metadata scaffolding cannot satisfy a target-body assertion.
-`--source-correspondence-census` is an alias for the source probe when the task
-is source-fidelity triage rather than RTS compile-back triage. Its `--json`
-payload includes `source_correspondence_findings`: stable Finding-style rows
-keyed by member stable selector when available. Each row carries a descriptor ID
-such as `source.correspondence.valid_different.known_taste`, a coarse category
+`--source-correspondence-census` is the live-source form of the probe. For every
+selected target, it uses the portable PDB to acquire the complete authored file
+from its recorded local path, a repeatable `--repo <path>` local clone, or
+SourceLink, in that order. The checksum-verified member slice enters a
+comparison-only source index; PDB correspondence cannot authorize RTS fault
+attribution and does not change the compile-back verdict
+(`PdbMappedSourceIndex_IsIneligibleForFaultAttribution` gates that boundary).
+Acquisition is
+reported beside that verdict as `complete`, `absent`, or `failed`. Absence is a
+measured skip, while acquisition or body-extraction failure exits non-zero.
+RTS-invalid rows remain census data and do not fail this live-source mode; the
+fixture probe retains its existing RTS-invalid exit gate.
+
+Its `--json` payload includes `source_correspondence_findings`: stable
+Finding-style rows keyed by member stable selector when available. Each row
+carries a descriptor ID such as
+`source.correspondence.valid_different.known_taste`, a coarse category
 (`ignorable`, `not-yet-raised-sugar`, `structuring-residue`,
 `semantic-opcode-diff`, `semantic-operand-diff`, `invalid`, or `unclassified`),
 the source file name, and whether fidelity-diff evidence is attached. The
-finding projection intentionally
-uses source file names rather than absolute source paths so the census can be
-shared without leaking local checkout paths.
+finding projection intentionally uses source file names rather than absolute
+source paths so the census can be shared without leaking local checkout paths.
+Stored reports count authored-body matches separately from bodyless declarations,
+which remain context rather than a higher-is-better correspondence metric
+(`SourceCorrespondenceReport_TracksBodylessRowsAsContext` gates the split).
+For example:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --source-correspondence-census --json --cap 500 \
+  --repo /path/to/runtime System.Private.CoreLib.dll
+```
 
 `--authored-rebuild-fidelity` is the SourceLink-backed second oracle. It
 checksum-verifies the authored body, substitutes it into the same final RTS
@@ -302,8 +323,9 @@ or integrity failure.
 ### Authored-source correspondence corpus (offline benchmark)
 
 `--authored-rebuild-fidelity` and `--source-correspondence-census` resolve
-authored source live through SourceLink, so they need network access and report
-`SourceUnavailable` whenever a library has no SourceLink. The authored-source
+authored source at run time. The census can avoid SourceLink network access when
+the recorded local path exists or a matching commit is available through
+`--repo`; otherwise both modes may require the network. The authored-source
 correspondence corpus removes that variability: a vendored JSONL where each row
 is a real method identity plus a checksum-verified authored member body captured
 at harvest time. Benchmark runs over it are fully offline and, because every row
@@ -329,9 +351,14 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   $(cat /tmp/corpus-assemblies.txt)
 ```
 
-`--repo <path>` (repeatable) makes harvest read each target's authored source
-from a local git clone instead of the network, arbitrated by the same PDB
-checksum, falling back to the network on any mismatch or miss. Pointing it at
+For `--package` inputs, the harness carries the resolved package ID and version
+into portable-PDB acquisition so the package's `.snupkg` participates before
+symbol-server fallback.
+
+`--repo <path>` (repeatable) makes harvest, drift verification, candidate
+discovery, and the live source-correspondence census read each target's authored
+source from a local git clone instead of the network, arbitrated by the same PDB
+checksum and falling back to the network on any mismatch or miss. Pointing it at
 this checkout resolves the dotnet-inspect self-corpus rows entirely from local
 git: those assemblies come from the pinned `dotnet-inspect.any` package
 (`prepare-decompiler-corpus.sh`), whose SourceLink targets this repository, so
