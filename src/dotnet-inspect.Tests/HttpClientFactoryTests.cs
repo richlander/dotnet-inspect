@@ -128,6 +128,84 @@ public class HttpClientFactoryTests : IDisposable
     }
 
     [Fact]
+    public void CreateCredentialFreePackageSourceHandler_DisablesAmbientStateAndRedirects()
+    {
+        using HttpMessageHandler handler = DotnetInspector.Core.HttpClientFactory
+            .CreateCredentialFreePackageSourceHandler(
+                "https://private.example/v3/index.json");
+        HttpMessageHandler current = handler;
+        while (current is DelegatingHandler delegating)
+            current = delegating.InnerHandler!;
+
+        SocketsHttpHandler transport =
+            Assert.IsType<SocketsHttpHandler>(current);
+        Assert.False(transport.UseCookies);
+        Assert.Null(transport.Credentials);
+        Assert.False(transport.PreAuthenticate);
+        Assert.False(transport.AllowAutoRedirect);
+    }
+
+    [Fact]
+    public async Task CreateCredentialFreePackageSourceHandler_AdmitsConfiguredPrivateOriginAndAddsUserAgent()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int sourcePort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        string sourceUrl = $"http://127.0.0.1:{sourcePort}/index.json";
+        string? requestText = null;
+        Task server = Task.Run(
+            async () =>
+            {
+                using TcpClient connection = await listener.AcceptTcpClientAsync(
+                    TestContext.Current.CancellationToken);
+                await using NetworkStream stream = connection.GetStream();
+                var request = new byte[2048];
+                int length = await stream.ReadAsync(
+                    request,
+                    TestContext.Current.CancellationToken);
+                requestText = Encoding.ASCII.GetString(request, 0, length);
+                await stream.WriteAsync(
+                    Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"),
+                    TestContext.Current.CancellationToken);
+            },
+            TestContext.Current.CancellationToken);
+
+        using var client = new HttpClient(
+            DotnetInspector.Core.HttpClientFactory
+                .CreateCredentialFreePackageSourceHandler(sourceUrl));
+        string response = await client.GetStringAsync(
+            sourceUrl,
+            TestContext.Current.CancellationToken);
+        await server;
+
+        Assert.Equal("{}", response);
+        Assert.Contains(
+            "User-Agent: dotnet-inspect",
+            requestText,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateCredentialFreePackageSourceHandler_HonorsOfflinePolicy()
+    {
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions { Offline = true });
+        using var client = new HttpClient(
+            DotnetInspector.Core.HttpClientFactory
+                .CreateCredentialFreePackageSourceHandler(
+                    "https://example.test/v3/index.json"));
+
+        Exception? failure = await Record.ExceptionAsync(
+            () => client.GetAsync(
+                "https://example.test/v3/index.json",
+                TestContext.Current.CancellationToken));
+
+        Assert.NotNull(failure);
+        Assert.NotNull(FindOffline(failure));
+    }
+
+    [Fact]
     public void CredentialFreeBrowserTransportAvoidsUnsupportedHandlerConfiguration()
     {
         using HttpClientHandler transport = DotnetInspector.Core.HttpClientFactory

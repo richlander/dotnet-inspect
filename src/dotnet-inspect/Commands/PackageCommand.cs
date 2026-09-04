@@ -580,7 +580,8 @@ public class PackageCommand
             if (versionQueryPinned is null
                 && options.Limit == 1
                 && !options.IncludeUnlisted
-                && !options.ListVersionsWithFeed)
+                && !options.ListVersionsWithFeed
+                && Core.HttpClientFactory.IsOffline)
             {
                 List<string>? singleVersions =
                     await PackageExtractor.GetSingleVersionListingAsync(
@@ -671,7 +672,56 @@ public class PackageCommand
                 return 0;
             }
 
-            var versions = await PackageExtractor.GetVersionsAsync(context.HttpClient, normalizedName, options.IncludePrerelease, options.Limit, logger.Log, options.SourceOptions);
+            List<string>? versions;
+            if (Core.HttpClientFactory.IsOffline)
+            {
+                versions = await PackageExtractor.GetVersionsAsync(
+                    context.HttpClient,
+                    normalizedName,
+                    options.IncludePrerelease,
+                    options.Limit,
+                    logger.Log,
+                    options.SourceOptions);
+            }
+            else
+            {
+                await using DesktopPackageSourceComposition composition =
+                    context.CreatePackageSourceComposition();
+                PackageVersionDiscoveryResult discovery =
+                    await composition.GetVersionsAsync(
+                        normalizedName,
+                        options.IncludePrerelease,
+                        options.Limit,
+                        options.SourceOptions,
+                        logger.Log);
+                if (discovery.State
+                    == PackageVersionDiscoveryState.Failed)
+                {
+                    WriteVersionDiscoveryFailure(
+                        normalizedName,
+                        discovery.Failures);
+                    return 1;
+                }
+
+                if (discovery.State == PackageVersionDiscoveryState.Partial)
+                {
+                    CommandError.WriteWarning(
+                        $"Version results for package '{normalizedName}' are partial.",
+                        [.. discovery.Failures.Select(
+                            failure => failure.Message)]);
+                }
+
+                if (!discovery.HasAnyCandidate)
+                {
+                    WriteVersionLookupFailure(
+                        normalizedName,
+                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                    return 1;
+                }
+
+                versions = [.. discovery.Versions];
+            }
+
             if (versions == null)
             {
                 WriteVersionLookupFailure(
@@ -1188,6 +1238,64 @@ public class PackageCommand
         var sourceFailure =
             FeedFailureTelemetry.Current?.DescribeFailure(packageName);
         CommandError.Write(sourceFailure?.ToString() ?? notFoundMessage);
+    }
+
+    private static void WriteVersionDiscoveryFailure(
+        string packageName,
+        IReadOnlyList<PackageAuthorityFailure> failures)
+    {
+        var kinds = failures
+            .Select(failure => failure.Kind)
+            .ToHashSet();
+        var remediation = new List<string>();
+        if (kinds.Contains(PackageAuthorityFailureKind.Input))
+        {
+            remediation.Add(
+                "Correct the package command input and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Configuration))
+        {
+            remediation.Add(
+                "Correct the package source configuration and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.AuthenticationRequired))
+        {
+            remediation.Add(
+                "Supply credentials for the source and retry.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Unsupported))
+        {
+            remediation.Add(
+                "Use a package source that supports version enumeration in this host.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.IncompleteMetadata))
+        {
+            remediation.Add(
+                "Retry to obtain complete package version metadata.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Timeout))
+        {
+            remediation.Add(
+                "Retry, or increase --http-timeout for a slow package source.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.InvalidResponse)
+            || kinds.Contains(PackageAuthorityFailureKind.ResponseRejected))
+        {
+            remediation.Add(
+                "Check the package source metadata and configuration before retrying.");
+        }
+        if (kinds.Contains(PackageAuthorityFailureKind.Transport))
+        {
+            remediation.Add(
+                "Check the package source URL and network connectivity before retrying.");
+        }
+
+        CommandError.Write(
+            $"Package '{packageName}' version discovery failed.",
+            [
+                .. failures.Select(failure => failure.Message),
+                .. remediation,
+            ]);
     }
 
     private static async Task<int> ExecuteMultiPackageAsync(
