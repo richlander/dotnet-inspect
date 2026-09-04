@@ -417,6 +417,43 @@ public sealed class MetadataAdmissionCleanupTests
     }
 
     [Fact]
+    public void DependencyScan_MalformedTypeSpecBaseIsRejectedNotSilentlyDropped()
+    {
+        // A TypeSpec base whose signature will not decode is the case the
+        // nullable name path hides: it yields null rather than throwing, and
+        // the tree builder drops a null dependency without comment. Left
+        // unchecked the malformed participant publishes, shadows the healthy
+        // same-name definition, and answers with an edge-less tree carrying no
+        // rejection at all — a certified absence this scanner must never emit.
+        Type target = typeof(MetadataAdmissionCleanupTests);
+        string malformed = WriteTempImage(
+            BuildMalformedTypeSpecBaseImage(target.Namespace!, target.Name));
+        string healthy = target.Assembly.Location;
+        try
+        {
+            TypeDependencyResult result =
+                TypeDependencyScanner.BuildDependencyTree(
+                    target.FullName!,
+                    [malformed, healthy]);
+
+            Assert.True(result.Found);
+            TypeDependencyRejection rejection = Assert.Single(
+                result.Rejections);
+            Assert.Equal(malformed, rejection.AssemblyPath);
+            Assert.Equal(
+                TypeDependencyRejectionKind.InvalidImage,
+                rejection.Kind);
+
+            // The healthy neighbor answered, not the malformed participant.
+            Assert.Equal(target.FullName, result.MatchedType);
+        }
+        finally
+        {
+            File.Delete(malformed);
+        }
+    }
+
+    [Fact]
     public void DependencyScan_InvalidImageDoesNotHideHealthyNeighbor()
     {
         string malformed = WriteTempImage(
@@ -1156,6 +1193,59 @@ public sealed class MetadataAdmissionCleanupTests
             metadata.GetOrAddString(typeNamespace),
             metadata.GetOrAddString(typeName),
             MetadataTokens.TypeReferenceHandle(999),
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
+    }
+
+    internal static byte[] BuildMalformedTypeSpecBaseImage(
+        string typeNamespace,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddAssembly(
+            metadata.GetOrAddString("MalformedTypeSpec"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            0,
+            default);
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("MalformedTypeSpec.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+
+        // A TypeSpec whose signature blob is not a decodable type. The
+        // nullable name path turns this into null rather than a rejection.
+        var badSignature = new BlobBuilder();
+        badSignature.WriteBytes(new byte[] { 0xff, 0xff, 0xff, 0xff });
+        TypeSpecificationHandle spec = metadata.AddTypeSpecification(
+            metadata.GetOrAddBlob(badSignature));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString(typeNamespace),
+            metadata.GetOrAddString(typeName),
+            spec,
             MetadataTokens.FieldDefinitionHandle(1),
             MetadataTokens.MethodDefinitionHandle(1));
 
