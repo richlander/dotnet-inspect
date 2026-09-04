@@ -1075,26 +1075,36 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Product-resident home demos ship as a static id→factory registry
-(`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts resolve one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records and requires a `ProductDemoSections` binding. Home demos are closed
-presets over the open query/section product: the registry fixes inputs and names
-**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
-Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
-table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
-one section, otherwise Call Graph so package-local entry points still emit rows;
-mermaid keeps Call Graph; document JSON fails closed until graph projection
-lands); the CLI host runs them through the normal type/member section pipelines
-(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
-sections in ordinary formats. Demos must not call past sections into ad hoc
-inspection APIs; a capability that is not a product section is not a home demo
-until the section exists. CLI argv, definition plans, and browser engine
-operations (including a generated TypeScript binding of that engine surface)
-must be encodings of the same preset—not parallel demo systems. Residual:
-minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
-and Call Graph structured-JSON projection (see
+Target product-resident home demos ship through the static application
+ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
+ecosystem grouping, display metadata, and global product order. Workspace
+Definitions owns `ProductDemoSourceBinding`, peer records, exact scenario
+resolution, section admission, run plans, execution, and failures. Grouped and
+flat discovery expose only immutable metadata; selecting one exact scenario ID
+dispatches only that source, whose binding requires exactly one matching
+scenario record. Selection retains the catalog descriptor beside the resolved
+scenario, and hosts use that descriptor as product display metadata. The current
+`DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry remains
+the donor until that transfer lands.
+
+Home demos are closed presets over the open query/section product: each source
+fixes inputs and names **existing product section(s)**
+(`ProductDemoSections.ExpandRunSections` expands Call Graph presets
+format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
+when the demo has caller scope so the re-add stays one section, otherwise Call
+Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
+document JSON fails closed until graph projection lands). The CLI host runs
+them through the normal type/member section pipelines (`DemoScenarioRunner` →
+`TypeCommand` / `MemberCommand`) and returns those sections in ordinary
+formats. Demos must not call past sections into ad hoc inspection APIs; a
+capability that is not a product section is not a home demo until the section
+exists. CLI argv, definition plans, and browser engine operations (including a
+generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Ecosystem grouping does not select or
+activate the pack's package set, prefixes, or scanner, and is never inferred
+from package coordinates or display text. Residual: the ecosystem-catalog
+donor transfer, minted view-facet ids, `WorkspaceContextLoader` as the shared
+group-run owner, and Call Graph structured-JSON projection (see
 workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).

@@ -83,13 +83,17 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. The
-  [Package Set Registry](design/package-set-registry.md) reuses this package
-  owner's coordinate currency and validation while stable set identity, the
-  private shipped inventory, discovery, and lookup live in the front-end-only
-  `DotnetInspector.Ecosystems` application assembly. The CLI consumes that
-  application catalog and passes only package IDs into reusable scope
   resolution.
+- `src/DotnetInspector.Ecosystems/` is the static front-end application
+  catalog. The [Package Set Registry](design/package-set-registry.md) reuses
+  Packages-owned coordinate currency and validation while stable set identity,
+  private shipped inventory, discovery, and lookup live here today. The
+  [Ecosystem Pack](design/ecosystem-packs.md) pattern targets shipped pack
+  metadata and product-demo source content for this assembly while Workspace
+  Definitions retains demo records, resolution, run plans, and execution. Only
+  the CLI and the managed inspect-web facade may consume this application
+  assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
+  not reference it.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
