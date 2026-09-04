@@ -735,11 +735,13 @@ Workspace Definitions issues `ProductDemoSourceBinding`, one static
 noncapturing source paired with the exact scenario ID it must resolve. The
 public minting seam is
 `ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
-method group is admitted, and construction rejects a delegate with a non-null
-target before publication. Static lambdas are intentionally not the authoring
-form because the compiler may represent a noncapturing lambda with a cached
-target object. The binding stores the source privately and exposes no delegate
-or factory property.
+method group is admitted. Construction requires a one-entry invocation list and
+rejects a delegate with a non-null target before publication. Static lambdas are
+intentionally not the authoring form because the compiler may represent a
+noncapturing lambda with a cached target object. A multicast combination of
+static method groups is also rejected because one resolve would otherwise
+execute every combined source. The binding stores the source privately and
+exposes no delegate or factory property.
 
 The application catalog stores that opaque owner-issued binding beside its
 application metadata. Listing is metadata-only and cannot invoke the source.
@@ -1906,7 +1908,7 @@ Implementation must add, at minimum:
   ID exactly, and keeps absent, duplicate, mismatched, record-reference, and
   section-admission failures visible; constructor cases accept a static method
   group and reject instance, capturing-lambda, and cached static-lambda targets
-  before publication —
+  plus multicast static-method-group combinations before publication —
   `ProductDemoSourceBindingTests` owns these Workspace Definitions properties;
   application inventory, grouping, catalog display metadata, and
   neighboring-source isolation remain ecosystem-catalog gates;

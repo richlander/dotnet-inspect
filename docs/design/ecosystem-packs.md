@@ -397,14 +397,16 @@ Workspace Definitions retains:
 The pack registration stores one owner-issued binding and does not copy or
 reinterpret its records. Workspace Definitions exposes the public minting seam
 `ProductDemoSourceBinding.Create(scenarioId, CreateRecords)`. Only a static
-method group is admitted; construction rejects a delegate with a non-null
-target before publication. Static lambdas are intentionally not the authoring
-form because the compiler may represent a noncapturing lambda with a cached
-target object. The binding stores the delegate privately and exposes no
-delegate or factory property. Its resolve operation requires the returned
-records to contain exactly one `ScenarioDefinition`, requires that record's ID
-to equal the binding scenario ID, constructs the registry, resolves that exact
-ID, and enforces the demo section contract.
+method group is admitted; construction requires a one-entry invocation list and
+rejects a delegate with a non-null target before publication. Static lambdas are
+intentionally not the authoring form because the compiler may represent a
+noncapturing lambda with a cached target object. A multicast combination of
+static method groups is also rejected because invoking one binding would
+otherwise execute every combined source. The binding stores the delegate
+privately and exposes no delegate or factory property. Its resolve operation
+requires the returned records to contain exactly one `ScenarioDefinition`,
+requires that record's ID to equal the binding scenario ID, constructs the
+registry, resolves that exact ID, and enforces the demo section contract.
 
 Complete ecosystem-manifest validation rejects duplicate scenario IDs,
 duplicate demo orders, empty title or summary, and a pack-local demo sequence
