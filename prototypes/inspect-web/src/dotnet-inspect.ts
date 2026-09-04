@@ -352,6 +352,7 @@ import { createSpotlightPackageSearch } from "./spotlight-package-search.ts";
 import {
   compareVersionsDesc,
   createCatalogRequests,
+  resetCatalogRequestLoading,
   type DotnetRelease,
 } from "./catalog-requests.ts";
 import { bindStatusBar, fmtBytes, statusBarHtml } from "./status-bar.ts";
@@ -1049,6 +1050,7 @@ function restoreCanonicalWorkspaceRestoreSnapshot(
   failedWorkspaceUrlState = snapshot.failedWorkspaceUrlState
     ? structuredClone(snapshot.failedWorkspaceUrlState)
     : null;
+  resetCatalogRequestLoading(state);
   invalidateBrowserPackageCaches();
   persistRecentPackages();
   persistPlatformRecent();
