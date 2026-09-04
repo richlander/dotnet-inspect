@@ -412,14 +412,33 @@ is no SRM to defer to now, so every one of those conditions becomes `null`:
 | A declared count exceeding the remaining bytes | `null` |
 | A caller observer raising to stop the walk | propagates; never becomes a value |
 
-The last row is the residue of issue #5085. Under the previous design a
-`BadImageFormatException` or `ArgumentOutOfRangeException` raised by a caller's
-observer was caught by the public boundary's malformed-metadata handler and
-converted into *approval* — a caller's budget stop became a decision that the
-blob was safe. With one walker there is one catch boundary and one outcome for
-malformed metadata, so a caller's refusal and a malformed blob no longer share a
-catch by accident. **A caller's refusal is not a statement about the blob**, and
-it must never be laundered into one.
+The last row is the residue of issue #5085, and the phrase "never becomes a
+value" in it is exact. Under the previous design a `BadImageFormatException` or
+`ArgumentOutOfRangeException` raised by a caller's observer was caught by the
+public boundary's malformed-metadata handler and converted into *approval* — a
+caller's budget stop became a decision that the blob was safe. With one walker
+there is one catch boundary and one outcome for malformed metadata, so a
+caller's refusal and a malformed blob no longer share a catch by accident. **A
+caller's refusal is not a statement about the blob**, and it must never be
+laundered into one.
+
+**At this head that laundering does not stop at approval; it reaches the
+caller as a value.** `CustomAttributeValueGuard.IsSafeToDecode` catches both
+absorbed types and returns `true`, and `TryDecode` then proceeds to
+`DecodeValue`, which re-invokes the observer on the *tagged* path. Whether the
+caller ever learns of its own refusal therefore depends on how the observer
+behaves when called a second time:
+
+| Observer | Outcome through `TryDecode` | Observer charges |
+| --- | --- | --- |
+| Throws on every charge | propagates (tagged on the second walk) | 1 |
+| Throws once, at its limit | **returns a fully materialized value** | 6 |
+
+A budget observer that raises once when its limit is reached — the natural way
+to write one — takes the second row. The refusal is silently reversed and the
+caller receives exactly the materialization it declined. The first row is not
+the contract working; it is the defect masked by an observer that happens to
+repeat itself.
 
 That applies to **every** caller boundary, not just the observer. The public
 resolver overload calls back into caller code to resolve a serialized enum name,
@@ -933,6 +952,30 @@ matching to name-based resolution.
 
 > **Do not describe `MaxNestingDepth` as refusing a decode.**
 
+**`MaxNestingDepth` is also a D1 bound, and that is not why it was introduced.**
+`Matches` walks a reference's resolution-scope chain and a definition's declaring
+chain together, once per candidate row, so a `D`-deep chain against `T`
+candidates would cost `Θ(T × D)` — an axis independent of both name length and
+argument count, and one the round-10 class rule does not address, since walking
+handles reads no name content. The cap is what prevents it: per-candidate steps
+track `D` up to 128 and then flatten. Measured with a handle-identity matcher at
+`T` = 1,000: 65.1 steps per candidate at `D` = 64, 129.1 at `D` = 128, then
+130.3, 130.5, and 131.0 at `D` = 256, 512, and 1,024. The term is
+`Θ(T × min(D, 129))`, which is `O(T)`.
+
+So the cost stays linear because of a constant introduced for stack safety.
+**Slice 2 must not raise or remove `MaxNestingDepth` without re-deriving this
+bound**, and if the recursion is ever replaced by an explicit stack — the usual
+reason to drop such a cap — the `Θ(T × D)` term returns with nothing left to
+bound it. A ~130x per-row constant is also worth removing on its own terms by
+discriminating candidates before walking either chain.
+
+This is also a warning about how the D1 gate must sample. A generator that
+varied depth only to 64 would have measured a clean quadrupling and reported a
+super-linear defect that does not exist. **Any dimension with a cap must be
+sampled past that cap**, or the gate will report the trend below it as the
+asymptote.
+
 `MaxSerializedDepth` also caps chains the decoder walks, which has a practical
 consequence for tests: a fixture built with more than 512 custom modifiers is
 refused before any behavior under test is reached.
@@ -964,7 +1007,7 @@ encoding.
 | Invariant | Gate | State |
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly, including the shared-prefix cross-product. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; six open defects violate it. |
-| **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. **Also blind to caller-boundary provenance**: SRM observes a resolver callback's exception exactly as we do, so a `null`-wherever-SRM-throws oracle blesses reporting a caller's failure as a malformed blob (#5759). The gate needs an explicit axis for exceptions thrown *by* the observer and the resolver, which no oracle comparison can supply. **And blind to resource exhaustion raised inside our own materialization** (#5397): SRM throws `OutOfMemoryException` there too, so the oracle agrees with swallowing it. That axis needs a heap-constrained host or an injected allocation seam, and it cannot be satisfied by the callback tests — both callbacks already propagate OOM at this head while the unconditional `catch` at `AttributeDecoder.cs:305` still converts an internal one to `null`. | Lands with slice 2. |
+| **D2** | Slice 2's differential test: `null` wherever SRM throws. **"All existing tests green" is not the gate** — the guard tests that encode the deleted defer rule must *invert*. `ExhaustedJaggedSzArray_IsSafe` and `TruncatedInt32ArrayThenHugeNamedCount_IsSafe` both assert `IsSafeToDecode` is `true` on input "refuse; do not defer" now rejects. Slice 2 classifies every `Assert.True` site in `CustomAttributeValueGuardTests` as legal-approve (stays) or deferral (inverts), and lists the inverted set. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3 and to the defaulted-width signal. **Also blind to caller-boundary provenance**: SRM observes a resolver callback's exception exactly as we do, so a `null`-wherever-SRM-throws oracle blesses reporting a caller's failure as a malformed blob (#5759). The gate needs an explicit axis for exceptions thrown *by* the observer and the resolver, which no oracle comparison can supply. **That axis must vary the exception's *type*, not merely that one was thrown**: the two types the malformed-input handler absorbs — `BadImageFormatException` and `ArgumentOutOfRangeException` — are the only ones that expose #5085 and #5759, and every other type already propagates at this head. A gate that crosses both boundaries with, say, `InvalidOperationException` passes against the unfixed implementation. Require both absorbed types at both boundaries plus a non-absorbed control, and state the assertion as invariant across type. **The observer must also throw only once, at its limit.** An observer that throws on every charge is re-invoked by `DecodeValue` on the tagged path and propagates, so it reports the boundary as honored while a one-shot observer against the same head gets a materialized value. **And blind to resource exhaustion raised inside our own materialization** (#5397): SRM throws `OutOfMemoryException` there too, so the oracle agrees with swallowing it. That axis needs a heap-constrained host or an injected allocation seam, and it cannot be satisfied by the callback tests — both callbacks already propagate OOM at this head while the unconditional `catch` at `AttributeDecoder.cs:305` still converts an internal one to `null`. | Lands with slice 2. |
 | **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is SRM, pinned by the TFM. |
 | **Defaulted-width signal** (D2's "visibly" clause) | A slice-2 test asserting the per-argument signal is **set** for a defaulted width and **clear** for a resolved one, on the same decode path. Needed because the D2 differential is blind to the default and D3 carves the unresolvable case out, so no other gate can fail if the signal is never implemented. Tracked as #5742. | Does not exist. Lands with slice 2. |
 
@@ -972,6 +1015,33 @@ Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
 gate](../evidence-and-validation.md#asserted-properties-name-their-gate).
 Statements about what the invariants *require* are normative regardless.
+
+### Every gate must be shown to fail first
+
+None of these gates exist yet, so all three are specified in prose. Prose gates
+are unfalsifiable, and three consecutive review rounds found one that the
+*current, defective* implementation satisfies as written:
+
+| Round | Gate as written | Why the broken code passed it |
+| --- | --- | --- |
+| 10 | D1: bound allocation per decode | Hoisting the rendering out of the loop zeroes the allocation and leaves the `L`-char compare per row. Cost is unchanged; the gate is green. |
+| 11 | D2: cross the callback boundaries with an exception | Every type except the two the handler absorbs already propagates. A gate using `InvalidOperationException` is green at this head. |
+| 11 | D2: observer raises to stop the walk | An observer that throws on every charge is re-invoked on the tagged path and propagates. The gate is green; a one-shot observer gets a value. |
+
+Each was found by executing something, and none was visible by reading the
+document against itself. They share one shape: **the gate names a symptom that
+the defect can shed while remaining a defect.** The D1 case shed allocation and
+kept the cost; the D2 cases shed one exception type and one observer arity and
+kept the laundering.
+
+So the specification of a gate is not complete when it is agreed to be
+correct. **Slice 2 must demonstrate each gate failing against the
+pre-repair head, name the head it failed at, and record the observed failure
+alongside the gate.** A gate that has never been red is evidence of nothing,
+and one specified in prose ahead of the code has no red state to point to
+until someone runs it. This is ordinary "watch the test fail" discipline; it
+is stated here because the prose-first sequencing in this document removes the
+step that normally supplies it for free.
 
 ### What the D1 gate must vary
 
@@ -1008,6 +1078,11 @@ per-element memoization already passes. The gate must vary jointly, at minimum:
   or `L` alone looks linear. A gate varying only blob-side cardinalities is
   blind to both;
 - the number of attributes decoded from one image;
+- **the depth of nested resolution-scope and declaring-type chains**, crossed with
+  the candidate-row count. This is bounded by `MaxNestingDepth`, so it is a
+  constant factor rather than a defect — but the gate must sample *past* 128 to
+  establish that, since every sample below the cap shows a clean `Θ(T × D)`
+  trend. The same applies to any other capped dimension;
 - **the length of serialized `string` argument values**, which are copied out of
   the blob into the retained result and are invisible to a bound written only
   over type names; and
@@ -1129,7 +1204,7 @@ component.
 | 2 | `SZARRAY` element types are re-parsed once per element rather than once per array. | D1 | #5047 |
 | 3 | Every memo is a **single slot keyed on the previous input**, so alternating two values defeats all of them. | D1 | #5130 |
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` in work and retained values from `Θ(A + B)` of metadata. Absent a shared `MaterializationContext`, each `TryDecode` also rebuilds the type-definition index, adding `Θ(A × T)`. | D1 | #5132 |
-| 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. | D2 | #5085 |
+| 5 | A caller observer's `BadImageFormatException` or `ArgumentOutOfRangeException` is caught by the malformed-metadata handler, so a budget stop is mistaken for a malformed blob. Against a *one-shot* observer the mistake is larger: the guard approves and `TryDecode` returns a materialized value. | D2 | #5085 |
 | 6 | `TryDecode` swallows `OutOfMemoryException` through a bare catch, which is exactly the laundered exception D2 forbids. | D2 | #5397 |
 | 7 | Building the type-definition lookup index renders the fully-qualified name of every type definition, so `P` definitions sharing one `L`-character namespace cost `Θ(P × L)` transient work from `Θ(P + L)` of metadata — for one argument in one decode. Measured at 932 bytes allocated per image byte. Fixable by keying the index on string handles rather than rendered text. | D1 | #5757 |
 | 8 | The definition scan reads a **loop-invariant** name's content once per candidate row: `Matches` materializes the reference's name for every candidate, and the span overload materializes the leaf and namespace segments the same way. `T` definitions and an `L`-character name cost `Θ(T × L)` for one argument, from an image growing `Θ(T + L)`. Measured in isolation at 717 bytes allocated per image byte — a 45 KB image allocates 32 MB; 1,801 bytes per image byte and 81 MB when the name is *unresolvable*, because the failed scan then pays gap 7's index build on the same decode. Hoisting the rendering out of the loop is **not** the fix: it zeroes the allocation and leaves the `Θ(T × L)` comparison cost. Needs a discriminator that does not read name content per row. | D1 | #5758 |
