@@ -7,7 +7,22 @@ import { record, recording } from "./facade-state.ts";
 
 const facade = new URL(import.meta.url).searchParams.get("facade") ?? "unknown";
 
-export async function initializeRuntime(): Promise<void> {
+interface RuntimeFixture {
+  readonly owner: string;
+}
+
+export function createRuntime(): Promise<RuntimeFixture> {
+  record(`createRuntime:${facade}`);
+  return Promise.resolve({ owner: facade });
+}
+
+export async function initializeRuntime(
+  runtime?: RuntimeFixture | PromiseLike<RuntimeFixture>,
+): Promise<void> {
+  const sharedRuntime = await runtime;
+  if (sharedRuntime?.owner !== "inspect-web-host") {
+    throw new Error(`${facade} did not receive the host-owned runtime`);
+  }
   record(`begin:${facade}`);
   // A real generated module awaits the SDK before it resolves; the turn here is what makes
   // an overlapping initialization observable as interleaved begin/end events.

@@ -280,7 +280,12 @@ export interface BrowserWorkspaceShareView {
     readonly section: string | null;
     readonly libraries: ReadonlyArray<string>;
 }
-export declare function initializeRuntime(): Promise<void>;
+export interface JsExportRuntime {
+    readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+    readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
+}
+export declare function createRuntime(): Promise<JsExportRuntime>;
+export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;

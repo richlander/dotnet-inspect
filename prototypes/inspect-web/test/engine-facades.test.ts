@@ -70,6 +70,7 @@ test("startup initializes every facade once, in order, serially", async () => {
   await coordinator.startEngine("https://dotnet-inspect.test");
 
   assert.deepEqual(recording.events, [
+    "createRuntime:inspect-web-host",
     ...facadeModules.flatMap(module => [`begin:${module}`, `end:${module}`]),
     "configureHost:https://dotnet-inspect.test",
     "runEntryPoint:inspect-web-host",
@@ -94,6 +95,10 @@ test("concurrent callers share one initialization and one entry point", async ()
       1,
       `${module} initialized more than once`);
   }
+  assert.deepEqual(
+    recording.events.filter(event => event.startsWith("createRuntime:")),
+    ["createRuntime:inspect-web-host"],
+    "concurrent callers must share one host-owned runtime creation");
   assert.deepEqual(
     recording.events.filter(event => event.startsWith("runEntryPoint:")),
     ["runEntryPoint:inspect-web-host"],
@@ -125,6 +130,7 @@ test("the first initialization failure is the failure every caller observes", as
   // No fallback, no partial readiness: the facades after the failure never initialize, host
   // policy is never configured, and the entry point never runs.
   assert.deepEqual(recording.events, [
+    "createRuntime:inspect-web-host",
     "begin:inspect-web-host",
     "end:inspect-web-host",
     "begin:inspect-web-package",

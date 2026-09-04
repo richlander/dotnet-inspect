@@ -13,8 +13,19 @@ interface FacadeIdentity {
   readonly module: string;
 }
 
+interface JsExportRuntime {
+  readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+  readonly runMain: (
+    mainAssemblyName?: string,
+    args?: string[],
+  ) => Promise<number>;
+}
+
 interface FacadeModule extends Record<string, unknown> {
-  initializeRuntime(): Promise<void>;
+  createRuntime(): Promise<JsExportRuntime>;
+  initializeRuntime(
+    runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,
+  ): Promise<void>;
   runEntryPoint(): Promise<number>;
 }
 
@@ -58,6 +69,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFacadeModule(value: unknown): value is FacadeModule {
   return isRecord(value)
+    && typeof value.createRuntime === "function"
     && typeof value.initializeRuntime === "function"
     && typeof value.runEntryPoint === "function";
 }
@@ -200,25 +212,23 @@ assert.equal(
 writeFileSync(
   dotnetAlias,
   `import { dotnet as sdkDotnet } from "./${dotnetModule}";
-let runtime;
+const runtimes = new Set();
 let createCalls = 0;
 let runMainCount = 0;
 async function create(...args) {
-  if (runtime === undefined) {
-    createCalls++;
-    runtime = Reflect.apply(sdkDotnet.create, sdkDotnet, args).then(value =>
-      new Proxy(value, {
-        get(target, property, receiver) {
-          const member = Reflect.get(target, property, receiver);
-          if (property !== "runMain" || typeof member !== "function") return member;
-          return (...runArgs) => {
-            runMainCount++;
-            return Reflect.apply(member, target, runArgs);
-          };
-        },
-      }));
-  }
-  return runtime;
+  createCalls++;
+  const runtime = await Reflect.apply(sdkDotnet.create, sdkDotnet, args);
+  runtimes.add(runtime);
+  return new Proxy(runtime, {
+    get(target, property, receiver) {
+      const member = Reflect.get(target, property, receiver);
+      if (property !== "runMain" || typeof member !== "function") return member;
+      return (...runArgs) => {
+        runMainCount++;
+        return Reflect.apply(member, target, runArgs);
+      };
+    },
+  });
 }
 export const dotnet = new Proxy(sdkDotnet, {
   get(target, property, receiver) {
@@ -230,7 +240,7 @@ export const dotnet = new Proxy(sdkDotnet, {
 export function inspectWebRuntimeObservation() {
   return {
     createCalls,
-    runtimeCount: runtime === undefined ? 0 : 1,
+    runtimeCount: runtimes.size,
     runMainCount,
   };
 }
@@ -261,8 +271,12 @@ try {
   let readiness: Promise<void> | undefined;
   function initializeFacades(): Promise<void> {
     readiness ??= (async () => {
+      const ownerIdentity = facades.at(0);
+      assert.ok(ownerIdentity, "published facade domain has no runtime owner");
+      const owner = loaded.get(ownerIdentity.module)!;
+      const runtime = owner.createRuntime();
       for (const facade of facades)
-        await loaded.get(facade.module)!.initializeRuntime();
+        await loaded.get(facade.module)!.initializeRuntime(runtime);
     })();
     return readiness;
   }

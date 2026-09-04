@@ -1,4 +1,4 @@
-import { dotnet, type RuntimeAPI } from "./_framework/dotnet.js";
+import { dotnet } from "./_framework/dotnet.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
@@ -329,8 +329,16 @@ type $ManagedExports = {
   };
 };
 
+export interface JsExportRuntime {
+  readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+  readonly runMain: (
+    mainAssemblyName?: string,
+    args?: string[],
+  ) => Promise<number>;
+}
+
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
-let $runtime: RuntimeAPI | undefined;
+let $runtime: JsExportRuntime | undefined;
 let $managedExports: $ManagedExports | undefined;
 let $initialization: Promise<void> | undefined;
 let $initializationFailure: { readonly error: unknown } | undefined;
@@ -346,7 +354,7 @@ function $ownDataProperty(value: unknown, key: string): unknown {
   return descriptor.value;
 }
 
-function $requireRuntime(): RuntimeAPI {
+function $requireRuntime(): JsExportRuntime {
   if ($initializationFailure !== undefined) throw $initializationFailure.error;
   if ($runtime === undefined) {
     throw $notInitializedError;
@@ -413,17 +421,25 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   }
 }
 
-async function $initializeRuntimeCore(): Promise<void> {
-  const runtime = await dotnet.create();
+async function $initializeRuntimeCore(
+  runtime: JsExportRuntime,
+): Promise<void> {
   const exports: unknown = await runtime.getAssemblyExports("InspectWeb.Engine.CatalogExports");
   $validateManagedExports(exports);
   $runtime = runtime;
   $managedExports = exports;
 }
 
-export function initializeRuntime(): Promise<void> {
+export function createRuntime(): Promise<JsExportRuntime> {
+  return dotnet.create();
+}
+
+export function initializeRuntime(
+  runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,
+): Promise<void> {
   if ($initialization === undefined) {
     $initialization = Promise.resolve()
+      .then(() => runtime === undefined ? createRuntime() : runtime)
       .then($initializeRuntimeCore)
       .catch((error: unknown) => {
         $initializationFailure = { error };

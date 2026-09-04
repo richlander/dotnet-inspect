@@ -14,6 +14,14 @@ interface FacadeIdentity {
   readonly root: string;
 }
 
+interface JsExportRuntime {
+  readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+  readonly runMain: (
+    mainAssemblyName?: string,
+    args?: string[],
+  ) => Promise<number>;
+}
+
 // The exact production facade set, stated here independently of the generation script so a
 // module that silently changes its assembly, root type or membership fails this gate.
 const facades: readonly FacadeIdentity[] = [
@@ -123,12 +131,16 @@ function isProbeState(value: unknown): value is ProbeState {
 }
 
 interface FacadeModule extends Record<string, unknown> {
-  initializeRuntime(): Promise<void>;
+  createRuntime(): Promise<JsExportRuntime>;
+  initializeRuntime(
+    runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,
+  ): Promise<void>;
   runEntryPoint(): Promise<number>;
 }
 
 function isFacadeModule(value: unknown): value is FacadeModule {
   return isRecord(value)
+    && typeof value.createRuntime === "function"
     && typeof value.initializeRuntime === "function"
     && typeof value.runEntryPoint === "function";
 }
@@ -234,11 +246,10 @@ const assemblies = new Map(managedAssemblies.map(entry => [entry.assembly, {
     },
   ])),
 }]));
-let runtime;
 export const dotnet = {
   async create() {
     calls.push("create");
-    runtime ??= {
+    return {
       async getAssemblyExports(assemblyName) {
         calls.push(\`exports:\${assemblyName}\`);
         const managed = assemblies.get(assemblyName);
@@ -252,7 +263,6 @@ export const dotnet = {
         return 0;
       },
     };
-    return runtime;
   },
 };
 `);
@@ -283,16 +293,21 @@ function facadeModule(module: string): FacadeModule {
 assert.equal(importedState.calls.length, 0,
   "importing the facade set performed managed work before initialization");
 
-// Eager, ordered, serial initialization: every module acquires its own assembly, and the
-// shared probe module observes all seven doing it.
+// Eager, ordered, serial initialization: the consumer creates one runtime and every module
+// acquires its own assembly through that same handle. The probe returns a fresh runtime for
+// every create call, so this assertion cannot pass by SDK-style memoization.
+const ownerIdentity = facades.at(0);
+assert.ok(ownerIdentity, "the production facade set has no runtime owner");
+const owner = facadeModule(ownerIdentity.module);
+const runtime = owner.createRuntime();
 for (const facade of facades) {
-  await facadeModule(facade.module).initializeRuntime();
+  await facadeModule(facade.module).initializeRuntime(runtime);
 }
 
 assert.deepEqual(
   importedState.calls,
-  facades.flatMap(facade => ["create", `exports:${facade.assembly}`]),
-  "each facade must acquire exactly its own assembly through the shared runtime module");
+  ["create", ...facades.map(facade => `exports:${facade.assembly}`)],
+  "the consumer must create once and each facade must acquire its own assembly");
 
 const host = facadeModule("inspect-web-host");
 assert.ok(isHostFacade(host), "the host facade has an unexpected public shape");

@@ -699,16 +699,17 @@ declaration is a compile-time input copied only into a temporary workspace and
 is never published.
 
 `src/engine-facades.ts` owns runtime composition. Concurrent callers share one
-retained readiness promise while the seven generated modules initialize
-serially over the same `dotnet.js` module. Only the host facade configures
-browser policy and runs the entry point; application calls bind directly to
-their owning generated module rather than a compatibility monolith. After
-publish, `verify-published-engine-facades.ts` runs the real Browser/Wasm
-artifact through the same worker-safe path, proves one runtime and one entry
-point, invokes every facade through its own assembly, and exercises build
-identity plus `asyncLoweringCanary()`, a genuinely awaited operation with a
-fixed typed result and no network, package-cache, server-API, or user-data
-dependency.
+retained readiness promise. It calls the host module's `createRuntime()` once,
+then passes that same narrow runtime handle while the seven generated modules
+initialize serially. Only the host facade configures browser policy and runs
+the entry point; application calls bind directly to their owning generated
+module rather than a compatibility monolith. After publish,
+`verify-published-engine-facades.ts` runs the real Browser/Wasm artifact through
+the same worker-safe path, observes the SDK call without memoizing it, proves
+one creation, one runtime, and one entry point, invokes every facade through its
+own assembly, and exercises build identity plus `asyncLoweringCanary()`, a
+genuinely awaited operation with a fixed typed result and no network,
+package-cache, server-API, or user-data dependency.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
@@ -717,22 +718,23 @@ overload shapes, record name, and enum name. Each checked-in facade is generated
 from only its own assembly and acquires only that assembly's export root. A
 consumer-owned single-flight coordinator serializes first initialization:
 Alpha initializes before Beta, while concurrent readiness callers share that
-one sequence. The second facade relies on the SDK builder's completed-runtime
-reuse; neither generated module coordinates with the other or exposes the
-runtime.
+one sequence. The coordinator creates one narrow runtime handle and passes it
+to both generated modules; it does not rely on repeated SDK creation being
+idempotent.
 
 `eng/generate-inspect-web-multi-facade-canary.sh --check` gates independent
 generation and drift for both facades. The
 `eng/test-inspect-web-multi-facade-canary.sh` Browser/Wasm gate publishes both
-assemblies into one runtime, requests readiness concurrently, and then invokes
-both facades. It requires exactly one live SDK runtime, assembly-distinct
-results through both declaring types and exact overload keys, a genuinely
-awaited operation from each assembly, and independent record and enum
-declarations. Its negative cases prove that the gate fails for a wrong assembly
-root, a separately loaded runtime module, both operational paths routed through
-one facade, an uninitialized second facade, or a dropped managed invocation.
-This canary does not split the production engine binding or expose raw
-`ILInspector` APIs; that production partition remains [#4497].
+assemblies into one runtime under both Mono and CoreCLR, requests readiness
+concurrently, and then invokes both facades. It requires exactly one SDK
+creation and one live runtime, assembly-distinct results through both declaring
+types and exact overload keys, a genuinely awaited operation from each
+assembly, and independent record and enum declarations. Its negative cases
+prove that the gate fails for a wrong assembly root, a separately loaded
+runtime module, both operational paths routed through one facade, an
+uninitialized second facade, or a dropped managed invocation. This canary does
+not split the production engine binding or expose raw `ILInspector` APIs; that
+production partition remains [#4497].
 
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
 

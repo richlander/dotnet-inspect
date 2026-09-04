@@ -60,9 +60,11 @@ dependency. Attribute order is explanatory only.
 
 Each module is generated from a different managed export assembly. The
 Browser/Wasm application remains one host with one SDK runtime. A
-consumer-owned coordinator imports the generated modules from the same
-`dotnet.js` module specifier and initializes them serially. Only the host
-facade's generated `runEntryPoint()` is used.
+consumer-owned coordinator calls the host facade's generated `createRuntime()`
+exactly once, passes that same narrow runtime handle to every facade, and
+initializes them serially. Only the host facade's generated `runEntryPoint()`
+is used. Correctness does not depend on whether the selected SDK runtime
+memoizes repeated creation.
 
 The managed project graph has three roles:
 
@@ -374,13 +376,14 @@ import * as catalog from "/inspect-web-catalog.js";
 let readiness: Promise<void> | undefined;
 
 async function initializeCore(): Promise<void> {
-  await host.initializeRuntime();
-  await packageApi.initializeRuntime();
-  await metadata.initializeRuntime();
-  await analysis.initializeRuntime();
-  await source.initializeRuntime();
-  await callGraph.initializeRuntime();
-  await catalog.initializeRuntime();
+  const runtime = host.createRuntime();
+  await host.initializeRuntime(runtime);
+  await packageApi.initializeRuntime(runtime);
+  await metadata.initializeRuntime(runtime);
+  await analysis.initializeRuntime(runtime);
+  await source.initializeRuntime(runtime);
+  await callGraph.initializeRuntime(runtime);
+  await catalog.initializeRuntime(runtime);
 }
 
 export function initializeFacades(): Promise<void> {
@@ -390,8 +393,10 @@ export function initializeFacades(): Promise<void> {
 ```
 
 The real coordinator also retains the first initialization failure so later
-callers observe the same failure. It does not return a runtime or raw managed
-export object.
+callers observe the same failure. The generated `JsExportRuntime` handle
+exposes only the two SDK capabilities required by generated facades; the
+coordinator neither returns that handle nor exposes a raw managed export
+object.
 
 Startup remains eager and ordered:
 
@@ -422,10 +427,11 @@ runtime acquisition rejects the shared readiness promise. The implementation
 does not fall back to the monolithic module or expose a partially initialized
 application.
 
-The existing multi-facade canary gates the underlying SDK behavior:
+The existing multi-facade canary gates the explicit composition behavior on
+both shipped Browser/Wasm runtimes:
 
-- first initialization creates the runtime;
-- later generated facades reuse the completed SDK runtime;
+- the coordinator calls `createRuntime()` exactly once;
+- every generated facade receives that same runtime promise;
 - independently generated modules retain assembly-specific dispatch; and
 - wrong roots, duplicate runtime modules, cross-routing, skipped initialization,
   and dropped managed invocation fail the gate.
@@ -643,11 +649,12 @@ The partition is implemented when all of the following hold:
 6. TypeScript and Oxlint ownership tests cover each generated and authored
    composition file without admitting build-output directories.
 7. The production Browser/Wasm composition gate initializes concurrent callers,
-   observes one live SDK runtime, invokes every facade through its own assembly,
-   and runs the entry point exactly once.
+   passes one consumer-created runtime handle to every facade, observes one SDK
+   creation and one live runtime, invokes every facade through its own
+   assembly, and runs the entry point exactly once.
 8. Existing multi-facade close negatives still fail for duplicate runtimes,
    wrong assembly roots, cross-routing, skipped initialization, and dropped
-   managed invocation.
+   managed invocation, while positive startup passes on both Mono and CoreCLR.
 9. `InspectWebAsyncDeployment_ReceiptsCoverExactFacadeSet` and
    `InspectWebAsyncDeployment_LoweringsPreserveFacadeContracts` prove paired
    deployment completeness and parity.

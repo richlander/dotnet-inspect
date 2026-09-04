@@ -80,16 +80,19 @@ function $validateManagedExports(exports) {
         }
     }
 }
-async function $initializeRuntimeCore() {
-    const runtime = await dotnet.create();
+async function $initializeRuntimeCore(runtime) {
     const exports = await runtime.getAssemblyExports("InspectWeb.Engine.CatalogExports");
     $validateManagedExports(exports);
     $runtime = runtime;
     $managedExports = exports;
 }
-export function initializeRuntime() {
+export function createRuntime() {
+    return dotnet.create();
+}
+export function initializeRuntime(runtime) {
     if ($initialization === undefined) {
         $initialization = Promise.resolve()
+            .then(() => runtime === undefined ? createRuntime() : runtime)
             .then($initializeRuntimeCore)
             .catch((error) => {
             $initializationFailure = { error };

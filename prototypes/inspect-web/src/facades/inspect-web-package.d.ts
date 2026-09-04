@@ -258,7 +258,12 @@ export interface BrowserWorkspacePackageOccurrenceView {
     readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
     readonly superseded: boolean;
 }
-export declare function initializeRuntime(): Promise<void>;
+export interface JsExportRuntime {
+    readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+    readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
+}
+export declare function createRuntime(): Promise<JsExportRuntime>;
+export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
 export declare function cancelPackageQuery(): void;

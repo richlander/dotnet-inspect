@@ -166,7 +166,7 @@ adds application-facing policy:
 - public wrapper signatures distinct from raw interop signatures;
 - authenticated JSON parsing and exact wire-result types;
 - readonly producer-owned JSON snapshots;
-- initialization and one-runtime reuse; and
+- initialization and explicit one-runtime composition; and
 - consumer-facing DTO and enum declarations.
 
 Generating JavaScript plus JSDoc would express those TypeScript decisions
@@ -295,16 +295,21 @@ For one input assembly, `ts-jsexport` emits one self-contained TypeScript module
 containing:
 
 1. public enum and DTO declarations for reached wire contracts;
-2. one private structural type for the raw `getAssemblyExports()` object;
-3. private runtime and narrowed managed-export storage plus accessors;
-4. `initializeRuntime()`, which single-flight creates one runtime, captures the
-   inspected assembly's exports, publishes both private values only after
-   acquisition succeeds, and returns no raw runtime or export object;
-5. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
+2. one public `JsExportRuntime` structural handle limited to
+   `getAssemblyExports()` and `runMain()`;
+3. one private structural type for the raw `getAssemblyExports()` object;
+4. private runtime and narrowed managed-export storage plus accessors;
+5. `createRuntime()`, which invokes the configured SDK builder and returns the
+   narrow handle rather than the SDK's full `RuntimeAPI`;
+6. `initializeRuntime(runtime?)`, which single-flight acquires the inspected
+   assembly's exports through a supplied handle or, when omitted, through one
+   locally created handle, and publishes both private values only after
+   acquisition succeeds;
+7. `runEntryPoint(mainAssemblyName?, args?)`, which forwards to
    `runtime.runMain()` on that same private runtime and returns its
    `Promise<number>`;
-6. one exported facade function per supported `[JSExport]` method; and
-7. the exact JSON parse operation for each authenticated envelope.
+8. one exported facade function per supported `[JSExport]` method; and
+9. the exact JSON parse operation for each authenticated envelope.
 
 Runtime creation and managed entry-point execution are separate operations.
 `initializeRuntime()` never invokes `runMain()` implicitly. The consumer
@@ -321,24 +326,27 @@ the runtime hosts a different main assembly. Promise fulfillment, rejection,
 and nonzero exit codes pass through unchanged.
 
 Initialization has one terminal state machine per generated module instance.
-The first `initializeRuntime()` call records the in-flight work before calling
-`dotnet.create()`. Concurrent calls join that work, and calls after success are
-fulfilled without creating or acquiring again. Any creation, acquisition, or
-validation failure is terminal for that module in the current JavaScript realm:
-later initialization calls preserve the same rejection, and retry requires a
-page reload or worker-realm restart. Runtime and export storage remain
-unpublished unless the whole operation succeeds.
+The first `initializeRuntime()` call records the in-flight work before it
+awaits either the supplied handle or `createRuntime()`. Concurrent calls join
+that work, and calls after success are fulfilled without creating or acquiring
+again. Any creation, acquisition, or validation failure is terminal for that
+module in the current JavaScript realm: later initialization calls preserve
+the same rejection, and retry requires a page reload or worker-realm restart.
+Runtime and export storage remain unpublished unless the whole operation
+succeeds.
 
 That single-flight guarantee is deliberately module-local. A consumer using
-several separately generated facade modules configures the SDK's shared
-module-scoped `dotnet` builder before invoking any facade initializer, then
-serializes their first initialization unless its runtime owner guarantees
-shared in-flight acquisition. Generated facades import that same builder but
-never change its configuration; after the first serialized initializer
-completes, later `dotnet.create()` calls reuse the SDK's completed runtime
-instance. A facade whose local acquisition or validation fails never exits or
-disposes the potentially shared runtime. Cross-module coordination,
-configuration, and runtime lifetime remain consumer and runtime policy.
+several separately generated facade modules chooses one runtime owner, calls
+that module's `createRuntime()` exactly once, and passes the same returned
+promise or completed `JsExportRuntime` handle to every module's
+`initializeRuntime(runtime)` call. The consumer serializes those first
+initializations unless its runtime owner deliberately permits concurrent
+attachment. This contract does not rely on repeated `dotnet.create()` calls
+being idempotent: the Mono SDK memoizes a completed runtime while the CoreCLR
+SDK rejects a second creation. Generated facades import the configured builder
+but never change it. A facade whose local acquisition or validation fails never
+exits or disposes the shared runtime. Cross-module coordination, configuration,
+and runtime lifetime remain consumer and runtime policy.
 
 The focused
 [lifecycle model](models/ts-jsexport-lifecycle/README.md) model-checks those

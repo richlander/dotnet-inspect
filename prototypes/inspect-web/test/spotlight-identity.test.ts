@@ -3755,9 +3755,15 @@ test("browser consumer explicitly sequences same-origin host configuration", () 
       new RegExp(`import\\("/${module}\\.js"\\)`),
       `the coordinator does not compose /${module}.js`);
   }
-  // Every facade initializes, one after another, before readiness resolves.
+  assert.match(
+    engineCoordinatorSource,
+    /const runtime = host\.createRuntime\(\);/,
+    "the coordinator must create the shared runtime through the host facade");
+  // Every facade receives the same runtime promise, one after another, before readiness
+  // resolves.
   assert.deepEqual(
-    [...engineCoordinatorSource.matchAll(/await (\w+)\.initializeRuntime\(\);/g)]
+    [...engineCoordinatorSource.matchAll(
+      /await (\w+)\.initializeRuntime\(runtime\);/g)]
       .map(match => match[1]),
     [
       "host",

@@ -216,7 +216,12 @@ export interface BrowserTypeSurface {
     readonly api: ReadonlyArray<BrowserMemberSurface>;
     readonly platformPack: string | null;
 }
-export declare function initializeRuntime(): Promise<void>;
+export interface JsExportRuntime {
+    readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+    readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
+}
+export declare function createRuntime(): Promise<JsExportRuntime>;
+export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function queryGraphMemberSurface(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number): Promise<BrowserGraphMemberSurface>;
 export declare function queryPackageHeapEntries(packageId: string, version: string, targetFramework: string, assemblyFileName: string, heap: string): Promise<BrowserHeapListing>;

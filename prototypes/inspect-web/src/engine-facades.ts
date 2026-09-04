@@ -7,7 +7,7 @@
 // later caller observes, so a stale module or a missing export root fails the application
 // visibly instead of leaving it partially initialized.
 //
-// Nothing here re-exports a managed operation. Application code calls each of the 45
+// Nothing here re-exports a managed operation. Application code calls each of the 48
 // operations through the generated module that owns it; this module owns only composition.
 //
 // The published modules are served beside `_framework/` at the site root, so they are named
@@ -37,13 +37,14 @@ async function initializeFacadeSet(): Promise<void> {
     import("/inspect-web-call-graph.js"),
     import("/inspect-web-catalog.js"),
   ]);
-  await host.initializeRuntime();
-  await packageFacade.initializeRuntime();
-  await metadataFacade.initializeRuntime();
-  await analysisFacade.initializeRuntime();
-  await sourceFacade.initializeRuntime();
-  await callGraphFacade.initializeRuntime();
-  await catalogFacade.initializeRuntime();
+  const runtime = host.createRuntime();
+  await host.initializeRuntime(runtime);
+  await packageFacade.initializeRuntime(runtime);
+  await metadataFacade.initializeRuntime(runtime);
+  await analysisFacade.initializeRuntime(runtime);
+  await sourceFacade.initializeRuntime(runtime);
+  await callGraphFacade.initializeRuntime(runtime);
+  await catalogFacade.initializeRuntime(runtime);
 }
 
 // The retained promise is the single-flight record: a rejected attempt is retained too, so a

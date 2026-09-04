@@ -134,7 +134,12 @@ export interface BrowserSafetyFact {
     readonly requirement: string;
     readonly evidence: string;
 }
-export declare function initializeRuntime(): Promise<void>;
+export interface JsExportRuntime {
+    readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+    readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
+}
+export declare function createRuntime(): Promise<JsExportRuntime>;
+export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function queryMemberFacts(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, implementationBodySelected: boolean): Promise<BrowserMemberFacts>;
 export declare function queryPackageIntegrations(packageId: string, version: string, targetFramework: string): Promise<BrowserPackageIntegrations>;
