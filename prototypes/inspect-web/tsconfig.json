@@ -12,7 +12,13 @@
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "/inspect-web-engine.js": ["./src/inspect-web-engine.d.ts"]
+      "/inspect-web-host.js": ["./src/facades/inspect-web-host.d.ts"],
+      "/inspect-web-package.js": ["./src/facades/inspect-web-package.d.ts"],
+      "/inspect-web-metadata.js": ["./src/facades/inspect-web-metadata.d.ts"],
+      "/inspect-web-analysis.js": ["./src/facades/inspect-web-analysis.d.ts"],
+      "/inspect-web-source.js": ["./src/facades/inspect-web-source.d.ts"],
+      "/inspect-web-call-graph.js": ["./src/facades/inspect-web-call-graph.d.ts"],
+      "/inspect-web-catalog.js": ["./src/facades/inspect-web-catalog.d.ts"]
     },
     "strict": true,
     "target": "ES2022",

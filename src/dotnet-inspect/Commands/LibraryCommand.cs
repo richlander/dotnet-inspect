@@ -618,15 +618,54 @@ public class LibraryCommand
 
                 logger.Log($"Using platform runtime library: {framework} {version}");
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Platform(
+                        framework!,
+                        version,
+                        "library --platform");
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
+                {
+                    LibraryInspectionSubject? coordinateSubject =
+                        SelectInspectionSubjectOrReportFailure(
+                            resolvedPath!,
+                            inspectionProvenance);
+                    if (coordinateSubject is null)
+                        return 1;
+
+                    return await WriteILCoordinateBatchAsync(
+                        coordinateSubject,
+                        null,
+                        null,
+                        isPlatformAssembly: true,
+                        options,
+                        context.HttpClient,
+                        logger);
+                }
+
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryCatalog,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                resolvedPath!,
+                                inspectionProvenance),
+                        ],
+                        trace);
+                LibraryInspectionSubject? subject =
+                    SelectInspectionSubjectOrReportFailure(
+                        resolvedPath!,
+                        inspectionProvenance,
+                        integrations?.AssemblyForInspection(resolvedPath!));
+                if (subject is null)
+                    return 1;
 
                 // Network-free SourceLink availability probe: drives the SourceLink section
                 // family in -D and keys the effective cache so a warmed/cleared PDB busts a
                 // stale catalog. Skipped (false) outside discovery.
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        resolvedPath!,
+                    && await ProbeLocalSourceLinkAsync(
+                        subject,
                         context.HttpClient,
                         logger,
                         isPlatformAssembly: true,
@@ -648,26 +687,13 @@ public class LibraryCommand
                     }
                 }
 
-                AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
-                        queries,
-                        groupQueryCatalog,
-                        [
-                            new AssemblyContextIntegrationsInput(
-                                resolvedPath!,
-                                AssemblyResolutionProvenance.Platform(
-                                    framework!,
-                                    version,
-                                    "library --platform")),
-                        ],
-                        trace);
                 InspectionQueryPlan<InspectionQueryContext> queryPlan =
                     queryCatalog.Plan(queries);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     resolvedPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     isPlatformAssembly: true,
                     queryPlan: queryPlan,
-                    assemblyReference: integrations?.AssemblyForInspection(resolvedPath!),
+                    assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
@@ -688,7 +714,8 @@ public class LibraryCommand
                 }
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
-                    inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
+                    inspection, subject, null, null, isPlatformAssembly: true,
+                    options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
@@ -736,44 +763,28 @@ public class LibraryCommand
                 packageVersion = resolvedPackageVersion;
 
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
+                {
+                    LibraryInspectionSubject? coordinateSubject =
+                        SelectInspectionSubjectOrReportFailure(
+                            assemblyPaths[0],
+                            PackageIntegrationProvenance(
+                                assemblyPaths[0],
+                                extractPath,
+                                packageName,
+                                packageVersion));
+                    if (coordinateSubject is null)
+                        return 1;
 
-                // Network-free SourceLink availability probe (see platform branch).
-                bool sourceLinkAvailable = fullEffectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        assemblyPaths[0],
-                        context.HttpClient,
-                        logger,
+                    return await WriteILCoordinateBatchAsync(
+                        coordinateSubject,
+                        packageName,
+                        packageVersion,
                         isPlatformAssembly: false,
-                        packageName: packageName,
-                        packageVersion: packageVersion,
-                        sourceOptions: options.SourceOptions);
-
-                // Identity of the bytes about to be inspected; see the platform path above.
-                string? inspectedContentHash = fullEffectiveDiscovery && assemblyPaths.Count > 0
-                    ? TryGetContentHash(assemblyPaths[0])
-                    : null;
-
-                // Check effective sections cache before running full inspection
-                if (useEffectiveDiscoveryCache && inspectedContentHash != null && assemblyPaths.Count > 0)
-                {
-                    var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
-                    if (cached != null)
-                    {
-                        var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
-                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
-                    }
+                        options,
+                        context.HttpClient,
+                        logger);
                 }
 
-                // Verify package signature if nupkg is available
-                SignatureVerificationResult? signatureResult = null;
-                if (nupkgPath != null && !discoveryInspection)
-                {
-                    logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
-                    signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
-                }
-
-                // Inspect all assemblies
                 var inspectionPaths = discoveryInspection && assemblyPaths.Count > 0
                     ? [assemblyPaths[0]]
                     : assemblyPaths;
@@ -790,6 +801,68 @@ public class LibraryCommand
                                     packageName,
                                     packageVersion))),
                         trace);
+                List<LibraryInspectionSubjectSelection> subjectSelections =
+                    inspectionPaths.Select(path =>
+                        LibraryInspectionSubject.Select(
+                            path,
+                            PackageIntegrationProvenance(
+                                path,
+                                extractPath,
+                                packageName,
+                                packageVersion),
+                            integrations?.AssemblyForInspection(
+                                path)))
+                    .ToList();
+                LibraryInspectionSubjectSelection.Ready? primaryReady =
+                    subjectSelections
+                        .OfType<LibraryInspectionSubjectSelection.Ready>()
+                        .FirstOrDefault();
+
+                // Network-free SourceLink availability probe (see platform branch).
+                bool sourceLinkAvailable = fullEffectiveDiscovery
+                    && primaryReady is not null
+                    && !HasILOffsetCoordinate(options)
+                    && await ProbeLocalSourceLinkAsync(
+                        primaryReady.Subject,
+                        context.HttpClient,
+                        logger,
+                        isPlatformAssembly: false,
+                        packageName: packageName,
+                        packageVersion: packageVersion,
+                        sourceOptions: options.SourceOptions);
+
+                // Identity of the bytes about to be inspected; see the platform path above.
+                string? inspectedContentHash =
+                    fullEffectiveDiscovery && primaryReady is not null
+                    ? TryGetContentHash(primaryReady.Subject.Path)
+                    : null;
+
+                // Check effective sections cache before running full inspection
+                if (useEffectiveDiscoveryCache
+                    && inspectedContentHash != null
+                    && primaryReady is not null)
+                {
+                    var cached = TryGetCachedEffective(
+                        primaryReady.Subject.Path,
+                        inspectedContentHash,
+                        sourceLinkAvailable);
+                    if (cached != null)
+                    {
+                        var rootLabel = Path.GetFileNameWithoutExtension(
+                            primaryReady.Subject.Path);
+                        return RenderEffective(FilterEffective(cached.Value.Sections, options), cached.Value.Schema, options, pipeline, userVerbosity, rootLabel);
+                    }
+                }
+
+                // Verify package signature if nupkg is available
+                SignatureVerificationResult? signatureResult = null;
+                if (nupkgPath != null && !discoveryInspection)
+                {
+                    logger.Log($"Verifying package signature: {Path.GetFileName(nupkgPath)}");
+                    signatureResult = await SignatureVerifier.VerifyAsync(nupkgPath);
+                }
+
+                // Inspect all assemblies
                 InspectionQueryPlan<InspectionQueryContext> queryPlan =
                     queryCatalog.Plan(queries);
                 PackageInspectionCollection collection =
@@ -797,9 +870,12 @@ public class LibraryCommand
                     inspectionPaths, inspectionOptions, logger, packageName, packageVersion,
                     extractPath, context.HttpClient, signatureResult,
                     queryPlan, integrations,
-                    discoveryInspection && !fullEffectiveDiscovery, trace);
+                    discoveryInspection && !fullEffectiveDiscovery, trace,
+                    subjectSelections);
                 List<LibraryInspection> inspections =
                     collection.Inspections;
+                int descriptorSelectionExitCode =
+                    collection.DescriptorSelectionFailures.Count > 0 ? 1 : 0;
 
                 if (inspections.Count == 0)
                 {
@@ -826,7 +902,9 @@ public class LibraryCommand
                     identifierAuditIncomplete ? 1 : 0;
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
-                    inspections[0], assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false,
+                    inspections[0],
+                    collection.Subjects[0],
+                    packageName, packageVersion, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
@@ -835,9 +913,12 @@ public class LibraryCommand
                     return heapExitCode;
                 if (discoveryInspection)
                     return Math.Max(
-                        identifierAuditExitCode,
+                        Math.Max(
+                            identifierAuditExitCode,
+                            descriptorSelectionExitCode),
                         WriteEffectiveSections(
-                            assemblyPaths[0], inspections[0], options,
+                            collection.Subjects[0].Path,
+                            inspections[0], options,
                             pipeline, userVerbosity,
                             fullEffectiveDiscovery,
                             discoveryExecutionScope,
@@ -850,7 +931,9 @@ public class LibraryCommand
                 if (options.Print)
                     return IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            Math.Max(
+                                identifierAuditExitCode,
+                                descriptorSelectionExitCode),
                             await WriteLibraryPrintProjectionAsync(
                                 inspections[0],
                                 options)),
@@ -859,7 +942,9 @@ public class LibraryCommand
                 if (options.Value || options.Urls || options.Paths)
                     return IntegrityExitCode(
                         Math.Max(
-                            identifierAuditExitCode,
+                            Math.Max(
+                                identifierAuditExitCode,
+                                descriptorSelectionExitCode),
                             WriteLibraryShapeProjection(
                                 inspections[0],
                                 options)),
@@ -868,8 +953,10 @@ public class LibraryCommand
                 if (RejectEmptyExactSection(inspections, options, pipeline))
                     return 1;
                 WarnEmptySections(inspections, options, pipeline);
-                if (assemblyPaths.Count > 0)
-                    ExtractResourcesIfRequested(assemblyPaths[0], options);
+                if (collection.Subjects.Count > 0)
+                    ExtractResourcesIfRequested(
+                        collection.Subjects[0].Path,
+                        options);
 
                 if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
                     return 1;
@@ -885,7 +972,9 @@ public class LibraryCommand
 
                 return Math.Max(
                     IntegrityExitCode(
-                        identifierAuditExitCode,
+                        Math.Max(
+                            identifierAuditExitCode,
+                            descriptorSelectionExitCode),
                         !identifierAuditIncomplete,
                         [.. inspections]),
                     SelectedInspectionFailureExitCode(
@@ -902,13 +991,49 @@ public class LibraryCommand
                     return 1;
                 }
 
+                AssemblyResolutionProvenance inspectionProvenance =
+                    AssemblyResolutionProvenance.Local("library path");
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
-                    return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
+                {
+                    LibraryInspectionSubject? coordinateSubject =
+                        SelectInspectionSubjectOrReportFailure(
+                            assemblyPath!,
+                            inspectionProvenance);
+                    if (coordinateSubject is null)
+                        return 1;
+
+                    return await WriteILCoordinateBatchAsync(
+                        coordinateSubject,
+                        null,
+                        null,
+                        isPlatformAssembly: false,
+                        options,
+                        context.HttpClient,
+                        logger);
+                }
+
+                AssemblyContextIntegrationsBatch? integrations =
+                    AssemblyContextIntegrationsRunner.RunIfRequested(
+                        queries,
+                        groupQueryCatalog,
+                        [
+                            new AssemblyContextIntegrationsInput(
+                                assemblyPath!,
+                                inspectionProvenance),
+                        ],
+                        trace);
+                LibraryInspectionSubject? subject =
+                    SelectInspectionSubjectOrReportFailure(
+                        assemblyPath!,
+                        inspectionProvenance,
+                        integrations?.AssemblyForInspection(assemblyPath!));
+                if (subject is null)
+                    return 1;
 
                 // Network-free SourceLink availability probe (see platform branch).
                 bool sourceLinkAvailable = fullEffectiveDiscovery && !HasILOffsetCoordinate(options)
-                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(
-                        assemblyPath!,
+                    && await ProbeLocalSourceLinkAsync(
+                        subject,
                         context.HttpClient,
                         logger,
                         isPlatformAssembly: false,
@@ -928,23 +1053,12 @@ public class LibraryCommand
                     }
                 }
 
-                AssemblyContextIntegrationsBatch? integrations =
-                    AssemblyContextIntegrationsRunner.RunIfRequested(
-                        queries,
-                        groupQueryCatalog,
-                        [
-                            new AssemblyContextIntegrationsInput(
-                                assemblyPath!,
-                                AssemblyResolutionProvenance.Local(
-                                    "library path")),
-                        ],
-                        trace);
                 InspectionQueryPlan<InspectionQueryContext> queryPlan =
                     queryCatalog.Plan(queries);
                 var inspection = await LibraryMetadataService.InspectAsync(
                     assemblyPath!, inspectionOptions, logger, null, null, context.HttpClient,
                     queryPlan: queryPlan,
-                    assemblyReference: integrations?.AssemblyForInspection(assemblyPath!),
+                    assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
@@ -964,7 +1078,7 @@ public class LibraryCommand
                 }
 
                 var ilOffsetExitCode = await PopulateILOffsetIfRequestedAsync(
-                    inspection, assemblyPath!, null, null, isPlatformAssembly: false,
+                    inspection, subject, null, null, isPlatformAssembly: false,
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
@@ -1118,8 +1232,61 @@ public class LibraryCommand
         return true;
     }
 
+    private static Task<bool> ProbeLocalSourceLinkAsync(
+        LibraryInspectionSubject subject,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly,
+        string? packageName = null,
+        string? packageVersion = null,
+        NuGetSourceOptions? sourceOptions = null) =>
+        subject.AssemblyReference is { } assembly
+            ? LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                assembly,
+                httpClient,
+                logger,
+                isPlatformAssembly,
+                packageName,
+                packageVersion,
+                sourceOptions)
+            : LibraryMetadataService.ProbeLocalSourceLinkAsync(
+                subject.Path,
+                httpClient,
+                logger,
+                isPlatformAssembly,
+                packageName,
+                packageVersion,
+                sourceOptions);
+
+    private static void ReportDescriptorSelectionFailure(
+        string path,
+        CandidateOpenFailure failure) =>
+        CommandError.Write(
+            $"Could not select library descriptor for '{path}': "
+            + failure.Detail);
+
+    private static LibraryInspectionSubject?
+        SelectInspectionSubjectOrReportFailure(
+            string path,
+            AssemblyResolutionProvenance provenance,
+            ResolvedAssemblyReference? preferredAssembly = null)
+    {
+        LibraryInspectionSubjectSelection selection =
+            LibraryInspectionSubject.Select(
+                path,
+                provenance,
+                preferredAssembly);
+        if (selection is LibraryInspectionSubjectSelection.Ready ready)
+            return ready.Subject;
+
+        ReportDescriptorSelectionFailure(
+            path,
+            ((LibraryInspectionSubjectSelection.Rejected)selection).Failure);
+        return null;
+    }
+
     private static async Task<int> WriteILCoordinateBatchAsync(
-        string assemblyPath,
+        LibraryInspectionSubject subject,
         string? packageName,
         string? packageVersion,
         bool isPlatformAssembly,
@@ -1146,7 +1313,7 @@ public class LibraryCommand
         var rows = readErrors
             .Select(errorRow => new ILCoordinateBatchRow(null, errorRow.Label, null, null, "error", errorRow.Error))
             .ToList();
-        using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+        using var service = subject.OpenSourceLink(logger.Log);
         foreach (var coordinate in coordinates)
         {
             var queryOptions = options with
@@ -1705,7 +1872,7 @@ public class LibraryCommand
 
     private static async Task<int> PopulateILOffsetIfRequestedAsync(
         LibraryInspection inspection,
-        string assemblyPath,
+        LibraryInspectionSubject subject,
         string? packageName,
         string? packageVersion,
         bool isPlatformAssembly,
@@ -1717,8 +1884,10 @@ public class LibraryCommand
             || (options.Discover == null && options.IncludeSections?.Overlaps(ILCoordinateSections) != true))
             return 0;
 
+        using var service = subject.OpenSourceLink(logger.Log);
         var resolved = await ILOffsetQuery.ResolveAsync(
-            assemblyPath, packageName, packageVersion, isPlatformAssembly, options, httpClient, logger);
+            service, packageName, packageVersion, isPlatformAssembly, options,
+            httpClient, logger);
         if (resolved.ExitCode != 0)
             return resolved.ExitCode;
 
@@ -2807,10 +2976,14 @@ public class LibraryCommand
 
     private readonly record struct PackageInspectionCollection(
         List<LibraryInspection> Inspections,
+        List<LibraryInspectionSubject> Subjects,
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
-            IdentifierAuditFailures);
+            IdentifierAuditFailures,
+        List<(
+            string FileName,
+            CandidateOpenFailure Failure)> DescriptorSelectionFailures);
 
     private static async Task<PackageInspectionCollection>
         CollectPackageInspectionsAsync(
@@ -2819,21 +2992,52 @@ public class LibraryCommand
         HttpClient httpClient, SignatureVerificationResult? signatureResult,
         InspectionQueryPlan<InspectionQueryContext>? queryPlan = null,
         AssemblyContextIntegrationsBatch? integrations = null,
-        bool discoveryOnly = false, InspectionTrace? trace = null)
+        bool discoveryOnly = false, InspectionTrace? trace = null,
+        IReadOnlyList<LibraryInspectionSubjectSelection>?
+            subjectSelections = null)
     {
         List<LibraryInspection> inspections = [];
+        List<LibraryInspectionSubject> subjects = [];
         List<(
             string FileName,
             IdentifierConfusionAuditFailureKind FailureKind)>
             identifierAuditFailures = [];
+        List<(
+            string FileName,
+            CandidateOpenFailure Failure)> descriptorSelectionFailures = [];
 
-        foreach (var targetPath in assemblyPaths)
+        for (int index = 0; index < assemblyPaths.Count; index++)
         {
+            string targetPath = assemblyPaths[index];
             var version = packageVersion ?? (packageName != null ? PackageExtractor.ExtractVersionFromPath(targetPath, packageName) : null);
             string relativePath = Path.GetRelativePath(
                     extractPath,
                     targetPath)
                 .Replace('\\', '/');
+            LibraryInspectionSubjectSelection subjectSelection =
+                subjectSelections is not null
+                    ? subjectSelections[index]
+                    : LibraryInspectionSubject.Select(
+                        targetPath,
+                        PackageIntegrationProvenance(
+                            targetPath,
+                            extractPath,
+                            packageName,
+                            version),
+                        integrations?.AssemblyForInspection(targetPath));
+            if (subjectSelection
+                is LibraryInspectionSubjectSelection.Rejected rejected)
+            {
+                descriptorSelectionFailures.Add(
+                    (relativePath, rejected.Failure));
+                CommandError.WriteWarning(
+                    $"Could not select library descriptor for "
+                    + $"'{targetPath}': {rejected.Failure.Detail}");
+                continue;
+            }
+            LibraryInspectionSubject subject =
+                ((LibraryInspectionSubjectSelection.Ready)subjectSelection)
+                    .Subject;
 
             LibraryInspection? inspection;
             try
@@ -2846,8 +3050,7 @@ public class LibraryCommand
                     version,
                     httpClient,
                     queryPlan: queryPlan,
-                    assemblyReference:
-                        integrations?.AssemblyForInspection(targetPath),
+                    assemblyReference: subject.AssemblyReference,
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
                     integrationOpportunitiesEntry:
@@ -2887,11 +3090,14 @@ public class LibraryCommand
             }
 
             inspections.Add(inspection);
+            subjects.Add(subject);
         }
 
         return new PackageInspectionCollection(
             inspections,
-            identifierAuditFailures);
+            subjects,
+            identifierAuditFailures,
+            descriptorSelectionFailures);
     }
 
     private static AssemblyResolutionProvenance PackageIntegrationProvenance(
@@ -3144,6 +3350,56 @@ public class LibraryCommand
         try { Directory.Delete(tempDir, recursive: true); } catch { }
     }
 
+}
+
+internal sealed record LibraryInspectionSubject(
+    string Path,
+    ResolvedAssemblyReference? AssemblyReference)
+{
+    internal static LibraryInspectionSubjectSelection Select(
+        string path,
+        AssemblyResolutionProvenance provenance,
+        ResolvedAssemblyReference? preferredAssembly = null)
+    {
+        if (preferredAssembly is not null)
+        {
+            return new LibraryInspectionSubjectSelection.Ready(
+                new LibraryInspectionSubject(path, preferredAssembly));
+        }
+
+        return ResolvedAssemblyReference.SelectFromPath(path, provenance)
+            switch
+            {
+                AssemblyDescriptorSelectionResult.Ready ready =>
+                    new LibraryInspectionSubjectSelection.Ready(
+                        new LibraryInspectionSubject(path, ready.Reference)),
+                AssemblyDescriptorSelectionResult.Descriptorless =>
+                    new LibraryInspectionSubjectSelection.Ready(
+                        new LibraryInspectionSubject(path, null)),
+                AssemblyDescriptorSelectionResult.Rejected rejected =>
+                    new LibraryInspectionSubjectSelection.Rejected(
+                        rejected.Failure),
+                _ => throw new UnreachableException(),
+            };
+    }
+
+    internal SourceLinkService OpenSourceLink(Action<string>? log = null) =>
+        AssemblyReference is null
+            ? SourceLinkService.Open(Path, log)
+            : SourceLinkService.Open(AssemblyReference, log);
+}
+
+internal abstract record LibraryInspectionSubjectSelection
+{
+    private LibraryInspectionSubjectSelection()
+    {
+    }
+
+    internal sealed record Ready(LibraryInspectionSubject Subject)
+        : LibraryInspectionSubjectSelection;
+
+    internal sealed record Rejected(CandidateOpenFailure Failure)
+        : LibraryInspectionSubjectSelection;
 }
 
 internal sealed record ILCoordinateInput(string Coordinate, string? Label);

@@ -20767,6 +20767,174 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public void LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen()
+    {
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Package(
+                "Test.Package",
+                "1.2.3",
+                "net11.0",
+                rid: null);
+        var selected = Assert.IsType<
+            AssemblyDescriptorSelectionResult.Ready>(
+            ResolvedAssemblyReference.SelectFromPath(
+                TestAssemblyPath,
+                provenance));
+
+        var ready = Assert.IsType<
+            LibraryInspectionSubjectSelection.Ready>(
+            LibraryInspectionSubject.Select(
+                "path-that-must-not-be-opened.dll",
+                AssemblyResolutionProvenance.Local("fallback"),
+                selected.Reference));
+
+        Assert.Same(selected.Reference, ready.Subject.AssemblyReference);
+        Assert.Same(provenance, ready.Subject.AssemblyReference!.Provenance);
+        using var sourceLink = ready.Subject.OpenSourceLink();
+        Assert.True(sourceLink.Context.HasMetadata);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-direct-").FullName;
+        string malformedPath = Path.Combine(tempDir, "Malformed.dll");
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                malformedPath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-package-").FullName;
+        string content = Path.Combine(tempDir, "content");
+        string libraryDirectory = Path.Combine(content, "lib", "net11.0");
+        Directory.CreateDirectory(libraryDirectory);
+        string malformedPath = Path.Combine(
+            libraryDirectory,
+            "Malformed.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string packagePath = Path.Combine(
+            tempDir,
+            "Malformed.Package.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(content, packagePath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "Malformed.dll",
+                "--package",
+                packagePath,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Malformed.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates()
+    {
+        string? originalDotnetRoot =
+            Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-platform-").FullName;
+        const string Version = "999.0.0";
+        string runtimeDirectory = Path.Combine(
+            tempDir,
+            "shared",
+            "Microsoft.NETCore.App",
+            Version);
+        Directory.CreateDirectory(runtimeDirectory);
+        string malformedPath = Path.Combine(
+            runtimeDirectory,
+            "Malformed.Platform.dll");
+        WriteTruncatedMetadataTableAssembly(
+            TestAssemblyPath,
+            malformedPath);
+        string missingCoordinatesPath =
+            Path.Combine(tempDir, "missing-coordinates.txt");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", tempDir);
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--platform",
+                "Malformed.Platform",
+                "--framework",
+                "runtime",
+                "--version",
+                Version,
+                "--il-offsets",
+                missingCoordinatesPath,
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(malformedPath, error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("IL offsets file not found", error);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(
+                "DOTNET_ROOT",
+                originalDotnetRoot);
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_IlOffsetsFile_PrefersExactOperationIdentity()
     {
         var (allSignalsToken, virtualCallOffset) = FindIlCoordinate(
@@ -24863,6 +25031,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected()
+    {
+        string tempDir = Directory.CreateTempSubdirectory(
+            "library-descriptor-multitfm-").FullName;
+        try
+        {
+            string content = Path.Combine(tempDir, "content");
+            string libraryDirectory =
+                Path.Combine(content, "lib", "net11.0");
+            Directory.CreateDirectory(libraryDirectory);
+            string healthyPath = Path.Combine(
+                libraryDirectory,
+                "Good.dll");
+            string malformedPath = Path.Combine(
+                libraryDirectory,
+                "Bad.dll");
+            WriteTruncatedMetadataTableAssembly(
+                TestAssemblyPath,
+                malformedPath);
+            File.Copy(TestAssemblyPath, healthyPath);
+            string packagePath = Path.Combine(
+                tempDir,
+                "Mixed.Package.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "all",
+                "-S",
+                "Library Info",
+                "--tips",
+                "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("Good.dll", output);
+            Assert.DoesNotContain("Bad.dll", output);
+            Assert.Contains("Bad.dll", error);
+            Assert.Contains(
+                "selected managed assembly contains invalid metadata",
+                error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryCommand_TfmAll_EmptySectionFailuresNameEachAssembly()
     {
         LibraryInspection FailedInspection(string tfm)
@@ -25302,9 +25522,13 @@ public partial class CommandExecutionTests
                 output,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "produced no output",
+                "Could not select library descriptor",
                 error,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "selected managed assembly has no usable identity",
+                error,
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

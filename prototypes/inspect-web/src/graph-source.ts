@@ -1,5 +1,5 @@
 import { pdbSourceLimitationHtml } from "./data.ts";
-import type { BrowserSource } from "./inspect-web-engine.d.ts";
+import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
 
 type GraphSourceResult = BrowserSource;
 
