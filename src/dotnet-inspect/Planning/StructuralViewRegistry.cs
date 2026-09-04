@@ -146,7 +146,7 @@ public sealed record StructuralDiscoveryRequest(
             options.JsonOutput,
             options.Tsv,
             options.Jsonl,
-            !options.Tabular && !options.JsonOutput,
+            options.Format == OutputFormat.Markdown,
             options.Format == OutputFormat.PlainText,
             options.Verbosity,
             options.IncludeSections,
@@ -162,7 +162,7 @@ public sealed record StructuralDiscoveryRequest(
             options.JsonOutput,
             options.Tsv,
             options.Jsonl,
-            !options.Tabular && !options.JsonOutput,
+            options.Format == OutputFormat.Markdown,
             options.PlainText,
             options.Verbosity,
             null,
@@ -1057,6 +1057,60 @@ public static class StructuralViewRegistry
                 return 1;
             }
         }
+        if (request.Discover is { Length: > 0 }
+            && alternatives.Alternatives.All(
+                alternative =>
+                    alternative.ResolvedSections.IsEmpty))
+        {
+            HashSet<string> discoverySelectors =
+                new(
+                    request.Discover
+                        .SelectMany(value =>
+                            value.Split(
+                                [',', ';'],
+                                StringSplitOptions.TrimEntries
+                                | StringSplitOptions
+                                    .RemoveEmptyEntries))
+                        .Select(
+                            ArgumentPreprocessor
+                                .UnescapeAtCategoryValue),
+                    StringComparer.OrdinalIgnoreCase);
+            SelectMiss[] discoveryMisses =
+            [
+                .. alternatives.Alternatives
+                    .SelectMany(alternative =>
+                        alternative.UnresolvedSelectors)
+                    .Where(diagnostic =>
+                        discoverySelectors.Contains(
+                            diagnostic.Selector))
+                    .GroupBy(
+                        diagnostic => diagnostic.Selector,
+                        StringComparer.OrdinalIgnoreCase)
+                    .Select(group =>
+                    {
+                        SectionSelectorDiagnostic diagnostic =
+                            group.First();
+                        return new SelectMiss(
+                            diagnostic.Selector,
+                            [
+                                .. group
+                                    .SelectMany(item =>
+                                        item.Suggestions)
+                                    .Distinct(
+                                        StringComparer
+                                            .OrdinalIgnoreCase),
+                            ],
+                            diagnostic.IsGlob,
+                            diagnostic.ListsAllSections);
+                    }),
+            ];
+            if (discoveryMisses.Length > 0
+                && SelectOutput.WriteUnresolved(
+                    new SelectResult([], discoveryMisses)))
+            {
+                return 1;
+            }
+        }
 
         var schema = new DocumentSchema();
         var annotations =
@@ -1432,11 +1486,11 @@ public static class StructuralViewRegistry
             return false;
         }
 
-        string[] selectors =
-            GetSectionOptionValues(tokens);
+        ImmutableArray<string> selectors =
+            GetDemandSectionOptionValues(tokens);
         return ApiSectionDemandIndex.Classify(
                 InspectionSurface.Commandless,
-                [.. selectors],
+                selectors,
                 selectDefault: false,
                 InspectionTargetRequirement.MemberSet)
             .RequiredTarget
@@ -1584,11 +1638,11 @@ public static class StructuralViewRegistry
             exactMember = true;
         }
 
-        string[] sectionSelectors =
-            GetSectionOptionValues(tokens);
+        ImmutableArray<string> sectionSelectors =
+            GetDemandSectionOptionValues(tokens);
         if (ApiSectionDemandIndex.Classify(
                 InspectionSurface.Member,
-                [.. sectionSelectors],
+                sectionSelectors,
                 selectDefault: false,
                 InspectionTargetRequirement.MemberSet)
             .RequiredTarget
@@ -1629,9 +1683,14 @@ public static class StructuralViewRegistry
             }
 
             if (i + 1 < tokens.Count
-                && !tokens[i + 1].StartsWith(
-                    "-",
-                    StringComparison.Ordinal))
+                && (!tokens[i + 1].StartsWith(
+                        "-",
+                        StringComparison.Ordinal)
+                    || (matched is "-t" or "--type"
+                            or "-m" or "--member"
+                        && int.TryParse(
+                            tokens[i + 1],
+                            out _))))
             {
                 values.Add(tokens[++i]);
             }
@@ -1651,6 +1710,49 @@ public static class StructuralViewRegistry
                     "-s",
                     "--select",
                     "--section")
+                .SelectMany(value =>
+                    value.Split(
+                        [',', ';'],
+                        StringSplitOptions.TrimEntries
+                        | StringSplitOptions.RemoveEmptyEntries))
+                .Select(
+                    ArgumentPreprocessor
+                        .UnescapeAtCategoryValue),
+        ];
+
+    private static ImmutableArray<string>
+        GetDemandSectionOptionValues(
+            IReadOnlyList<string> tokens)
+    {
+        string[] select = GetSectionOptionValues(
+            tokens,
+            "-S",
+            "-s",
+            "--select",
+            "--section");
+        string[] discover = GetSectionOptionValues(
+            tokens,
+            "-D",
+            "--discover");
+        bool selectDefault =
+            select.Length == 0
+            && (ContainsOption(tokens, "-S")
+                || ContainsOption(tokens, "-s")
+                || ContainsOption(tokens, "--select")
+                || ContainsOption(tokens, "--section"));
+        return new InspectionSectionIntent(
+                [.. select],
+                selectDefault,
+                [.. discover],
+                InspectionDiscoveryMode.Structural)
+            .DemandSelectors;
+    }
+
+    private static string[] GetSectionOptionValues(
+        IReadOnlyList<string> tokens,
+        params string[] options)
+        => [
+            .. GetOptionValues(tokens, options)
                 .SelectMany(value =>
                     value.Split(
                         [',', ';'],

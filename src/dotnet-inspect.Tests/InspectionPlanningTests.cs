@@ -3033,6 +3033,168 @@ public sealed class InspectionPlanningTests
             result.Error);
     }
 
+    [Fact]
+    public async Task AlternativeDiscoveryTotalMissIsRejected()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Run",
+            "-D",
+            "DefinitelyNotASection",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "DefinitelyNotASection",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task SeparatedSignedTypeLimitMatchesAttachedSpelling()
+    {
+        string[] suffix =
+        [
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var attached = await RunAppAsync(
+            ["Missing.Type", "-t=-1", .. suffix]);
+        var separated = await RunAppAsync(
+            ["Missing.Type", "-t", "-1", .. suffix]);
+
+        Assert.Equal(attached, separated);
+        Assert.Equal(0, separated.Exit);
+        Assert.Contains(
+            "[type/type/ApiType]",
+            separated.Output);
+    }
+
+    [Fact]
+    public async Task GenericRoutingUsesSelectionConstrainedDemand()
+    {
+        string[] suffix =
+        [
+            "System.Collections.Generic.List<string>",
+            "--platform",
+            "System.Private.CoreLib",
+            "-S",
+            SectionNames.Methods,
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(suffix);
+        var explicitType = await RunAppAsync(
+            ["type", .. suffix]);
+
+        Assert.Equal(explicitType, commandless);
+        Assert.Equal(1, commandless.Exit);
+        Assert.Contains(
+            SectionNames.Signature,
+            commandless.Error);
+    }
+
+    [Fact]
+    public async Task PackageLibraryPlainTextSchemaMatchesDirectLibrary()
+    {
+        string[] suffix =
+        [
+            "-D",
+            "--schema",
+            "--plaintext",
+            "--tips",
+            "q",
+        ];
+        var packageLibrary = await RunAppAsync(
+            [
+                "package",
+                "Missing.Package",
+                "--library",
+                "Missing.dll",
+                .. suffix,
+            ]);
+        var directLibrary = await RunAppAsync(
+            ["library", "Missing.dll", .. suffix]);
+
+        Assert.Equal(0, packageLibrary.Exit);
+        Assert.Equal(0, directLibrary.Exit);
+        Assert.DoesNotContain("|", packageLibrary.Output);
+        Assert.DoesNotContain("|", directLibrary.Output);
+        Assert.Empty(packageLibrary.Error);
+        Assert.Empty(directLibrary.Error);
+    }
+
+    [Fact]
+    public async Task FullyQualifiedTypeWithExplicitMemberRetainsDetailSchema()
+    {
+        string[] suffix =
+        [
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var optionMember = await RunAppAsync(
+            [
+                "member",
+                "System.Text.StringBuilder",
+                "-m",
+                "Append",
+                .. suffix,
+            ]);
+        var positionalMember = await RunAppAsync(
+            [
+                "member",
+                "System.Text.StringBuilder",
+                "Append",
+                .. suffix,
+            ]);
+
+        Assert.Equal(optionMember, positionalMember);
+        Assert.Equal(0, optionMember.Exit);
+        Assert.Contains(
+            "Canonical Signature",
+            optionMember.Output);
+    }
+
+    [Fact]
+    public async Task BareGenericMethodTailRetainsStructuralAlternatives()
+    {
+        var result = await RunAppAsync(
+            "member",
+            "System.Linq.Enumerable.Where<int>",
+            "--platform",
+            "Missing.Platform",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/member-target/ApiMemberOverload]",
+            result.Output);
+        Assert.Contains(
+            "[member/type-view/ApiMember]",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
     [Theory]
     [InlineData("library")]
     [InlineData("all")]
