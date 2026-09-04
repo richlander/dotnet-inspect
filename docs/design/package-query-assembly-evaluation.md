@@ -35,7 +35,7 @@ deadline bounds, the evaluator:
    item failure; and
 6. releases the candidate workspace, artifact generation, image, metadata or
    analysis session, and borrowed capability before returning or propagating
-   cancellation.
+   cancellation or an unexpected exception.
 
 The result is scoped to the exact package plus selected asset. It preserves the
 retained-content generation, frozen selection, pattern, and producer evidence
@@ -207,13 +207,18 @@ reinterpreting its evidence:
 
 Cancellation and unexpected producer exceptions remain cancellation and
 exceptional failure respectively; neither becomes a producer verdict or
-completed evaluation outcome.
+completed evaluation outcome. Evaluation still releases its candidate in a
+`finally` path before either condition propagates.
 
-Producer evidence that preserves artifact-authored text must expose that text
-as an owner-issued canonical identity or an `InertString` constructed under the
-appropriate field or prose policy. A producer cannot return a raw metadata
-name, decoded literal excerpt, package path, or other artifact string and leave
-containment to Package Query or a host renderer.
+Producer evidence separates semantic occurrence identity from presentation.
+Public occurrence identity uses non-text coordinates such as metadata tokens,
+row identities, IL offsets, or another owner-issued type whose public closure
+contains no artifact-authored strings. Existing identity types that expose raw
+metadata or assembly names remain operation-internal. Every artifact-authored
+label, name, decoded literal excerpt, path, or explanatory value enters public
+evidence only as an `InertString` constructed under the appropriate field or
+prose policy. A producer cannot leave that containment to Package Query or a
+host renderer.
 
 The assembly-pattern registry is distinct from the existing
 `PackageQuery.Facets` registry. Existing facets remain source-, manifest-, or
@@ -319,6 +324,11 @@ unevaluated-sibling count is
 does not count assets outside those selected role sequences. The receipt
 therefore cannot be read as an exhaustive package-wide verdict.
 
+Those `Count - 1` formulas apply only after an asset from the corresponding
+sequence has been selected for evaluation. When the primary compile asset has
+no implementation counterpart, no implementation asset was evaluated, so the
+non-applicable outcome reports the full `ImplementationAssets.Count`.
+
 The process-local identities are receipts for current-run correspondence, not
 portable cache keys. A later Workspace transition uses the exact package
 coordinate and reacquires or independently reuses authorized content. It does
@@ -417,8 +427,9 @@ selection. Evaluation adds a narrower candidate-scoped realization:
    semantic producer an `AssemblyInspectionSession` over that same
    `AssemblyImageSnapshot`.
 7. Copy all evidence needed by the outcome into resource-free values.
-8. Dispose the query session and candidate workspace, which releases the
-   participant and artifact generation, before returning the outcome.
+8. In a `finally` path, dispose the query session and candidate workspace,
+   which releases the participant and artifact generation, before returning an
+   outcome or propagating cancellation or an unexpected exception.
 
 The operation does not extract a package tree, open sibling entry bodies, or
 realize every package role. At most one selected package assembly is live in
@@ -528,6 +539,10 @@ releases all candidate resources, then propagates cancellation to the enclosing
 stream or host operation. No result is published after cancellation is
 observed.
 
+An unexpected exception from a prefilter or semantic binding follows the same
+cleanup rule. Candidate cleanup runs in `finally`; a cleanup failure is
+attached as secondary evidence and cannot replace the original exception.
+
 The operation deadline is implemented by cancelling that same operation token.
 Deadline expiry is therefore cancellation, not a separate candidate failure.
 
@@ -593,8 +608,8 @@ Failure stages distinguish:
 
 Package-authored strings, paths, metadata names, and exception text do not
 become diagnostics. Unexpected implementation exceptions remain exceptional;
-the evaluator does not convert them into `NoMatch` or a generic successful
-outcome.
+after candidate cleanup, the evaluator propagates them rather than converting
+them into `NoMatch` or a generic successful outcome.
 
 `Failure(InvalidAssetSelection)` records the typed selection status only. It
 does not propagate the selector's package-derived `Message`.
@@ -666,11 +681,15 @@ The implementation must preserve focused fixtures for:
 6. a selected assembly at the exact byte limit and one byte above it;
 7. a selected asset whose assembly name, TFM, and package path contain control,
    format, bidirectional, or markup-significant text;
-8. native, module, unsupported Windows Metadata, and malformed managed input;
-9. a selected entry that cannot be materialized from the retained content
+8. producer evidence whose metadata name or decoded literal excerpt contains
+   the same hostile text classes;
+9. native, module, unsupported Windows Metadata, and malformed managed input;
+10. a selected entry that cannot be materialized from the retained content
    generation;
-10. semantic work reaching its exact limit and exceeding it; and
-11. cancellation during sparse projection and semantic traversal.
+11. semantic work reaching its exact limit and exceeding it;
+12. cancellation during sparse projection and semantic traversal; and
+13. a throwing prefilter or producer whose candidate cleanup also reports a
+    failure.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
 must run in the ordinary Release suite. Performance and peak-memory corpus
@@ -688,7 +707,7 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_PrimaryAssetIsSelectorIssuedAndAssetScoped` | General primary selection consumes the selector-issued default, preserves its exact asset identity and the role-sequence sibling count, and never claims that the heuristic proves a package-wide representative. |
 | `PackageAssemblyEvaluation_ImplementationUsesExactSelectedCounterpart` | An implementation-body pattern uses only the counterpart of the selected compile asset, including RID replacement and the `lib`-only case where both role intents resolve to the same asset. |
 | `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes with the exact generation and selection identities; counterpart absence also preserves the primary compile occurrence without inventing an implementation asset. |
-| `PackageAssemblyEvaluation_SelectedAssetEvidenceIsContained` | Hostile package-authored assembly name, TFM, and path text become `InertString(TextPolicy.Field)` at result construction, while exact occurrence identity uses only the frozen asset-sequence kind, ordinal, and selection identity; evaluation role remains separate. |
+| `PackageAssemblyEvaluation_SelectedAssetEvidenceIsContained` | The complete public outcome closure rejects `PackageCompileAsset`; hostile package-authored assembly name, TFM, and path text become `InertString(TextPolicy.Field)` at result construction, while exact occurrence identity uses only the frozen asset-sequence kind, ordinal, and selection identity; evaluation role remains separate. |
 | `PackageAssemblyEvaluation_UsesSparsePackageArtifactProjection` | One evaluation calls the sparse selected-asset projection rather than the full package-role realization path. |
 | `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. |
 | `PackageAssemblyEvaluation_RequiresDecodedIdentityBeforeSemanticBinding` | A rejection-carrier participant is opened only through ordinary snapshot acquisition with a no-op evaluator callback; its typed rejection is preserved, an unexpectedly ready snapshot is a contract failure, and neither executable binding runs. |
@@ -698,11 +717,11 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
-| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, and cancellation path closes and releases its query, workspace, participant, and artifact resource. |
+| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, cancellation, and unexpected binding-exception path closes and releases its query, workspace, participant, and artifact resource. Throwing prefilter and producer fixtures prove `finally` cleanup and preservation of the primary exception when cleanup also fails. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
-| Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, containment of artifact-authored evidence text, and optional prefilter implication in the owning Metadata or Analysis Release suite. |
+| Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, and optional prefilter implication in the owning Metadata or Analysis Release suite. Its evidence-closure gate rejects artifact-authored raw `string` fields and identity types that publicly expose them, while admitting non-text occurrence coordinates and contained `InertString` presentation fields. |
 | CLI and Browser consumer canaries | Both hosts can plan and consume the same descriptors and outcomes without duplicating pattern semantics. |
 
 ### Resource-free absence-claim coverage
