@@ -500,11 +500,13 @@ The same exactness governs the five places a recipe may retire or rewrite an
 effect rather than realize it one-to-one:
 
 - **an awaiter bind.** `operand.GetAwaiter()` is protocol only when it is the
-  exact `callvirt` instance, parameterless member declared by the
-  operand type, returns the proven suspension awaiter type, and has the same
-  typed member and call-site identity in the raw and planning spaces. A
-  same-named static helper or direct call returning that awaiter is not a
-  source-faithful spelling of the admitted `await` and stays in the ledger.
+  exact instance, parameterless member declared by the operand type, returns
+  the proven suspension awaiter type, and has the same typed member and
+  call-site identity in raw and planning spaces. Reference operands require
+  `callvirt`; the existing core-library `ValueTask`/`ValueTask<T>` lowering
+  instead uses a direct call on an address of that exact value type. A
+  same-named static helper, direct reference call, or mismatched address
+  remains outside the source-faithful dispatch boundary.
 - **an awaited result.** `awaiter.GetResult()` is the input spelling of
   `await` only when it is the exact instance, parameterless member of the type
   that suspension's local, its `GetAwaiter` return, and its `<>u__N` cache field
@@ -685,7 +687,7 @@ Release gates:
 | `ClassicInverseLoopRawRolesCannotBeHealedByPlanning` | The raw loop bound, index initializer, or index advance differs from the exact role accepted in the planning view, even when a planning runner repairs only its detached clone. |
 | `ClassicInverseDeclinesConditionalWithMovedJoin` | The conditional's exact branches, awaited-arm join, false-arm fallthrough, or final merge topology changes in raw or planning space. |
 | `ClassicInverseDeclinesLoopWithPostLoopCollectionHoist` | The loop collection hoist, accumulator transfer, awaited continuation, collection release, or final result transfer moves outside its proven block and order, including when planning repairs only its detached clone. |
-| `ClassicInverseAwaitBindsItsExactGetAwaiterMember` | A same-named helper, direct dispatch, or a raw/planning member or call-site mismatch is erased as the `GetAwaiter` protocol for an emitted `await`. |
+| `ClassicInverseAwaitBindsItsExactGetAwaiterMember` | A same-named helper, direct reference dispatch, or a raw/planning member or call-site mismatch is erased as the `GetAwaiter` protocol for an emitted `await`. |
 | `ClassicInverseAwaitResultBindsItsExactAwaiterMember` | A call normalizes to `await` without being the exact instance, parameterless `GetResult` member of the type its suspension's local, `GetAwaiter` bind, and cache field all carry. |
 | `ClassicInverseWithCloneBindsItsExactDispatch` | A record clone's typed identity or dispatch is erased, or direct clone dispatch on an open receiver raises into a `with` expression that restores virtual dispatch. |
 | `ClassicInverseWithSetterBindsItsExactDispatch` | A direct setter store raises into a `with` expression that re-emits virtual dispatch, or a consumed initializer member's effect drops its call-site dispatch. |
@@ -703,6 +705,8 @@ Release gates:
 | `ClassicInverseExpandedRecipeSnapshotIsLoadBearingEndToEnd` | An expanded planning body can complete its recipe snapshot with one less than its required budget, or exhaustion becomes an ordinary decline. |
 | `ClassicInversePlanningDepthExhaustionRemainsVisible` | An imported tree can reach recursive clone or prerequisite planning beyond the admitted depth, or excessive depth produces anything other than `Failed(BudgetExhausted)`. |
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
+| `ClassicInversePreservesExistingValueTaskReconstruction` | The existing `ValueTask<T>` compiler fixture stops reconstructing through the exact core proof or loses its Full `return await a;` product output. |
+| `ClassicInverseValueTaskDispatchCannotBeHealedByPlanning` | A planning-only repair hides a changed raw ValueTask `GetAwaiter` member or dispatch. |
 
 The first five gates need compiler-produced positives plus synthetic close
 negatives. Two later gates are deliberately narrower.

@@ -336,14 +336,13 @@ internal sealed class ClassicInverseLoweringProof
                     ParameterTypes.IsDefaultOrEmpty: true,
                 }
                 || getAwaiter.Arguments is not [IrExpression receiver]
-                || !getAwaiter.IsVirtual
                 || getAwaiter.ConstrainedTo is not null
                 || receiver.ResultType is not { } receiverType
-                || !receiverType.Equals(getAwaiter.Callee.DeclaringType)
+                || !IsSourceAwaitDispatch(getAwaiter, receiverType)
                 || !bind.Type.Equals(getAwaiter.Callee.ReturnType))
             {
-                failure = "an awaiter bind does not callvirt the exact "
-                    + "instance GetAwaiter member of its operand type";
+                failure = "an awaiter bind does not preserve source dispatch "
+                    + "to the exact instance GetAwaiter member of its operand type";
                 return null;
             }
 
@@ -640,6 +639,21 @@ internal sealed class ClassicInverseLoweringProof
 
     static bool IsVoid(TypeRef type)
         => MemberIdentity.IsCoreLibraryType(type, "System", "Void");
+
+    static bool IsSourceAwaitDispatch(Call getAwaiter, TypeRef receiverType)
+    {
+        if (getAwaiter.IsVirtual)
+            return receiverType.Equals(getAwaiter.Callee.DeclaringType);
+
+        TypeRef declared = getAwaiter.Callee.DeclaringType;
+        TypeRef definition = ClassicInverseNodeFacts.Definition(declared);
+        return receiverType is
+                { Kind: TypeRefKind.ByRef, ElementType: { } element }
+            && element.Equals(declared)
+            && definition.Name is "ValueTask" or "ValueTask`1"
+            && MemberIdentity.IsCoreLibraryType(
+                definition, "System.Threading.Tasks", definition.Name);
+    }
 
     /// <summary>
     /// The unmodified import carries the completion catch as an exception

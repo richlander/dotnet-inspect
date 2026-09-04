@@ -20,6 +20,7 @@ public sealed partial class ClassicInverseCoreTests
         "AwaitInTryFinally",
         "AwaitOrdinarySetMethod",
         "AwaitValue",
+        "AwaitValueTask",
         "AwaitVoid",
         "DynamicArrayReferenceIdentity",
         "DynamicReferenceIdentity",

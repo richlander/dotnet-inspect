@@ -362,14 +362,8 @@ internal static class ClassicInverseRecipes
         Call? setResult = recipeIndex.SetResult;
         if (setResult is null)
             return candidates;
-        TypeRef builder = ClassicInverseNodeFacts.Definition(
-            setResult.Callee.DeclaringType);
-        if (builder is not
-            {
-                Namespace: "System.Runtime.CompilerServices",
-                Name: "AsyncTaskMethodBuilder"
-                    or "AsyncTaskMethodBuilder`1",
-            })
+        if (!ClassicInverseNodeFacts.IsAsyncMethodBuilder(
+                setResult.Callee.DeclaringType))
         {
             return candidates;
         }
