@@ -21,7 +21,7 @@ using Analysis = ILInspector.Analysis;
 namespace DotnetInspector.Output;
 
 /// <summary>
-/// Formats API command output for display.
+/// Formats API inspection output for display.
 /// </summary>
 public static class ApiOutputFormatter
 {
