@@ -245,6 +245,14 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run ecosystem registry tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
       - name: Run decompiler unit tests (fast)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait- "Speed=Slow"

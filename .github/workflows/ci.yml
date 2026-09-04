@@ -621,6 +621,12 @@ jobs:
       - name: Run artifact contract tests
         run: dotnet run --project src/DotnetInspector.Artifacts.Tests -c Release
 
+      - name: Run ecosystem registry tests
+        run: dotnet run --project src/DotnetInspector.Ecosystems.Tests -c Release
+
+      - name: Run ecosystem consumer tests
+        run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
+
       - name: Run row-selection tests
         run: dotnet run --project src/DotnetInspector.RowSelection.Tests -c Release
 

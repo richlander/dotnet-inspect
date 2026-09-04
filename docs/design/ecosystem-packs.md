@@ -232,19 +232,20 @@ by its engine rules from taking a dependency on
 - Metadata's explicit allow-only rule does not admit the ecosystem assembly.
 
 The implementation adds one focused project-and-assembly rule,
-`ecosystem-packs-stay-out-of-reusable-product-libraries`. Within
+`ecosystem-catalog-stays-in-approved-hosts`. Within
 `dotnet-inspect.slnx`, it denies `DotnetInspector.Ecosystems` from every
 production target except `dotnet-inspect`.
 
 The dependency-policy solution does not include inspect-web, so it does not
 claim to prove that boundary. The browser owner separately adds
 `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly`, which reads the
-inspect-web project graph and permits the reference only from the current
-managed front-end facade, `InspectWeb.Engine`. `InspectWeb.Engine.Core` and
-every other inspect-web production project reject it. Test projects and the
-focused `DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may
-reference the catalog, but only `DotnetInspector.Ecosystems.Tests` may be an
-assembly friend.
+evaluated MSBuild `ProjectReference` and assembly `Reference` items for the
+inspect-web production projects and permits either reference only from the
+current managed front-end facade, `InspectWeb.Engine`.
+`InspectWeb.Engine.Core` and every other inspect-web production project reject
+it. Test projects and the focused
+`DotnetInspector.Ecosystems.Consumer.Tests` non-friend canary may reference the
+catalog, but only `DotnetInspector.Ecosystems.Tests` may be an assembly friend.
 
 Together, the solution dependency policy and browser project-graph gate provide
 full coverage for the current production dependency claim.
@@ -550,8 +551,8 @@ ordinary non-friend consumer.
 | `EcosystemPackConsumerTests.PublicSurfaceSupportsStaticDiscoveryAndSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
-| `eng/dependency-policy.json` rule `ecosystem-packs-stay-out-of-reusable-product-libraries` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
-| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | The inspect-web project graph permits `DotnetInspector.Ecosystems` only in the current managed front-end facade and rejects it from `InspectWeb.Engine.Core` and every other browser production project. |
+| `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
+| `BrowserEngineLayeringTests.EcosystemCatalogIsFacadeOnly` | Evaluated inspect-web `ProjectReference` and assembly `Reference` items permit `DotnetInspector.Ecosystems` only in the current managed front-end facade and reject it from `InspectWeb.Engine.Core` and every other browser production project. |
 
 Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
