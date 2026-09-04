@@ -13,9 +13,9 @@ focused owners; this document places them.
 
 This owner defines:
 
-- which working surfaces exist (Source, Annotated Source, Package query,
-  Diagnostics) and their page-level placement relative to Type/Member
-  navigation;
+- which working surfaces exist (Type API, Member API, Source, Annotated Source,
+  Package query, Diagnostics) and their page-level placement relative to
+  Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
@@ -83,11 +83,13 @@ This document consumes, without redefining:
 
 ## Shell navigation and application actions
 
-The second persistent shell line is one page-level navigation band with two
-sibling regions:
+The second persistent shell line is one page-level navigation band with a
+flexible navigation region, an optional working-surface action region, and a
+fixed application region:
 
 ```text
-[ subject and inspector region: minmax(0, 1fr) ] [ Application menu ]
+[ subject and inspector region: minmax(0, 1fr) ]
+[ working-surface actions, when supplied ] [ Application menu ]
 ```
 
 This composition follows tmux's useful status-line topology: a window list
@@ -107,19 +109,26 @@ SlideStrip item. Moving it into the data bar or working surface would make its
 availability depend on unrelated scrolling or content.
 
 The subject and inspector region receives every inline pixel remaining after
-the Application menu control and the ordinary inter-region gap. It has
-`min-width: 0`; Navigation Presentation's composite resolves normal,
-control-free, and terminal-deficit behavior entirely inside that assigned page
-boundary. Its internal minimum may scroll inside the region, but it never
-pushes, overlaps, or scrolls the Application menu and never creates page-level
-horizontal overflow.
+any working-surface action group, the Application menu control, and the
+ordinary inter-region gaps. It has `min-width: 0`; Navigation Presentation's
+composite resolves normal, control-free, and terminal-deficit behavior
+entirely inside that assigned page boundary. Its internal minimum may scroll
+inside the region, but it never pushes, overlaps, or scrolls either action
+region and never creates page-level horizontal overflow.
+
+The optional working-surface action region exists only when the active surface
+supplies page-level contextual actions. It is not part of either SlideStrip and
+does not add items to the Application menu. Source supplies Copy and optional
+Open there; Annotated Source supplies Copy and Explore there. The complete
+Source action group remains visible as the subject and inspector region yields
+or scrolls under pressure.
 
 The Application menu occupies one non-shrinking control-sized slot aligned to
 the navigation band's inline end. It remains visible at every supported
 viewport width and is not part of the subject or inspector tablist, their
 overflow viewport, or their allocation ladder. Wide and narrow layouts keep
-the same two-region topology; width changes only the capacity assigned to the
-Slideable Subject Strip.
+the active surface's region topology; width changes only the capacity assigned
+to the Slideable Subject Strip.
 
 The menu surface is placed in the shared top-level overlay layer, anchored to
 the button's inline end and constrained to the viewport. It may cover the
@@ -134,39 +143,44 @@ handles a genuine shell replacement.
 
 Adoption replaces the old direct Share, Settings, and Help controls atomically:
 the direct controls and Application menu never render as two simultaneous
-action homes. If a direct control owns focus during that one-time shell
-replacement, focus moves to the Application menu button without opening it.
-If Settings is already open, modal focus remains contained and ordinary
-dismissal resolves the new Application menu button. Focus elsewhere in the
-document remains unchanged.
+application-action homes. A working-surface action group remains a separate
+sibling throughout that replacement; implementations may place both groups in
+one trailing allocation during the transition, but must preserve their
+distinct accessible grouping. If a direct application control owns focus
+during that one-time shell replacement, focus moves to the Application menu
+button without opening it. If Settings is already open, modal focus remains
+contained and ordinary dismissal resolves the new Application menu button.
+Focus elsewhere in the document remains unchanged.
 
 ### Contextual working-surface actions
 
-Contextual actions remain next to the working surface or result they affect,
-not in the shell navigation band or Application menu:
+Contextual actions remain with the working surface or result they affect and
+never enter the Application menu. Full-area source surfaces use the dedicated
+page-level working-surface action region; result-local surfaces retain their
+actions in the result:
 
-- Source keeps `open source` and `copy` in its compact provenance/action row
-  above source content.
-- Annotated Source keeps `Copy` and `Explore` in its inspection-command row
-  above annotated content.
+- Source places `Copy` and optional `Open` in the working-surface action region
+  while source content starts at the top of its pane and compact provenance
+  stays attached to the bottom.
+- Annotated Source places `Copy` and `Explore` in the working-surface action
+  region while product provenance stays attached to the bottom.
 - Package query keeps `Open in workspace` with its result row.
 - Contextual Decompiler style entry remains adjacent to affected decompiled
   output.
 
-At wide widths, a working-surface identity or status occupies the leading
-capacity and its action group occupies the trailing capacity. At narrow
-widths, descriptive text elides first. If the complete action group still
-cannot fit, the same controls move together below the description rather than
-disappearing, entering the Application menu, or being recreated in another
-region. A resize changes layout only: a contextual control that owns focus
-keeps focus, and a modal it opened returns to that same logical surface action
-when the surface still exists.
+At wide widths, a result-local working-surface identity or status occupies the
+leading capacity and its action group occupies the trailing capacity. At
+narrow widths, descriptive text elides first. If the complete result-local
+action group still cannot fit, the same controls move together below the
+description rather than disappearing, entering the Application menu, or being
+recreated in another region. A resize changes layout only: a contextual
+control that owns focus keeps focus, and a modal it opened returns to that same
+logical surface action when the surface still exists.
 
-An independently scrolling source or annotated-content pane begins below its
-contextual action row, so content overflow does not carry the row out of its
-surface. A result collection may scroll as a unit; per-result actions remain
-inside their result row because that row is the context they act on. They do
-not become sticky shell actions.
+An independently scrolling source or annotated-content pane begins at the top
+of the working surface, while its page-level actions remain outside the
+scroller. A result collection may scroll as a unit; per-result actions remain
+inside their result row because that row is the context they act on.
 
 ### Placement implementation gates
 
@@ -185,14 +199,60 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Source, Annotated Source, and Diagnostics are working surfaces rather than
-documents inset inside a general page. This redesign does not change Metadata
-viewer composition.
+Type API, Member API, Source, Annotated Source, and Diagnostics are working
+surfaces rather than documents inset inside a general page. This redesign does
+not change Metadata viewer composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
 failures, and completion remain owned by `package-query-cli.md`. Its former
 package-tab placement stays superseded.
+
+### Type and Member API
+
+Type API and Member API use the full area to the right of Type or Member
+navigation. They do not retain a centered document column, a large subject
+hero, or repeated package, library, namespace, and target-framework context.
+The persistent subject path remains the owner of that hierarchy.
+
+The Type API surface contains:
+
+```text
+Members                         visible / total groups · overloads
+Filters                                            active restrictions
+member rows
+                                                  select-row guidance
+```
+
+`Members` and its count use the same quiet label hierarchy as the navigation
+pane rather than competing with the subject path. The count changes with the
+active member filters. The collapsed `Filters` row owns member text, kind,
+accessibility, and trait controls. Member rows use the complete remaining
+scroll area. The bottom guidance does not repeat the count.
+
+If active filters exclude the selected member, the detail pane retains a
+full-area Member empty state with the quiet header and adjustment guidance. It
+does not fall back to the inset Type heading or remove the pane's scroll owner.
+
+Opening a member group preserves the same composition. A group with multiple
+overloads renders the exact member name and overload count in the quiet header,
+then gives the overload rows the remaining scroll area. Opening one overload
+keeps the exact member name in that header with its kind and overload ordinal.
+Overview, Call graph, and Facts scroll below it.
+
+Member Overview retains package documentation, declaration copying, stable
+identity, parameters, returns, exceptions, and applicability. It removes the
+large documentation-style title and the repeated Namespace, Assembly, Package,
+and framework summary because the subject path already supplies that
+orientation. Call graph and Facts retain their owned result semantics and use
+the same full-area scroller.
+
+Member Source and Annotated Source remain the heading-free full-area exceptions
+defined below. Loading and failure states stay visible and do not become
+success-shaped empty surfaces.
+
+At narrow widths, Type and Member header identity and status may elide, but the
+overload total or selected overload ordinal is not selectively hidden.
 
 ### Package query
 
@@ -245,20 +305,21 @@ summary, centered maximum-width column, or inset source card.
 Their layout is:
 
 ```text
-Types or Members | PDB Source                    open source   copy
-                 | source content
+Working-surface actions                                  Copy   Open
+Types or Members | source content
+                 | source provenance
 
-Types or Members | selected subject                         Copy   Explore
-                 | annotated source content
+Working-surface actions                               Copy   Explore
+Types or Members | annotated source content
                  | product provenance
 ```
 
-Source retains its compact provenance/action row. Annotated Source gives the
-page-owned inspection-command row its contextual actions and keeps provenance
-as a compact footer attached to the source pane. It does not add another
-visible title or presentation summary inside the pane. The navigation pane and
-source content may scroll independently. Collapsing navigation gives the
-working surface the full viewport width.
+Source and Annotated Source give the page-owned working-surface action region
+their contextual actions. Source keeps compact provenance as a footer attached
+to the source pane; Annotated Source keeps product provenance in the same
+position. Neither adds another visible title or presentation summary inside
+the pane. The navigation pane and source content may scroll independently.
+Collapsing navigation gives the working surface the full viewport width.
 
 Annotated Source appears inline by default and may open the full-bleed modal
 viewer governed by the shared transient-surface contract. This document owns
@@ -451,13 +512,17 @@ outcomes.
 6. Focus the Application menu button and resize repeatedly. Confirm that the
    same control remains focused and is not cloned, moved into the title line,
    or included in SlideStrip overflow.
-7. Confirm that Source, Annotated Source, Package query, and contextual
-   Decompiler style actions remain with their working surface or result. At a
-   narrow viewport, confirm that an action group moves together below
-   descriptive text when needed and that a focused action retains focus.
-8. Confirm that source, annotated content, and result overflow scroll below or
-   within their contextual action placement rather than carrying actions into
-   the shell.
+7. Confirm that Source and Annotated Source actions occupy a dedicated group
+   between the SlideStrip region and Application menu without entering either
+   inventory. Confirm that Package query and contextual Decompiler style
+   actions remain with their result. At a narrow viewport, confirm that Source
+   Copy and optional Open remain visible, result-local action groups move
+   together below descriptive text when needed, and focused actions retain
+   focus.
+8. Confirm that source and annotated content begin at the top of their working
+   surfaces and scroll independently of their page-level action groups.
+   Confirm that result overflow remains within its contextual action
+   placement.
 
 ### Package-source composition
 
@@ -477,11 +542,35 @@ outcomes.
 gates enabled, disabled, selected, and unselected source descriptors together
 with the absence of a synthesized `Default feed` control.
 
+### Type and Member API working surfaces
+
+1. Open a Type API surface with no member filters and confirm that the quiet
+   header, collapsed Filters row, member list, and bottom guidance exactly fill
+   the inspector pane without page overflow.
+2. Apply member text and selector filters and confirm that the header reports
+   the live visible/total group count, the collapsed summary discloses the
+   restrictions, and no second result-count row or footer count appears.
+3. Open a member group with multiple overloads and confirm that the exact
+   member name and overload count remain in the quiet header while the overload
+   rows own the scroll area.
+4. Open one overload and switch between Overview, Call graph, and Facts.
+   Confirm that the quiet exact-member header remains stable, each section
+   scrolls independently below it, and Overview contains no large duplicate
+   hero or package-coordinate summary.
+5. Apply a filter that excludes the selected member and confirm that the detail
+   pane provides a full-area Member empty state and adjustment guidance without
+   returning to Type scope or restoring the inset Type heading.
+6. Repeat the Type list, overload picker, and selected-overload checks at a
+   narrow viewport. Confirm that each surface retains its topology and creates
+   no page-level horizontal overflow while preserving the overload total or
+   selected overload ordinal in the rendered status.
+
 ### Source working surface
 
 1. Open Type Source with Type navigation visible.
-2. Confirm that the source pane uses all remaining width and begins with only
-   compact provenance and actions.
+2. Confirm that the source pane uses all remaining width, Copy and optional
+   Open appear in the working-surface action region, source content begins at
+   the top of the pane, and compact provenance remains attached to its bottom.
 3. Collapse Type navigation and confirm that source content expands to the full
    viewport width.
 4. Open PDB Source and confirm that no Decompiler style control appears.

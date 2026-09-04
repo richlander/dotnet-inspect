@@ -307,12 +307,15 @@ workspace-owned group objects whose participants carry registrations minted by
 that session. Ownership transfer requires the complete set of current dependent
 groups; later admission remains available for unrelated work but rejects a new
 group projected from that transferred session. It observes only those groups'
-owner-issued release receipts; an unrelated, foreign, or incomplete group set
-cannot authorize release. Cleanup failures compose with, and never replace,
-group cleanup results in the workspace close report. If coordinated group close
-or its synchronous release request faults, artifact cleanup still runs and its
-failures remain available from the terminal `CloseReport` before the original
-close failure is rethrown.
+exact admission-held physical-release settlements and typed close results; an
+unrelated, foreign, or incomplete group set cannot authorize release. Cleanup
+failures compose with, and never replace, group cleanup results in the workspace
+close report. A coordinated close-result fault cannot authorize artifact
+cleanup before physical group-release settlement, while a fault after
+settlement does not skip cleanup. A synchronous coordinated release-request
+fault before terminal release remains the close failure and keeps the artifact
+session live until the adjacent owner later establishes terminal settlement;
+artifact cleanup never becomes a second physical-release authority.
 
 ### Interaction model
 
@@ -329,22 +332,38 @@ path once the group is quiescent. Its
 checked properties, focused negative controls, reachability probes, commands,
 and results.
 
-The model abstracts away budget arithmetic, adapter identity, content digests,
-and query-lease authorization, and it bounds the state space to one outstanding
-published group's lease lifecycle at a time (a fresh admission cannot publish
-while the previous group awaits lease release); this is a scope-bounding
-simplification of the model, not a claim about real concurrent groups. A
-demand's requested generation is also fixed once it arrives; the model does not
-represent a caller re-deriving a different generation when it replans after an
-incompatible admission terminates.
+The shipped artifact-session lifetime handoff is checked separately by
+[`docs/models/artifact-session-group-release/ArtifactSessionGroupRelease.tla`](../models/artifact-session-group-release/ArtifactSessionGroupRelease.tla).
+Its [model guide](../models/artifact-session-group-release/README.md) records
+the bounded two-dependent-group topology, three named group-release owner
+instances, exact transfer-set and receipt joins, the coordinated-close fault
+path that retains artifact resources until an adjacent owner requests and
+settles the missing physical release, reachability for the retained-pending
+state, and focused controls for incomplete, duplicate, foreign, partial,
+unauthorized-release, and unreported outcomes. It preserves the product's join
+currency as the exact artifact-session registration, complete dependent-group
+set, release-request origin, and each group's owner-issued terminal
+receipt/result. Artifact cleanup observes those receipts but never becomes a
+second physical-release authority. The model establishes those bounded
+interaction properties, not implementation conformance.
 
-The model checks the design intent stated in the prose above. The asynchronous
-`InspectionWorkspace` now owns the exact published-session-to-dependent-group
-association and disposes the session only after all recorded group release
-receipts complete. `ArtifactSetSession` still serves one caller per generation
-with no workspace-wide reservation, multi-demand join, or
-incompatible-generation wait. Closing those admission gaps remains future
-implementation work, not a defect this model found.
+The admission model abstracts away budget arithmetic, adapter identity,
+content digests, and query-lease authorization, and it bounds the state space
+to one outstanding published group's lease lifecycle at a time (a fresh
+admission cannot publish while the previous group awaits lease release); this
+is a scope-bounding simplification of the model, not a claim about real
+concurrent groups. A demand's requested generation is also fixed once it
+arrives; the model does not represent a caller re-deriving a different
+generation when it replans after an incompatible admission terminates.
+
+The admission model checks the design intent stated in the prose above. The
+asynchronous `InspectionWorkspace` now owns the exact
+published-session-to-dependent-group association and disposes the session only
+after all recorded group release receipts complete; the focused group-release
+model checks that shipped interaction. `ArtifactSetSession` still serves one
+caller per generation with no workspace-wide reservation, multi-demand join,
+or incompatible-generation wait. Closing those admission gaps remains future
+implementation work, not a defect the admission model found.
 
 TLC 2026.08.21.155922 (rev `9787e65`, from the pinned `tla2tools.jar` v1.8.0 —
 see [`docs/runbooks/tla-plus-setup.md`](../runbooks/tla-plus-setup.md))
@@ -2198,6 +2217,81 @@ match those source-specific provenance variants.
 
 ## Workspace and query boundary
 
+### Runtime Workspace and coordinate-occurrence identity
+
+`InspectionWorkspace` owns one opaque `InspectionWorkspaceIdentity` for its
+exact runtime instance. The identity is stable for that instance and differs
+from every replacement or independently opened Workspace, even when both were
+activated from equal portable
+`WorkspaceContextAddress` values. Definition IDs, context names, URLs, cache
+keys, and display text do not participate in runtime identity.
+
+While its state is `Open`, the Workspace may issue an opaque coordinate
+occurrence. Each issuance is distinct even for the same root currency, so a
+stale result cannot become current again merely because a root binding recurs.
+Synchronous `Dispose()` and asynchronous `CloseAsync()` stop issuance in the
+same critical section that changes the Workspace state to `Closing`. Existing
+identities remain comparable after close, but neither identity nor equality
+authorizes later Workspace operations or package-content access.
+
+The package arm is `PackageRootOccurrenceBinding`. It carries the exact
+Workspace identity and exact acquisition-issued `PackageRootBinding`.
+`PackageRootBinding` remains authoritative for package coordinate,
+content-generation, selection, and their correspondence. The occurrence adds
+only Workspace-local issuance identity; it does not mint a second package
+identity. The non-package arm is an opaque
+`NonPackageRootOccurrenceIdentity`; a later root adapter composes its own
+owner-issued root facts with that exact occurrence rather than deriving them
+from display or portable address fields.
+
+The currency contract is:
+
+| Property | Workspace identity | Coordinate occurrence |
+| --- | --- | --- |
+| Authority | Issued once by the exact `InspectionWorkspace` instance | Issued by that Workspace only while it is `Open` |
+| Scope | One runtime Workspace occurrence | One issuance inside one exact Workspace |
+| Lifetime | Equality remains meaningful after close; operations still require a live owner | Equality remains meaningful after close; use does not outlive owner authorization |
+| Portability | Process-local and never serialized | Process-local and never serialized |
+| Erasure | Carries no definition, context, inventory, or presentation facts | Carries no membership, order, status, successor, or presentation facts |
+| Rebinding | No value can reconstruct or rebind it in another Workspace | Only future Workspace membership operations may associate it with retained state |
+| Correspondence | Reference equality proves the same runtime Workspace | Reference equality proves the same issuance; package correspondence additionally uses the exact carried `PackageRootBinding` |
+
+`InspectionWorkspace.CreatePackageOccurrenceView` composes an immutable
+ordered view from acquisition-issued package Root bindings. Input order is the
+view order; equal or repeated bindings remain distinct occurrences. An empty
+input produces a typed empty view. Each descriptor exposes package, version,
+and selected framework presentation facts from its exact Root binding and
+carries an opaque action issued for that exact view. Activating the action
+returns the exact `PackageRootOccurrenceBinding` only while the Workspace is
+open and the action belongs to that view. A foreign-view action returns
+`ViewMismatch`; an action whose Workspace has closed returns
+`WorkspaceClosed`.
+
+The action and both runtime identities remain process-local. Browser/Wasm
+lowers an action to an opaque random transport token and resolves that token
+back to the product action before selecting or projecting a package. The CLI
+lowers the same ordered descriptors through Markout. Neither host derives
+activation identity from package text, version, framework, row position, or a
+cache key.
+
+This slice does not define retained membership, add/remove transitions,
+successor selection, persistence, general Navigation snapshots, or
+concurrency semantics. It also does not project non-package Root occurrences
+through this package view. The first CLI acquisition adapter requires a
+package with at least one selected managed assembly; root-only, analyzer-only,
+and tools-only package acquisition is not yet a supported CLI input. Those
+remain consumer-led slices of #5634, #5583, and #5584. The gates are
+`WorkspaceIdentity_IsStableAndExactPerInstance`,
+`PackageOccurrence_IsExactPerIssuanceAndCarriesBinding`,
+`PackageOccurrence_DistinguishesWorkspaceAndBindingGeneration`,
+`NonPackageOccurrence_IsExactAndWorkspaceScoped`,
+`SynchronousClose_StopsOccurrenceIssuanceButKeepsIdentity`, and
+`AsynchronousClose_StopsOccurrenceIssuanceImmediately`, plus the
+`PackageOccurrenceView_*` gates for ordering, empty input, repeated bindings,
+exact activation, foreign-view rejection, and closed-Workspace rejection.
+
+### Workspace composition and query execution
+
 The workspace owns one or more artifact set sessions and one or more assembly
 context groups. When an authorized query plan first demands a context, the
 artifact owner issues its admission lease; the context loader constructs and
@@ -2457,9 +2551,11 @@ The target is complete only when tests equivalent to these exist:
 - `ArtifactSetSession_ReleasesLeasesOnlyAfterOpenArtifactStreamsQuiesce`
 - `WorkspaceClose_ReleasesArtifactSessionAfterExactDependentGroupQuiesces`
 - `RegisterArtifactSession_RejectsForeignOrIncompleteGroupSet`
+- `RegisterArtifactSession_RejectsLaterCoordinatedGroup`
 - `WorkspaceClose_ReportsArtifactSessionCleanupFailure`
 - `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedCloseFaults`
-- `WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows`
+- `WorkspaceClose_WaitsForPhysicalReleaseWhenCoordinatedCloseFaultsEarly`
+- `WorkspaceClose_WaitsForCoordinatedOwnerAfterReleaseRequestThrows`
 - `ArtifactSetSession_DisposalCancelsInFlightMaterialization`
 - `ArtifactSetSession_CancellationCallbackFailureDoesNotSkipLeaseCleanup`
 - `ArtifactSetSession_PreservesPrimaryFailureWhenCleanupFails`

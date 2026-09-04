@@ -67,7 +67,10 @@ public sealed class WorkspaceContextLoaderTests
                     Framework = Framework,
                     Members = [PackageMember(Version)],
                 },
-                Options(client, store),
+                Options(client, store) with
+                {
+                    IncludePackageRootBindings = true,
+                },
                 TestContext.Current.CancellationToken);
 
         var loaded = Loaded(outcome);
@@ -75,6 +78,17 @@ public sealed class WorkspaceContextLoaderTests
         Assert.Equal(Framework, loaded.Framework);
         Assert.Null(loaded.RuntimeIdentifier);
         Assert.Equal(2, loaded.Group.Participants.Length);
+        PackageRootBinding packageRoot =
+            Assert.Single(loaded.PackageRoots);
+        Assert.Equal(PackageId, packageRoot.Root.PackageId);
+        Assert.Equal(Version, packageRoot.Root.PackageVersion);
+        Assert.Equal(
+            Framework,
+            packageRoot.Root.AssetSelection.TargetFramework);
+        Assert.Equal(
+            Assert.IsType<RealizedMemberCoordinate.Package>(
+                loaded.Members[0].Realized),
+            packageRoot.Coordinate);
         Assert.Equal(
             [
                 Path.GetFileNameWithoutExtension(CallerPath),
@@ -180,7 +194,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Platform));
+                AssemblyResolutionScope.Platform)).Selection;
         Assert.Same(
             target.Assembly,
             Assert.IsType<AssemblyBindingSelection.Selected>(selection)
@@ -1197,7 +1211,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
 
         Assert.Same(
             target.Assembly,
@@ -1215,7 +1229,7 @@ public sealed class WorkspaceContextLoaderTests
                         null,
                         null)),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
         Assert.IsType<AssemblyBindingSelection.Missing>(outside);
     }
 
@@ -2131,7 +2145,7 @@ public sealed class WorkspaceContextLoaderTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(target.Assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
         Assert.Same(
             target.Assembly,
             Assert.IsType<AssemblyBindingSelection.Selected>(selection).Assembly);
@@ -2462,6 +2476,78 @@ public sealed class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task UnsupportedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // A workspace member is not a scan and may not present partial rows,
+        // so a rejected asset denies the whole member even when a healthy
+        // assembly sits beside it. Pinning the blast radius in both directions
+        // is the point: the single-asset gates cannot distinguish scoping from
+        // non-scoping.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Unsupported.dll",
+                    CreateUnsupportedMetadataImage()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // The base swallowed this inside CreateFromStreamIfManaged and loaded
+        // the member as though the package were intact. That success-shaped
+        // skip is what this contract removes, so the change is pinned here.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Malformed.dll",
+                    CreateMalformedMetadataRootImage()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "MalformedMetadataRoot",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
     public async Task UnsupportedPackageAsset_CreatesTypedFailure()
     {
         byte[] unsupported = CreateUnsupportedMetadataImage();
@@ -2493,7 +2579,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedPackageAsset_PreservesExactReason()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
@@ -2564,7 +2650,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedPlatformAsset_PreservesExactReason()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             RuntimePackPackageId,
@@ -2722,7 +2808,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedEmbeddedContent_CreatesNoGroup()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
@@ -3217,7 +3303,7 @@ public sealed class WorkspaceContextLoaderTests
                 new AssemblyBindingRequest(
                     AssemblyBindingTarget.Reference(target.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(caller.Assembly),
-                    AssemblyResolutionScope.Any)));
+                    AssemblyResolutionScope.Any)).Selection);
     }
 
     [Fact]
@@ -3586,7 +3672,7 @@ public sealed class WorkspaceContextLoaderTests
                     AssemblyBindingTarget.Reference(
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(first.Assembly),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
             Assert.Same(
                 participant.Assembly,
                 Assert.IsType<AssemblyBindingSelection.Selected>(selection)
@@ -3941,6 +4027,25 @@ public sealed class WorkspaceContextLoaderTests
                 File.ReadAllBytes(CallerPath)),
             ($"runtimes/linux-x64/lib/{Framework}/{Path.GetFileName(TargetPath)}",
                 File.ReadAllBytes(TargetPath)));
+
+    static byte[] CreateMalformedMetadataRootImage()
+    {
+        // A real PE image whose CLI metadata directory size is zeroed, so the
+        // metadata root cannot be mapped. A non-PE byte string is not a
+        // substitute: it has no metadata root at all and is classified as a
+        // descriptor-less image well before admission runs.
+        byte[] image = File.ReadAllBytes(TargetPath);
+        int corHeaderStart;
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            corHeaderStart = peReader.PEHeaders.CorHeaderStartOffset;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(corHeaderStart + 12, sizeof(int)),
+            0);
+        return image;
+    }
 
     static byte[] CreateNoMetadataImage()
     {

@@ -2,7 +2,7 @@ using DotnetInspector.Fixtures;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace DotnetInspector.Fixtures.Tests;
+namespace DotnetInspector.FixtureInfrastructure.Tests;
 
 public class FixtureCatalogTests
 {
@@ -23,6 +23,24 @@ public class FixtureCatalogTests
         {
             string path = fixture.AssemblyPath();
             Assert.True(File.Exists(path), $"Expected fixture {fixture.Id} at {path}");
+        }
+    }
+
+    [Fact]
+    public void All_ProjectDirectoriesAreExplicitRepositoryRelativePaths()
+    {
+        foreach (var fixture in FixtureCatalog.All)
+        {
+            Assert.False(Path.IsPathRooted(fixture.RepositoryProjectDirectory));
+            Assert.DoesNotContain(
+                fixture.RepositoryProjectDirectory.Split('/', '\\'),
+                segment => segment is "." or "..");
+
+            string directory = fixture.ProjectDirectory();
+            Assert.True(
+                File.Exists(Path.Combine(directory, $"{fixture.ProjectName}.csproj"))
+                    || File.Exists(Path.Combine(directory, $"{fixture.ProjectName}.vbproj")),
+                $"Expected project {fixture.ProjectName} in {directory}");
         }
     }
 

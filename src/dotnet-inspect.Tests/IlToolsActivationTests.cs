@@ -808,7 +808,7 @@ public class IlToolsActivationTests
             (
                 "cli",
                 "dotnet run --project src/dotnet-inspect.Tests -c Release -- " +
-                "-trait- \"Speed=Slow\""),
+                "--filter-not-trait \"Speed=Slow\""),
             (
                 "services",
                 "dotnet run --project " +
@@ -816,7 +816,7 @@ public class IlToolsActivationTests
             (
                 "analysis",
                 "dotnet run --project src/ILInspector.Analysis.Tests " +
-                "-c Release -- -trait- \"Speed=Slow\""),
+                "-c Release -- --filter-not-trait \"Speed=Slow\""),
             (
                 "decompiler",
                 "dotnet run --project src/ILInspector.Decompiler.Tests " +

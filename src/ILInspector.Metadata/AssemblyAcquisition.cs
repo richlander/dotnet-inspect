@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -229,6 +230,62 @@ public sealed class AssemblyAcquisitionRegistration
 }
 
 /// <summary>
+/// Typed result of selecting an assembly acquisition descriptor from one
+/// compatibility path or stream.
+/// </summary>
+public abstract class AssemblyDescriptorSelectionResult
+{
+    private protected AssemblyDescriptorSelectionResult()
+    {
+    }
+
+    /// <summary>The selected image produced a valid assembly descriptor.</summary>
+    public sealed class Ready : AssemblyDescriptorSelectionResult
+    {
+        internal Ready(ResolvedAssemblyReference reference)
+        {
+            ArgumentNullException.ThrowIfNull(reference);
+            Reference = reference;
+        }
+
+        public ResolvedAssemblyReference Reference { get; }
+    }
+
+    /// <summary>
+    /// The selected image is not a managed assembly and remains eligible for a
+    /// descriptor-less compatibility path.
+    /// </summary>
+    public sealed class Descriptorless : AssemblyDescriptorSelectionResult
+    {
+        internal Descriptorless(Exception? compatibilityException)
+        {
+            CompatibilityException = compatibilityException;
+        }
+
+        internal Exception? CompatibilityException { get; }
+    }
+
+    /// <summary>
+    /// The selected image has managed assembly metadata that could not produce
+    /// a valid descriptor.
+    /// </summary>
+    public sealed class Rejected : AssemblyDescriptorSelectionResult
+    {
+        internal Rejected(
+            CandidateOpenFailure failure,
+            Exception? compatibilityException)
+        {
+            ArgumentNullException.ThrowIfNull(failure);
+            Failure = failure;
+            CompatibilityException = compatibilityException;
+        }
+
+        public CandidateOpenFailure Failure { get; }
+        internal Exception? CompatibilityException { get; }
+    }
+}
+
+/// <summary>
 /// Roslyn-free descriptor for one assembly selected by an acquisition owner.
 /// </summary>
 public sealed class ResolvedAssemblyReference
@@ -278,11 +335,11 @@ public sealed class ResolvedAssemblyReference
                 "The selected image has no managed metadata.");
 
     /// <summary>
-    /// Creates a descriptor for a managed assembly path, or returns
-    /// <see langword="null"/> when the PE image has no managed metadata.
-    /// Malformed managed metadata remains a visible failure.
+    /// Selects an assembly descriptor from a path while preserving a typed
+    /// distinction between descriptor-less compatibility and rejected managed
+    /// assembly metadata.
     /// </summary>
-    public static ResolvedAssemblyReference? CreateFromPathIfManaged(
+    public static AssemblyDescriptorSelectionResult SelectFromPath(
         string path,
         AssemblyResolutionProvenance provenance)
     {
@@ -290,70 +347,73 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(provenance);
 
         string fullPath = System.IO.Path.GetFullPath(path);
-        FileStream? stream = null;
-        PEReader? peReader = null;
-        AssemblyReferenceIdentity? identity = null;
-        try
-        {
-            stream = File.OpenRead(fullPath);
-            try
-            {
-                peReader = new PEReader(
-                    stream,
-                    PEStreamOptions.LeaveOpen);
-                if (!MetadataFormatAdmission.AdmitImage(peReader))
-                    return null;
-            }
-            catch (MalformedMetadataRootException)
-            {
-                throw;
-            }
-            catch (BadImageFormatException)
-            {
-                return null;
-            }
-
-            identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(
-                    MetadataFormatAdmission.GetMetadataReader(peReader));
-            if (string.IsNullOrWhiteSpace(identity.Name))
-                return null;
-
-            return Create(
+        using FileStream stream = File.OpenRead(fullPath);
+        return SelectDescriptor(
+            stream,
+            identity => Create(
                 identity,
                 fullPath,
                 () => File.OpenRead(fullPath),
                 provenance,
-                File.GetLastWriteTimeUtc(stream.SafeFileHandle));
-        }
-        catch (Exception ex)
+                File.GetLastWriteTimeUtc(stream.SafeFileHandle)));
+    }
+
+    /// <summary>
+    /// Creates a descriptor for a managed assembly path, or returns
+    /// <see langword="null"/> for a descriptor-less compatibility image.
+    /// Rejected managed assembly metadata remains a visible failure.
+    /// </summary>
+    public static ResolvedAssemblyReference? CreateFromPathIfManaged(
+        string path,
+        AssemblyResolutionProvenance provenance)
+        => DescriptorOrNull(SelectFromPath(path, provenance));
+
+    /// <summary>
+    /// Selects an assembly descriptor from a repeatable stream while
+    /// preserving a typed distinction between descriptor-less compatibility
+    /// and rejected managed assembly metadata.
+    /// </summary>
+    public static AssemblyDescriptorSelectionResult SelectFromStream(
+        Func<Stream> openRead,
+        AssemblyResolutionProvenance provenance,
+        DateTime? lastWriteTimeUtc = null)
+    {
+        ArgumentNullException.ThrowIfNull(openRead);
+        ArgumentNullException.ThrowIfNull(provenance);
+
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
         {
-            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            peReader = null;
-            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
-            stream = null;
-            throw;
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        Stream stream = source;
+        try
+        {
+            return SelectDescriptor(
+                stream,
+                identity => Create(
+                    identity,
+                    path: null,
+                    openRead,
+                    provenance,
+                    lastWriteTimeUtc));
         }
         finally
         {
-            if (identity is null)
-            {
-                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
-                    ref peReader,
-                    ref stream);
-            }
-            else
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
-            }
+            // A failing Dispose must not replace the selection outcome, which
+            // may already carry a typed rejection.
+            OwnedResourceCleanup.DisposeWithoutReplacingOutcome(stream);
         }
     }
 
     /// <summary>
     /// Creates a descriptor for a managed assembly served by a repeatable
-    /// stream factory, or returns <see langword="null"/> when the image has no
-    /// managed metadata. Malformed managed metadata remains a visible failure.
+    /// stream factory, or returns <see langword="null"/> for a descriptor-less
+    /// compatibility image. Rejected managed assembly metadata remains a
+    /// visible failure.
     /// </summary>
     /// <remarks>
     /// This is the stream-only peer of
@@ -368,11 +428,11 @@ public sealed class ResolvedAssemblyReference
         Func<Stream> openRead,
         AssemblyResolutionProvenance provenance,
         DateTime? lastWriteTimeUtc = null)
-        => CreateFromStreamIfManagedCore(
-            artifactRegistration: null,
-            openRead,
-            provenance,
-            lastWriteTimeUtc);
+        => DescriptorOrNull(
+            SelectFromStream(
+                openRead,
+                provenance,
+                lastWriteTimeUtc));
 
     /// <summary>
     /// Projects one authorized artifact registration into a managed assembly
@@ -407,55 +467,58 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(openRead);
         ArgumentNullException.ThrowIfNull(provenance);
 
-        Stream? stream = null;
-        PEReader? peReader = null;
-        bool rejectionEstablished = false;
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
+        {
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
+        using Stream stream = source;
+        System.Reflection.PortableExecutable.PEReader? peReader = null;
         try
         {
-            stream = openRead();
-            if (stream is null || !stream.CanRead)
-            {
-                throw new IOException(
-                    "The assembly opener did not return a readable stream.");
-            }
-
-            try
-            {
-                peReader = new PEReader(
+            peReader =
+                new System.Reflection.PortableExecutable.PEReader(
                     stream,
-                    PEStreamOptions.LeaveOpen);
-                if (!MetadataFormatAdmission.AdmitImage(peReader))
-                {
-                    rejectionEstablished = true;
-                    return null;
-                }
-            }
-            catch (MalformedMetadataRootException)
+                    System.Reflection.PortableExecutable
+                        .PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                throw;
-            }
-            catch (BadImageFormatException)
-            {
-                rejectionEstablished = true;
+                peReader.Dispose();
                 return null;
             }
+        }
+        catch (Exception ex) when (
+            ex is UnsupportedMetadataFormatException
+                or MalformedMetadataRootException)
+        {
+            // This shape has no failure arm, so the mechanism propagates.
+            peReader?.Dispose();
+            throw;
+        }
+        catch (BadImageFormatException)
+        {
+            peReader?.Dispose();
+            return null;
+        }
 
+        using (peReader)
+        {
             MetadataReader metadata =
                 MetadataFormatAdmission.GetMetadataReader(peReader);
             if (artifactRegistration is not null
                 && !metadata.IsAssembly)
             {
-                rejectionEstablished = true;
                 return null;
             }
 
             AssemblyReferenceIdentity identity =
-                AssemblyReferenceIdentity.FromAssemblyDefinition(metadata);
+                AssemblyReferenceIdentity.FromAssemblyDefinition(
+                    metadata);
             if (string.IsNullOrWhiteSpace(identity.Name))
-            {
-                rejectionEstablished = true;
                 return null;
-            }
 
             var registration =
                 new AssemblyAcquisitionRegistration(artifactRegistration);
@@ -474,28 +537,197 @@ public sealed class ResolvedAssemblyReference
                 provenance,
                 lastWriteTimeUtc);
         }
-        catch (Exception ex)
+    }
+
+    static AssemblyDescriptorSelectionResult SelectDescriptor(
+        Stream stream,
+        Func<AssemblyReferenceIdentity, ResolvedAssemblyReference>
+            createDescriptor)
+    {
+        if (stream.CanSeek && !HasPortableExecutableSignature(stream))
         {
-            OwnedResourceCleanup.DisposeAfterFailure(peReader, ex);
-            peReader = null;
-            OwnedResourceCleanup.DisposeAfterFailure(stream, ex);
-            stream = null;
-            throw;
+            return new AssemblyDescriptorSelectionResult.Descriptorless(
+                compatibilityException: null);
+        }
+
+        System.Reflection.PortableExecutable.PEReader peReader;
+        try
+        {
+            peReader =
+                new System.Reflection.PortableExecutable.PEReader(
+                    stream,
+                    System.Reflection.PortableExecutable
+                        .PEStreamOptions.LeaveOpen);
+        }
+        catch (BadImageFormatException)
+        {
+            return RejectDescriptorSelection(
+                "The selected PE image has invalid headers.",
+                compatibilityException: null);
+        }
+
+        using (peReader)
+        {
+            bool hasMetadata;
+            try
+            {
+                hasMetadata = MetadataFormatAdmission.AdmitImage(peReader);
+            }
+            catch (UnsupportedMetadataFormatException unsupported)
+            {
+                // Selection has a failure arm, so the mechanism travels as the
+                // compatibility exception rather than unwinding here. Callers
+                // whose shape has no failure arm rethrow it unchanged.
+                return RejectDescriptorSelection(
+                    "The selected image uses an unsupported metadata format.",
+                    unsupported);
+            }
+            catch (MalformedMetadataRootException malformed)
+            {
+                return RejectDescriptorSelection(
+                    "The selected image has a malformed metadata root.",
+                    malformed);
+            }
+            catch (BadImageFormatException)
+            {
+                return RejectDescriptorSelection(
+                    "The selected PE image has invalid CLR or metadata structure.",
+                    compatibilityException: null);
+            }
+            if (!hasMetadata)
+            {
+                PEHeader? peHeader = peReader.PEHeaders.PEHeader;
+                if (peHeader is not null
+                    && (peHeader.CorHeaderTableDirectory
+                            .RelativeVirtualAddress != 0
+                        || peHeader.CorHeaderTableDirectory.Size != 0))
+                {
+                    return RejectDescriptorSelection(
+                        "The selected PE image has an invalid CLR header.",
+                        compatibilityException: null);
+                }
+
+                return new AssemblyDescriptorSelectionResult.Descriptorless(
+                    compatibilityException: null);
+            }
+
+            AssemblyReferenceIdentity identity;
+            try
+            {
+                MetadataReader metadata =
+                    MetadataFormatAdmission.GetMetadataReader(peReader);
+                if (!metadata.IsAssembly)
+                {
+                    return new AssemblyDescriptorSelectionResult
+                        .Descriptorless(
+                            new BadImageFormatException(
+                                "The metadata image is not an assembly."));
+                }
+
+                identity =
+                    AssemblyReferenceIdentity.FromAssemblyDefinition(
+                        metadata);
+                if (string.IsNullOrWhiteSpace(identity.Name))
+                {
+                    return RejectDescriptorSelection(
+                        "The selected managed assembly has no usable identity.",
+                        compatibilityException: null);
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException
+                    or ArgumentOutOfRangeException
+                    or OverflowException)
+            {
+                return RejectDescriptorSelection(
+                    "The selected managed assembly contains invalid metadata.",
+                    ex);
+            }
+
+            return new AssemblyDescriptorSelectionResult.Ready(
+                createDescriptor(identity));
+        }
+    }
+
+    static bool HasPortableExecutableSignature(Stream stream)
+    {
+        const int PeHeaderOffsetLocation = 0x3c;
+        const uint PeSignature = 0x00004550;
+
+        long position = stream.Position;
+        try
+        {
+            if (stream.ReadByte() != 'M'
+                || stream.ReadByte() != 'Z')
+            {
+                return false;
+            }
+
+            if (stream.Length - position
+                < PeHeaderOffsetLocation + sizeof(int))
+            {
+                return false;
+            }
+
+            stream.Position = position + PeHeaderOffsetLocation;
+            Span<byte> offsetBytes = stackalloc byte[sizeof(int)];
+            stream.ReadExactly(offsetBytes);
+            int peHeaderOffset =
+                BinaryPrimitives.ReadInt32LittleEndian(offsetBytes);
+            if (peHeaderOffset < 0
+                || peHeaderOffset > stream.Length - position - sizeof(uint))
+            {
+                return false;
+            }
+
+            stream.Position = position + peHeaderOffset;
+            Span<byte> signatureBytes = stackalloc byte[sizeof(uint)];
+            stream.ReadExactly(signatureBytes);
+            return BinaryPrimitives.ReadUInt32LittleEndian(signatureBytes)
+                == PeSignature;
         }
         finally
         {
-            if (rejectionEstablished)
-            {
-                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
-                    ref peReader,
-                    ref stream);
-            }
-            else
-            {
-                peReader?.Dispose();
-                stream?.Dispose();
-            }
+            stream.Position = position;
         }
+    }
+
+    static AssemblyDescriptorSelectionResult.Rejected
+        RejectDescriptorSelection(
+            string detail,
+            Exception? compatibilityException) =>
+        new(
+            new CandidateOpenFailure(
+                CandidateOpenFailureKind.InvalidImage,
+                detail),
+            compatibilityException);
+
+    static ResolvedAssemblyReference? DescriptorOrNull(
+        AssemblyDescriptorSelectionResult result) =>
+        result switch
+        {
+            AssemblyDescriptorSelectionResult.Ready ready =>
+                ready.Reference,
+            AssemblyDescriptorSelectionResult.Descriptorless descriptorless =>
+                PreserveCompatibilityResult(
+                    descriptorless.CompatibilityException),
+            AssemblyDescriptorSelectionResult.Rejected rejected =>
+                PreserveCompatibilityResult(
+                    rejected.CompatibilityException),
+            _ => throw new InvalidOperationException(
+                "Unknown assembly descriptor selection result."),
+        };
+
+    static ResolvedAssemblyReference? PreserveCompatibilityResult(
+        Exception? compatibilityException)
+    {
+        if (compatibilityException is null)
+            return null;
+
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo
+            .Capture(compatibilityException)
+            .Throw();
+        return null;
     }
 
     /// <summary>
@@ -567,24 +799,26 @@ public sealed class ResolvedAssemblyReference
         ArgumentNullException.ThrowIfNull(fallbackIdentity);
         ArgumentNullException.ThrowIfNull(provenance);
 
-        Stream? stream = null;
-        PEReader? peReader = null;
+        Stream? source = openRead();
+        if (source is null || !source.CanRead)
+        {
+            source?.Dispose();
+            throw new IOException(
+                "The assembly opener did not return a readable stream.");
+        }
+
         AssemblyReferenceIdentity? identity = null;
         Guid? moduleVersionId = null;
+        Stream stream = source;
         try
         {
-            stream = openRead();
-            if (stream is null || !stream.CanRead)
-            {
-                throw new IOException(
-                    "The assembly opener did not return a readable stream.");
-            }
-
             try
             {
-                peReader = new PEReader(
-                    stream,
-                    PEStreamOptions.LeaveOpen);
+                using var peReader =
+                    new System.Reflection.PortableExecutable.PEReader(
+                        stream,
+                        System.Reflection.PortableExecutable
+                            .PEStreamOptions.LeaveOpen);
                 if (MetadataFormatAdmission.AdmitImage(peReader))
                 {
                     MetadataReader metadata =
@@ -618,56 +852,34 @@ public sealed class ResolvedAssemblyReference
                     or UnsupportedMetadataFormatException
                     or OverflowException)
             {
-                OwnedResourceCleanup.DisposeAfterFailure(
-                    ref peReader,
-                    ref stream,
-                    ex);
-                // The descriptor retains the selected image as a rejection carrier.
+                // The fallback path exists to keep a supplied identity usable
+                // when the image cannot supply one. The descriptor retains the
+                // selected image as a rejection carrier.
             }
-
-            usedFallbackIdentity = identity is null;
-            if (usedFallbackIdentity)
-            {
-                ArgumentException.ThrowIfNullOrWhiteSpace(
-                    fallbackIdentity.Name);
-            }
-            var registration =
-                new AssemblyAcquisitionRegistration(artifactRegistration);
-            if (moduleVersionId is Guid value)
-                registration.BindModuleVersionId(value);
-            var result = new ResolvedAssemblyReference(
-                registration,
-                identity ?? fallbackIdentity,
-                path: null,
-                openRead,
-                provenance,
-                lastWriteTimeUtc);
-            if (usedFallbackIdentity)
-            {
-                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
-                    ref peReader,
-                    ref stream);
-            }
-            else
-            {
-                PEReader? readerToDispose = peReader;
-                peReader = null;
-                readerToDispose?.Dispose();
-                Stream? streamToDispose = stream;
-                stream = null;
-                streamToDispose?.Dispose();
-            }
-
-            return result;
         }
-        catch (Exception ex)
+        finally
         {
-            OwnedResourceCleanup.DisposeAfterFailure(
-                ref peReader,
-                ref stream,
-                ex);
-            throw;
+            // A failing Dispose must not prevent the fallback descriptor.
+            OwnedResourceCleanup.DisposeWithoutReplacingOutcome(stream);
         }
+
+        usedFallbackIdentity = identity is null;
+        if (usedFallbackIdentity)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(
+                fallbackIdentity.Name);
+        }
+        var registration =
+            new AssemblyAcquisitionRegistration(artifactRegistration);
+        if (moduleVersionId is Guid value)
+            registration.BindModuleVersionId(value);
+        return new ResolvedAssemblyReference(
+            registration,
+            identity ?? fallbackIdentity,
+            path: null,
+            openRead,
+            provenance,
+            lastWriteTimeUtc);
     }
 
     public static bool TryCreateFromPath(

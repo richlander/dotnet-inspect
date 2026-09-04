@@ -25,6 +25,11 @@ on:
     # Weekly discovery: current packages.
     - cron: '0 9 * * 1'
 
+# Least privilege by default. Jobs needing more declare it themselves; a
+# job-level block replaces this default rather than adding to it.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
@@ -246,7 +251,7 @@ jobs:
 
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
 
       - name: Run metadata tests
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}

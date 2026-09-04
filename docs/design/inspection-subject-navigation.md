@@ -34,11 +34,15 @@ standalone exact-lens activation is implemented by
 `StandaloneLensActivation_RejectsDifferentExactSubjectBeforeRegistryResolution`,
 `ExplicitLensResolution_MapsEveryRegistryOutcomeWithoutFallback`, and
 `ExplicitLensResolution_RetainsExactRegistryEvidence`. Workspace and Package
-identity, descriptor composition, subject activation, snapshot installation,
-reconciliation, revision behavior, retained sessions, synchronization, and
-restoration remain unverified until their implementation gates in
+identity as a Navigation subject, snapshot installation, reconciliation,
+revision behavior, retained sessions, synchronization, and restoration remain
+unverified until their implementation gates in
 [Verification](#verification) land. The workspace-owned identity prerequisite
-is tracked by #5508, Registry adoption by #5509, and portable
+is implemented by `InspectionWorkspaceIdentity`; the first package descriptor
+composition and exact view-scoped activation slice is implemented by
+`InspectionWorkspacePackageOccurrenceView` for the Inspect Web and CLI
+consumers. This slice does not install or mutate Navigation state. Registry
+adoption is tracked by #5509, and portable
 Workspace/Package subject projection by #5525.
 
 The concurrency claims are specified separately as executable TLA+ models under
@@ -216,10 +220,13 @@ their protected Navigation consumption is #5584.
 
 Artifact acquisition and package realization own package coordinate,
 `PackageRootBinding`, content-generation, selection, and acquired-descendant
-identity currencies. #5508 composes the Workspace identity with those existing
-currencies rather than minting a parallel package-occurrence identity.
-Navigation consumes only that owner-issued exact binding; a portable package
-coordinate alone cannot identify one retained occurrence.
+identity currencies. #5508 composes a Workspace-local occurrence with those
+existing currencies rather than minting a parallel package identity. Each
+issuance for the same `PackageRootBinding` creates a distinct occurrence; later
+Workspace membership operations retain that exact occurrence while the carried
+binding remains the only package correspondence proof. Navigation consumes only
+that owner-issued exact occurrence binding; a portable package coordinate alone
+cannot identify one retained occurrence.
 
 [Type, member, and API representation](type-member-api-representation.md) owns
 the Type and Member identity currencies used here.
@@ -302,8 +309,8 @@ The conceptual subject identity family is:
 | Kind | Identity components |
 | --- | --- |
 | Workspace | Owner-issued runtime Workspace occurrence identity |
-| Package | Workspace identity plus exact retained `PackageRootBinding` occurrence |
-| Root | Workspace identity plus exact retained non-package occurrence identity |
+| Package | Exact owner-issued `PackageRootOccurrenceBinding`, carrying its Workspace identity, distinct occurrence issuance, and exact retained `PackageRootBinding` |
+| Root | Exact owner-issued `NonPackageRootOccurrenceIdentity`, carrying its Workspace identity |
 | All Libraries | Exact Package or Root plus explicit aggregate Library identity |
 | One Library | Exact Package or Root plus acquired Library identity |
 | Type | Exact Library binding plus exact metadata definition |

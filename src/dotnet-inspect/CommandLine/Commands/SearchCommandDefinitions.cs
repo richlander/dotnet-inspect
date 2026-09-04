@@ -35,7 +35,6 @@ public static class SearchCommandDefinitions
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
-        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -50,7 +49,10 @@ public static class SearchCommandDefinitions
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search a NuGet package ID prefix; without a pattern, inspect latest manifests only" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"With a type pattern, search up to {ScopeConstants.PackagePrefixExpansionLimit} matching package IDs; without one, inspect {FindCommand.PackageProfileDefaultLimit} latest manifests by default (-t up to {FindCommand.PackageProfileMaximumLimit})"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit result count (-t 5) or filter API types by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -61,7 +63,6 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(platformLibraryOption);
         findCommand.Options.Add(extensionsOption);
         findCommand.Options.Add(aspnetcoreOption);
-        findCommand.Options.Add(curatedOption);
         findCommand.Options.Add(projectOption);
         findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
@@ -82,7 +83,7 @@ public static class SearchCommandDefinitions
 
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
-            extensionsOption, aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
+            extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
@@ -94,8 +95,8 @@ public static class SearchCommandDefinitions
                 case FindOptionsParser.ShowHelpWithTips:
                     return TipWriter.MissingArgumentWithTips(findCommand,
                         "Search pattern required.",
-                        "find Chat*                                # search default scope",
-                        "find Chat* --platform                     # platform libraries only",
+                        "find Chat*                                # implicit platform scope",
+                        "find Chat* --platform                     # explicit platform scope",
                         "find Chat* --extensions                   # Microsoft.Extensions packages",
                         "find Chat* --aspnetcore                   # ASP.NET Core packages",
                         "find Chat* --package Newtonsoft.Json       # specific package",
@@ -150,7 +151,6 @@ public static class SearchCommandDefinitions
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
-        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -159,7 +159,10 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -170,7 +173,6 @@ public static class SearchCommandDefinitions
         implCommand.Options.Add(platformLibraryOption);
         implCommand.Options.Add(extensionsOption);
         implCommand.Options.Add(aspnetcoreOption);
-        implCommand.Options.Add(curatedOption);
         implCommand.Options.Add(projectOption);
         implCommand.Options.Add(tfmOption);
         implCommand.Options.Add(allOption);
@@ -193,8 +195,8 @@ public static class SearchCommandDefinitions
             {
                 return TipWriter.MissingArgumentWithTips(implCommand,
                     "Type name required.",
-                    "implements Stream                         # search default scope",
-                    "implements Stream --platform              # platform libraries only",
+                    "implements Stream                         # implicit platform scope",
+                    "implements Stream --platform              # explicit platform scope",
                     "implements Stream --extensions             # Microsoft.Extensions packages",
                     "implements Stream --aspnetcore             # ASP.NET Core packages",
                     "implements Stream --package Foo            # specific package",
@@ -219,8 +221,7 @@ public static class SearchCommandDefinitions
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption),
-                Curated: parseResult.GetValue(curatedOption));
+                AspNetCore: parseResult.GetValue(aspnetcoreOption));
             var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
                 hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
@@ -282,7 +283,6 @@ public static class SearchCommandDefinitions
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
-        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -300,7 +300,10 @@ public static class SearchCommandDefinitions
         var tfmOption = new Option<string?>("--tfm") { Description = "Target framework (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete members" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
-        var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
+        var packagePrefixOption = new Option<string?>("--package-prefix")
+        {
+            Description = $"Search up to {ScopeConstants.PackagePrefixExpansionLimit} packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)"
+        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
         typeFilterOption.Aliases.Add("--type");
 
@@ -311,7 +314,6 @@ public static class SearchCommandDefinitions
         extCommand.Options.Add(platformLibraryOption);
         extCommand.Options.Add(extensionsOption);
         extCommand.Options.Add(aspnetcoreOption);
-        extCommand.Options.Add(curatedOption);
         extCommand.Options.Add(projectOption);
         extCommand.Options.Add(reachableOption);
         extCommand.Options.Add(depthOption);
@@ -336,8 +338,8 @@ public static class SearchCommandDefinitions
             {
                 return TipWriter.MissingArgumentWithTips(extCommand,
                     "Type name required.",
-                    "extensions HttpClient                     # search default scope",
-                    "extensions HttpClient --platform          # platform libraries only",
+                    "extensions HttpClient                     # implicit platform scope",
+                    "extensions HttpClient --platform          # explicit platform scope",
                     "extensions HttpClient --extensions         # Microsoft.Extensions packages",
                     "extensions HttpClient --aspnetcore         # ASP.NET Core packages",
                     "extensions HttpClient --package Foo        # specific package",
@@ -362,8 +364,7 @@ public static class SearchCommandDefinitions
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption),
-                Curated: parseResult.GetValue(curatedOption));
+                AspNetCore: parseResult.GetValue(aspnetcoreOption));
             var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies, packagePrefix,
                 hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
@@ -426,7 +427,6 @@ public static class SearchCommandDefinitions
         var platformLibraryOption = CommandLineHelpers.CreatePlatformLibrarySearchOption();
         var extensionsOption = new Option<bool>("--extensions") { Description = "Search curated Microsoft.Extensions.* packages" };
         var aspnetcoreOption = new Option<bool>("--aspnetcore") { Description = "Search curated Microsoft.AspNetCore.* packages" };
-        var curatedOption = new Option<bool>("--curated") { Description = "Use default curated scope explicitly", Hidden = true };
         var projectOption = new Option<string[]>("--project")
         {
             Description = "Search project dependencies via project.assets.json. Can repeat.",
@@ -442,7 +442,6 @@ public static class SearchCommandDefinitions
         dependsCommand.Options.Add(platformLibraryOption);
         dependsCommand.Options.Add(extensionsOption);
         dependsCommand.Options.Add(aspnetcoreOption);
-        dependsCommand.Options.Add(curatedOption);
         dependsCommand.Options.Add(projectOption);
         dependsCommand.Options.Add(tfmOption);
         dependsCommand.Options.Add(opts.Json);
@@ -497,8 +496,14 @@ public static class SearchCommandDefinitions
             var scopeFlags = new ScopeResolver.ScopeFlags(
                 Platform: allPlatformFrameworks,
                 Extensions: parseResult.GetValue(extensionsOption),
-                AspNetCore: parseResult.GetValue(aspnetcoreOption),
-                Curated: parseResult.GetValue(curatedOption));
+                AspNetCore: parseResult.GetValue(aspnetcoreOption));
+            bool hasExplicitSearchSource = scopeFlags.Platform ||
+                scopeFlags.Extensions ||
+                scopeFlags.AspNetCore ||
+                packages.Length > 0 ||
+                assemblies.Length > 0 ||
+                projects.Length > 0 ||
+                platformAssemblies.Length > 0;
             var scope = ScopeResolver.Resolve(scopeFlags, packages, assemblies,
                 hasOtherScopeIndicators: projects.Length > 0 || platformAssemblies.Length > 0);
 
@@ -523,8 +528,12 @@ public static class SearchCommandDefinitions
 
             var outcome = await DependsCommand.ExecuteTypeDependsAsync(options);
 
-            // Type not found — fall back to library mode if the name could be a library
-            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode && !targetType!.Contains('<'))
+            // Type not found — fall back to library mode if the name could be a
+            // library. A source option makes the positional argument
+            // unambiguously a type, so no fallback applies.
+            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode &&
+                !hasExplicitSearchSource &&
+                !targetType!.Contains('<'))
             {
                 var libOptions = new DependsOptions
                 {

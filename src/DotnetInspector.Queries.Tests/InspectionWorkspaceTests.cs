@@ -906,6 +906,52 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
+    public async Task RegisterArtifactSession_RejectsLaterCoordinatedGroup()
+    {
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        AssemblyContextGroup initialGroup =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ]);
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [initialGroup]);
+        var participation =
+            new ControlledWorkspaceParticipation();
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup lateGroup =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = lateGroup;
+
+        Assert.False(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [lateGroup]));
+
+        InspectionWorkspaceCloseReport report =
+            await workspace.CloseAsync();
+        Assert.Equal(2, report.Groups.Length);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+    }
+
+    [Fact]
     public async Task WorkspaceClose_ReportsArtifactSessionCleanupFailure()
     {
         ArtifactAssembly artifact =
@@ -941,7 +987,8 @@ public sealed class InspectionWorkspaceTests
         InspectionWorkspace workspace =
             InspectionWorkspace.CreateAsynchronous();
         var participation =
-            new FaultingWorkspaceParticipation();
+            new ControlledWorkspaceParticipation(
+                throwOnCloseResult: true);
         ImmutableArray<
             InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
             admissions =
@@ -977,14 +1024,71 @@ public sealed class InspectionWorkspaceTests
     }
 
     [Fact]
-    public async Task WorkspaceClose_ReleasesArtifactSessionWhenCoordinatedReleaseRequestThrows()
+    public async Task WorkspaceClose_WaitsForPhysicalReleaseWhenCoordinatedCloseFaultsEarly()
     {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
         ArtifactAssembly artifact =
             await CreateArtifactAssemblyAsync();
         InspectionWorkspace workspace =
             InspectionWorkspace.CreateAsynchronous();
         var participation =
-            new FaultingWorkspaceParticipation(
+            new ControlledWorkspaceParticipation(
+                releaseOnRequest: false,
+                throwOnCloseResultBeforeRelease: true);
+        ImmutableArray<
+            InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
+            admissions =
+                workspace.BeginCoordinatedGroupAdmissions(
+                    [participation]);
+        AssemblyContextGroup group =
+            admissions[0].CreateGroup(
+                [
+                    new AssemblyContextParticipant(
+                        artifact.Assembly,
+                        MissingBindingPolicy.Instance),
+                ],
+                options: null);
+        participation.Group = group;
+        Assert.True(
+            workspace.CompleteCoordinatedGroupAdmissions(
+                admissions,
+                [group]));
+        workspace.RegisterArtifactSession(
+            artifact.Session,
+            artifact.QueryLease,
+            [group]);
+
+        Task<InspectionWorkspaceCloseReport> close =
+            workspace.CloseAsync();
+        await participation.ReleaseRequestAttempted.WaitAsync(
+            cancellationToken);
+        Assert.False(close.IsCompleted);
+        Assert.Equal(0, artifact.AcquisitionLease.DisposeCount);
+
+        await participation.ReleaseAsOwnerAsync();
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => close);
+
+        Assert.Equal(
+            "Synthetic coordinated close failure.",
+            failure.Message);
+        Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
+        Assert.NotNull(workspace.CloseReport);
+    }
+
+    [Fact]
+    public async Task WorkspaceClose_WaitsForCoordinatedOwnerAfterReleaseRequestThrows()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        ArtifactAssembly artifact =
+            await CreateArtifactAssemblyAsync();
+        InspectionWorkspace workspace =
+            InspectionWorkspace.CreateAsynchronous();
+        var participation =
+            new ControlledWorkspaceParticipation(
                 throwOnReleaseRequest: true);
         ImmutableArray<
             InspectionWorkspace.WorkspaceCoordinatedGroupAdmission>
@@ -1011,6 +1115,12 @@ public sealed class InspectionWorkspaceTests
 
         Task<InspectionWorkspaceCloseReport> close =
             workspace.CloseAsync();
+        await participation.ReleaseRequestAttempted.WaitAsync(
+            cancellationToken);
+        Assert.False(close.IsCompleted);
+        Assert.Equal(0, artifact.AcquisitionLease.DisposeCount);
+
+        await participation.ReleaseAsOwnerAsync();
         InvalidOperationException failure =
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => close);
@@ -1024,7 +1134,14 @@ public sealed class InspectionWorkspaceTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => second);
         Assert.Equal(1, artifact.AcquisitionLease.DisposeCount);
-        Assert.NotNull(workspace.CloseReport);
+        InspectionWorkspaceCloseReport report =
+            Assert.IsType<InspectionWorkspaceCloseReport>(
+                workspace.CloseReport);
+        InspectionWorkspaceCoordinatedGroupCloseResult<string> result =
+            Assert.IsType<
+                InspectionWorkspaceCoordinatedGroupCloseResult<string>>(
+                    Assert.Single(report.Groups));
+        Assert.Equal("released", result.Result);
     }
 
     [Fact]
@@ -1627,11 +1744,18 @@ public sealed class InspectionWorkspaceTests
         public AssemblyBindingPolicyVersion Version { get; } =
             new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 
     static async Task<ArtifactAssembly>
@@ -1717,11 +1841,20 @@ public sealed class InspectionWorkspaceTests
         ResolvedAssemblyReference Assembly,
         TrackingArtifactAcquisitionLease AcquisitionLease);
 
-    sealed class FaultingWorkspaceParticipation(
-        bool throwOnReleaseRequest = false)
+    sealed class ControlledWorkspaceParticipation(
+        bool throwOnReleaseRequest = false,
+        bool throwOnCloseResult = false,
+        bool releaseOnRequest = true,
+        bool throwOnCloseResultBeforeRelease = false)
         : IWorkspaceCoordinatedGroupParticipation
     {
+        readonly TaskCompletionSource _releaseRequestAttempted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal AssemblyContextGroup? Group { get; set; }
+
+        internal Task ReleaseRequestAttempted =>
+            _releaseRequestAttempted.Task;
 
         public WorkspaceCoordinatedAdmissionGate WorkspaceAdmission
         {
@@ -1730,11 +1863,14 @@ public sealed class InspectionWorkspaceTests
 
         public void RequestRelease()
         {
+            _releaseRequestAttempted.TrySetResult();
             if (throwOnReleaseRequest)
             {
                 throw new InvalidOperationException(
                     "Synthetic synchronous coordinated release failure.");
             }
+            if (!releaseOnRequest)
+                return;
 
             _ = (Group
                     ?? throw new InvalidOperationException(
@@ -1742,15 +1878,36 @@ public sealed class InspectionWorkspaceTests
                 .RequestReleaseAsync();
         }
 
+        internal Task<AssemblyContextGroupReleaseResult>
+            ReleaseAsOwnerAsync() =>
+                (Group
+                    ?? throw new InvalidOperationException(
+                        "The coordinated group was not attached."))
+                .RequestReleaseAsync();
+
         public async Task<InspectionWorkspaceGroupCloseResult>
             GetCloseResultAsync(int registrationIndex)
         {
+            if (throwOnCloseResultBeforeRelease)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic coordinated close failure.");
+            }
+
             await (Group
                     ?? throw new InvalidOperationException(
                         "The coordinated group was not attached."))
                 .ReleaseCompletion;
-            throw new InvalidOperationException(
-                "Synthetic coordinated close failure.");
+            if (throwOnCloseResult)
+            {
+                throw new InvalidOperationException(
+                    "Synthetic coordinated close failure.");
+            }
+
+            return new InspectionWorkspaceCoordinatedGroupCloseResult<
+                string>(
+                    registrationIndex,
+                    "released");
         }
     }
 

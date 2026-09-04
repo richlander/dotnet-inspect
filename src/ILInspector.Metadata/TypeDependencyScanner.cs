@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Runtime.ExceptionServices;
 using System.Reflection.PortableExecutable;
@@ -29,6 +30,43 @@ public sealed record TypeDependencyRejection(
     TypeDependencyRejectionKind Kind)
 {
     public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
+
+/// <summary>
+/// Every candidate in a dependency scan was rejected, so the scan has no
+/// surviving participant to scope its rejections against. Each rejection is
+/// an independent outcome: throwing one would discard the rest, so they are
+/// carried together. <see cref="Rejections"/> holds the typed record for each
+/// rejected candidate, keeping the path-to-mechanism correspondence available
+/// as data rather than only in the rendered message.
+/// </summary>
+public sealed class AllCandidatesRejectedException : AggregateException
+{
+    private readonly string renderedMessage;
+
+    internal AllCandidatesRejectedException(
+        string message,
+        ImmutableArray<TypeDependencyRejection> rejections,
+        IEnumerable<Exception> mechanisms)
+        : base(message, mechanisms)
+    {
+        renderedMessage = message;
+        Rejections = rejections;
+    }
+
+    /// <summary>
+    /// The rendered path-to-mechanism pairing, without the inner-message list
+    /// <see cref="AggregateException"/> appends to its own message. That
+    /// default would print every mechanism a second time at a command
+    /// boundary, unpaired with the path it belongs to.
+    /// </summary>
+    public override string Message => renderedMessage;
+
+    /// <summary>
+    /// The rejected candidates, in scan order. Each entry corresponds to the
+    /// inner exception at the same index.
+    /// </summary>
+    public ImmutableArray<TypeDependencyRejection> Rejections { get; }
 }
 
 /// <summary>
@@ -66,6 +104,12 @@ public static class TypeDependencyScanner
         var rejections = new List<TypeDependencyRejection>();
         var admittedAny = false;
         ExceptionDispatchInfo? firstInvalidImage = null;
+
+        // The decoder's exception carries detail that a reconstructed one
+        // would lose, so each invalid image keeps its own captured cause.
+        var invalidImageCauses =
+            new Dictionary<string, BadImageFormatException>(
+                StringComparer.Ordinal);
 
         try
         {
@@ -140,11 +184,14 @@ public static class TypeDependencyScanner
                         && invalidImage is BadImageFormatException
                             or OverflowException)
                     {
-                        firstInvalidImage ??= ExceptionDispatchInfo.Capture(
+                        BadImageFormatException cause =
                             invalidImage as BadImageFormatException
                             ?? new BadImageFormatException(
                                 "The selected image metadata is invalid.",
-                                invalidImage));
+                                invalidImage);
+                        firstInvalidImage ??=
+                            ExceptionDispatchInfo.Capture(cause);
+                        invalidImageCauses[path] = cause;
                         rejections.Add(
                             new TypeDependencyRejection(
                                 path,
@@ -182,8 +229,41 @@ public static class TypeDependencyScanner
             // Scoping only applies when the scan had a surviving participant.
             // If every candidate was rejected there is nothing to scope the
             // rejection against, so it stays the caller's exact outcome.
-            if (!admittedAny && rejections.FirstOrDefault() is { } soleRejection)
+            if (!admittedAny && rejections.Count > 0)
             {
+                // One rejection is the caller's exact outcome, so it keeps its
+                // typed mechanism. Several are independent outcomes with no
+                // single exact answer: throwing one would silently discard the
+                // rest, which is the evidence loss this contract exists to
+                // prevent, so every mechanism travels in an aggregate.
+                if (rejections.Count > 1)
+                {
+                    // The typed records keep the path-to-mechanism
+                    // correspondence as data; the message repeats it only so a
+                    // rendered error is readable. Callers read Rejections.
+                    Exception[] mechanisms =
+                    [
+                        .. rejections.Select(rejection =>
+                            ToRejectionException(
+                                rejection,
+                                invalidImageCauses)),
+                    ];
+                    string rendered = string.Join(
+                        "; ",
+                        rejections.Zip(
+                            mechanisms,
+                            (rejection, mechanism) =>
+                                $"'{rejection.AssemblyPath}': "
+                                + mechanism.Message));
+                    throw new AllCandidatesRejectedException(
+                        "Every candidate assembly was rejected before the "
+                            + $"dependency scan could run ({rendered})",
+                        [.. rejections],
+                        mechanisms);
+                }
+
+                TypeDependencyRejection soleRejection = rejections[0];
+
                 // The captured invalid-image exception carries the decoder's
                 // exact detail, which a reconstructed one would lose.
                 if (soleRejection.Kind
@@ -192,16 +272,9 @@ public static class TypeDependencyScanner
                     firstInvalidImage?.Throw();
                 }
 
-                throw soleRejection.Kind switch
-                {
-                    TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
-                        new UnsupportedMetadataFormatException(),
-                    TypeDependencyRejectionKind.MalformedMetadataRoot
-                        when soleRejection.MetadataRootReason is { } reason =>
-                        (Exception)new MalformedMetadataRootException(reason),
-                    _ => new InvalidOperationException(
-                        "Unknown metadata-format rejection."),
-                };
+                throw ToRejectionException(
+                    soleRejection,
+                    invalidImageCauses);
             }
 
             // Find the target type
@@ -362,6 +435,27 @@ public static class TypeDependencyScanner
         => typeIndex.ContainsKey(normalized)
             ? normalized
             : typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalized));
+
+    private static Exception ToRejectionException(
+        TypeDependencyRejection rejection,
+        IReadOnlyDictionary<string, BadImageFormatException> invalidImageCauses)
+        => rejection.Kind switch
+        {
+            TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
+            TypeDependencyRejectionKind.MalformedMetadataRoot
+                when rejection.MetadataRootReason is { } reason =>
+                new MalformedMetadataRootException(reason),
+            TypeDependencyRejectionKind.InvalidImage =>
+                invalidImageCauses.TryGetValue(
+                    rejection.AssemblyPath,
+                    out BadImageFormatException? cause)
+                    ? cause
+                    : new BadImageFormatException(
+                        $"'{rejection.AssemblyPath}' has invalid metadata."),
+            _ => new InvalidOperationException(
+                "Unknown metadata-format rejection."),
+        };
 
     private static bool IsSystemRoot(string typeName)
     {

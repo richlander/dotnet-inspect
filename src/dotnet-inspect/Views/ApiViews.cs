@@ -1193,7 +1193,7 @@ public class MemberCodeView
     public bool PdbSourceUnavailable { get; set; }
 
     [MarkoutSection(Name = SectionNames.SourceDiff)]
-    public CodeSection SourceDiffCode { get; set; }
+    public SourceDiffOutput? SourceDiffCode { get; set; }
 
     [MarkoutSection(Name = "Calls", EmptyText = "No calls to other methods found in this method body.")]
     [MarkoutIgnoreColumnWhen(nameof(CallEvidenceMethodIsEmpty), nameof(CallSiteRow.EvidenceMethod))]

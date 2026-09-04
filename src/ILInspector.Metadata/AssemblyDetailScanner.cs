@@ -28,7 +28,14 @@ public record AssemblyAuditMetadata
 {
     public bool? IsTrimmable { get; init; }
     public bool? IsAotCompatible { get; init; }
-    public int? MemorySafetyRulesVersion { get; init; }
+
+    /// <summary>
+    /// The module memory-safety rules state, or null when the image carries no
+    /// metadata. Supplied by <see cref="MemorySafetyMetadataIndex"/> so every
+    /// consumer reads the same typed marker evidence rather than re-deriving a
+    /// model from a raw version integer.
+    /// </summary>
+    public MemorySafetyRulesResult? MemorySafetyRules { get; init; }
     public bool HasDisableRuntimeMarshalling { get; init; }
     public int RequiresUnsafeCount { get; init; }
     public int RequiresUnreferencedCodeCount { get; init; }
@@ -102,7 +109,6 @@ public static class AssemblyDetailScanner
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         bool? isTrimmable = null;
         bool? isAotCompatible = null;
-        int? memorySafetyRulesVersion = null;
         bool hasDisableRuntimeMarshalling = false;
         int requiresUnsafeCount = 0;
         int requiresUnreferencedCodeCount = 0;
@@ -131,10 +137,6 @@ public static class AssemblyDetailScanner
                             else if (metadataValue.Key == "IsAotCompatible")
                                 isAotCompatible = ParseBool(metadataValue.Value);
                         }
-                        break;
-
-                    case KnownAttributeNames.MemorySafetyRulesAttribute:
-                        memorySafetyRulesVersion = TryGetInt32CtorArgument(reader, attr);
                         break;
 
                     case KnownAttributeNames.DisableRuntimeMarshallingAttribute:
@@ -192,7 +194,7 @@ public static class AssemblyDetailScanner
         {
             IsTrimmable = isTrimmable,
             IsAotCompatible = isAotCompatible,
-            MemorySafetyRulesVersion = memorySafetyRulesVersion,
+            MemorySafetyRules = MemorySafetyMetadataIndex.Create(reader).Rules,
             HasDisableRuntimeMarshalling = hasDisableRuntimeMarshalling,
             RequiresUnsafeCount = requiresUnsafeCount,
             RequiresUnreferencedCodeCount = requiresUnreferencedCodeCount,
@@ -289,21 +291,6 @@ public static class AssemblyDetailScanner
             var key = blob.ReadSerializedString();
             var value = blob.ReadSerializedString();
             return key != null && value != null ? (key, value) : null;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static int? TryGetInt32CtorArgument(MetadataReader reader, CustomAttribute attr)
-    {
-        try
-        {
-            var blob = reader.GetBlobReader(attr.Value);
-            if (blob.Length < 6) return null;
-            blob.ReadUInt16();
-            return blob.ReadInt32();
         }
         catch
         {

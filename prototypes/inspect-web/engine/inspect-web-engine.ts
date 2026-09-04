@@ -18,11 +18,13 @@ export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRu
 
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | number;
 
-export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
+export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
 
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
+
+export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -558,6 +560,7 @@ export interface BrowserPackageQueryEvent {
   readonly row: BrowserPackageQueryRow | null;
   readonly failure: BrowserPackageQueryFailure | null;
   readonly completion: BrowserPackageQueryCompletion | null;
+  readonly progress: BrowserPackageQueryProgress | null;
 }
 
 export interface BrowserPackageQueryEvidence {
@@ -576,6 +579,7 @@ export interface BrowserPackageQueryFacetDescriptor {
   readonly weight: number;
   readonly tier: BrowserPackageQueryFacetTier;
   readonly selectionGroupId: string | null;
+  readonly combinesWithinSelectionGroup: boolean;
   readonly displayGroupId: string | null;
   readonly displayGroupLabel: string | null;
 }
@@ -586,6 +590,12 @@ export interface BrowserPackageQueryFailure {
   readonly producer: string;
   readonly kind: BrowserPackageQueryFailureKind;
   readonly message: string;
+}
+
+export interface BrowserPackageQueryProgress {
+  readonly phase: BrowserPackageQueryProgressPhase;
+  readonly completed: number;
+  readonly limit: number;
 }
 
 export interface BrowserPackageQueryRow {
@@ -776,6 +786,30 @@ export interface BrowserVocabularySection {
   readonly values: ReadonlyArray<unknown>;
 }
 
+export interface BrowserWorkspacePackage {
+  readonly package: string;
+  readonly version: string;
+  readonly framework: string;
+}
+
+export interface BrowserWorkspacePackageOccurrence {
+  readonly action: string;
+  readonly package: string;
+  readonly version: string;
+  readonly framework: string;
+}
+
+export interface BrowserWorkspacePackageOccurrenceActivation {
+  readonly activated: boolean;
+  readonly superseded: boolean;
+  readonly package: BrowserPackageSurface | null;
+}
+
+export interface BrowserWorkspacePackageOccurrenceView {
+  readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
+  readonly superseded: boolean;
+}
+
 export interface BrowserWorkspaceShareContext {
   readonly id: string;
   readonly tabIds: ReadonlyArray<string>;
@@ -827,10 +861,12 @@ export interface BrowserWorkspaceShareView {
 
 type $ManagedExports = {
   readonly "InspectionEngine": {
+    readonly "ActivateWorkspacePackageOccurrence.304094707": (action: string) => string;
     readonly "AsyncLoweringCanary.1684317047": () => Promise<string>;
     readonly "BuildIdentity.1310674786": () => string;
     readonly "CancelPackageQuery.19325221": () => void;
     readonly "CancelSourceQuery.19325221": () => void;
+    readonly "ClearWorkspacePackageOccurrences.19325221": () => void;
     readonly "ConfigureHost.92020726": (origin: string) => void;
     readonly "DecodeWorkspaceShareState.304094707": (encoded: string) => string;
     readonly "EncodeWorkspaceShareState.304094707": (stateJson: string) => string;
@@ -867,6 +903,7 @@ type $ManagedExports = {
     readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryTypeProjection.1330709314": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string) => Promise<string>;
     readonly "QueryTypeSource.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>;
+    readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
     readonly "ResolveHomeDemo.304094707": (scenarioId: string) => string;
     readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
     readonly "RunHomeDemo.976702342": (scenarioId: string) => Promise<string>;
@@ -912,6 +949,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
     value = $ownDataProperty(value, "AsyncLoweringCanary.1684317047");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectionEngine.AsyncLoweringCanary.1684317047\u0027 is not callable.");
@@ -939,6 +984,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "CancelSourceQuery.19325221");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectionEngine.CancelSourceQuery.19325221\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "ClearWorkspacePackageOccurrences.19325221");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.ClearWorkspacePackageOccurrences.19325221\u0027 is not callable.");
     }
   }
   {
@@ -1232,6 +1285,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "InspectionEngine");
+    value = $ownDataProperty(value, "QueryWorkspacePackageOccurrences.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectionEngine.QueryWorkspacePackageOccurrences.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectionEngine");
     value = $ownDataProperty(value, "ResolveHomeDemo.304094707");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectionEngine.ResolveHomeDemo.304094707\u0027 is not callable.");
@@ -1298,6 +1359,12 @@ export function runEntryPoint(
   return $requireRuntime().runMain(mainAssemblyName, args);
 }
 
+export function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation {
+  const $result = $requireManagedExports()["InspectionEngine"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageOccurrenceActivation;
+}
+
 export async function asyncLoweringCanary(): Promise<string> {
   return await $requireManagedExports()["InspectionEngine"]["AsyncLoweringCanary.1684317047"]();
 }
@@ -1314,6 +1381,10 @@ export function cancelPackageQuery(): void {
 
 export function cancelSourceQuery(): void {
   return $requireManagedExports()["InspectionEngine"]["CancelSourceQuery.19325221"]();
+}
+
+export function clearWorkspacePackageOccurrences(): void {
+  return $requireManagedExports()["InspectionEngine"]["ClearWorkspacePackageOccurrences.19325221"]();
 }
 
 export function configureHost(origin: string): void {
@@ -1522,6 +1593,12 @@ export async function queryTypeSource(packageId: string, version: string, target
   const $result = await $requireManagedExports()["InspectionEngine"]["QueryTypeSource.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserSource;
+}
+
+export async function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView> {
+  const $result = await $requireManagedExports()["InspectionEngine"]["QueryWorkspacePackageOccurrences.976702342"](workspaceJson);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserWorkspacePackageOccurrenceView;
 }
 
 export function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult {

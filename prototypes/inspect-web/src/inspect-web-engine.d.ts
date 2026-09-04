@@ -4,9 +4,10 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Ambiguous" | number;
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | number;
-export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
+export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
+export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | number;
 export interface BrowserAccessibilityDescriptor {
     readonly id: string;
     readonly label: string;
@@ -480,6 +481,7 @@ export interface BrowserPackageQueryEvent {
     readonly row: BrowserPackageQueryRow | null;
     readonly failure: BrowserPackageQueryFailure | null;
     readonly completion: BrowserPackageQueryCompletion | null;
+    readonly progress: BrowserPackageQueryProgress | null;
 }
 export interface BrowserPackageQueryEvidence {
     readonly id: string;
@@ -495,6 +497,7 @@ export interface BrowserPackageQueryFacetDescriptor {
     readonly weight: number;
     readonly tier: BrowserPackageQueryFacetTier;
     readonly selectionGroupId: string | null;
+    readonly combinesWithinSelectionGroup: boolean;
     readonly displayGroupId: string | null;
     readonly displayGroupLabel: string | null;
 }
@@ -504,6 +507,11 @@ export interface BrowserPackageQueryFailure {
     readonly producer: string;
     readonly kind: BrowserPackageQueryFailureKind;
     readonly message: string;
+}
+export interface BrowserPackageQueryProgress {
+    readonly phase: BrowserPackageQueryProgressPhase;
+    readonly completed: number;
+    readonly limit: number;
 }
 export interface BrowserPackageQueryRow {
     readonly packageId: string;
@@ -675,6 +683,26 @@ export interface BrowserVocabularySection {
     readonly fields: ReadonlyArray<BrowserVocabularyField>;
     readonly values: ReadonlyArray<unknown>;
 }
+export interface BrowserWorkspacePackage {
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrence {
+    readonly action: string;
+    readonly package: string;
+    readonly version: string;
+    readonly framework: string;
+}
+export interface BrowserWorkspacePackageOccurrenceActivation {
+    readonly activated: boolean;
+    readonly superseded: boolean;
+    readonly package: BrowserPackageSurface | null;
+}
+export interface BrowserWorkspacePackageOccurrenceView {
+    readonly occurrences: ReadonlyArray<BrowserWorkspacePackageOccurrence>;
+    readonly superseded: boolean;
+}
 export interface BrowserWorkspaceShareContext {
     readonly id: string;
     readonly tabIds: ReadonlyArray<string>;
@@ -719,10 +747,12 @@ export interface BrowserWorkspaceShareView {
 }
 export declare function initializeRuntime(): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
+export declare function activateWorkspacePackageOccurrence(action: string): BrowserWorkspacePackageOccurrenceActivation;
 export declare function asyncLoweringCanary(): Promise<string>;
 export declare function buildIdentity(): BrowserBuildIdentity;
 export declare function cancelPackageQuery(): void;
 export declare function cancelSourceQuery(): void;
+export declare function clearWorkspacePackageOccurrences(): void;
 export declare function configureHost(origin: string): void;
 export declare function decodeWorkspaceShareState(encoded: string): BrowserWorkspaceShareDecodeResult;
 export declare function encodeWorkspaceShareState(stateJson: string): BrowserWorkspaceShareEncodeResult;
@@ -759,6 +789,7 @@ export declare function queryPlatformPerformance(targetFramework: string, platfo
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeId: string): Promise<BrowserTypeMetadata>;
 export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function queryWorkspacePackageOccurrences(workspaceJson: string): Promise<BrowserWorkspacePackageOccurrenceView>;
 export declare function resolveHomeDemo(scenarioId: string): BrowserHomeDemoResolveResult;
 export declare function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string>;
 export declare function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRunResult>;

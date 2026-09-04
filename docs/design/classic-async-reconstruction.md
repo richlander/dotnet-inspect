@@ -141,7 +141,9 @@ The names describe roles, not a required implementation shape. The core treats
 the relationship, its role dispositions, and the guards as opaque owner
 evidence. It neither recreates them from names or IR nor selects replacement
 identities. A missing, rejected, or filtered owner result never becomes a core
-request; preserving those result arms is #5277's responsibility. A resolved
+request; the
+[request adapter](classic-async-request-adapter.md) preserves those result
+arms. A resolved
 relationship may record an absent classic support role under the
 Metadata-owned
 [relationship contract](state-machine-relationship-index.md#evidence-carrying-certificate);

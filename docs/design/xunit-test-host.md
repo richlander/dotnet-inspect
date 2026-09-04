@@ -148,6 +148,25 @@ turn zero execution into success. This pins why that opt-out is outside the
 repository evidence profile rather than motivating a second command-line
 parser.
 
+`MtpTestHostTests` is the outcome-level gate for the first adopter,
+`dotnet-inspect.Tests`. It starts the built test apphost and covers the
+unmatched, valid, and mixed valid/stale filter outcomes. The suite's workflow
+contract tests pin its MTP call sites and preserve the authenticated package
+fixture's stronger not-skipped receipt.
+
+`ILInspector.Analysis.Tests` is the second adopter. Its required Linux and
+Windows lanes exercise exclusion-filtered execution through MTP, while Deep
+Inspect exercises the unfiltered suite. The Windows workflow contract test pins
+the migrated filter syntax. These paths use the same pinned xUnit integration
+as the outcome-level host gate rather than duplicating that self-spawn harness
+in every adopting suite.
+
+`NuGetFetch.Tests` is the third adopter. Its CI and Deep Inspect lanes exercise
+the offline `Network=Live` exclusion through MTP, while the NuGet authentication
+test contract records the corresponding explicit live selection. These paths
+reuse the pinned outcome-level host gate and preserve the test partition owned
+by `docs/design/nuget-authentication.md`.
+
 If the selected MTP version cannot produce the independent discovery and
 execution identities required by the decompiler completeness receipt, that
 suite remains on its transitional host until its owner has an equally strong

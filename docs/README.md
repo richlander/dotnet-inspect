@@ -36,8 +36,10 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Architecture](architecture.md) | Current host-neutral composition, logical layers, project regions, currencies, and code-navigation map. |
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
+| [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
+| [Repository Dependency Policy](dependency-policy.md) | Evaluated project and compiled assembly dependency rules, JSON policy semantics, and the Release CI gate. |
 | [LLM Design](llm-design.md) | Current agent-facing output and workflow design. |
 | [Progressive Disclosure](design/progressive-disclosure.md) | Current model for base/domain scope, discovery budgets, `-D`/`-S`, capabilities, counts, and row limits. |
 | [Bare `-S` Default View](design/info-view.md) | Bullseye questions and section profiles for curated high-density default views. |
@@ -74,6 +76,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Finding Nomenclature](design/finding-nomenclature.md) | Canonical observation/change vocabulary, arity ladder, operation outcomes, and Research composition boundary. |
 | [Finding Producer Design](design/finding-producers.md) | Choosing producer ownership, payloads, identities, result shapes, matching modes, and higher-rung boundaries. |
 | [Finding Instance Census](design/finding-instance-census.md) | Producer-issued receipt and per-instance keys for one sealed Finding census, including exact-association validation. |
+| [Research Finding Census Projection](design/research-finding-census-projection.md) | Preserving one producer-sealed body-fact census through Facts and Annotated Source without shape-derived identity. |
 | [Finding Value Semantics](design/finding-value-equality.md) | Equality and hashing for Finding-owned structural values, ordered collections, identity sets, union cases, and operation objects. |
 | [Analysis Diff Format](design/analysis-diff.md) | Complete immutable two-version item sequences and exhaustive producer-issued N:M relations for shared CLI and browser/Wasm analysis. |
 | [Comparison Document](design/comparison-document.md) | Portable root and subject composition for shared CLI/browser diffs and clone payloads, including referenced rename/move descriptions. |
@@ -82,6 +85,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Rendering Model](design/rendering-model.md) | Historical/current rendering model notes; prefer [Progressive Disclosure](design/progressive-disclosure.md) for current agent-facing behavior. |
 | [Section Model](design/section-model.md) | Section selection design notes; use with [Progressive Disclosure](design/progressive-disclosure.md). |
 | [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
+| [Package Set Registry](design/package-set-registry.md) | Front-end-only static application identities, descriptors, and package membership over reusable package-coordinate validation. |
+| [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
 | [Hidden-Fact Annotations](design/hidden-fact-annotations.md) | Allocation/unsafety/lifetime annotation model and the static IL pair-agreement oracle strategy. |
@@ -101,6 +106,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Version Resolution](design/version-resolution.md) | Package/platform version and cache behavior. |
 | [Cache concurrency and publication](design/cache-concurrency.md) | Process-local single-flight, cross-process atomic publication, dependency overlap, and filesystem guarantees. |
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
+| [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
@@ -113,6 +119,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Engine-to-browser Async Event Streams](design/engine-browser-async-event-stream.md) | Host-neutral ordered progress, durable partial outcomes, one semantic completion, adapter backpressure, batching, and cancellation for engine streams consumed by Browser hosts. |
 | [Inspect Web UI](design/inspect-web-ui.md) | Composition map for the website redesign: redesign summary, product dependencies, document map, cross-document relationships, and reference-product boundary. |
 | [Inspect Web Presentation Language](design/inspect-web-presentation-language.md) | Reusable visual and accessibility language: selector-control states, progressive filter disclosure, shared subject-heading rules, and compact source-provenance presentation. |
+| [Member Source Comparison Query](design/member-source-comparison-query.md) | Presentation-neutral two-endpoint member source acquisition, partial availability, cancellation, and binding-policy consistency. |
+| [Member Source Diff Presentation](design/member-source-diff-presentation.md) | Canonical placement-aligned endpoint projection, AnalysisDiff statistics, Markout lowering, and first adoption by CLI Source Diff. |
 | [Inspect Web SlideStrip](design/inspect-web-slide-strip.md) | Reusable single-region ordered-item control with Label, optional Short Label and Icon, derived Index, whole-strip modes, contiguous windows, edge disclosure, and focus preservation. |
 | [Inspect Web Navigation Presentation](design/inspect-web-navigation-presentation.md) | Rendering and interacting with product-issued coordinate, workspace, subject, hierarchy, Library, lens, and activation descriptors. |
 | [Inspect Web Navigation Consumer](design/inspect-web-navigation-consumer.md) | Browser-side navigation-result consumer model: canonical location, browser history, transition lifecycle, effect authority, synchronization debt, and renderer/destination lifetimes. |
@@ -128,6 +136,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Call Graph Projection](design/call-graph-projection.md) | Projecting the inspection graph into a call graph. |
 | [Instruction Substrate](design/instruction-substrate.md) | Shared IL/control-flow substrate consumed by Analysis and the Decompiler. |
 | [TypeScript Facades for `[JSExport]`](design/ts-jsexport.md) | Generating TypeScript facades for JSExport members. |
+| [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
 | [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
 
@@ -138,11 +147,12 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Development Practices](development-practices.md) | How convention, design, pathological fixtures, analogous implementations, narrow slices, agent-current compatibility, demos, and review work together. |
 | [Design Scope and Composition](../docs/design-scope.md) | Full mechanics for one-owner-per-design, broad-design gating, TLA+ modeling, and over-broad-design recovery. |
 | [Evidence and Validation](evidence-and-validation.md) | Matching evidence to claims, the style-oracle consultation procedure, and the harness/product boundary. |
+| [Fixture Governance](fixture-governance.md) | Placement, project-boundary axes, catalog metadata, consumer rules, and expectation ownership for compiled fixtures and test-local samples. |
 | [Round Orchestration](round-orchestration.md) | Running an adversarial review round: status discovery, dispatch, reconciliation, carry-forward, and block boundaries. |
 | [GitHub Status Queries](github-status-queries.md) | Querying PR mergeability and CI status without wasting API quota. |
 | [GitHub API Operations](github-api-operations.md) | Correct `gh api` usage for PR/issue metadata changes. |
 | [Stacked PRs](stacked-prs.md) | Mechanics for stacking multiple PRs for a multi-slice issue. |
-| [Agent Session State](agent-session-state.md) | tmux window naming and `@agent`/`@agent_state` publishing mechanics for concurrent agents. |
+| [Agent Session State](agent-session-state.md) | Session themes, post-merge handoff, tmux identity, pane activity, and state publishing mechanics. |
 | [Local Development Environment](dev-environment.md) | NuGet source overrides and file-based throwaway probes. |
 | [Release Workflow](release-workflow.md) | Coordinated package-and-site release process. |
 | [Markout Co-development](markout-co-development.md) | The (rare) peer-checkout workflow for changes spanning Markout and this repo. |

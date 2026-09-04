@@ -199,9 +199,38 @@ either to `null`, an empty projection, or partial rows. The prohibition binds
 adopted owners; it is not a repository-wide guarantee, because adoption is
 staged and enforcement is deliberately partial.
 
+Descriptor selection is the one acquisition surface that carries the mechanism
+instead of throwing it. `ResolvedAssemblyReference.SelectFromPath` and
+`SelectFromStream` return an `AssemblyDescriptorSelectionResult`, whose
+`Rejected` arm has a failure arm by construction, so admission returns a typed
+rejection there and preserves the mechanism as the result's compatibility
+exception. The `CreateFrom*IfManaged` shapes return a descriptor or `null` and
+have no failure arm, so they rethrow that preserved mechanism unchanged. This
+changes one previously recorded behavior: a PE image with a malformed metadata
+section returned `null` from `CreateFromPathIfManaged` and
+`CreateFromStreamIfManaged`, which reads as "not a managed assembly"; it now
+throws `MalformedMetadataRootException`. `SelectFrom*` still reports it as
+`Rejected` with `CandidateOpenFailureKind.InvalidImage`.
+
+The fallback-identity path is the deliberate exception. Its purpose is to keep
+a caller-supplied identity usable when the image cannot supply one, so it
+absorbs unsupported-format, malformed-root, and overflow mechanisms and returns
+a descriptor carrying the fallback identity rather than propagating them.
+
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
 `UnsupportedMetadataFormatException`.
+
+A scan whose candidates are *all* rejected is the one asymmetric shape. A
+single rejected candidate throws that candidate's mechanism, but
+`TypeDependencyScanner` throws `AllCandidatesRejectedException` — an
+`AggregateException` subtype — once no participant survives, because throwing
+any one mechanism would discard the others. A caller written as
+`catch (UnsupportedMetadataFormatException)` therefore does not catch the
+all-rejected case; it must also handle `AllCandidatesRejectedException` and
+read `Rejections`, which carries the typed path-to-mechanism pairing. That
+type overrides `Message` so each mechanism is rendered exactly once, beside
+its own path, rather than repeated by the base type's inner-message list.
 
 Acquisition owners call it before exposing metadata sessions. Public or
 reusable `PEReader` entry points that can bypass those owners call it directly.
@@ -255,16 +284,23 @@ it, not completed as a matter of course. Until then, callers must not infer
 that the contract's existence closes the repository-wide `MDP017` entry-point
 inventory.
 
-One un-adopted CLI path was found to be success-shaped rather than merely
-incomplete, and is therefore closed here rather than deferred:
-`ApiServices.ResolveSummaryForwardedTypes` catches
+`ApiServices.ResolveSummaryForwardedTypes` was examined as a candidate for
+closure here and deliberately left to #5559. Its post-resolution catch of
 `BadImageFormatException` and `NotSupportedException` — the base types of both
-typed mechanisms — and previously recorded only a `VerboseLogger` line, so a
-forwarded target that was rejected was omitted from a platform API summary
-without a structured `ApiSurfaceInspectionFailure`. It now records the
-mechanism through `AddForwardedTargetFailure`, matching the full-surface
-sibling path `ApiServices.ExtractForwarders`, which preserves it through
-`TypeDefinitionResolutionSession`'s failure out-parameter.
+typed mechanisms — looks like the success-shaped path, but a rejected forwarded
+target never reaches it: `TypeDefinitionResolutionSession.Resolve` fails first,
+and the summary path drops that outcome behind a `VerboseLogger` line before
+any target is opened. Measured with a facade forwarding to a Windows Metadata
+target, the outcome is `Unavailable` with `CandidateFailureKind.Unreadable`,
+not an admission mechanism, because the binding path has not adopted the
+contract either.
+
+Closing the real gap therefore means adopting admission in the binding path and
+recording the unresolved summary outcome as a structured
+`ApiSurfaceInspectionFailure`, matching the full-surface sibling
+`ApiServices.ExtractForwarders`. Both are #5559 work. Guarding only the
+unreachable catch would have added an assertion no gate can reach, so it is not
+part of this contract.
 
 #### Windows Metadata rejection is partially enforced
 
@@ -274,21 +310,72 @@ yet make that rejection universal. The gap is deliberate and tracked by
 documented rather than closed because no user demand has surfaced and the
 inputs involved are already documented as unsupported.
 
-Measured behavior on production, using a real
-`Windows.Foundation.FoundationContract.winmd`:
+Measured behavior at this head, using a real WinMD
+(`Windows.UI.UIAutomation.UIAutomationContract.winmd`), with the base
+(`b23cf5d2a`) shown where it differs:
 
 - Directory and package scans select `*.dll`, so a native `.winmd` beside them
   is skipped silently. `find "Json*" --bin` over a directory holding five
   ordinary assemblies returns results identical to the same directory without
-  the `.winmd`.
-- An explicitly named `.winmd` bypasses that selection. `library <winmd>` exits
-  0 and reports `Compilation | CoreCLR` for a WinRT contract, and
-  `find "Deferral*" --library <winmd>` returns its WinRT types, rendered with
-  ordinary kinds such as `class` and `delegate`.
-- A rejected participant does not disable a scan. The same `--bin` scan with a
-  WinMD participant present returns the same rows as the baseline apart from
-  the per-row source column, so an unsupported participant costs its own
-  contribution and nothing else.
+  the `.winmd`. This is unchanged from the base and remains a silent skip: the
+  file is never classified, so no mechanism is reported.
+- An explicitly named `.winmd` is now **rejected**, where the base admitted it.
+  `library <winmd>` exits 1 with `Error: Could not read library: <path>`
+  (base: exit 0, reporting `Compilation | CoreCLR`).
+  `find "Deferral*" --library <winmd>` warns
+  `Could not read <path>: Windows Metadata is not a supported metadata format.`
+  and returns no types (base: returned its WinRT types rendered as ordinary
+  `class` and `delegate` kinds). `member` on the same input exits 1.
+  A `.winmd` renamed to `.dll` follows the same rejection path: at this head
+  `find "*" --library <renamed>` returns 0 rows plus the mechanism warning,
+  where the base returned 21 rows of WinRT types as ordinary types.
+- A rejected participant does not disable a *directory* scan. The same `--bin`
+  scan with a WinMD participant present returns the same rows as the baseline
+  apart from the per-row source column, so there an unsupported participant
+  costs its own contribution and nothing else.
+
+Rejection scope is deliberately not uniform, and the difference follows the
+partial-rows rule above rather than the owner:
+
+- **A dependency scan and a `--bin` directory scan scope per participant.**
+  `TypeDependencyScanner` carries its rejections on the result, and
+  `AssemblySetResolutionSession` records a typed `ApiSurfaceInspectionFailure`
+  and continues, so healthy neighbors still contribute. These are the bounded
+  relaxation described above: the answer is explicitly uncertified.
+- **A package or platform member fails as a unit.** `WorkspaceContextLoader`
+  returns a typed member failure when any selected assembly asset is rejected,
+  because a workspace member is not a scan and may not present partial rows —
+  a graph built from the surviving assets would claim a completeness it does
+  not have.
+
+This is a deliberate behavior change from the base for the malformed and
+non-PE cases. The base swallowed `BadImageFormatException` inside
+`CreateFromStreamIfManaged` and returned `null`, so a corrupt or non-PE
+`lib/<tfm>/*.dll` asset was silently skipped and the member loaded as though
+the package were intact. That is the success-shaped outcome this contract
+exists to remove; the member now fails with the mechanism named. A file with
+no managed metadata is still not an assembly and is still skipped, so ordinary
+native libraries shipped beside managed ones are unaffected.
+
+An explicitly named malformed library gains the same exactness. At this head
+`type ./junk.dll` on a four-byte non-PE file exits 1 with
+`Error: The assembly metadata root is malformed (UnmappableMetadataDirectory).`
+where the base exited 1 with `Error: Could not extract API from library.` The
+exit code is unchanged; only the classification becomes exact. The generic
+message remains for extraction failures that carry no named rejection.
+
+What remains partial is therefore narrower than the base gap, and it is these
+two things rather than the explicit-name case:
+
+- **The mechanism is flattened on some surfaces.** `library <winmd>` reports
+  only `Could not read library`; the typed mechanism is lost to a broad catch
+  before it reaches the message. `find` surfaces the mechanism text only as
+  incidental `ex.Message` leakage through the broad catch in
+  `AssemblySetInspectionWorkspace`, not as a typed outcome.
+- **Un-adopted owners do not classify at all.** Analysis, Decompiler,
+  Research, ILDiff, and the remaining Queries and CLI sites reach
+  `MetadataReader` without admission, so a `.winmd` supplied directly to one of
+  their APIs is still admitted. See the `MDP017` note below.
 
 Two claims follow, and callers must not strengthen either. Windows Metadata is
 unsupported, so any value derived from it is unsupported output even when it is

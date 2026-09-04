@@ -225,6 +225,7 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     int Weight,
     BrowserPackageQueryFacetTier Tier,
     string? SelectionGroupId,
+    bool CombinesWithinSelectionGroup,
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 
@@ -263,6 +264,19 @@ public sealed record BrowserPackageQueryFailure(
     BrowserPackageQueryFailureKind Kind,
     string Message);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryProgressPhase>))]
+public enum BrowserPackageQueryProgressPhase
+{
+    Search,
+    Manifest,
+    PackageContent,
+}
+
+public sealed record BrowserPackageQueryProgress(
+    BrowserPackageQueryProgressPhase Phase,
+    int Completed,
+    int Limit);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryCompletionKind>))]
 public enum BrowserPackageQueryCompletionKind
 {
@@ -287,6 +301,7 @@ public sealed record BrowserPackageQueryCompletion(
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind
 {
+    Progress,
     Match,
     Failure,
     Completed,
@@ -296,7 +311,8 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryEventKind Kind,
     BrowserPackageQueryRow? Row,
     BrowserPackageQueryFailure? Failure,
-    BrowserPackageQueryCompletion? Completion);
+    BrowserPackageQueryCompletion? Completion,
+    BrowserPackageQueryProgress? Progress = null);
 
 /// <summary>
 /// One vocabulary field's discoverable contract, mapped verbatim from
@@ -1052,6 +1068,21 @@ public sealed record BrowserWorkspacePackage(
     string Version,
     string Framework);
 
+public sealed record BrowserWorkspacePackageOccurrence(
+    string Action,
+    string Package,
+    string Version,
+    string Framework);
+
+public sealed record BrowserWorkspacePackageOccurrenceView(
+    BrowserWorkspacePackageOccurrence[] Occurrences,
+    bool Superseded);
+
+public sealed record BrowserWorkspacePackageOccurrenceActivation(
+    bool Activated,
+    bool Superseded,
+    BrowserPackageSurface? Package);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSurface))]
@@ -1077,6 +1108,8 @@ public sealed record BrowserWorkspacePackage(
 [JsonSerializable(typeof(BrowserSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceView))]
+[JsonSerializable(typeof(BrowserWorkspacePackageOccurrenceActivation))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 [JsonSerializable(typeof(string[]))]
