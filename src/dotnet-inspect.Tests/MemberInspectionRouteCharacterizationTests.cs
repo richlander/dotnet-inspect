@@ -320,13 +320,13 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
+                "ApiMemberOverload[schema:82:C18147B28B33]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
+                "ApiMemberDetail[schema:58:76603C34ADEB]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
