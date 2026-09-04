@@ -4,6 +4,8 @@
     <Project Path="eng/DependencyPolicy/DependencyPolicy.csproj" />
   </Folder>
   <Folder Name="/fixtures/">
+    <Project Path="fixtures/cli/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
+    <Project Path="fixtures/cli/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.Caller/DiffAsmFixtures.Caller.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.LibA/DiffAsmFixtures.LibA.csproj" />
     <Project Path="fixtures/diff/DiffAsmFixtures.LibB/DiffAsmFixtures.LibB.csproj" />
@@ -22,7 +24,6 @@
     <Project Path="src/DotnetInspector.Artifacts.Workspaces/DotnetInspector.Artifacts.Workspaces.csproj" />
     <Project Path="src/DotnetInspector.Artifacts/DotnetInspector.Artifacts.csproj" />
     <Project Path="src/DotnetInspector.Core/DotnetInspector.Core.csproj" />
-    <Project Path="src/DotnetInspector.InstallScriptFixture/DotnetInspector.InstallScriptFixture.csproj" />
     <Project Path="src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj" />
     <Project Path="src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj" />
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
@@ -63,7 +64,6 @@
     <Project Path="src/ILInspector.Analysis.UnoptimizedAsyncFixtures/ILInspector.Analysis.UnoptimizedAsyncFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.ProtobufFixtures/ILInspector.Analysis.ProtobufFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.RenderFixtures/ILInspector.Analysis.RenderFixtures.csproj" />
-    <Project Path="src/DotnetInspector.HostileNameFixtures/DotnetInspector.HostileNameFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofFixtures/ILInspector.Analysis.SpoofFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.SpoofRuntimeFixtures/ILInspector.Analysis.SpoofRuntimeFixtures.csproj" />
     <Project Path="src/ILInspector.Analysis.Tests/ILInspector.Analysis.Tests.csproj" />
