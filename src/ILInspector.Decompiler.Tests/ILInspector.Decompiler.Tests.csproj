@@ -68,6 +68,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
     <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />

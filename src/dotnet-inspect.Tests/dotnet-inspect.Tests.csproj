@@ -39,7 +39,6 @@
     <ProjectReference Include="..\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="..\DotnetInspector.Artifacts\DotnetInspector.Artifacts.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.SourceLinkMalformedFixtures\DotnetInspector.SourceLinkMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkPartiallyMalformedFixtures\DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.SourceLinkNormalizedFixtures\DotnetInspector.SourceLinkNormalizedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.InstallScriptFixture\DotnetInspector.InstallScriptFixture.csproj" ReferenceOutputAssembly="false" />
