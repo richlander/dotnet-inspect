@@ -111,7 +111,9 @@ public sealed record BrowserMetadataHeaders(
     string? CorFlags,
     int? MajorRuntimeVersion,
     int? MinorRuntimeVersion,
-    int? EntryPointToken);
+    int? EntryPointToken,
+    int ManagedNativeHeaderRva,
+    int ManagedNativeHeaderSize);
 
 public sealed record BrowserMetadataWindow(
     string Assembly,

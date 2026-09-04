@@ -65,6 +65,7 @@
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.VbFinalizer\ILInspector.Decompiler.Fixtures.VbFinalizer.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.Ladder\ILInspector.Decompiler.Fixtures.Ladder.csproj" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.AuthoredRebuild\ILInspector.Decompiler.Fixtures.AuthoredRebuild.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
@@ -134,6 +135,8 @@
              Link="ReturnToSenderSourceProbe.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredRebuildFidelity.cs"
              Link="AuthoredRebuildFidelity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredBuildContext.cs"
+             Link="AuthoredBuildContext.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CSharpSourceIdentity.cs"
              Link="CSharpSourceIdentity.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\ReturnToSenderCatalogReport.cs"

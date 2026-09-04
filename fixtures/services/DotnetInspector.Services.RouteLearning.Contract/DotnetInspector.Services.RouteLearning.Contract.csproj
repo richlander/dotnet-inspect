@@ -1,11 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
     <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
-    <AssemblyName>ILInspector.Metadata.SpellabilityConsumer</AssemblyName>
+    <AssemblyName>DotnetInspector.Services.RouteLearning.Middle</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="../SignatureSpellabilityReference/ILInspector.Metadata.SpellabilityReference.csproj" />
-  </ItemGroup>
+
 </Project>

@@ -52,6 +52,8 @@ export interface MetadataHeaders {
   majorRuntimeVersion?: number | null;
   minorRuntimeVersion?: number | null;
   entryPointToken?: number | null;
+  managedNativeHeaderRva?: number;
+  managedNativeHeaderSize?: number;
 }
 
 export interface MetadataAssembly {
@@ -206,6 +208,7 @@ export interface MetadataExplorerBindingActions {
   onHeapFocus: (heap: string) => void;
   onJump: (index: number, rowId: number) => void;
   onOpenHeap: (assembly: string, heap: string) => void;
+  onOpenOverview: (assembly: string) => void;
   onOpenTable: (assembly: string, index: number) => void;
   onPage: (index: number, startRowId: number) => void;
   onRetryPackageMetadata: () => void;
@@ -244,6 +247,11 @@ export function bindMetadataExplorer(
   root.querySelector("#mde-hist-fwd")?.addEventListener(
     "click",
     actions.onHistoryForward);
+  root.querySelectorAll<HTMLElement>("[data-mde-explore]").forEach(button =>
+    button.addEventListener("click", () => {
+      const assembly = button.dataset.mdeAssembly ?? "";
+      if (assembly) actions.onOpenOverview(assembly);
+    }));
   root.querySelectorAll<HTMLElement>("[data-mde-open]").forEach(button =>
     button.addEventListener("click", () => {
       const assembly = button.dataset.mdeAssembly ?? "";
@@ -384,6 +392,79 @@ export function coverageLabel(coverage: string): string {
   }
 }
 
+export interface MetadataTableGroup {
+  name: string;
+  tables: readonly MetadataTableSummary[];
+}
+
+const metadataTableGroupDefinitions: readonly {
+  name: string;
+  tables: ReadonlySet<string>;
+}[] = [
+  {
+    name: "Modules & assemblies",
+    tables: new Set([
+      "Module", "ModuleRef", "Assembly", "AssemblyProcessor", "AssemblyOS",
+      "AssemblyRef", "AssemblyRefProcessor", "AssemblyRefOS", "File",
+      "ExportedType", "ManifestResource",
+    ]),
+  },
+  {
+    name: "Types",
+    tables: new Set([
+      "TypeRef", "TypeDef", "InterfaceImpl", "TypeSpec", "NestedClass",
+    ]),
+  },
+  {
+    name: "Members",
+    tables: new Set([
+      "FieldPtr", "Field", "MethodPtr", "MethodDef", "ParamPtr", "Param",
+      "MemberRef", "EventMap", "EventPtr", "Event", "PropertyMap",
+      "PropertyPtr", "Property", "MethodSemantics", "MethodImpl",
+    ]),
+  },
+  {
+    name: "Signatures & generics",
+    tables: new Set([
+      "StandAloneSig", "GenericParam", "MethodSpec",
+      "GenericParamConstraint",
+    ]),
+  },
+  {
+    name: "Attributes & layout",
+    tables: new Set([
+      "Constant", "CustomAttribute", "FieldMarshal", "DeclSecurity",
+      "ClassLayout", "FieldLayout", "ImplMap", "FieldRva",
+    ]),
+  },
+  {
+    name: "Debug & deltas",
+    tables: new Set([
+      "EncLog", "EncMap", "Document", "MethodDebugInformation", "LocalScope",
+      "LocalVariable", "LocalConstant", "ImportScope", "StateMachineMethod",
+      "CustomDebugInformation",
+    ]),
+  },
+];
+
+export function groupMetadataTables(
+  tables: readonly MetadataTableSummary[],
+): readonly MetadataTableGroup[] {
+  const remaining = new Set(tables);
+  const groups: MetadataTableGroup[] = [];
+  for (const definition of metadataTableGroupDefinitions) {
+    const matches = tables
+      .filter(table => definition.tables.has(table.name))
+      .sort((a, b) => a.index - b.index);
+    if (!matches.length) continue;
+    matches.forEach(table => remaining.delete(table));
+    groups.push({ name: definition.name, tables: matches });
+  }
+  const other = [...remaining].sort((a, b) => a.index - b.index);
+  if (other.length) groups.push({ name: "Other", tables: other });
+  return groups;
+}
+
 // -- Metadata lens ---------------------------------------------------------------------------
 
 export interface PackageMetadataOptions extends MetadataTextHelpers {
@@ -490,38 +571,51 @@ export function renderAssemblyMetadataBlock(asm: MetadataAssembly, helpers: Meta
         <span class="meta-heap-addr">${escapeHtml(heap.addressing === "Index" ? "index" : "byte offset")} · max ${heap.maxAddress}</span>
       </button>`).join("");
 
-  const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
-  const tableRows = tables.map(table => `
-    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
-      <span class="meta-table-name">${escapeHtml(table.name)}</span>
-      <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
-      <span class="meta-table-go">→</span>
-    </button>`).join("");
+  const tables = asm.tables || [];
+  const tableGroups = groupMetadataTables(tables);
+  const tableGroupsHtml = tableGroups.map(group => `
+    <section class="meta-table-group">
+      <h4>${escapeHtml(group.name)}<span>${group.tables.length}</span></h4>
+      <div class="meta-table-list">${group.tables.map(table => `
+        <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${table.index}" data-mde-assembly="${escapeHtml(asm.assembly)}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
+          <span class="meta-table-name">${escapeHtml(table.name)}</span>
+          <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
+          <span class="meta-table-go">→</span>
+        </button>`).join("")}</div>
+    </section>`).join("");
 
   const h = asm.headers || {};
   const corLine = h.corFlags
     ? `<span class="meta-fact"><span class="meta-fact-k">CLI</span><span class="meta-fact-v">v${h.majorRuntimeVersion}.${h.minorRuntimeVersion} · ${escapeHtml(h.corFlags)}${h.entryPointToken ? ` · entry 0x${(h.entryPointToken >>> 0).toString(16)}` : ""}</span></span>`
     : "";
+  const readyToRunLine = (h.managedNativeHeaderSize || 0) > 0
+    ? `<span class="meta-fact"><span class="meta-fact-k">ReadyToRun</span><span class="meta-fact-v">managed native header · ${fmtBytes(h.managedNativeHeaderSize || 0)} · RVA 0x${((h.managedNativeHeaderRva || 0) >>> 0).toString(16)}</span></span>`
+    : "";
 
   return `
     <section class="document-section meta-assembly">
-      <div class="section-title"><h2>${escapeHtml(asm.assembly)}</h2><span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span></div>
+      <div class="section-title meta-assembly-title">
+        <div>
+          <h2>${escapeHtml(asm.assembly)}</h2>
+          <span>${escapeHtml(asm.kind)}${asm.isAssembly ? " · assembly manifest" : " · module"} · metadata ${fmtBytes(asm.metadataSize)}</span>
+        </div>
+        <button type="button" class="meta-explore primary-action" data-mde-explore data-mde-assembly="${escapeHtml(asm.assembly)}">Explore</button>
+      </div>
       <div class="meta-facts">
         <span class="meta-fact"><span class="meta-fact-k">Format</span><span class="meta-fact-v">${escapeHtml(asm.metadataVersion)}${asm.metadataVersionTruncated ? "…" : ""}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Machine</span><span class="meta-fact-v">${escapeHtml(h.machine || "—")}${h.isPE32Plus ? " · PE32+" : " · PE32"}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Subsystem</span><span class="meta-fact-v">${escapeHtml(h.subsystem || "—")}</span></span>
         <span class="meta-fact"><span class="meta-fact-k">Tables</span><span class="meta-fact-v">${asm.projectedTableTotal}/${tables.length} populated</span></span>
         ${corLine}
+        ${readyToRunLine}
       </div>
-      <div class="meta-grid">
-        <div class="meta-col">
-          <h3 class="meta-col-title">Heaps</h3>
-          <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
-        </div>
-        <div class="meta-col">
-          <h3 class="meta-col-title">Tables <span class="meta-col-note">by row count</span></h3>
-          <div class="meta-tables">${tableRows || '<div class="meta-empty">No populated tables</div>'}</div>
-        </div>
+      <div class="meta-heaps-section">
+        <h3 class="meta-col-title">Heaps</h3>
+        <div class="meta-heaps">${heapRows || '<div class="meta-empty">No non-empty heaps</div>'}</div>
+      </div>
+      <div class="meta-table-directory">
+        <h3 class="meta-col-title">Tables <span class="meta-col-note">grouped by role</span></h3>
+        <div class="meta-table-groups">${tableGroupsHtml || '<div class="meta-empty">No populated tables</div>'}</div>
       </div>
     </section>`;
 }
