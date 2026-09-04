@@ -54,11 +54,11 @@ public class MemberSourceDiffPresentationTests
             .Presentation;
 
         Assert.StartsWith(
-            "  public extension(\n      int value)",
+            "  extension(\n      int value)",
             presentation.BeforeText,
             StringComparison.Ordinal);
         Assert.StartsWith(
-            "  public extension(\n      int value)",
+            "  extension(\n      int value)",
             presentation.AfterText,
             StringComparison.Ordinal);
         Assert.DoesNotContain("[Source]", presentation.BeforeText);

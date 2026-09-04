@@ -488,6 +488,16 @@ public static class MemberCommand
                         .Contains(SectionNames.SourceDiff)
                     && sourceMember?.MetadataToken is not null)
                 {
+                    bool? selectedMemberHasBody =
+                        ApiCommand.ResolveMemberBodyState(
+                            methodSourceAssemblyPath,
+                            sourceTypeName,
+                            sourceMember.Name,
+                            sourceOverloadIndex,
+                            publicOnly,
+                            tokenOriginAssembly,
+                            sourceMember.MetadataToken.Value,
+                            logger.Log);
                     ResolvedAssemblyReference comparisonAssembly =
                         sourceAssembly?.Path is { } sourceAssemblyPath
                         && LibraryMetadataService
@@ -559,7 +569,8 @@ public static class MemberCommand
                     PdbMemberSourceOutcome? pdbOutcome =
                         unavailablePdb?.Inspection.Outcome;
                     bool memberHasNoBody =
-                        comparison switch
+                        selectedMemberHasBody == false
+                        || comparison switch
                         {
                             AssemblyMemberSourceComparisonEntry.Available
                             {
