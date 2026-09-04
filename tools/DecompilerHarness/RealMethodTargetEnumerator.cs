@@ -154,7 +154,7 @@ static class RealMethodTargetEnumerator
         return true;
     }
 
-    static int ParameterCount(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
+    internal static int ParameterCount(MetadataReader reader, TypeDefinition typeDef, MethodDefinition method)
     {
         try
         {
