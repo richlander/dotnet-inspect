@@ -252,6 +252,12 @@ an already-established durable event still follows the ordinary cancellation
 handoff rule below, while the current-request guard decides whether it may
 update the view.
 
+An uncredited pull-ahead item has not been admitted for publication. A timeout
+or other failure must not publish it into a still-current view; only logical
+caller cancellation may hand it to an already-revoked generation. Adopters
+must distinguish producer-work deadlines from time waiting for consumer
+credit, and declare whether idle waiting spends that budget.
+
 The callback channel carries only nonterminal stream events. The adapter
 retains `Completed` and returns its value once through the operation's terminal
 result envelope. This avoids publishing the same semantic completion through

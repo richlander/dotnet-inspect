@@ -213,8 +213,15 @@ visible package window from filling. The managed adapter may establish one
 match beyond available credit, waits before publishing it, and requests no
 later producer event while waiting. A completion or non-match event discovered
 after the last credited match does not require surplus match credit.
-Cancellation releases the wait and carries an already-established match to
-the generation guard, which suppresses view publication after cancellation.
+Explicit cancellation or supersession releases the wait and carries an
+already-established match to the revoked generation guard. An active-work
+timeout remains a visible failure and does not publish an uncredited match.
+The existing 30-second Browser package-operation budget measures active query
+work, not the user's reading time: the sole adapter suspends it while waiting
+for match credit, with no producer work in flight, and resumes the remaining
+budget rather than granting a fresh one. Caller cancellation remains effective
+while paused. Source request deadlines and ordinary non-query package
+operation deadlines are unchanged.
 A future worker adapter may preserve the same sizes and meanings while
 batching durable events under the shared owner.
 
@@ -431,7 +438,11 @@ and browser-history and focus-return outcomes are proved by
 12. Confirm that a query publishes no more than 20 matches before Browser
    pressure, near-end pressure grants 10 more without repeated over-granting,
    producer work pauses with at most one match established ahead, completion
-   needs no surplus credit, and cancellation settles a paused query.
+   needs no surplus credit, and cancellation settles a paused query. The
+   `BrowserPackageQueryOperationsTests` Release gates exercise the enclosing
+   package operation: idle credit waits outlive the active-work budget,
+   replenishment resumes it, spent budget is not reset, and active-work expiry
+   cannot publish an uncredited match.
 13. Confirm that streamed progress and rows produce at most one query-region
    patch per animation frame and do not replace the application root.
 

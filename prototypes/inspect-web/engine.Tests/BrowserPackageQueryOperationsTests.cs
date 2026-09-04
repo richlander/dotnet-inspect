@@ -429,6 +429,115 @@ public sealed class BrowserPackageQueryOperationsTests
             emitted.Select(item => item.Row!.PackageId));
     }
 
+    [Fact]
+    public async Task PumpAsync_ConsumerWaitOutlivesActiveWorkBudget()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() => { }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(emitted);
+        await Task.Delay(1200, TestContext.Current.CancellationToken);
+        Assert.False(pumping.IsCompleted);
+        Assert.Single(emitted);
+
+        Assert.True(matchCredit.TryAdd(2));
+        BrowserPackageQueryEvent completed = await pumping;
+        Assert.Equal(3, emitted.Count);
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, completed.Kind);
+    }
+
+    [Fact]
+    public async Task PumpAsync_ActiveWorkExpiryDoesNotPublishUncreditedMatch()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        using var callerCancellation = new CancellationTokenSource();
+        var emitted = new List<BrowserPackageQueryEvent>();
+        int established = 0;
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() =>
+                    {
+                        if (++established == 2)
+                        {
+                            while (!deadline.HasExpired)
+                                Thread.SpinWait(100);
+                        }
+                    }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromMilliseconds(100),
+                callerCancellation.Token));
+
+        Assert.Equal(2, established);
+        Assert.Single(emitted);
+        Assert.False(callerCancellation.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task PumpAsync_CallerCancellationStillReleasesBudgetPausedWait()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() => { }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromSeconds(1),
+                callerCancellation.Token);
+
+        Assert.Single(emitted);
+        callerCancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pumping);
+        Assert.Equal(
+            ["Contoso.1", "Contoso.2"],
+            emitted.Select(item => item.Row!.PackageId));
+    }
+
+    [Fact]
+    public async Task PackageOperation_ConsumerWaitDoesNotResetSpentBudget()
+    {
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                async deadline =>
+                {
+                    while (deadline.Remaining > TimeSpan.FromMilliseconds(500))
+                        Thread.SpinWait(100);
+                    TimeSpan remaining = deadline.Remaining;
+
+                    await deadline.WaitForConsumerAsync(token =>
+                        new ValueTask(Task.Delay(1200, token)));
+
+                    Assert.True(deadline.Remaining <= remaining);
+                    Assert.False(deadline.Token.IsCancellationRequested);
+                    await Task.Delay(Timeout.InfiniteTimeSpan, deadline.Token);
+                    return 0;
+                },
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken));
+    }
+
     static async Task WaitUntilAsync(Func<bool> condition)
     {
         for (int attempt = 0; attempt < 100 && !condition(); attempt++)

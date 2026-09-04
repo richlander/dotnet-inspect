@@ -989,7 +989,7 @@ internal static class BrowserPackageWorkspace
         readonly CancellationToken _callerCancellation;
         readonly CancellationTokenSource _deadlineCancellation;
         readonly CancellationTokenSource _operationCancellation;
-        readonly long _started = Stopwatch.GetTimestamp();
+        readonly Stopwatch _elapsed = Stopwatch.StartNew();
         readonly TimeSpan _timeout;
 
         internal BrowserPackageOperationDeadline(
@@ -1006,20 +1006,42 @@ internal static class BrowserPackageWorkspace
         }
 
         internal CancellationToken Token => _operationCancellation.Token;
+        internal CancellationToken CallerCancellation => _callerCancellation;
 
         internal bool HasExpired =>
             _deadlineCancellation.IsCancellationRequested
-            || Stopwatch.GetElapsedTime(_started) >= _timeout;
+            || _elapsed.Elapsed >= _timeout;
 
         internal TimeSpan Remaining
         {
             get
             {
                 TimeSpan remaining =
-                    _timeout - Stopwatch.GetElapsedTime(_started);
+                    _timeout - _elapsed.Elapsed;
                 if (remaining <= TimeSpan.Zero)
                     ThrowIfExpired();
                 return remaining;
+            }
+        }
+
+        internal async ValueTask WaitForConsumerAsync(
+            Func<CancellationToken, ValueTask> wait)
+        {
+            ThrowIfExpired();
+            // The sole stream consumer is idle here; no producer work is in flight.
+            _deadlineCancellation.CancelAfter(System.Threading.Timeout.InfiniteTimeSpan);
+            _elapsed.Stop();
+            try
+            {
+                ThrowIfExpired();
+                await wait(Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _elapsed.Start();
+                TimeSpan remaining = _timeout - _elapsed.Elapsed;
+                if (remaining > TimeSpan.Zero)
+                    _deadlineCancellation.CancelAfter(remaining);
             }
         }
 

@@ -42,7 +42,8 @@ namespace InspectWeb.Engine.PackageFacade
             bool includePrerelease,
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -52,7 +53,8 @@ namespace InspectWeb.Engine.PackageFacade
                 contentProvider: null,
                 matchCredit,
                 emit,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                deadline).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -63,7 +65,8 @@ namespace InspectWeb.Engine.PackageFacade
             IPackageQueryContentProvider? contentProvider,
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
@@ -88,14 +91,16 @@ namespace InspectWeb.Engine.PackageFacade
                     cancellationToken),
                 matchCredit,
                 emit,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                deadline).ConfigureAwait(false);
         }
 
         internal static async Task<BrowserPackageQueryEvent> PumpAsync(
             IAsyncEnumerable<PackageQueryEvent> events,
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
             ArgumentNullException.ThrowIfNull(events);
             ArgumentNullException.ThrowIfNull(emit);
@@ -122,16 +127,24 @@ namespace InspectWeb.Engine.PackageFacade
                 {
                     try
                     {
-                        await matchCredit.WaitAsync(cancellationToken)
-                            .ConfigureAwait(false);
+                        if (deadline is null)
+                        {
+                            await matchCredit.WaitAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await deadline.WaitForConsumerAsync(matchCredit.WaitAsync)
+                                .ConfigureAwait(false);
+                        }
                     }
                     catch (OperationCanceledException)
-                        when (cancellationToken.IsCancellationRequested)
+                        when (cancellationToken.IsCancellationRequested
+                            && (deadline is null
+                                || deadline.CallerCancellation.IsCancellationRequested))
                     {
-                        // The match was already established by MoveNextAsync.
-                        // Hand it to the generation guard before physical
-                        // cancellation settles, even though logical
-                        // cancellation has revoked view publication.
+                        // Only caller cancellation revokes Browser publication;
+                        // a timeout must not hand off this uncredited match.
                         emit(projected);
                         throw;
                     }
@@ -318,7 +331,8 @@ public static partial class PackageExports
                     queryEvent => eventSink.SetProperty(
                         "event",
                         BrowserPackageQueryOperations.Serialize(queryEvent)),
-                    deadline.Token);
+                    deadline.Token,
+                    deadline);
             },
             BrowserPackageWorkspace.PackageOperationTimeout,
             operation.CancellationToken);

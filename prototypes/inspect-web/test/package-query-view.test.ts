@@ -751,7 +751,6 @@ test("bindPackageQueryView reports near-end scroll pressure and disconnects it",
   root.add(".query-main", main);
   let pressure = 0;
   const binding = bindPackageQueryView(fakeDom.parentNode(root), {
-    onApplicationScopeSelect: () => {},
     onBack: () => {},
     onCancel: () => {},
     onFacetToggle: () => {},
@@ -793,7 +792,6 @@ test("patchPackageQueryStream updates only dynamic query regions", () => {
     fakeDom.parentNode(root),
     { state, escapeHtml },
     {
-      onApplicationScopeSelect: () => {},
       onBack: () => {},
       onCancel: () => {},
       onFacetToggle: () => {},
