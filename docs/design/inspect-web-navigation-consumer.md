@@ -443,13 +443,25 @@ Package query's `/query` route is a full-bleed routed surface under
 [Inspect Web Shell Interaction](inspect-web-shell-interaction.md)'s general
 Back/Forward and focus-restoration classification. This UI owns the entry and
 return specifics beyond that classification. Browser Back and Forward own
-entry and return; returning to the prior surface restores focus to the stable
-Search control when it is still rendered, otherwise it focuses that surface's
-level-one heading. The route's visible `Back` action invokes the same history
-transition, falling back to Home only when the route was loaded without an
-in-app predecessor. Each query history entry carries its own predecessor
-identity and focus target in session-only history state, so a later query
-route cannot change an older entry's Back behavior.
+entry and return. Entry from Search returns focus to Search when it remains
+rendered; entry from the application-scope strip returns focus to its Query
+control. Either path falls back to the prior surface's level-one heading. The
+route's visible `Back` action invokes the same history transition, falling back
+to Home only when the route was loaded without an in-app predecessor. Each
+query history entry carries its own predecessor identity and focus target in
+session-only history state, so a later query route cannot change an older
+entry's Back behavior.
+
+Selecting Query without a new seed restores the current session request,
+streamed rows, failures, and completion state. Selecting Workspace from Query
+pushes the retained Workspace surface when one exists, so Back returns to the
+unchanged query entry. A direct query visit with no retained Workspace renders
+the Workspace control unavailable rather than routing its label to Home.
+If the retained Workspace cannot be projected into a complete workspace URL,
+the transition still pushes an active-package Workspace successor, preserves
+the complete in-memory surface, and exposes the projection failure. Refreshing
+that degraded successor restores only its represented active package; Back
+still returns to the unchanged query entry.
 
 `Open in workspace` commits its result through the same typed transition
 lifecycle as any other product-issued outcome: success leaves `/query`, pushes
