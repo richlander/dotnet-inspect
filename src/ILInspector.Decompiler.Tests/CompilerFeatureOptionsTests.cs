@@ -76,22 +76,21 @@ public class CompilerFeatureOptionsTests
     }
 
     [Theory]
-    // The printer keys on module marker presence, not version, so the harness
-    // must replay updated rules for any marked module. A v2-only harness would
-    // compile printer-emitted `unsafe { }` blocks under legacy rules (CS0214)
-    // and report a false clean.
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(99)]
-    public void AnyModuleMarker_ReplaysUpdatedRules(int version)
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    [InlineData(99, false)]
+    public void ModuleMarker_ReplaysOnlyRecognizedUpdatedRules(
+        int version,
+        bool expectedUpdatedRules)
     {
         using var pe = new PEReader(new MemoryStream(BuildMarkedModule(version)));
         var options = CompilerFeatureOptions.ParseOptions(pe);
 
-        Assert.Contains(
-            options.Features,
-            feature => feature.Key == "updated-memory-safety-rules"
-                && feature.Value == "true");
+        Assert.Equal(
+            expectedUpdatedRules,
+            options.Features.Any(feature =>
+                feature.Key == "updated-memory-safety-rules"
+                && feature.Value == "true"));
     }
 
     [Fact]
@@ -105,42 +104,93 @@ public class CompilerFeatureOptionsTests
             feature => feature.Key == "updated-memory-safety-rules");
     }
 
-    public static TheoryData<string, byte[]> ReplayModeImages() => new()
+    public static TheoryData<string, byte[], bool> ReplayModeImages() => new()
     {
-        { "unmarked", BuildMarkedModule(null) },
-        { "v2 MethodDef ctor", BuildMarkedModule(2) },
-        { "v3 MethodDef ctor", BuildMarkedModule(3) },
-        { "v99 MethodDef ctor", BuildMarkedModule(99) },
-        // ECMA-335 lets a MemberRef name a member of a same-module TypeDef, a
-        // spelling the printer's constructor decode does not recognize. Reading
-        // the marker through any other decoder diverges here.
-        { "v2 MemberRef->TypeDef ctor", BuildMarkedModule(2, memberRefConstructor: true) },
-        // A truncated fixed-arg blob leaves the marker present but its version
-        // undecodable, which version-decoding readers report as absent.
-        { "malformed marker blob", BuildMarkedModule(2, malformedValue: true) },
+        { "unmarked", BuildMarkedModule(null), false },
+        { "v2 MethodDef ctor", BuildMarkedModule(2), true },
+        { "v3 MethodDef ctor", BuildMarkedModule(3), false },
+        { "v99 MethodDef ctor", BuildMarkedModule(99), false },
+        { "v2 MemberRef->TypeDef ctor", BuildMarkedModule(2, memberRefConstructor: true), true },
+        { "malformed marker blob", BuildMarkedModule(2, malformedValue: true), false },
     };
 
     /// <summary>
-    /// The harness must recompile under the exact mode the printer used. This
-    /// pins the two predicates together over marker spellings where an
-    /// independent reader is known to disagree with the printer, so the harness
-    /// cannot silently drift back to deriving the mode on its own.
+    /// The harness derives replay mode from the normalized Metadata-owned model,
+    /// not from raw marker presence.
     /// </summary>
     [Theory]
     [MemberData(nameof(ReplayModeImages))]
-    public void HarnessReplayMatchesPrinterMode(string label, byte[] image)
+    public void HarnessReplayUsesNormalizedModuleRules(
+        string label,
+        byte[] image,
+        bool expectedUpdatedRules)
     {
         using var pe = new PEReader(new MemoryStream(image));
-        bool printerUsesUpdatedRules =
-            IrImporter.ModuleUsesUpdatedMemorySafetyRules(pe.GetMetadataReader());
         bool harnessReplaysUpdatedRules = CompilerFeatureOptions.ParseOptions(pe).Features
             .Any(feature => feature.Key == "updated-memory-safety-rules"
                 && feature.Value == "true");
 
         Assert.True(
-            printerUsesUpdatedRules == harnessReplaysUpdatedRules,
-            $"{label}: printer replayed updated rules = {printerUsesUpdatedRules}, "
+            expectedUpdatedRules == harnessReplaysUpdatedRules,
+            $"{label}: expected updated rules = {expectedUpdatedRules}, "
                 + $"harness replayed updated rules = {harnessReplaysUpdatedRules}");
+    }
+
+    [Fact]
+    public void HarnessReplayMatchesPrinterMode()
+    {
+        const string sourceText =
+            """
+            public static class C
+            {
+                public static int M() => 1;
+            }
+            """;
+        var legacyOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var updatedOptions = legacyOptions.WithFeatures([
+            new KeyValuePair<string, string>(
+                "updated-memory-safety-rules",
+                "true"),
+        ]);
+        using var legacy = Compile(
+            sourceText,
+            legacyOptions,
+            assemblyName: "LegacyReplayMode");
+        using var updated = Compile(
+            sourceText,
+            updatedOptions,
+            assemblyName: "UpdatedReplayMode");
+        byte[] unsupported = WithMemorySafetyRulesVersion(
+            updated.Image,
+            version: 99);
+
+        foreach ((string label, byte[] image) in new[]
+        {
+            ("legacy", legacy.Image),
+            ("updated", updated.Image),
+            ("unsupported", unsupported),
+        })
+        {
+            using var source = MetadataSource.OpenFromPrefetchedImage(
+                $"{label}.dll",
+                ImmutableArray.Create(image));
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            using var pe = new PEReader(
+                new MemoryStream(image, writable: false));
+            bool harnessReplaysUpdatedRules =
+                CompilerFeatureOptions.ParseOptions(pe).Features.Any(feature =>
+                    feature.Key == "updated-memory-safety-rules"
+                    && feature.Value == "true");
+
+            Assert.True(
+                function.UsesUpdatedMemorySafetyRules
+                    == harnessReplaysUpdatedRules,
+                $"{label}: printer used updated rules = "
+                    + $"{function.UsesUpdatedMemorySafetyRules}, "
+                    + "harness replayed updated rules = "
+                    + $"{harnessReplaysUpdatedRules}");
+        }
     }
 
     static byte[] BuildMarkedModule(
