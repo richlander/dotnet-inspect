@@ -2088,7 +2088,9 @@ callers. CLI and browser/Wasm adoption are separate slices in
 adds no host retention, cache, eviction, or presentation behavior.
 
 The first CLI adoption is the remote `package --all-libraries` grouped
-Integrations path when the command resolves one default target framework.
+Integrations path when the command resolves one default target framework and
+the binding's frozen surface role exactly covers the command's visible library
+selection.
 After the existing desktop extraction resolves the exact package and version,
 the CLI reacquires that immutable payload through the authorized
 `FileSystemPackageStore`, creates its `PackageRootBinding`, and realizes the
@@ -2099,9 +2101,11 @@ to ordinary library inspection while only the Integration query runs against
 the implementation participant; this prevents implementation-only metadata
 from being presented as part of the compile surface. The host consumes those
 typed Integration results through the existing library section pipeline and
-awaits workspace close so artifact cleanup follows exact group settlement. It
-does not mint an artifact registration or infer correspondence from assembly
-display text.
+preserves the selected extraction file's timestamp for ordinary presentation;
+that timestamp remains a host presentation fact rather than artifact identity.
+The host awaits workspace close so artifact cleanup follows exact group
+settlement. It does not mint an artifact registration or infer correspondence
+from assembly display text.
 
 `ArtifactBackedCreate_RetainsArtifactUntilActiveQueryCompletes` gates
 distinct surface and implementation descriptors at the CLI adapter,
@@ -2116,8 +2120,13 @@ output compatibility.
 Local archives and explicit `--tfm` selection remain on the legacy grouped
 workspace. Those modes can select tools or multiple package layout roles that
 are not one compile-role projection; silently narrowing their visible library
-set would not be a behavior-preserving adoption. Browser/Wasm adoption remains
-the separate #5576 slice.
+set would not be a behavior-preserving adoption. A default selection also
+retains the legacy workspace when it includes nested or implementation-only
+libraries, resolves an explicit empty compile group, or cannot form exact
+surface/implementation assembly-identity correspondence. These are ordinary
+package shapes but not valid inputs to the shared compile-role realization;
+falling back preserves the command's existing visible library set and output.
+Browser/Wasm adoption remains the separate #5576 slice.
 
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed

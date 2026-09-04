@@ -4552,11 +4552,20 @@ public class PackageCommand
 
                 createdIntegrationsWorkspace =
                     await PackageIntegrationsWorkspace
-                        .CreateArtifactBackedAsync(
+                        .TryCreateArtifactBackedAsync(
                             integrationAssemblies,
                             extractPath,
                             packageRoot,
                             includeIntegrationOpportunities);
+                if (createdIntegrationsWorkspace is null)
+                {
+                    createdIntegrationsWorkspace =
+                        PackageIntegrationsWorkspace.Create(
+                            integrationAssemblies,
+                            acquisition,
+                            includeIntegrationOpportunities:
+                                includeIntegrationOpportunities);
+                }
             }
             else
             {
@@ -4794,7 +4803,7 @@ public class PackageCommand
 
         return workspace.UseAssemblyAsync(
             path,
-            (retainedAssembly, integrations, opportunities) =>
+            async (retainedAssembly, integrations, opportunities) =>
             {
                 switch (integrations)
                 {
@@ -4802,7 +4811,7 @@ public class PackageCommand
                         failures.Add(
                             (relativePath, rejected.Failure.Detail));
                         if (retainedAssembly is null)
-                            return Task.FromResult<LibraryInspection?>(null);
+                            return null;
                         break;
                     case AssemblyIntegrationsEntry.Failed failed:
                         failures.Add(
@@ -4823,10 +4832,21 @@ public class PackageCommand
                         break;
                 }
 
-                return inspectAsync(
-                    retainedAssembly,
-                    integrations,
-                    opportunities);
+                LibraryInspection? inspection =
+                    await inspectAsync(
+                            retainedAssembly,
+                            integrations,
+                            opportunities)
+                        .ConfigureAwait(false);
+                if (inspection is not null
+                    && retainedAssembly?.Registration
+                        .ArtifactRegistration is not null)
+                {
+                    inspection.LastModified =
+                        File.GetLastWriteTimeUtc(path);
+                }
+
+                return inspection;
             });
     }
 

@@ -39,9 +39,14 @@ selection remains the input to ordinary library inspection while Integration
 queries use its exact body-bearing implementation participant when one exists.
 A rejected implementation remains visible without erasing an available
 surface, and asynchronous workspace close retains the artifact generation
-until both participant groups settle. Local archives and explicit `--tfm`
-modes keep the legacy partitioned path because their visible selection can span
-tools or multiple package layout roles. Progressive member call
+until both participant groups settle. Ordinary presentation retains the
+selected extraction file's timestamp rather than manufacturing a timestamp
+from the artifact stream. The artifact-backed path requires the
+binding's frozen surface role to exactly cover the command's visible selection
+and to form exact assembly-identity correspondence; other package shapes
+retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
+also keep that path because their visible selection can span tools or multiple
+package layout roles. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization

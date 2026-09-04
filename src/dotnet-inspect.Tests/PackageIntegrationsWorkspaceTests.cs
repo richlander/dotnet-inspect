@@ -123,16 +123,20 @@ public sealed class PackageIntegrationsWorkspaceTests
             "SurfaceOnlyMarker");
         byte[] malformed = [1, 2, 3];
         File.WriteAllBytes(selectedPath, surface);
+        DateTime selectedTimestamp =
+            new(2024, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(selectedPath, selectedTimestamp);
         PackageRootBinding binding = await CreateBindingAsync(
             (surfacePath, surface),
             (implementationPath, malformed));
-        var workspace =
-            await PackageIntegrationsWorkspace.CreateArtifactBackedAsync(
+        PackageIntegrationsWorkspace? workspace =
+            await PackageIntegrationsWorkspace.TryCreateArtifactBackedAsync(
                 [new(selectedPath, "net11.0")],
                 directory,
                 binding,
                 cancellationToken:
                     TestContext.Current.CancellationToken);
+        Assert.NotNull(workspace);
         List<(string FileName, string Reason)> failures = [];
         int inspectionCount = 0;
 
@@ -163,6 +167,7 @@ public sealed class PackageIntegrationsWorkspaceTests
                         });
 
             Assert.NotNull(inspection);
+            Assert.Equal(selectedTimestamp, inspection.LastModified);
             Assert.Equal(1, inspectionCount);
             var failure = Assert.Single(failures);
             Assert.Equal(surfacePath, failure.FileName);
@@ -200,6 +205,129 @@ public sealed class PackageIntegrationsWorkspaceTests
                     selectedTargetFramework,
                     selectedProducerKey,
                     [selectedPackagePath]));
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RequiresExactVisibleSurfaceSelection()
+    {
+        const string surfacePath =
+            "lib/net11.0/Artifact.Surface.Sample.dll";
+        const string nestedPath =
+            "lib/net11.0/x64/Artifact.Native.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-surface-").FullName;
+        byte[] image = IntegrationAssembly(
+            "Artifact.Surface.Sample",
+            "SurfaceMarker");
+        PackageRootBinding binding = await CreateBindingAsync(
+            (surfacePath, image),
+            (nestedPath, image));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, surfacePath),
+                                "net11.0"),
+                            new(
+                                Path.Combine(directory, nestedPath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RejectsEmptyCompileGroup()
+    {
+        const string selectedPath =
+            "lib/net11.0/Artifact.Empty.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-empty-").FullName;
+        byte[] image = IntegrationAssembly(
+            "Artifact.Empty.Sample",
+            "ImplementationMarker");
+        PackageRootBinding binding = await CreateBindingAsync(
+            ("ref/net11.0/_._", []),
+            (selectedPath, image));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, selectedPath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryArtifactBackedCreate_RejectsIdentityMismatch()
+    {
+        const string surfacePath =
+            "ref/net11.0/Artifact.Mismatch.Sample.dll";
+        const string implementationPath =
+            "lib/net11.0/Artifact.Mismatch.Sample.dll";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-mismatch-").FullName;
+        PackageRootBinding binding = await CreateBindingAsync(
+            (
+                surfacePath,
+                IntegrationAssembly(
+                    "Artifact.Surface.Identity",
+                    "SurfaceMarker")),
+            (
+                implementationPath,
+                IntegrationAssembly(
+                    "Artifact.Implementation.Identity",
+                    "ImplementationMarker")));
+
+        try
+        {
+            PackageIntegrationsWorkspace? workspace =
+                await PackageIntegrationsWorkspace
+                    .TryCreateArtifactBackedAsync(
+                        [
+                            new(
+                                Path.Combine(directory, surfacePath),
+                                "net11.0"),
+                        ],
+                        directory,
+                        binding,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken);
+
+            Assert.Null(workspace);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

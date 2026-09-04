@@ -402,6 +402,67 @@ internal sealed class PackageIntegrationsWorkspace :
         }
     }
 
+    internal static async ValueTask<PackageIntegrationsWorkspace?>
+        TryCreateArtifactBackedAsync(
+            IEnumerable<PackageIntegrationAssembly> assemblies,
+            string extractionRoot,
+            PackageRootBinding package,
+            bool includeIntegrationOpportunities = false,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        ArgumentException.ThrowIfNullOrWhiteSpace(extractionRoot);
+        ArgumentNullException.ThrowIfNull(package);
+
+        PackageIntegrationAssembly[] requested = [.. assemblies];
+        PackageCompileAssetSelection selection =
+            package.Root.AssetSelection;
+        if (!selection.IsSelected
+            || !HasExactSurfaceSelection(
+                requested,
+                extractionRoot,
+                selection.Assets))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await CreateArtifactBackedAsync(
+                    requested,
+                    extractionRoot,
+                    package,
+                    includeIntegrationOpportunities,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (PackageAssemblyRoleCorrespondenceException)
+        {
+            return null;
+        }
+    }
+
+    static bool HasExactSurfaceSelection(
+        IReadOnlyList<PackageIntegrationAssembly> requested,
+        string extractionRoot,
+        IReadOnlyList<PackageCompileAsset> surfaceAssets)
+    {
+        if (requested.Count != surfaceAssets.Count)
+            return false;
+
+        var requestedPaths = new HashSet<string>(
+            requested.Select(assembly =>
+                Path.GetRelativePath(
+                        extractionRoot,
+                        Path.GetFullPath(assembly.Path))
+                    .Replace('\\', '/')),
+            StringComparer.OrdinalIgnoreCase);
+        return requestedPaths.Count == requested.Count
+            && surfaceAssets.All(asset =>
+                requestedPaths.Remove(asset.Path))
+            && requestedPaths.Count == 0;
+    }
+
     static Dictionary<string, ParticipantResult> ArtifactRoles(
         PackageAssemblyContextRealization realization)
     {
