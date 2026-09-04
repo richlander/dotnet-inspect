@@ -82,11 +82,12 @@ independent cosmetic changes.
 
 | Area | Direction |
 | ---- | --------- |
-| Persistent hierarchy | Use one title line for product, inspected target, and Search/history; replace custom subject/inspector rendering with the Slideable Subject Strip |
+| Persistent hierarchy | Use one title line for product, Query/Workspace application scopes, subject/inspector navigation, and Search/history; keep the inspected target on its separate row |
 | Workspace title bar | Follow `dotnet-inspect` with the icon-backed typed Package > Library > Type > Member target path, then responsive Back/Forward and flush-right Search |
-| Subject navigation | Establish Workspace, Package, Type, and Member in the second row now; add Library when product descriptors are ready |
+| Application scopes | Render Query and Workspace in a separate quiet strip that yields before inspection identity under width pressure |
+| Subject navigation | Establish Package, Type, and Member now; add Library when product descriptors are ready |
 | Subject zone | Compose separately styled subject and inspector SlideStrip controls with inspector-first allocation and discrete boundary movement |
-| Workspace selection | Keep ordinary single-workspace use free of tabs; manage retained coordinates inside the Workspace subject |
+| Workspace selection | Keep ordinary single-workspace use free of coordinate tabs; manage retained coordinates inside the Workspace application scope |
 | Package coordinate | Render version and TFM selectors in Package content; platform is workspace content, not a workspace |
 | Library inspection | Select all libraries or one library within Library |
 | Type headings | Use a compact exact-target heading in API, no duplicate local heading in full-area Source, and detailed context in Metadata |
