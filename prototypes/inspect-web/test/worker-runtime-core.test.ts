@@ -1007,6 +1007,7 @@ test("preparation rejects synchronously without posting or retaining a sink", ()
       calls.push("progress");
       return undefined;
     },
+    reportDurable: () => undefined,
     ...terminalCallbacks(() => {
       calls.push("terminal");
       return undefined;
@@ -1039,6 +1040,7 @@ test("abandonment is resource-free and activation installs before callout", asyn
   const calls: string[] = [];
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     ...terminalCallbacks(() => {
       calls.push("terminal");
       return undefined;
@@ -1532,6 +1534,7 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
     const identity = captureIdentity();
     const sink: OperationProducerSink<string, string, string> = {
       reportProgress: () => undefined,
+      reportDurable: () => undefined,
       reportUnexpectedTerminal: () => undefined,
       reportUnexpectedFailure: diagnostic => {
         events.push(`unexpected:${String(diagnostic)}`);
@@ -1626,6 +1629,7 @@ test("prepared abandonment completes deferred realm release", async () => {
   await startReady(harness);
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     ...terminalCallbacks(() => undefined),
     reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => undefined,
@@ -2107,6 +2111,7 @@ test("host operation high-water permits gaps, rejects replay after release, and 
     throw new Error("First operation identity was not published.");
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     ...terminalCallbacks(() => undefined),
     reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => undefined,
@@ -2726,6 +2731,7 @@ test("Settled maps unexpected diagnostic, terminal, then quiescence atomically",
       calls.push(`progress:${value}`);
       return undefined;
     },
+    reportDurable: () => undefined,
     reportUnexpectedTerminal: (error, diagnostic) => {
       const code = typeof diagnostic === "object" && diagnostic !== null
         ? ownDataProperty(diagnostic, "code")
@@ -3820,6 +3826,7 @@ test("epoch closure seals every assigned record before sink callbacks run", asyn
   let secondBinding: PreparedOperationProducer | null = null;
   const firstSink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => undefined,
     ...terminalCallbacks(outcome => {
@@ -3831,6 +3838,7 @@ test("epoch closure seals every assigned record before sink callbacks run", asyn
   };
   const secondSink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => undefined,
     ...terminalCallbacks(outcome => {
@@ -4554,6 +4562,7 @@ test("callback errors remain failure-complete and realm release is reported once
   const calls: string[] = [];
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
+    reportDurable: () => undefined,
     reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => {
       calls.push("unexpected");
