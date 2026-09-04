@@ -133,12 +133,12 @@ Selector rows are hidden by default in the type and member navigation panes.
 The recovered vertical space belongs to the type or member list, which is the
 primary content of each pane.
 
-Each pane provides one compact `Filters` disclosure button beside its text
-filter. The button expands or collapses the complete selector region for that
-pane:
+Each filtering surface provides one compact `Filters` disclosure button. The
+button expands or collapses the text filter and complete selector region
+together:
 
-- type kind and accessibility selectors expand together;
-- member kind, accessibility, and trait selectors expand together; and
+- member text, kind, accessibility, and trait filters expand together; and
+- type text, namespace, kind, and accessibility filters expand together; and
 - collapsing the region never clears or changes a selection.
 
 The Type navigation pane does not retain a second library filter. The active
@@ -153,39 +153,33 @@ as a user preference across browser sessions.
 
 #### Collapsed summary
 
-Hidden controls must not create hidden state. The disclosure button summarizes
-any selection that restricts the visible result set:
-
-- the visible label becomes `Filters · N`, where `N` is the number of
-  restrictive selector dimensions;
-- the count uses the accent color without giving the button selector selected
-  styling;
-- the accessible name identifies the active restrictions.
-
-For example, a type pane showing only public types has one restrictive
-dimension even though `public` is the product default. Its collapsed control is
-presented as `Filters · 1` with an accessible name such as
-`Filters · 1, accessibility: public`. A member pane with `all kinds`,
-`all access`, and `all traits` has no restrictive dimensions and presents a
-neutral `Filters` button.
-
-The count is by selector dimension, not by selected value. Selecting `public`
-and `protected` in one multi-select accessibility control still contributes
-one restrictive dimension.
+Hidden controls must not create hidden state. A member-filter disclosure shows
+`All members` when no restriction is active. A type-filter disclosure shows
+`All types` only when no text, namespace, kind, or accessibility restriction is
+active. When non-public types are available, the default public-access scope is
+an active restriction and remains visible in the collapsed summary. Otherwise
+the compact trailing summary names each active restriction in control order.
+The summary elides visually when space is exhausted, while its accessible name
+retains the complete active restriction list. The disclosure does not acquire
+selector selected styling.
 
 #### Disclosure semantics
 
-- The disclosure button is not a selector and does not expose `aria-pressed`.
-- The button exposes `aria-expanded` and references the selector region with
-  `aria-controls`.
+- The disclosure uses native `details` and `summary` semantics. A custom
+  equivalent exposes the same expanded state with `aria-expanded` and
+  references the selector region with `aria-controls`.
+- The summary is not a selector and does not expose `aria-pressed`.
 - Expanding the region does not move keyboard focus automatically. The user
   may continue to the first selector through ordinary tab order.
-- Collapsing the region returns focus to the disclosure button when focus was
+- A keyboard command that focuses the type or member filter first opens its
+  disclosure and then places focus in the text input.
+- Collapsing the region returns focus to the summary when focus was
   inside the region.
 - A restored or deep-linked filter is summarized while collapsed; it does not
   force the selector region open.
-- The collapsed summary supplements the visible result count. It does not
-  replace result text such as `20 of 84 member groups`.
+- Explicitly expanded controls remain available at narrow widths.
+- The collapsed summary supplements the live visible/total result count in the
+  owning pane or working-surface header. It does not replace that count.
 
 ## Shared heading rules
 
@@ -203,12 +197,19 @@ underline on hover plus an explicit keyboard focus outline.
 
 ### API, Source, and Metadata lenses
 
-API renders a compact local heading followed by its primary content. Source is
-the full-area exception governed by
+API renders a compact local heading followed by its primary content. Type API
+uses `Members` with the live visible/total member-group count. Member API uses
+the exact local member name with its kind and overload count or ordinal. These
+headings use the same quiet label hierarchy as the navigation pane rather than
+competing with the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
 Metadata retains its detailed type heading.
+
+At narrow widths, API header identity and status may elide visually as complete
+strings. Responsive styling does not selectively remove the overload total or
+ordinal from the rendered or accessible status.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -227,11 +228,14 @@ The compact API heading and full-area Source working surface do not repeat:
 - the kind icon;
 - the namespace eyebrow;
 - the declaration signature;
-- the member count;
 - the accessibility summary;
 - the target framework;
 - the library; or
 - the package and version.
+
+Surface-local status is not repeated subject metadata. Type API may report the
+live visible/total member-group count and overload total; Member API may report
+the selected member kind and overload count or ordinal.
 
 The removed fields do not leave placeholders or reserved vertical space, and
 they are not moved into collapsed duplicate headers on either lens. Page order,

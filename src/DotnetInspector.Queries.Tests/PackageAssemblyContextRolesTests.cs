@@ -34,7 +34,7 @@ public sealed class PackageAssemblyContextRolesTests
                     AssemblyBindingTarget.Reference(
                         implementationOnly.Identity),
                     AssemblyBindingOrigin.FromAssembly(surface),
-                    AssemblyResolutionScope.Any)));
+                    AssemblyResolutionScope.Any)).Selection);
     }
 
     [Fact]
@@ -82,12 +82,12 @@ public sealed class PackageAssemblyContextRolesTests
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(assembly),
-                AssemblyResolutionScope.Any));
+                AssemblyResolutionScope.Any)).Selection;
         AssemblyBindingSelection platform = policy.Select(
             new AssemblyBindingRequest(
                 AssemblyBindingTarget.Reference(assembly.Identity),
                 AssemblyBindingOrigin.FromAssembly(assembly),
-                AssemblyResolutionScope.Platform));
+                AssemblyResolutionScope.Platform)).Selection;
 
         Assert.Same(
             assembly,
@@ -99,7 +99,7 @@ public sealed class PackageAssemblyContextRolesTests
                     new AssemblyBindingRequest(
                         AssemblyBindingTarget.CoreLibrary(),
                         AssemblyBindingOrigin.FromAssembly(assembly),
-                        AssemblyResolutionScope.Platform)));
+                        AssemblyResolutionScope.Platform)).Selection);
         Assert.Equal(
             AssemblyBindingFailureKind.UnsupportedScope,
             intrinsic.Failure.Kind);

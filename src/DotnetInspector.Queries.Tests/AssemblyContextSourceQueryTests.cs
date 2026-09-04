@@ -1001,6 +1001,42 @@ public sealed class AssemblyContextSourceQueryTests
         Assert.True(assembly.Policy.SelectionCount > 0);
     }
 
+    [Fact]
+    public void CancellationObservingBindingPolicy_RejectsForeignSnapshot()
+    {
+        var inner = new FrameworkBindingPolicy();
+        AssemblyBindingPolicyVersion expectedVersion = inner.Version;
+        inner.SnapshotVersion = new AssemblyBindingPolicyVersion();
+        var policy =
+            new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
+                inner,
+                expectedVersion);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        Assert.Throws<InvalidOperationException>(
+            () => policy.Select(request));
+        Assert.Equal(1, inner.SelectionCount);
+    }
+
+    [Fact]
+    public void CancellationObservingBindingPolicy_PreservesNullSnapshot()
+    {
+        var inner = new NullSnapshotPolicy();
+        var policy =
+            new AssemblyContextSourceQuery.CancellationObservingBindingPolicy(
+                inner,
+                inner.Version);
+        var request = new AssemblyBindingRequest(
+            AssemblyBindingTarget.CoreLibrary(),
+            AssemblyBindingOrigin.Global(),
+            AssemblyResolutionScope.Platform);
+
+        Assert.Null(policy.Select(request));
+    }
+
     [Theory]
     [InlineData(false, false, false)]
     [InlineData(false, true, false)]
@@ -3589,35 +3625,54 @@ public sealed class AssemblyContextSourceQueryTests
         internal Action? BeforeSelection { get; set; }
         internal Func<
             AssemblyBindingRequest,
-            AssemblyBindingSelection?>? SelectOverride { get; set; }
+            AssemblyBindingSelection?>? SelectOverride
+        { get; set; }
+        internal AssemblyBindingPolicyVersion? SnapshotVersion { get; set; }
 
         internal void ChangeVersion() =>
             Version = new AssemblyBindingPolicyVersion();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            Interlocked.Increment(ref _selectionCount);
-            BeforeSelection?.Invoke();
-            if (CancelSelection)
-            {
-                throw new OperationCanceledException(
-                    "Synthetic binding-policy cancellation.");
-            }
-            if (SelectOverride?.Invoke(request)
-                is { } overridden)
-            {
-                return overridden;
-            }
+            return new AssemblyBindingSelectionSnapshot(
+                SnapshotVersion ?? Version,
+                SelectCore());
 
-            return request.Target
-                is AssemblyBindingTarget.AssemblyReference reference
-                && reference.Identity.Name
-                    == _coreLibrary.Identity.Name
-                    ? AssemblyBindingSelection.Found(
-                        _coreLibrary)
-                    : AssemblyBindingSelection.NotFound();
+            AssemblyBindingSelection SelectCore()
+            {
+                Interlocked.Increment(ref _selectionCount);
+                BeforeSelection?.Invoke();
+                if (CancelSelection)
+                {
+                    throw new OperationCanceledException(
+                        "Synthetic binding-policy cancellation.");
+                }
+                if (SelectOverride?.Invoke(request)
+                    is { } overridden)
+                {
+                    return overridden;
+                }
+
+                return request.Target
+                    is AssemblyBindingTarget.AssemblyReference reference
+                    && reference.Identity.Name
+                        == _coreLibrary.Identity.Name
+                        ? AssemblyBindingSelection.Found(
+                            _coreLibrary)
+                        : AssemblyBindingSelection.NotFound();
+
+            }
         }
+    }
+
+    sealed class NullSnapshotPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            null!;
     }
 
     public static class SourceFixture

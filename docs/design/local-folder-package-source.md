@@ -14,8 +14,8 @@ authority, local-before-HTTP ordering, cross-source composition, and cache
 authorization remain the separate adoption successor
 [#5400](https://github.com/richlander/dotnet-inspect/issues/5400).
 
-The contract is design-only and unverified until the Release gates in
-[Implementation evidence](#implementation-evidence) exist and pass.
+The contract is implemented and verified by the Release gates in
+[Implementation evidence](#implementation-evidence).
 
 ## Boundary
 
@@ -178,10 +178,13 @@ entries exist than the bound can hold, the operation fails
 Archive observation preflights the end-of-central-directory records and the
 declared central-directory extent before constructing an object model that
 materializes entries. It rejects an excessive or inconsistent declaration
-first. The operation then finds exactly one root nuspec, where root means that
-the entry name contains no `/` or `\`, and reads only that entry under its
-compressed and expanded 1 MiB limits, aggregate manifest budget, and operation
-ceiling. XML parsing prohibits DTDs and external resolution.
+first. The operation then finds exactly one root nuspec directly from the
+bounded central-directory records, where root means that the entry name
+contains no `/` or `\`. It checks the matching local header, independently
+expands the stored or deflated bytes, and verifies the exact declared expanded
+length and CRC under the compressed and expanded 1 MiB limits, aggregate
+manifest budget, and operation ceiling. XML parsing prohibits DTDs and
+external resolution.
 
 This is a source-coordinate admission, not full package-content validation.
 Non-manifest entries are not extracted or assigned store paths. A successful
@@ -193,12 +196,13 @@ remain visible at package-store admission or later stream consumption.
 
 Every loop, chunked read, archive record, manifest decode, and transition
 between host calls observes caller cancellation and the remaining operation
-ceiling. Local work creates no HTTP request deadline. A library-owned expiry is
-an existing `PackageSourceTimeout` with kind `Operation` and the configured
-duration; the surrounding failure kind remains `Timeout`. A host syscall that
-has already entered the operating system may not be preemptible; cancellation
-or expiry wins immediately when control returns. This contract does not claim
-stronger kernel preemption.
+ceiling. Local work creates no HTTP request deadline. A library-owned expiry
+settles the operation with the existing `Timeout` failure kind. An expiry
+while consuming a returned payload stream carries the existing
+`PackageSourceTimeout` detail with kind `Operation` and the configured
+duration. A host syscall that has already entered the operating system may not
+be preemptible; cancellation or expiry wins immediately when control returns.
+This contract does not claim stronger kernel preemption.
 
 ## Search
 
@@ -271,7 +275,7 @@ validation and caller cancellation already defined by `IPackageSourceClient`.
 | Candidate archive, central directory, nuspec, coordinate, or XML is malformed or inconsistent | `InvalidResponse` |
 | Two physical archives normalize to one coordinate | `InvalidResponse` |
 | A finite directory, candidate, archive, or byte bound is exceeded | `ResponseRejected` |
-| Owner-issued operation ceiling expires | `Timeout` with `Operation` detail |
+| Owner-issued operation ceiling expires | `Timeout` |
 | Caller cancellation wins | `OperationCanceledException` with the original caller token |
 | Returned payload later cannot be read or disposed | Source-bound `PackageSourceStreamException` |
 
@@ -388,8 +392,7 @@ general source.
 
 ## Implementation evidence
 
-Implementation remains `unverified` until all of these named Release gates
-exist and pass:
+Implementation is verified by these named Release gates:
 
 - `LocalFolderSource_ConsumesCanonicalIdentityWithoutReparsing` proves path and
   `file://` equivalents share one producer, case-distinct Unix roots remain
@@ -409,8 +412,9 @@ exist and pass:
   or filesystem-order-dependent partial result.
 - `LocalFolderSource_ArchivePreflightBoundsMaterialization` proves excessive
   central-directory count and size are rejected before archive-entry object
-  materialization; manifest and aggregate-byte cases prove the remaining
-  archive ledger.
+  materialization; hidden expanded bytes, unsupported manifest methods and
+  flags, and per-manifest and remaining-aggregate byte cases prove the
+  remaining archive ledger.
 - `LocalFolderSource_ExactOperationsValidateEmbeddedCoordinate` proves a
   renamed archive, malformed nuspec, missing nuspec, and multiple root nuspecs
   cannot produce manifest or payload success.
@@ -420,7 +424,10 @@ exist and pass:
   absence.
 - `LocalFolderSource_ContextBoundsEveryOperation` proves caller cancellation
   identity, terminal operation timeout, and checks during directory, archive,
-  manifest, and payload work.
+  manifest, payload, late-open cleanup, and transferred-stream cleanup work. It
+  also proves pre-call and racing per-read cancellation precedence, reversible
+  EOF and seek reactivation, and source-bound reads released by concurrent
+  disposal.
 - `LocalFolderSource_PayloadTransfersValidatedStreamOwnership` proves the
   returned stream is the validated stream, remains caller-owned after client
   disposal, and translates later read and disposal failures with exact source

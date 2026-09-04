@@ -236,7 +236,7 @@ if [ ! -f "$DECOMPILER_SKIP_PROJECTS_FILE" ]; then
 else
   while IFS= read -r project || [ -n "$project" ]; do
     case "$project" in
-      src/*|tests/*|tools/*) ;;
+      fixtures/*|src/*|tests/*|tools/*) ;;
       *) DECOMPILER_SKIP_PROJECTS_READY=false; break ;;
     esac
     case "/$project/" in
@@ -360,6 +360,7 @@ while IFS= read -r -d '' file; do
     # unrelated tools stay on the regular code lane.
     src/NetworkDestinationPolicy.cs|src/UnionPolyfill.cs) CODE=true; WEB=true ;;
     src/*) CODE=true ;;
+    fixtures/*) CODE=true ;;
     tests/ILInspector.MetadataPrimitives.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/DotnetInspector.Artifacts.Local.PlatformProbe/*) CODE=true; WEB=true ;;
     tests/ILInspector.JsExportSurface.TypeScriptFixtures/*) CODE=true; WEB=true ;;
@@ -453,8 +454,8 @@ while IFS= read -r -d '' file; do
     src/ILInspector.ILDiff/*) CSHARPDIFF=true ;;
     src/ILInspector.Instructions/*) CSHARPDIFF=true ;;
     src/ILInspector.ControlFlow/*) CSHARPDIFF=true ;;
-    src/DiffFixtures.V1/*) CSHARPDIFF=true ;;
-    src/DiffFixtures.V2/*) CSHARPDIFF=true ;;
+    fixtures/diff/DiffFixtures.V1/*) CSHARPDIFF=true ;;
+    fixtures/diff/DiffFixtures.V2/*) CSHARPDIFF=true ;;
     tools/DiffHarnessCommon/*) CSHARPDIFF=true ;;
     Directory.Packages.props) CSHARPDIFF=true ;;
     *.props|*.targets|*.slnx) CSHARPDIFF=true ;;
@@ -468,8 +469,8 @@ while IFS= read -r -d '' file; do
     src/ILInspector.ILDiff/*) ILDIFF=true ;;
     src/ILInspector.Instructions/*) ILDIFF=true ;;
     src/ILInspector.ControlFlow/*) ILDIFF=true ;;
-    src/DiffFixtures.V1/*) ILDIFF=true ;;
-    src/DiffFixtures.V2/*) ILDIFF=true ;;
+    fixtures/diff/DiffFixtures.V1/*) ILDIFF=true ;;
+    fixtures/diff/DiffFixtures.V2/*) ILDIFF=true ;;
     tools/DiffHarnessCommon/*) ILDIFF=true ;;
     Directory.Packages.props) ILDIFF=true ;;
     *.props|*.targets|*.slnx) ILDIFF=true ;;
@@ -553,7 +554,7 @@ while IFS= read -r -d '' file; do
     global.json) DECOMPILER=true ;;
     *.props|*.targets|*.slnx) DECOMPILER=true ;;
     .github/workflows/ci.yml) DECOMPILER=true ;;
-    src/*|tests/*|tools/*)
+    fixtures/*|src/*|tests/*|tools/*)
       if ! skips_decompiler_project "$file"; then
         DECOMPILER=true
       fi

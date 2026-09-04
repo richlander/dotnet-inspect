@@ -39,7 +39,7 @@
   <!--
     UseArtifactsOutput (src/Directory.Build.props) copies a multi-targeted
     project's output into per-TFM folders (release_net10.0, release_net11.0),
-    but tests/DotnetInspector.Fixtures/FixtureCatalog.cs assumes one flat
+    but tests/DotnetInspector.FixtureInfrastructure/FixtureCatalog.cs assumes one flat
     per-configuration folder. project.assets.json is restore's single,
     TFM-independent output (one file covering every target), so copying it
     once into that flat folder makes it reachable through the existing
@@ -60,7 +60,7 @@
           DestinationFiles="$(_RestoredProjectFixtureFlatOutput)RestoredProjectFixture.nuspec" />
     <!--
       FixtureCatalog.AssemblyPath assumes one flat-folder assembly too (see
-      tests/DotnetInspector.Fixtures.Tests, All_FixturesResolveToBuiltAssemblies).
+      tests/DotnetInspector.FixtureInfrastructure.Tests, All_FixturesResolveToBuiltAssemblies).
       Each inner per-TFM build overwrites this copy; net11.0 is declared last so
       its assembly (the leg with the real dependency graph) is what remains.
     -->

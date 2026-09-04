@@ -24,6 +24,7 @@ import { fakeDom } from "./fake-dom.ts";
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   value = "";
+  open = false;
   focused = false;
   private readonly listeners = new Map<string, EventListener[]>();
 
@@ -204,6 +205,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`member-jump-trait:${value}`),
     onMemberFilterChange: value => calls.push(`member-filter:${value}`),
     onMemberFilterClear: () => calls.push("member-filter-clear"),
+    onMemberFilterDisclosureToggle: value =>
+      calls.push(`member-filter-disclosure:${value}`),
     onMemberFilterKeyDown: (event, value) => {
       calls.push(`member-filter-key:${event.key}:${value}`);
       return true;
@@ -217,6 +220,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onOverloadSelect: value => calls.push(`overload:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterDisclosureToggle: value =>
+      calls.push(`type-filter-disclosure:${value}`),
     onTypeFilterEscape: () => calls.push("escape"),
     onTypeSelect: value => calls.push(`type:${value}`),
   };
@@ -240,6 +245,9 @@ test("type panel bindings dispatch member filters without eager work", () => {
   root.addAll("[data-member-trait-filter]", allTraits, trait);
   const filter = root.add("#member-filter", new FakeElement());
   filter.value = "parse";
+  const disclosure = root.add(
+    "[data-member-filter-disclosure]",
+    new FakeElement());
   const clear = root.add("#clear-member-filter", new FakeElement());
   const calls: string[] = [];
 
@@ -260,6 +268,8 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-trait:isStatic",
   ]);
   filter.dispatch("input");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   const arrow = keyboardEvent("ArrowDown");
   dispatchKey(keybindings, filter, arrow);
   clear.dispatch("click");
@@ -268,6 +278,7 @@ test("type panel bindings dispatch member filters without eager work", () => {
     "member-access:protected",
     "member-trait:isStatic",
     "member-filter:parse",
+    "member-filter-disclosure:true",
     "member-filter-key:ArrowDown:parse",
     "member-filter-clear",
   ]);
@@ -285,6 +296,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   root.addAll("[data-namespace]", namespace, secondNamespace);
   root.addAll("[data-kind-filter]", kind, secondKind);
   const clear = root.add("#clear-filter", new FakeElement());
+  const disclosure = root.add(
+    "[data-type-filter-disclosure]",
+    new FakeElement());
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
@@ -308,6 +322,8 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespaceJump.dispatch("change");
   kind.dispatch("click");
   secondKind.dispatch("click");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
@@ -321,10 +337,12 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System.Text",
     "kind:class",
     "kind:interface",
+    "type-filter-disclosure:true",
     "clear",
     "filter:json",
     "list:End",
   ]);
+  assert.equal(clear.focused, true);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
 });
@@ -534,6 +552,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     kindFilters: ["class"],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -549,6 +569,10 @@ test("the type nav lists namespace groups with the current type selected", () =>
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
   assert.match(html, /id="clear-filter"/);
+  assert.match(
+    html,
+    /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
+  assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /data-kind-filter="class"/);
@@ -569,6 +593,8 @@ test("the type nav reports no matches for an empty filtered group", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: true,
+    filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -576,6 +602,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   });
 
   assert.match(html, /No public types match this filter\./);
+  assert.match(html, /data-type-filter-disclosure open/);
 });
 
 test("the type nav handles a package with no projected types", () => {
@@ -591,6 +618,8 @@ test("the type nav handles a package with no projected types", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
     kindIcon,

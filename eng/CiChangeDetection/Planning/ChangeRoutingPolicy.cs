@@ -61,7 +61,7 @@ internal sealed class ChangeRoutingPolicy
             ProjectInventory.TryLoad(
                 repository,
                 "eng/decompiler-gate-skip-projects.txt",
-                ["src/", "tests/", "tools/"],
+                ["fixtures/", "src/", "tests/", "tools/"],
                 requireNonEmpty: false,
                 out ProjectInventory loadedDecompiler)
                 ? loadedDecompiler
@@ -188,6 +188,10 @@ internal sealed class ChangeRoutingPolicy
             state.Web = true;
         }
         else if (BytePattern.Matches(path, "src/*"))
+        {
+            state.Code = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
         {
             state.Code = true;
         }
@@ -344,8 +348,8 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.ILDiff/*",
             "src/ILInspector.Instructions/*",
             "src/ILInspector.ControlFlow/*",
-            "src/DiffFixtures.V1/*",
-            "src/DiffFixtures.V2/*",
+            "fixtures/diff/DiffFixtures.V1/*",
+            "fixtures/diff/DiffFixtures.V2/*",
             "tools/DiffHarnessCommon/*",
             "Directory.Packages.props",
             "*.props",
@@ -367,8 +371,8 @@ internal sealed class ChangeRoutingPolicy
             "src/ILInspector.ILDiff/*",
             "src/ILInspector.Instructions/*",
             "src/ILInspector.ControlFlow/*",
-            "src/DiffFixtures.V1/*",
-            "src/DiffFixtures.V2/*",
+            "fixtures/diff/DiffFixtures.V1/*",
+            "fixtures/diff/DiffFixtures.V2/*",
             "tools/DiffHarnessCommon/*",
             "Directory.Packages.props",
             "*.props",
@@ -444,7 +448,12 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Decompiler = true;
         }
-        else if (BytePattern.MatchesAny(path, "src/*", "tests/*", "tools/*")
+        else if (BytePattern.MatchesAny(
+                path,
+                "fixtures/*",
+                "src/*",
+                "tests/*",
+                "tools/*")
             && !SkipsDecompilerProject(path))
         {
             state.Decompiler = true;

@@ -1971,16 +1971,22 @@ public sealed class BrowserEngineBoundaryTests
 
         BrowserPackageWorkspace.OpenScope(
             [Coordinate("Large.A", Package(image, "lib/net11.0/Large.A.dll", 60 * MiB))]);
+        long expectedResidentBytes = 0;
         foreach (string id in new[] { "Small.B", "Small.C", "Small.D" })
         {
+            byte[] package = Package(
+                image,
+                $"lib/net11.0/{id}.dll",
+                25 * MiB);
+            expectedResidentBytes += package.LongLength;
             BrowserPackageWorkspace.OpenScope(
-                [Coordinate(id, Package(image, $"lib/net11.0/{id}.dll", 25 * MiB))]);
+                [Coordinate(id, package)]);
         }
 
         BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
         Assert.Equal(3, stats.Workspaces);
         Assert.Equal(3, stats.Resident);
-        Assert.InRange(stats.ResidentBytes, 75L * MiB, 76L * MiB);
+        Assert.Equal(expectedResidentBytes, stats.ResidentBytes);
 
         using (BrowserPackageWorkspace.ReservePackageDownload(
             "pending.package@1.0.0",
@@ -2993,7 +2999,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Any));
+                    AssemblyResolutionScope.Any)).Selection;
         AssemblyBindingSelection platform =
             participant.Participant.BindingPolicy.Select(
                 new AssemblyBindingRequest(
@@ -3001,7 +3007,7 @@ public sealed class BrowserEngineBoundaryTests
                         participant.Assembly.Identity),
                     AssemblyBindingOrigin.FromAssembly(
                         participant.Assembly),
-                    AssemblyResolutionScope.Platform));
+                    AssemblyResolutionScope.Platform)).Selection;
 
         Assert.Same(
             participant.Assembly,
@@ -6826,11 +6832,18 @@ public sealed class BrowserEngineBoundaryTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 
 }

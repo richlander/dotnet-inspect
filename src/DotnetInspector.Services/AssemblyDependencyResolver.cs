@@ -135,16 +135,18 @@ public sealed partial class AssemblyDependencyResolver :
 
     public AssemblyBindingPolicyVersion Version { get; } = new();
 
-    public AssemblyBindingSelection Select(
+    public AssemblyBindingSelectionSnapshot Select(
         AssemblyBindingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var key = AssemblyBindingRequestKey.From(request);
-        return _bindingSelections.GetOrAdd(
-            key,
-            _ => new Lazy<AssemblyBindingSelection>(
-                () => SelectCore(request),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        return new AssemblyBindingSelectionSnapshot(
+            Version,
+            _bindingSelections.GetOrAdd(
+                key,
+                _ => new Lazy<AssemblyBindingSelection>(
+                    () => SelectCore(request),
+                    LazyThreadSafetyMode.ExecutionAndPublication)).Value);
     }
 
     public IReadOnlyList<ResolvedAssemblyDependency> ResolveAll()
