@@ -2505,6 +2505,26 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /function navigateToRuntimeMember\([\s\S]*const targetLibrary = libraryKey\(type\);\s*state\.libraryScope = targetLibrary \? new Set\(\[targetLibrary\]\) : null;[\s\S]*state\.typeCursor = Math\.max\(0, filteredTypes\(\)/);
 });
 
+test("Type inventory filters preserve their focused control across rerenders", () => {
+  const binding =
+    appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
+    ?? "";
+  for (const name of [
+    "onClearFilters",
+    "onKindSelect",
+    "onNamespaceSelect",
+  ]) {
+    const callback =
+      binding.match(new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))
+        ?.[0] ?? "";
+    assert.match(callback, /renderPreservingMemberFocus\(\)/);
+    assert.doesNotMatch(callback, /\brender\(\)/);
+  }
+  assert.match(
+    appSource,
+    /function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\)/);
+});
+
 test("shared member views use portable product identity and omit UI-local filters", () => {
   const capture = appSource.match(
     /function captureWorkspaceUrlState\(\)[\s\S]*?\n}\n\nfunction buildStateUrl/)?.[0] ?? "";
@@ -2878,7 +2898,7 @@ test("lens-scoped Platform library changes reset type-specific member state", ()
   assert.doesNotMatch(picker, /select\.isConnected/);
   assert.match(
     appSource,
-    /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*render\(\)/);
+    /function normalizeLibrarySelection\(\) \{[\s\S]*state\.selectedTypeId = first\?\.id \|\| "";[\s\S]*state\.selectedMemberKey = "";[\s\S]*state\.selectedOverloadIndex = null;[\s\S]*resetMemberFilters\(\)[\s\S]*function afterLibraryScopeChange\(\) \{\s*normalizeLibrarySelection\(\);\s*renderPreservingMemberFocus\(\)/);
 });
 
 test("package Metadata retries remain explicit rather than render-driven", () => {

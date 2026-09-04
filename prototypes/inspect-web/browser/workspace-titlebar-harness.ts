@@ -49,6 +49,7 @@ import {
   bindContentFrame,
   CONTENT_FRAME_NARROW_QUERY,
   contentFrameFocusOwnerFor,
+  contentFrameResizeFocusOwner,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -779,6 +780,12 @@ document.addEventListener("focusout", () => {
 });
 contentFrameMedia.addEventListener("change", event => {
   if (workspaceMode) return;
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  contentFrameFocusOwner = contentFrameResizeFocusOwner(
+    focused,
+    contentFrameFocusOwner);
   const decision = decideContentFrameResize(
     contentFramePane,
     event.matches,

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   bindContentFrame,
   contentFrameFocusOwnerFor,
+  contentFrameResizeFocusOwner,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -139,4 +140,32 @@ test("content frame focus ownership follows the active pane or local switch", ()
       selector => selector === ".detail-pane" ? fakeDom.element({}) : null)),
     "detail");
   assert.equal(contentFrameFocusOwnerFor(element("", () => null)), null);
+});
+
+test("resize focus ownership discards stale panes but keeps removed toggles", () => {
+  const outside = fakeDom.element({
+    id: "",
+    closest: () => null,
+  });
+  const detail = fakeDom.element({
+    id: "",
+    closest: (selector: string) =>
+      selector === ".detail-pane" ? fakeDom.element({}) : null,
+  });
+
+  assert.equal(
+    contentFrameResizeFocusOwner(outside, "navigation"),
+    null);
+  assert.equal(
+    contentFrameResizeFocusOwner(outside, "detail"),
+    null);
+  assert.equal(
+    contentFrameResizeFocusOwner(outside, "navigation-toggle"),
+    "navigation-toggle");
+  assert.equal(
+    contentFrameResizeFocusOwner(outside, "detail-toggle"),
+    "detail-toggle");
+  assert.equal(
+    contentFrameResizeFocusOwner(detail, "navigation"),
+    "detail");
 });

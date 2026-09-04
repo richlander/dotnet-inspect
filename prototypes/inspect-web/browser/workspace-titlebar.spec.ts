@@ -178,6 +178,20 @@ test("narrowing retains detail after focus leaves the content frame", async ({
   await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
+test("immediate narrowing ignores stale navigation focus ownership", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  await page.locator("#type-list").focus();
+  await page.locator(".docs-unavailable").click();
+  await page.setViewportSize({ width: 600, height: 700 });
+
+  await expect(page.locator("#content-navigation-pane")).toBeHidden();
+  await expect(page.locator(".detail-pane")).toBeVisible();
+});
+
 test("keyboard entry focuses an empty Member inventory after replacement", async ({
   page,
 }) => {

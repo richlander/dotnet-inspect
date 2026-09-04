@@ -208,6 +208,35 @@ test("a focused Type row survives an asynchronous replacement render", () => {
   assert.equal(document.activeElement, replacementRow);
 });
 
+test("focused Type filter controls survive replacement renders", () => {
+  for (const [key, value] of [
+    ["kindFilter", "class"],
+    ["namespace", "System.Text.Json"],
+    ["accessChip", "public"],
+    ["libraryChip", "System.Text.Json"],
+  ] as const) {
+    const { document, element } = createDocument();
+    const initial = element(`#initial-${key}`, {
+      dataset: { [key]: value },
+    });
+    document.activeElement = initial;
+    const snapshot = captureMemberFocus(document);
+
+    initial.isConnected = false;
+    document.activeElement = document.body;
+    const replacement = element(`#replacement-${key}`, {
+      dataset: { [key]: value },
+    });
+
+    restoreMemberFocus(document, snapshot, callback => {
+      callback(0);
+      return 1;
+    });
+
+    assert.equal(document.activeElement, replacement);
+  }
+});
+
 test("a focused filter disclosure survives an asynchronous replacement render", () => {
   const { document, element } = createDocument();
   const initialSummary = element("#type-filter-summary", {

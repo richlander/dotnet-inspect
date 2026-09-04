@@ -32,6 +32,18 @@ export function contentFrameFocusOwnerFor(
   return null;
 }
 
+export function contentFrameResizeFocusOwner(
+  focused: Element | null,
+  remembered: ContentFrameFocusOwner,
+): ContentFrameFocusOwner {
+  const current = contentFrameFocusOwnerFor(focused);
+  if (current !== null)
+    return current;
+  return remembered === "detail-toggle" || remembered === "navigation-toggle"
+    ? remembered
+    : null;
+}
+
 export function decideContentFrameResize(
   pane: ContentFramePane,
   narrow: boolean,

@@ -276,6 +276,7 @@ import {
   bindContentFrameMedia,
   CONTENT_FRAME_NARROW_QUERY,
   contentFrameFocusOwnerFor,
+  contentFrameResizeFocusOwner,
   decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
@@ -1749,6 +1750,12 @@ function releaseContentFrameFocusOwner() {
 
 function handleContentFrameResize(event: MediaQueryListEvent) {
   if (!contentFrameUsesPush()) return;
+  const focused = document.activeElement instanceof HTMLElement
+    ? document.activeElement
+    : null;
+  contentFrameFocusOwner = contentFrameResizeFocusOwner(
+    focused,
+    contentFrameFocusOwner);
   const decision = decideContentFrameResize(
     contentFramePane,
     event.matches,
@@ -1938,7 +1945,7 @@ function normalizeLibrarySelection() {
 
 function afterLibraryScopeChange() {
   normalizeLibrarySelection();
-  render();
+  renderPreservingMemberFocus();
 }
 
 // The Library selector for the type nav pane. Mirrors the framework controls:
@@ -5383,7 +5390,7 @@ function bindTypePanelEvents() {
       state.namespaceFilter = "";
       state.kindFilter = "";
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
-      render();
+      renderPreservingMemberFocus();
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -5420,7 +5427,7 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      render();
+      renderPreservingMemberFocus();
     },
     onListKeyDown: handleTypeKeys,
     onMemberAccessibilityFilterSelect: value => {
@@ -5516,7 +5523,7 @@ function bindTypePanelEvents() {
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
       resetMemberFilters();
-      render();
+      renderPreservingMemberFocus();
     },
     onOverloadSelect: index => {
       const group = selectedMember(selectedType());
