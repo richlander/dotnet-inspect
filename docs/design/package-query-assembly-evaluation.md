@@ -92,7 +92,7 @@ execution cannot land until all of these owner contracts are available:
   for implementation by
   [#4857](https://github.com/richlander/dotnet-inspect/issues/4857), including
   the named gates that reject both Windows Metadata kinds before producer
-  execution; and
+  execution;
 - the sparse projection's composition with that Metadata admission result,
   tracked by
   [#5843](https://github.com/richlander/dotnet-inspect/issues/5843), so a
@@ -128,6 +128,10 @@ The later streaming pipeline places this evaluator inside the shared
 That composition will own candidate scheduling, progress, item-failure
 publication, completion accounting, and bounded concurrency. This document
 does not pre-empt those decisions.
+
+The end-to-end tracker #5766 carries the production-host adoption path. Its 12
+steps are enumerated under [Delivery sequence](#delivery-sequence), ending in
+the separate CLI and Browser gestures and exact result-opening adoptions.
 
 ## Adjacent owners
 
@@ -571,7 +575,7 @@ Every request has finite, positive bounds for:
 - selected assembly expanded bytes;
 - candidate retained-image bytes across package-artifact and Metadata
   snapshots;
-- semantic work in the producer's declared unit; and
+- semantic work in the producer's declared unit;
 - producer temporary bytes when the selected binding requires a distinct
   working-set budget; and
 - the enclosing operation deadline.
@@ -603,10 +607,14 @@ with the retained-image bound when choosing candidate concurrency.
 
 Cancellation is not a match, non-match, or item failure. The evaluator observes
 the operation token before sparse projection, after bounded materialization,
-before semantic evaluation, and at producer-owned traversal checkpoints. It
-closes the candidate and inspects the cleanup report, then propagates
-cancellation to the enclosing stream or host operation. No result is published
-after cancellation is observed.
+before semantic evaluation, at producer-owned traversal checkpoints, and at
+the terminal publication boundary. Every match, non-match, non-applicable
+outcome, or typed failure remains provisional until required candidate cleanup
+finishes and its report is inspected. Immediately before returning that
+completed outcome, the evaluator observes the token once more. Cancellation at
+that point discards the provisional outcome and propagates to the enclosing
+stream or host operation; any cleanup evidence remains secondary to
+cancellation. No result is published after cancellation is observed.
 
 An unexpected exception from a prefilter or semantic binding follows the same
 cleanup rule. Candidate cleanup runs in `finally`; a cleanup failure is
@@ -632,7 +640,8 @@ reinterpret. The empty pre-publication report is not a cleanup failure; any
 package-owner pre-transfer cleanup receipt is preserved separately as
 `ProjectionCleanup`.
 
-The evaluator applies one precedence rule to the whole report:
+The evaluator applies one precedence rule to the whole report before the
+terminal token observation:
 
 - after a would-be `Matched` or `NoMatch`, any failed or unexpected
   post-`Available` group result or artifact-session cleanup failure replaces
@@ -642,6 +651,11 @@ The evaluator applies one precedence rule to the whole report:
   evidence without replacing the primary failure stage; and
 - during cancellation or unexpected exception propagation, cleanup exceptions
   are attached as secondary evidence to the primary condition.
+
+After report interpretation, terminal cancellation supersedes any provisional
+completed outcome, including a typed failure. An unexpected exception already
+being propagated remains primary; it is not converted into a cancellation
+outcome.
 
 Candidate-cleanup evidence is resource-free and product-authored. It contains a
 bounded sequence of distinct cleanup stages and counts:
@@ -661,6 +675,11 @@ an already-propagating cancellation or exception.
 
 The operation deadline is implemented by cancelling that same operation token.
 Deadline expiry is therefore cancellation, not a separate candidate failure.
+The terminal token observation is the completion linearization point:
+completion wins only after cleanup has finished and that observation succeeds.
+`InspectionWorkspace.CloseAsync()` itself is not shortened or abandoned when
+the deadline expires; resource release completes before cancellation
+propagates.
 
 This linear one-candidate operation adds no independent concurrent state
 machine. Bounded concurrency and result ordering belong to the later streaming
@@ -792,7 +811,7 @@ encountered by the selected semantic path are visible typed outcomes or
 failures, never an empty match set.
 
 Unsupported Windows Metadata visibility depends on the unimplemented
-The #5143/#4857 Metadata artifact query-validation seam remains
+Metadata artifact query-validation seam in #5143/#4857 and remains
 **unverified**. The evaluator must not ship a compatibility fallback that lets
 either Windows Metadata kind reach a prefilter or semantic producer.
 
@@ -833,8 +852,10 @@ The implementation must preserve focused fixtures for:
 12. a non-`Available` sparse projection whose empty candidate workspace closes
     cleanly, and whose owner-local pre-transfer cleanup separately fails;
 13. semantic work reaching its exact limit and exceeding it;
-14. cancellation during sparse projection and semantic traversal; and
-15. a successful or throwing prefilter or producer whose candidate close also
+14. cancellation during sparse projection and semantic traversal;
+15. deadline expiry after a provisional producer result while candidate close
+    is pending; and
+16. a successful or throwing prefilter or producer whose candidate close also
     reports direct-group or artifact-session cleanup failure.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
@@ -866,9 +887,10 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries the owner-issued Root reacquisition request and exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
 | `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preselection outcomes create no candidate resources. Every workspace-bearing sparse failure, match, non-match, semantic failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`; a pre-`Available` path closes an empty workspace while a post-`Available` path attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
 | `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | Before sparse ownership transfer, the fresh candidate close report must contain no group or artifact cleanup entry; after `Available`, it must contain exactly one successful direct-group result and no artifact-session cleanup failures. Fixtures independently cover the legitimate empty report, direct-group failure, artifact-session failure, and unexpected result shape. Existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
+| `PackageAssemblyEvaluation_TerminalCancellationCannotPublishOutcome` | A provisional producer match is held while direct-group release remains pending; deadline expiry cancels the operation, cleanup completes, and the terminal token observation propagates cancellation with no completed outcome. The same terminal check covers provisional non-match, non-applicable, and typed-failure outcomes. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
-| `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
+| `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome only after cleanup and the terminal token observation; cancellation or unexpected failure cannot also publish one. |
 | Producer-specific semantic gate | Each adopted pattern proves its exact semantic meaning, work bound, working-set declaration, and optional prefilter implication in the owning Metadata or Analysis Release suite. Its evidence-closure gate rejects artifact-authored raw `string` fields and identity types that publicly expose them, while admitting non-text occurrence coordinates and contained `InertString` presentation fields. |
 | CLI and Browser consumer canaries | Both hosts can plan and consume the same descriptors and outcomes without duplicating pattern semantics. |
 
@@ -952,6 +974,8 @@ implementation.
   existing owner contracts.
 
 ## Delivery sequence
+
+The production-host adoption path has 12 steps:
 
 1. Lock this focused design and transfer the promoted-tier responsibility from
    the Package Query CLI proposal.
