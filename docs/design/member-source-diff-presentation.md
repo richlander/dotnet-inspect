@@ -289,6 +289,15 @@ diagnostic comment to an explicit unavailable Source Diff with no statistics
 or `MappedTextDiff`. Tests assert the new pair and typed failure outcome rather
 than freezing the superseded CLI-only projection.
 
+Bodyless members and members without a vouched PDB declaration remain
+informational when PDB Source is selected alone. They make Source Diff
+unavailable because the comparison lacks a complete PDB endpoint. Text output
+can disclose that unavailable result, but an exactly selected Source Diff in
+count, table, TSV, JSONL, or JSON output fails visibly because those formats
+cannot represent a code-section failure. This is an intentional compatibility
+change from the previous CLI-only projection, which treated both sections as
+the same informational source state.
+
 ## Pathological demonstration
 
 The contract fixture uses a complete product render with:
@@ -364,6 +373,9 @@ Release CLI tests prove:
 - a PDB-available member whose decompilation fails produces an explicit
   unavailable Source Diff without statistics, mapped output, or diagnostic
   text treated as source;
+- bodyless and no-vouched-declaration states remain informational for PDB
+  Source but become explicit unavailable Source Diff outcomes, including a
+  visible failure when an exact non-code format cannot represent them;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the

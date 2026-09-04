@@ -1207,8 +1207,16 @@ public static class MemberBodyProducer
                             throw new InvalidOperationException(
                                 "The explicit property accessor does not provide its property type.");
                         }
-                        string unsafeModifier = (member.IsUnsafe || requiresUnsafeContext) ? "unsafe " : "";
-                        string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorPropertyType, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
+                        string staticModifier = member.IsStatic ? "static " : "";
+                        string unsafeModifier =
+                            (member.IsUnsafe || requiresUnsafeContext)
+                                ? "unsafe "
+                                : "";
+                        string propertyType = EscapeKnownIdentifiers(
+                            accessorPropertyType,
+                            type.TypeParameters.Select(p => p.Name));
+                        string head =
+                            $"{staticModifier}{unsafeModifier}{propertyType} {propertyPath}";
                         if (isSetter)
                         {
                             sb.AppendLf($"    {head}");

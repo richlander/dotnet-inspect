@@ -10554,12 +10554,9 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
-    [InlineData(SectionNames.PdbSource, true)]
-    [InlineData(SectionNames.SourceDiff, true)]
-    [InlineData(SectionNames.PdbSource, false)]
-    [InlineData(SectionNames.SourceDiff, false)]
-    public async Task Member_InformationalSourceStateInNonCodeFormatsDoesNotBecomeFailure(
-        string section,
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Member_PdbSourceInformationalStateInNonCodeFormatsDoesNotBecomeFailure(
         bool bodyless)
     {
         var type = new ApiType
@@ -10586,7 +10583,7 @@ public partial class CommandExecutionTests
                 MemberHasNoPdbDeclaration = !bodyless,
                 PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
                 IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    { section },
+                    { SectionNames.PdbSource },
             };
 
             var (exit, _, error) = await ConsoleCapture.RunAsync(
@@ -10601,6 +10598,58 @@ public partial class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Member_SourceDiff_InformationalStateInNonCodeFormatsFailsVisibly(
+        bool bodyless)
+    {
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "C",
+            Kind = "class",
+            Members = [new ApiMember { Name = "M", Kind = "method" }],
+        };
+        var cases = new[]
+        {
+            new MemberOptions { Count = true },
+            new MemberOptions { Tabular = true },
+            new MemberOptions { Tabular = true, Tsv = true },
+            new MemberOptions { Tabular = true, Jsonl = true },
+            new MemberOptions { JsonOutput = true },
+        };
+
+        foreach (var candidate in cases)
+        {
+            var options = candidate with
+            {
+                MemberHasNoBody = bodyless,
+                MemberHasNoPdbDeclaration = !bodyless,
+                PdbSourceUnavailableReason = ApiCommand.NoPdbSourceMappingReason,
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { SectionNames.SourceDiff },
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => ApiCommand.WriteTypeOutputAsync(
+                    type,
+                    foundIn: null,
+                    packageName: null,
+                    packageVersion: null,
+                    apiSource: null,
+                    selectedTfm: null,
+                    options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(ApiCommand.NoPdbSourceMappingReason, error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                error);
         }
     }
 
@@ -11158,6 +11207,24 @@ public partial class CommandExecutionTests
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonConverter<T>", "--platform", "System.Text.Json",
             "Read", "-S", "Source Diff", outputOption, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Source diff unavailable", error);
+        Assert.Contains(
+            "cannot represent this code-section failure",
+            error);
+    }
+
+    [Theory]
+    [InlineData("--count")]
+    [InlineData("--json")]
+    public async Task Member_SourceDiff_NoVouchedDeclarationUnderExactOutputFailsVisibly(
+        string outputOption)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            ".ctor:3", "-S", "Source Diff", outputOption, "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

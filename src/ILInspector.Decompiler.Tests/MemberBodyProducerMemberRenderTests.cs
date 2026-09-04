@@ -100,6 +100,7 @@ public sealed class MemberBodyProducerMemberRenderTests
         var property = Assert.Single(
             type.Members,
             member => member.Kind == "property"
+                && !member.IsStatic
                 && member.Name.EndsWith(
                     $".{nameof(IMemberRenderExplicitProperty.Label)}",
                     StringComparison.Ordinal));
@@ -127,6 +128,50 @@ public sealed class MemberBodyProducerMemberRenderTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             "void IMemberRenderExplicitProperty.Label",
+            rendered.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("get_")]
+    [InlineData("set_")]
+    public void ProduceMember_StaticExplicitInterfaceAccessorPreservesStaticModifier(
+        string accessorPrefix)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe, includeAll: true).Types,
+            candidate =>
+                candidate.FullName == typeof(MemberRenderSpecimen).FullName);
+        var property = Assert.Single(
+            type.Members,
+            member => member.Kind == "property"
+                && member.IsStatic
+                && member.Name.EndsWith(
+                    "."
+                        + nameof(
+                            IMemberRenderStaticExplicitProperty<
+                                MemberRenderSpecimen>.Label),
+                    StringComparison.Ordinal));
+        ApiMember accessor = Assert.Single(
+            ApiMemberAccessors.Create(property, type),
+            member => member.Name.Contains(
+                $".{accessorPrefix}"
+                    + nameof(
+                        IMemberRenderStaticExplicitProperty<
+                            MemberRenderSpecimen>.Label),
+                StringComparison.Ordinal));
+        type.Members = [accessor];
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            accessor,
+            AssemblyPath,
+            pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Contains(
+            "static string? IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label",
             rendered.Text,
             StringComparison.Ordinal);
     }
@@ -777,10 +822,19 @@ public interface IMemberRenderExplicitProperty
     string? Label { get; set; }
 }
 
-public sealed class MemberRenderSpecimen : IMemberRenderExplicitProperty
+public interface IMemberRenderStaticExplicitProperty<TSelf>
+    where TSelf : IMemberRenderStaticExplicitProperty<TSelf>
+{
+    static abstract string? Label { get; set; }
+}
+
+public sealed class MemberRenderSpecimen :
+    IMemberRenderExplicitProperty,
+    IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>
 {
     EventHandler? _changed;
     string? _explicitLabel;
+    static string? _staticExplicitLabel;
 
     [System.ComponentModel.Description("marker")]
     [System.Runtime.CompilerServices.SkipLocalsInit]
@@ -798,6 +852,12 @@ public sealed class MemberRenderSpecimen : IMemberRenderExplicitProperty
     {
         get => _explicitLabel;
         set => _explicitLabel = value;
+    }
+
+    static string? IMemberRenderStaticExplicitProperty<MemberRenderSpecimen>.Label
+    {
+        get => _staticExplicitLabel;
+        set => _staticExplicitLabel = value;
     }
 
     public int AttributedValue
