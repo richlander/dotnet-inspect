@@ -622,9 +622,11 @@ while IFS= read -r -d '' file; do
   case "$file_lower" in
     # Mirrors the input families the C# extractor enumerates for itself
     # rather than the file types this repository happens to contain. The
-    # lane logs one "Found N <kind> files" line per family it reads. The
-    # one enumerated family deliberately not routed is DLL files, which are
-    # build outputs rather than tracked sources.
+    # lane logs one "Found N <kind> files" line per family it reads. Two
+    # enumerated families are deliberately not routed: DLL files, which are
+    # build outputs rather than tracked sources, and small non-binary files,
+    # which are every text file in the repository and would select this lane
+    # on nearly every candidate.
     *.cs|*.csx|*.csproj|*.props|*.targets|*.slnx|*.sln) \
       CODEQLCSHARP=true ;;
     # Razor extraction is default-on, so views carry C# source.

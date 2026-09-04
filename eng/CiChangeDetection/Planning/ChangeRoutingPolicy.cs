@@ -200,9 +200,17 @@ internal sealed class ChangeRoutingPolicy
             // repository happens to contain. Running the lane logs one
             // "Found N <kind> files" line per family it reads: source,
             // project, solution, resource, packages.config, nuget.config,
-            // global.json, DLL, and Razor view files. The one enumerated
-            // family deliberately not routed is DLL files, which are build
-            // outputs rather than tracked sources.
+            // global.json, DLL, Razor view, and small non-binary files.
+            // Two enumerated families are deliberately not routed. DLL
+            // files are build outputs rather than tracked sources. Small
+            // non-binary files are every text file in the repository
+            // (3,662 of 3,704 tracked files at the time of writing); the
+            // extractor scans them for package and project settings that
+            // can influence dependency inference, but routing them would
+            // select this lane on nearly every candidate and reinstate the
+            // ten-minute analysis on documentation-only changes that this
+            // policy exists to avoid. The weekly scan is the backstop for
+            // both exclusions.
             "*.cs",
             "*.csx",
             "*.csproj",

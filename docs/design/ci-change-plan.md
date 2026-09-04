@@ -219,8 +219,18 @@ types; families that are absent simply never match. The C# set is wider than
 C# sources: buildless extraction still resolves dependencies, so it covers
 MSBuild and solution inputs, Razor views, resource files, and the
 `global.json`, `NuGet.Config`, and `packages.config` inputs that decide which
-packages and feeds participate. The one enumerated family deliberately not
-routed is DLL files, which are build outputs rather than tracked sources. The
+packages and feeds participate. The enumerated families deliberately not
+routed are DLL files, which are build outputs rather than tracked sources, and
+small non-binary files. That last family is every text file in the repository —
+3,662 of 3,704 tracked files when this policy was written. The extractor scans
+it for package references and project settings that can influence dependency
+inference, so excluding it is a real narrowing of the mirror rather than a
+technicality: a documentation example containing a `PackageReference` element
+does not select the lane. It is excluded because routing it would select C#
+analysis on nearly every candidate, reinstating the ten-minute cost on
+documentation-only changes that this policy exists to remove. Both exclusions
+are bounded by the weekly scan rather than by per-candidate routing.
+The
 JavaScript set is wider than JavaScript and TypeScript sources: it also covers
 HTML and its templates, YAML,
 and named inputs such as `package.json` and `tsconfig.json`. YAML therefore
