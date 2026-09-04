@@ -215,6 +215,12 @@ header status and context values may elide visually as complete strings.
 Responsive styling does not selectively remove the overload total or ordinal
 from the rendered or accessible status.
 
+The narrow content-frame `Types` or `Members` control may occupy the leading
+space of these quiet headers. The local heading remains the accessible name
+even when it is visually elided. Member Overview begins its first content
+within the normal compact content inset; the scroller and first paragraph do
+not stack independent top margins into a blank introductory band.
+
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
 or `Lens failed` heading. It explains the returned outcome without fabricating
