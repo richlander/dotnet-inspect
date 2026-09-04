@@ -763,7 +763,7 @@ jobs:
 
       - name: Run IL round-trip tests (fast)
         if: matrix.rid == 'linux-x64' && fromJSON(needs.changes.outputs.plan).validations.ilRoundTrip
-        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trait- "Speed=Slow"
+        run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- --filter-not-trait "Speed=Slow"
 
       # Terminal checks: the suites above still report their results when
       # acquisition fails, but the lane must not go green having silently
