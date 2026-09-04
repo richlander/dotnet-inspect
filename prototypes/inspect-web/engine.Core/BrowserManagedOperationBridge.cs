@@ -82,16 +82,16 @@ internal abstract record BrowserManagedCancellationRequestResult
     internal sealed record NotActive : BrowserManagedCancellationRequestResult;
 }
 
-internal interface IBrowserManagedProgress<in TProgress>
+internal interface IBrowserManagedOperationEvents<in TEvent>
 {
     bool IsClosed { get; }
 
-    void Report(TProgress progress);
+    void Report(TEvent operationEvent);
 }
 
 internal enum BrowserManagedOperationCleanupStage
 {
-    ProgressCallback,
+    EventCallback,
     SharedProducer,
     ActiveTable,
     CancellationSource,
@@ -154,12 +154,12 @@ internal sealed class BrowserManagedOperationBridge
     }
 
     internal Task<BrowserManagedOperationResult<TValue, TError, TDiagnostic>>
-        RunAsync<TValue, TError, TDiagnostic, TProgress>(
+        RunAsync<TValue, TError, TDiagnostic, TEvent>(
             BrowserManagedOperationId operationId,
-            Action<TProgress>? progressCallback,
+            Action<TEvent>? eventCallback,
             Func<
                 CancellationToken,
-                IBrowserManagedProgress<TProgress>,
+                IBrowserManagedOperationEvents<TEvent>,
                 Task<
                     BrowserManagedOperationBodyResult<
                         TValue,
@@ -175,8 +175,8 @@ internal sealed class BrowserManagedOperationBridge
         ArgumentNullException.ThrowIfNull(unexpectedFailure);
 
         var entry = new OperationEntry(operationId, _testHooks);
-        var progress = new ProgressGate<TProgress>(entry, progressCallback);
-        entry.InstallProgressGate(progress);
+        var events = new EventGate<TEvent>(entry, eventCallback);
+        entry.InstallEventGate(events);
 
         lock (_sync)
         {
@@ -196,7 +196,7 @@ internal sealed class BrowserManagedOperationBridge
             bodyTask;
         try
         {
-            bodyTask = body(entry.Token, progress)
+            bodyTask = body(entry.Token, events)
                 ?? Task.FromException<
                     BrowserManagedOperationBodyResult<
                         TValue,
@@ -288,11 +288,11 @@ internal sealed class BrowserManagedOperationBridge
 
         List<Exception> cleanupFailures = Release(entry);
         Exception? boundaryFailure =
-            snapshot.ProgressCallbackFailure ?? classificationFailure;
+            snapshot.EventCallbackFailure ?? classificationFailure;
         if (boundaryFailure is not null)
         {
             var secondary = new List<Exception>();
-            if (snapshot.ProgressCallbackFailure is not null
+            if (snapshot.EventCallbackFailure is not null
                 && classificationFailure is not null)
             {
                 secondary.Add(classificationFailure);
@@ -300,11 +300,13 @@ internal sealed class BrowserManagedOperationBridge
             if (snapshot.TokenCallbackFailure is not null)
                 secondary.Add(snapshot.TokenCallbackFailure);
             secondary.AddRange(cleanupFailures);
+            string failureKind =
+                snapshot.EventCallbackFailure is not null
+                    ? "event-callback"
+                    : "terminal-classification";
             throw new BrowserManagedOperationBoundaryException(
-                snapshot.ProgressCallbackFailure is not null
-                    ? "progress-callback"
-                    : "terminal-classification",
-                $"Managed operation '{entry.OperationId}' failed at its bridge boundary.",
+                failureKind,
+                $"Managed operation '{entry.OperationId}' failed at its {failureKind} bridge boundary.",
                 boundaryFailure,
                 secondary);
         }
@@ -410,8 +412,8 @@ internal sealed class BrowserManagedOperationBridge
     {
         var failures = new List<Exception>();
         AttemptCleanup(
-            BrowserManagedOperationCleanupStage.ProgressCallback,
-            entry.CloseProgress,
+            BrowserManagedOperationCleanupStage.EventCallback,
+            entry.CloseEvents,
             failures);
         AttemptCleanup(
             BrowserManagedOperationCleanupStage.SharedProducer,
@@ -466,10 +468,10 @@ internal sealed class BrowserManagedOperationBridge
         readonly CancellationToken _token;
         readonly BrowserManagedOperationBridgeTestHooks? _testHooks;
         EntryState _state = EntryState.Active;
-        IProgressGate? _progress;
+        IEventGate? _events;
         BrowserManagedOperationCancelReason? _cancellationReason;
         Exception? _tokenCallbackFailure;
-        Exception? _progressCallbackFailure;
+        Exception? _eventCallbackFailure;
         int _calloutCount;
         TaskCompletionSource? _calloutsDrained;
         bool _classified;
@@ -487,17 +489,17 @@ internal sealed class BrowserManagedOperationBridge
 
         internal CancellationToken Token => _token;
 
-        internal void InstallProgressGate(IProgressGate progress)
+        internal void InstallEventGate(IEventGate events)
         {
             lock (_sync)
             {
-                if (_progress is not null)
+                if (_events is not null)
                 {
                     throw new InvalidOperationException(
-                        "The managed progress gate is already installed.");
+                        "The managed event gate is already installed.");
                 }
 
-                _progress = progress;
+                _events = events;
             }
         }
 
@@ -522,12 +524,12 @@ internal sealed class BrowserManagedOperationBridge
             return new BrowserManagedCancellationRequestResult.Requested(reason);
         }
 
-        internal bool TryAcquireProgressCallout()
+        internal bool TryAcquireEventCallout()
         {
             lock (_sync)
             {
                 if (_state is not EntryState.Active
-                    || _progressCallbackFailure is not null)
+                    || _eventCallbackFailure is not null)
                 {
                     return false;
                 }
@@ -537,12 +539,12 @@ internal sealed class BrowserManagedOperationBridge
             }
         }
 
-        internal void RecordProgressFailure(Exception exception)
+        internal void RecordEventFailure(Exception exception)
         {
             bool signalCancellation = false;
             lock (_sync)
             {
-                _progressCallbackFailure ??= exception;
+                _eventCallbackFailure ??= exception;
                 if (_cancellationReason is null
                     && _state is EntryState.Active or EntryState.Settling)
                 {
@@ -641,21 +643,21 @@ internal sealed class BrowserManagedOperationBridge
                     _token,
                     _cancellationReason,
                     _tokenCallbackFailure,
-                    _progressCallbackFailure);
+                    _eventCallbackFailure);
             }
         }
 
-        internal void CloseProgress()
+        internal void CloseEvents()
         {
             lock (_sync)
             {
                 if (_state is not EntryState.Settling || _calloutCount != 0)
                 {
                     throw new InvalidOperationException(
-                        "Managed progress can close only after callout drain.");
+                        "Managed events can close only after callout drain.");
                 }
 
-                _progress?.Close();
+                _events?.Close();
             }
         }
 
@@ -671,7 +673,7 @@ internal sealed class BrowserManagedOperationBridge
         {
             lock (_sync)
             {
-                _progress?.Close();
+                _events?.Close();
                 _state = EntryState.Released;
             }
 
@@ -686,16 +688,16 @@ internal sealed class BrowserManagedOperationBridge
         }
     }
 
-    sealed class ProgressGate<TProgress> :
-        IBrowserManagedProgress<TProgress>,
-        IProgressGate
+    sealed class EventGate<TEvent> :
+        IBrowserManagedOperationEvents<TEvent>,
+        IEventGate
     {
         readonly OperationEntry _entry;
-        Action<TProgress>? _callback;
+        Action<TEvent>? _callback;
 
-        internal ProgressGate(
+        internal EventGate(
             OperationEntry entry,
-            Action<TProgress>? callback)
+            Action<TEvent>? callback)
         {
             _entry = entry;
             _callback = callback;
@@ -703,20 +705,20 @@ internal sealed class BrowserManagedOperationBridge
 
         public bool IsClosed => Volatile.Read(ref _callback) is null;
 
-        public void Report(TProgress progress)
+        public void Report(TEvent operationEvent)
         {
-            Action<TProgress>? callback = Volatile.Read(ref _callback);
-            if (callback is null || !_entry.TryAcquireProgressCallout())
+            Action<TEvent>? callback = Volatile.Read(ref _callback);
+            if (callback is null || !_entry.TryAcquireEventCallout())
                 return;
 
             try
             {
-                callback(progress);
+                callback(operationEvent);
             }
             catch (Exception exception)
             {
                 Interlocked.Exchange(ref _callback, null);
-                _entry.RecordProgressFailure(exception);
+                _entry.RecordEventFailure(exception);
             }
             finally
             {
@@ -727,7 +729,7 @@ internal sealed class BrowserManagedOperationBridge
         public void Close() => Interlocked.Exchange(ref _callback, null);
     }
 
-    interface IProgressGate
+    interface IEventGate
     {
         void Close();
     }
@@ -736,5 +738,5 @@ internal sealed class BrowserManagedOperationBridge
         CancellationToken OperationToken,
         BrowserManagedOperationCancelReason? CancellationReason,
         Exception? TokenCallbackFailure,
-        Exception? ProgressCallbackFailure);
+        Exception? EventCallbackFailure);
 }
