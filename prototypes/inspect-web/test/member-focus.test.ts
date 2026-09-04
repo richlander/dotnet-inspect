@@ -208,6 +208,28 @@ test("a focused Type row survives an asynchronous replacement render", () => {
   assert.equal(document.activeElement, replacementRow);
 });
 
+test("a focused filter disclosure survives an asynchronous replacement render", () => {
+  const { document, element } = createDocument();
+  const initialSummary = element("#type-filter-summary", {
+    id: "type-filter-summary",
+  });
+  document.activeElement = initialSummary;
+  const snapshot = captureMemberFocus(document);
+
+  initialSummary.isConnected = false;
+  document.activeElement = document.body;
+  const replacementSummary = element("#type-filter-summary", {
+    id: "type-filter-summary",
+  });
+
+  restoreMemberFocus(document, snapshot, callback => {
+    callback(0);
+    return 1;
+  });
+
+  assert.equal(document.activeElement, replacementSummary);
+});
+
 test("stable annotated source segments retain focus across member completion renders", () => {
   const { document, element } = createDocument();
   const selector = "#annotated-source-modal-segment-42";

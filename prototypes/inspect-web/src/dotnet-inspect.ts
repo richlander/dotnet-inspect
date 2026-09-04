@@ -1662,10 +1662,13 @@ function focusTypeList(generation = spotlightFocusGeneration) {
   });
 }
 
-function restoreContentNavigationFocus(generation: number) {
-  if (!canRestoreWorkbenchFocus(generation)) return;
+function restoreContentNavigationFocus(
+  generation: number,
+  focusGeneration = documentFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation, focusGeneration)) return;
   afterCurrentNavigationFrame(() => {
-    if (canRestoreWorkbenchFocus(generation))
+    if (canRestoreWorkbenchFocus(generation, focusGeneration))
       focusContentNavigation(document);
   });
 }
@@ -2414,7 +2417,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
   ].filter(Boolean).join(" · ") || "All members";
   return `
     <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
-      <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <summary id="member-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
         <span aria-hidden="true">/</span>
         <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
@@ -2878,11 +2881,14 @@ function drillOut() {
 }
 
 function exitMemberScope() {
+  const focusGeneration = beginSpotlightNavigation();
+  contentFramePane = "navigation";
   state.selectedMemberKey = "";
   state.memberBrowseTypeId = "";
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   render();
+  restoreContentNavigationFocus(focusGeneration);
   return true;
 }
 
@@ -5509,10 +5515,7 @@ function bindTypePanelEvents() {
         selectMemberNavEntry({ kind: "overload", group, index }, false);
       }
     },
-    onShowTypes: () => {
-      contentFramePane = "navigation";
-      exitMemberScope();
-    },
+    onShowTypes: exitMemberScope,
     onTypeFilterChange: value => {
       state.typeFilter = value;
       state.typeCursor = 0;

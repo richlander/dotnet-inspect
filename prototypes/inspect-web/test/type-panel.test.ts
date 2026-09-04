@@ -572,6 +572,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(
     html,
     /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
+  assert.match(html, /<summary id="type-filter-summary">/);
   assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);

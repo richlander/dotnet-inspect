@@ -2463,7 +2463,10 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /onShowTypes: \(\) => \{\s*contentFramePane = "navigation";\s*exitMemberScope\(\);\s*\}/);
+    /function exitMemberScope\(\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";[\s\S]*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);\s*return true;/);
+  assert.match(appSource, /onShowTypes: exitMemberScope,/);
+  assert.match(appSource, /<summary id="member-filter-summary">/);
+  assert.match(typePanelSource, /<summary id="type-filter-summary">/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);

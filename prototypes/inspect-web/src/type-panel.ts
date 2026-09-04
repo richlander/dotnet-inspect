@@ -332,7 +332,7 @@ export function renderTypeNav(options: TypeNavOptions): string {
         </div>
       </div>
       <details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure${filtersExpanded ? " open" : ""}>
-        <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+        <summary id="type-filter-summary"><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
         <label class="type-search">
           <span aria-hidden="true">/</span>
           <input id="type-filter" aria-label="Filter types" value="${escapeHtml(typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
