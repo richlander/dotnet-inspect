@@ -199,6 +199,24 @@ either to `null`, an empty projection, or partial rows. The prohibition binds
 adopted owners; it is not a repository-wide guarantee, because adoption is
 staged and enforcement is deliberately partial.
 
+Descriptor selection is the one acquisition surface that carries the mechanism
+instead of throwing it. `ResolvedAssemblyReference.SelectFromPath` and
+`SelectFromStream` return an `AssemblyDescriptorSelectionResult`, whose
+`Rejected` arm has a failure arm by construction, so admission returns a typed
+rejection there and preserves the mechanism as the result's compatibility
+exception. The `CreateFrom*IfManaged` shapes return a descriptor or `null` and
+have no failure arm, so they rethrow that preserved mechanism unchanged. This
+changes one previously recorded behavior: a PE image with a malformed metadata
+section returned `null` from `CreateFromPathIfManaged` and
+`CreateFromStreamIfManaged`, which reads as "not a managed assembly"; it now
+throws `MalformedMetadataRootException`. `SelectFrom*` still reports it as
+`Rejected` with `CandidateOpenFailureKind.InvalidImage`.
+
+The fallback-identity path is the deliberate exception. Its purpose is to keep
+a caller-supplied identity usable when the image cannot supply one, so it
+absorbs unsupported-format, malformed-root, and overflow mechanisms and returns
+a descriptor carrying the fallback identity rather than propagating them.
+
 `NoMetadata` preserves the acquisition or query owner's established typed
 no-metadata boundary. Neither it nor a malformed-root result is translated to
 `UnsupportedMetadataFormatException`.

@@ -131,10 +131,36 @@ public sealed class AssemblySetResolutionSession : IDisposable
                 continue;
             }
 
-            ApiSurface? moduleSurface =
-                AssemblyReader.ExtractModuleApiSurface(
-                    failure.Path,
-                    includeAll);
+            ApiSurface? moduleSurface;
+            try
+            {
+                moduleSurface =
+                    AssemblyReader.ExtractModuleApiSurface(
+                        failure.Path,
+                        includeAll);
+            }
+            catch (Exception ex) when (
+                ex is UnsupportedMetadataFormatException
+                    or MalformedMetadataRootException)
+            {
+                // The candidate carried no typed acquisition failure, so the
+                // mechanism first appears here. Record it instead of letting
+                // it escape a surface that owns a failure-recording arm.
+                merged.InspectionFailures.Add(
+                    new ApiSurfaceInspectionFailure(
+                        "acquire API surface",
+                        0,
+                        MetadataTypeNameFailureMechanism.Metadata,
+                        ex.GetType().Name,
+                        ex.Message)
+                    {
+                        SourceAssemblyPath = failure.Path,
+                    });
+                sink?.Invoke(
+                    $"  ! {Path.GetFileName(failure.Path)}: {ex.Message}");
+                continue;
+            }
+
             if (moduleSurface is not null)
             {
                 MergeSurface(

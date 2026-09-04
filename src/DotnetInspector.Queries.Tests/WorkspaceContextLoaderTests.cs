@@ -2523,7 +2523,7 @@ public sealed class WorkspaceContextLoaderTests
             Version,
             Archive(
                 ("lib/net10.0/Malformed.dll",
-                    "not a portable executable"u8.ToArray()),
+                    CreateMalformedMetadataRootImage()),
                 ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
                     File.ReadAllBytes(TargetPath))));
         using var client = new HttpClient(new FailingHandler());
@@ -2579,7 +2579,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedPackageAsset_PreservesExactReason()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         using var workspace = new InspectionWorkspace();
         IPackageStore store = await CachedStoreAsync(
             Version,
@@ -2650,7 +2650,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedPlatformAsset_PreservesExactReason()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             RuntimePackPackageId,
@@ -2808,7 +2808,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedEmbeddedContent_CreatesNoGroup()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
@@ -4027,6 +4027,25 @@ public sealed class WorkspaceContextLoaderTests
                 File.ReadAllBytes(CallerPath)),
             ($"runtimes/linux-x64/lib/{Framework}/{Path.GetFileName(TargetPath)}",
                 File.ReadAllBytes(TargetPath)));
+
+    static byte[] CreateMalformedMetadataRootImage()
+    {
+        // A real PE image whose CLI metadata directory size is zeroed, so the
+        // metadata root cannot be mapped. A non-PE byte string is not a
+        // substitute: it has no metadata root at all and is classified as a
+        // descriptor-less image well before admission runs.
+        byte[] image = File.ReadAllBytes(TargetPath);
+        int corHeaderStart;
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            corHeaderStart = peReader.PEHeaders.CorHeaderStartOffset;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(corHeaderStart + 12, sizeof(int)),
+            0);
+        return image;
+    }
 
     static byte[] CreateNoMetadataImage()
     {

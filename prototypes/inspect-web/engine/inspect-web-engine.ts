@@ -18,11 +18,13 @@ export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRu
 
 export type BrowserPackageQueryCompletionKind = "Exhausted" | "MatchLimitReached" | "CandidateLimitReached" | "SourcePageLimitReached" | "ClientPageLimitReached" | "Failed" | number;
 
-export type BrowserPackageQueryEventKind = "Match" | "Failure" | "Completed" | number;
+export type BrowserPackageQueryEventKind = "Progress" | "Match" | "Failure" | "Completed" | number;
 
 export type BrowserPackageQueryFacetTier = "Nuspec" | "PackageContent" | number;
 
 export type BrowserPackageQueryFailureKind = "Search" | "SearchContract" | "ManifestAcquisition" | "ManifestContract" | "InvalidManifest" | "PackageContentAcquisition" | "PackageContentEvaluation" | number;
+
+export type BrowserPackageQueryProgressPhase = "Search" | "Manifest" | "PackageContent" | number;
 
 export interface BrowserAccessibilityDescriptor {
   readonly id: string;
@@ -558,6 +560,7 @@ export interface BrowserPackageQueryEvent {
   readonly row: BrowserPackageQueryRow | null;
   readonly failure: BrowserPackageQueryFailure | null;
   readonly completion: BrowserPackageQueryCompletion | null;
+  readonly progress: BrowserPackageQueryProgress | null;
 }
 
 export interface BrowserPackageQueryEvidence {
@@ -576,6 +579,7 @@ export interface BrowserPackageQueryFacetDescriptor {
   readonly weight: number;
   readonly tier: BrowserPackageQueryFacetTier;
   readonly selectionGroupId: string | null;
+  readonly combinesWithinSelectionGroup: boolean;
   readonly displayGroupId: string | null;
   readonly displayGroupLabel: string | null;
 }
@@ -586,6 +590,12 @@ export interface BrowserPackageQueryFailure {
   readonly producer: string;
   readonly kind: BrowserPackageQueryFailureKind;
   readonly message: string;
+}
+
+export interface BrowserPackageQueryProgress {
+  readonly phase: BrowserPackageQueryProgressPhase;
+  readonly completed: number;
+  readonly limit: number;
 }
 
 export interface BrowserPackageQueryRow {
