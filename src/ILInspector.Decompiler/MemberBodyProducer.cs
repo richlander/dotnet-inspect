@@ -206,6 +206,7 @@ public static class MemberBodyProducer
             {
                 RequiresAsyncModifier = projection.RequiresAsyncBodyModifier,
                 RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
+                ParameterNames = projection.ParameterNames,
                 // Member-agnostic destructor gate: suppress '~Type()' whenever the
                 // body was not recovered as a canonical destructor (issue #3157).
                 // Harmless for non-finalizers (the writer only consults this when
@@ -1182,9 +1183,10 @@ public static class MemberBodyProducer
                     bool requiresUnsafeContext = false;
                     bool bodyIsSingleExpressionBody = false;
                     bool bodyIsDestructor = false;
+                    IReadOnlyList<string>? bodyParameterNames = null;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic: only is not null);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out bodyParameterNames, printerOptions, failOnDiagnostic: only is not null);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -1193,6 +1195,9 @@ public static class MemberBodyProducer
                         && ExplicitPropertyName(member.Name) is { } propertyPath
                         && body is not null)
                     {
+                        ThrowIfAccessorParameterNamesChanged(
+                            member.Name,
+                            bodyParameterNames);
                         // The signature's leading token is the accessor's
                         // return type ('bool Iface.get_X()').
                         string accessorReturn = member.ReturnType
@@ -1229,6 +1234,7 @@ public static class MemberBodyProducer
                             RequiresAsyncModifier = memberHandle is { } asyncHandle
                                 && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
                             RequiresUnsafeModifier = requiresUnsafeContext,
+                            ParameterNames = bodyParameterNames,
                             // Only spell '~Type()' when the destructor pass actually
                             // recovered the canonical try/finally { base.Finalize(); }
                             // scaffold. A Finalize override whose body did not match
@@ -2107,7 +2113,9 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
@@ -2119,7 +2127,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -2128,7 +2136,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
     }
 
     /// <summary>
@@ -2223,11 +2231,25 @@ public static class MemberBodyProducer
             out requiresUnsafeContext,
             out bodyIsSingleExpressionBody,
             out _,
+            out var parameterNames,
             printerOptions,
             failOnDiagnostic);
+        ThrowIfAccessorParameterNamesChanged(accessorName, parameterNames);
         requiresAsyncContext = function is not null
             && function.RequiresAsyncMethodContext;
         return body;
+    }
+
+    static void ThrowIfAccessorParameterNamesChanged(
+        string accessorName,
+        IReadOnlyList<string>? parameterNames)
+    {
+        if (parameterNames is not { Count: > 0 })
+            return;
+
+        throw new InvalidOperationException(
+            $"Accessor '{accessorName}' requires changed body-owned parameter names, "
+                + "which accessor declaration composition cannot yet coordinate (issue #5778).");
     }
 
     /// <summary>
@@ -2240,11 +2262,13 @@ public static class MemberBodyProducer
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions, failOnDiagnostic);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, out parameterNames, printerOptions, failOnDiagnostic);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -2256,13 +2280,16 @@ public static class MemberBodyProducer
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions,
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor,
+        out IReadOnlyList<string>? parameterNames,
+        Pipeline.PrinterOptions? printerOptions,
         bool failOnDiagnostic)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
         bodyIsSingleExpressionBody = false;
         bodyIsDestructor = false;
+        parameterNames = null;
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
@@ -2280,6 +2307,7 @@ public static class MemberBodyProducer
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;
         bodyIsDestructor = result.BodyIsDestructor;
+        parameterNames = result.ParameterNames;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

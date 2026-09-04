@@ -350,7 +350,7 @@ internal static class ForeachIteratorReconstruction
                     if (locals.TryGetValue(field.Name, out var slot))
                         swaps.Add((current, new LoadLocal(slot.Index, field.Type)));
                     else if (TryGetParameter(kickoff, field.Name, out var index, out var parameter))
-                        swaps.Add((current, new LoadArgument(index, parameter.Name, parameter.Type)));
+                        swaps.Add((current, new LoadArgument(index, parameter)));
                     else
                         ok = false;
                     return;  // never descend into a swapped field's `this` receiver

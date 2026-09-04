@@ -388,7 +388,18 @@ public sealed partial class CSharpPrinter
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             BodyIsDestructor = function.IsDestructor,
-            Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
+            Metadata = new DecompilerResultMetadata(
+                EffectiveDecompilerOptions(),
+                [.. _decisions])
+            {
+                ParameterNames = function.Signature.Parameters.Any(
+                    parameter => parameter.DisplayName != parameter.Name)
+                        ? [
+                            .. function.Signature.Parameters.Select(
+                                parameter => parameter.DisplayName),
+                        ]
+                        : [],
+            },
         };
 
     /// <summary>
@@ -1394,17 +1405,11 @@ public sealed partial class CSharpPrinter
 
     HashSet<string> CurrentReservedNames(bool includeLocals = false)
     {
-        var names = new HashSet<string>(_capturedScopeNames, StringComparer.Ordinal);
-        foreach (var parameter in _function.Signature.Parameters)
-            names.Add(parameter.Name);
-        foreach (var genericParameter in _function.Signature.GenericParameterNames)
-            names.Add(genericParameter);
-        foreach (var nested in _function
-            .DescendantsOutsideNestedFunctions
-            .OfType<LocalFunctionStatement>())
-        {
-            names.Add(nested.Name);
-        }
+        var names = ExactLocalNameAllocation.ReservedNames(
+            _function,
+            _function.Signature.Parameters,
+            _function.Signature.GenericParameterNames,
+            _capturedScopeNames);
         if (includeLocals)
         {
             for (int i = 0; i < _function.Locals.Length; i++)
@@ -1417,12 +1422,12 @@ public sealed partial class CSharpPrinter
     {
         foreach (var nested in _function.Descendants.OfType<Lambda>())
             foreach (var parameter in nested.Parameters)
-                names.Add(parameter.Name);
+                names.Add(parameter.DisplayName);
         foreach (var nested in _function.Descendants.OfType<LocalFunctionStatement>())
         {
             names.Add(nested.Name);
             foreach (var parameter in nested.Parameters)
-                names.Add(parameter.Name);
+                names.Add(parameter.DisplayName);
         }
     }
 
@@ -1836,18 +1841,41 @@ public sealed partial class CSharpPrinter
     static bool CanEvaluateBeforeInlineValue(IrExpression expression, IrExpression value) => expression switch
     {
         Constant => true,
-        LoadArgument argument => !ReferencesArgument(value, argument.Index),
+        LoadArgument argument => !ReferencesArgument(
+            value,
+            argument.Index,
+            argument.Parameter),
         LoadLocal local => !ReferencesLocal(value, local.Index),
         _ => false,
     };
 
-    static bool ReferencesArgument(IrNode node, int index)
-        => IsArgumentReference(node, index)
-            || node.Descendants.Any(n => IsArgumentReference(n, index));
+    static bool ReferencesArgument(
+        IrNode node,
+        int index,
+        Parameter? parameter)
+        => IsArgumentReference(node, index, parameter)
+            || node.Descendants.Any(
+                descendant => IsArgumentReference(
+                    descendant,
+                    index,
+                    parameter));
 
-    static bool IsArgumentReference(IrNode node, int index)
-        => node is LoadArgument argument && argument.Index == index
-            || node is LoadArgumentAddress address && address.Index == index;
+    static bool IsArgumentReference(
+        IrNode node,
+        int index,
+        Parameter? parameter)
+        => node is LoadArgument argument
+                && PlaceIdentity.SameArgument(
+                    argument.Index,
+                    argument.Parameter,
+                    index,
+                    parameter)
+            || node is LoadArgumentAddress address
+                && PlaceIdentity.SameArgument(
+                    address.Index,
+                    address.Parameter,
+                    index,
+                    parameter);
 
     /// <summary>True when the local's last program-order reference sits inside the given subtree.</summary>
     static bool LastReferenceIsInside(IrFunction function, int localIndex, IrNode subtree)
@@ -2220,7 +2248,7 @@ public sealed partial class CSharpPrinter
             string parameters = string.Join(
                 ", ",
                 localFunction.Parameters.Select((parameter, index) =>
-                    $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.Name)}"));
+                    $"{ParameterTypeText(parameter, index < localFunction.ParameterRefKinds.Length ? localFunction.ParameterRefKinds[index] : ArgumentRefKind.Value)} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.ContainedIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -3479,7 +3507,17 @@ public sealed partial class CSharpPrinter
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
-        StoreArgument s => AssignmentText(s, CSharpNaming.ContainedIdentifier(s.Name), s.Value, left => left is LoadArgument load && load.Index == s.Index, s.Type),
+        StoreArgument s => AssignmentText(
+            s,
+            CSharpNaming.ContainedIdentifier(s.Name),
+            s.Value,
+            left => left is LoadArgument load
+                && PlaceIdentity.SameArgument(
+                    load.Index,
+                    load.Parameter,
+                    s.Index,
+                    s.Parameter),
+            s.Type),
         // A ref-typed slot stores by rebinding the reference — C#'s ref
         // (re)assignment, exactly as for ref locals above.
         StoreStackSlot s when StackSlotTargetType(s) is { Kind: TypeRefKind.ByRef } refType => _declaringStores.Contains(s)
@@ -4935,7 +4973,7 @@ public sealed partial class CSharpPrinter
     string FreshSyntheticLocalName(string baseName)
     {
         var used = new HashSet<string>(
-            _function.Signature.Parameters.Select(p => p.Name)
+            _function.Signature.Parameters.Select(p => p.DisplayName)
                 .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
                 .Concat(_syntheticLocalNames),
             StringComparer.Ordinal);
@@ -5648,7 +5686,11 @@ public sealed partial class CSharpPrinter
     static bool SamePlace(IrExpression? a, IrExpression? b) => (a, b) switch
     {
         (null, null) => true,
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (LoadLocal x, LoadLocal y) => x.Index == y.Index,
         _ => false,
     };
@@ -5665,7 +5707,11 @@ public sealed partial class CSharpPrinter
     static bool SameLValue(IrExpression? a, IrExpression? b) => (a, b) switch
     {
         (null, null) => true,
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (LoadLocal x, LoadLocal y) => x.Index == y.Index,
         (Constant x, Constant y) => Equals(x.Value, y.Value),
         (LoadField x, LoadField y) => x.Field.Name == y.Field.Name
@@ -5928,10 +5974,10 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// The display name for local slot <paramref name="index"/>: the PDB source
-    /// name when present, usable as a C# identifier, and not already taken by a
-    /// parameter or an earlier-named local; otherwise the synthetic
-    /// <c>V_index</c>. Resolved once per function so every reference to a slot —
-    /// declaration, load, address, shadow test — spells it identically.
+    /// name when present, printer-usable, and admitted by the exact-local
+    /// collision plan; otherwise the synthetic <c>V_index</c>. Resolved once per
+    /// function so every reference to a slot — declaration, load, address,
+    /// shadow test — spells it identically.
     /// </summary>
     string LocalName(int index)
     {
@@ -5943,50 +5989,24 @@ public sealed partial class CSharpPrinter
             for (int i = 0; i < count; i++)
                 display[i] = $"V_{i}";
 
-            var taken = CurrentReservedNames();
-
-            // Pattern-variable locals bound by mutually-exclusive switch-expression
-            // / union-switch arms each open their own scope, so sibling arms of one
-            // switch may legally bind the same source name (issue #3033). Map each
-            // such slot to its owning (switch, arm) and record, per switch and name,
-            // the set of arms already using it — so a sibling arm reuses the
-            // identical spelling instead of falling back to V_n, while a name shared
-            // with any wider-scoped binder (parameter, ordinary local, an enclosing
-            // switch's arm, or a second binding in the SAME arm) still dedups.
-            var armLocalOwners = ArmScopedPatternLocals();
-            var armNameUsers = new Dictionary<(object Switch, string Name), HashSet<object>>();
-
             var names = _function.LocalNames;
-            if (!names.IsDefaultOrEmpty)
+            var taken = CurrentReservedNames();
+            var exact = ExactLocalNameAllocation.Allocate(
+                _function,
+                count,
+                names,
+                taken);
+            for (var i = 0; i < count; i++)
             {
-                for (int i = 0; i < count && i < names.Length; i++)
+                if (exact.Dispositions[i]
+                        == ExactLocalNameDisposition.Preserved
+                    && exact.DisplayNames[i] is { } name)
                 {
-                    if (names[i] is not { } name || !CSharpNaming.IsUsableIdentifier(name))
-                        continue;
-                    bool isArmLocal = armLocalOwners.TryGetValue(i, out var owner);
-                    if (taken.Add(name))
-                    {
-                        display[i] = name;
-                        assigned[i] = true;
-                        if (isArmLocal)
-                            armNameUsers[(owner.Switch, name)] = [owner.Arm];
-                    }
-                    else if (isArmLocal
-                        && armNameUsers.TryGetValue((owner.Switch, name), out var users)
-                        && users.Add(owner.Arm))
-                    {
-                        // The name is already reserved, but only by a different
-                        // sibling arm of the same switch — a disjoint scope — so this
-                        // arm reuses the same source name rather than deduping to
-                        // V_n. `users.Add` gates on the owning arm: a reservation by
-                        // an enclosing switch's arm, a parameter, or an ordinary
-                        // local leaves no entry here, and a second binding in the
-                        // same arm is already in the set, so both still dedup.
-                        display[i] = name;
-                        assigned[i] = true;
-                    }
+                    display[i] = name;
+                    assigned[i] = true;
                 }
             }
+            taken.UnionWith(exact.DisplayNames.OfType<string>());
 
             // Exact source names may legally shadow non-captured enclosing or
             // descendant binders. Generated names remain conservative so they do
@@ -6034,33 +6054,6 @@ public sealed partial class CSharpPrinter
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
     }
 
-    /// <summary>
-    /// Maps each local slot bound as a pattern variable by a switch-expression or
-    /// union-switch arm — the arm's outer type-pattern binding and its single-level
-    /// property subpattern — to its owning <c>(switch node, arm node)</c>. Sibling
-    /// arms of one switch are disjoint scopes, so <see cref="LocalName"/> lets them
-    /// reuse the same source spelling instead of deduping the second to a synthetic
-    /// <c>V_n</c> (issue #3033). Keying reuse by the owning switch keeps an enclosing
-    /// switch's arm from being treated as a disjoint sibling of a nested one, and
-    /// keying by arm keeps two bindings of the same arm deduping.
-    /// </summary>
-    Dictionary<int, (object Switch, object Arm)> ArmScopedPatternLocals()
-    {
-        var owners = new Dictionary<int, (object, object)>();
-        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<PatternSwitchExpressionArm>())
-        {
-            object owningSwitch = arm.Parent ?? arm;
-            if (arm.LocalIndex is { } localIndex)
-                owners[localIndex] = (owningSwitch, arm);
-            if (arm.Subpattern is { } subpattern)
-                owners[subpattern.LocalIndex] = (owningSwitch, arm);
-        }
-        foreach (var arm in _function.DescendantsOutsideNestedFunctions.OfType<UnionSwitchExpressionArm>())
-            if (arm.LocalIndex is { } localIndex)
-                owners[localIndex] = (arm.Parent ?? arm, arm);
-        return owners;
-    }
-
     static string ReserveName(string baseName, HashSet<string> taken)
     {
         if (taken.Add(baseName))
@@ -6105,7 +6098,7 @@ public sealed partial class CSharpPrinter
         {
             _localScopeNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (var parameter in _function.Signature.Parameters)
-                _localScopeNames.Add(parameter.Name);
+                _localScopeNames.Add(parameter.DisplayName);
             for (int i = 0; i < _function.Locals.Length; i++)
                 _localScopeNames.Add(LocalName(i));
         }

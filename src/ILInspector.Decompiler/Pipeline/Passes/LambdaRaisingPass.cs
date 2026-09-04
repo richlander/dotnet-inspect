@@ -354,7 +354,7 @@ public sealed class LambdaRaisingPass : IIrPass
         {
             string? name = captures[field] switch
             {
-                LoadArgument argument => argument.Name,
+                LoadArgument => null,
                 LoadLocal local when local.Index < host.LocalNames.Length
                     => host.LocalNames[local.Index],
                 _ => null,

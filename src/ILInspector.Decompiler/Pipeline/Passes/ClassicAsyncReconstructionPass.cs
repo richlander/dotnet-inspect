@@ -1271,7 +1271,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     static LoadArgument ParameterLoad(int index, Parameter parameter)
-        => new(index, parameter.Name, parameter.Type)
+        => new(index, parameter)
         {
             IsDynamic = parameter.IsDynamic,
             ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,

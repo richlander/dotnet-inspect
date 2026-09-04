@@ -156,7 +156,11 @@ public sealed partial class EhStructuringPass
 
     static IrExpression? CloneFilterValue(IrExpression value) => value switch
     {
-        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadArgument argument => new LoadArgument(
+            argument.Index,
+            argument.Name,
+            argument.Type,
+            argument.Parameter),
         LoadLocal local => new LoadLocal(local.Index, local.Type),
         Constant constant => new Constant(constant.Value, constant.Type),
         _ => null,

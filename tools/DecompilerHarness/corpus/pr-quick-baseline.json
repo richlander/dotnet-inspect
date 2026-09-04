@@ -1,7 +1,7 @@
 {
   "schemaVersion": 6,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-09-04T03:47:23.7971975+00:00",
+  "generatedUtc": "2026-09-04T09:09:33.8980216+00:00",
   "validityCompileCap": 0,
   "fidelityCompileCap": 0,
   "methodCap": 100,
@@ -9835,27 +9835,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.AnnotatedSourceDocumentJsonContext.\u003C\u003Ec__DisplayClass21_0",
-      "method": ".ctor",
-      "overload": 0,
-      "signature": "() -\u003E corelib:System.Void",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "fidelity: DEC0009",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name"
-        }
-      ],
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceDocumentJsonContext.\u003C\u003Ec__DisplayClass21_0::.ctor#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.AnnotatedSourceDocumentJsonContext",
       "method": "AnnotatedSourceSpanSerializeHandler",
       "overload": 0,
@@ -9964,36 +9943,6 @@
         }
       ],
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceStrictJsonContext.\u003C\u003Ec__DisplayClass38_0::\u003CCreate_AnnotatedSourceNode\u003Eb__1#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.AnnotatedSourceStrictJsonContext",
-      "method": "Create_NullablePrintedRegionRole",
-      "overload": 0,
-      "signature": "(System.Text.Json:System.Text.Json.JsonSerializerOptions) -\u003E System.Text.Json:System.Text.Json.Serialization.Metadata.JsonTypeInfo\u00601\u003Ccorelib:System.Nullable\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.PrintedRegionRole\u003E\u003E",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.AnnotatedSourceStrictJsonContext::Create_NullablePrintedRegionRole#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Annotations.AnnotationAnchor.CaretExtent",
-      "method": "PrintMembers",
-      "overload": 0,
-      "signature": "(corelib:System.Text.StringBuilder) -\u003E corelib:System.Boolean",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Annotations.AnnotationAnchor.CaretExtent::PrintMembers#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10109,6 +10058,21 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.DecompilerResultMetadata",
+      "method": "set_ParameterNames",
+      "overload": 0,
+      "signature": "(corelib:System.Collections.Generic.IReadOnlyList\u00601\u003Ccorelib:System.String\u003E) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.DecompilerResultMetadata::set_ParameterNames#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.DecompilerTrace",
       "method": "PrintMembers",
       "overload": 0,
@@ -10214,6 +10178,28 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec::\u003CCollectStackSlotNames\u003Eb__89_7#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass364_0",
+      "method": "\u003CFunctionPointerKey\u003Eb__0",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, corelib:System.Int32) -\u003E corelib:System.String",
+      "fidelity": "Partial",
+      "fullyRaised": false,
+      "residual": "fidelity: DEC0009",
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "fidelityCauses": [
+        {
+          "code": "DEC0009",
+          "discriminator": "display-class-type-name",
+          "sites": 4
+        }
+      ],
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.CSharpPrinter.\u003C\u003Ec__DisplayClass364_0::\u003CFunctionPointerKey\u003Eb__0#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -10763,6 +10749,21 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.IrFunction.\u003C\u003Ec",
+      "method": "\u003Cget_DirectTypes\u003Eb__156_2",
+      "overload": 0,
+      "signature": "(ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.HandlerRegion) -\u003E ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.IrFunction.\u003C\u003Ec::\u003Cget_DirectTypes\u003Eb__156_2#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.IrImporter.\u003C\u003Ec",
       "method": "\u003CMemberReferenceDefinitionFacts\u003Eb__68_1",
       "overload": 0,
@@ -10912,21 +10913,6 @@
     {
       "assembly": "ILInspector.Decompiler",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
-      "type": "ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass.\u003C\u003Ec",
-      "method": "\u003CRaiseCalls\u003Eb__8_3",
-      "overload": 0,
-      "signature": "(System.Linq:System.Linq.IGrouping\u00602\u003Ccorelib:System.ValueTuple\u00602\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.TypeRef, corelib:System.String\u003E, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.MethodRef\u003E) -\u003E System.Collections:System.Collections.Generic.List\u00601\u003CILInspector.Decompiler:ILInspector.Decompiler.Pipeline.MethodRef\u003E",
-      "fidelity": "Full",
-      "fullyRaised": true,
-      "residual": null,
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.LocalFunctionRaisingPass.\u003C\u003Ec::\u003CRaiseCalls\u003Eb__8_3#0"
-    },
-    {
-      "assembly": "ILInspector.Decompiler",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
       "type": "ILInspector.Decompiler.Pipeline.LocalFunctionStatement",
       "method": "get_LocalNames",
       "overload": 0,
@@ -11049,6 +11035,21 @@
         }
       ],
       "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.OrChainDiamondPass::Fold#0"
+    },
+    {
+      "assembly": "ILInspector.Decompiler",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/ILInspector.Decompiler.dll",
+      "type": "ILInspector.Decompiler.Pipeline.ParameterNameAllocationPass",
+      "method": "AddUsableLocalNames",
+      "overload": 0,
+      "signature": "(System.Collections:System.Collections.Generic.HashSet\u00601\u003Ccorelib:System.String\u003E, System.Collections.Immutable:System.Collections.Immutable.ImmutableArray\u00601\u003Ccorelib:System.String\u003E, ILInspector.Decompiler:ILInspector.Decompiler.Pipeline.IrNode) -\u003E corelib:System.Void",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "ILInspector.Decompiler!ILInspector.Decompiler.Pipeline.ParameterNameAllocationPass::AddUsableLocalNames#0"
     },
     {
       "assembly": "ILInspector.Decompiler",
@@ -11375,6 +11376,21 @@
     {
       "assembly": "dotnet-inspect",
       "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
+      "type": "DotnetInspector.ApiJsonContext.\u003C\u003Ec",
+      "method": "\u003CApiMemberPropInit\u003Eb__12_142",
+      "overload": 0,
+      "signature": "(corelib:System.Object) -\u003E corelib:System.String",
+      "fidelity": "Full",
+      "fullyRaised": true,
+      "residual": null,
+      "passBug": null,
+      "validity": "not-sampled",
+      "fidelityCheck": "not-sampled",
+      "displayMethod": "dotnet-inspect!DotnetInspector.ApiJsonContext.\u003C\u003Ec::\u003CApiMemberPropInit\u003Eb__12_142#0"
+    },
+    {
+      "assembly": "dotnet-inspect",
+      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
       "type": "DotnetInspector.ApiTypeCompactJsonContext.\u003C\u003Ec",
       "method": "\u003CCreate_ListSampleReference\u003Eb__128_0",
       "overload": 0,
@@ -11528,28 +11544,6 @@
       "validity": "not-sampled",
       "fidelityCheck": "not-sampled",
       "displayMethod": "dotnet-inspect!DotnetInspector.CommandLine.TypeRoutePolicyResult::op_Equality#0"
-    },
-    {
-      "assembly": "dotnet-inspect",
-      "assemblyPath": "artifacts/bin/dotnet-inspect/release/dotnet-inspect.dll",
-      "type": "DotnetInspector.CommandLineBuilder.\u003C\u003Ec__DisplayClass27_0",
-      "method": "\u003CCreateRootCommand\u003Eb__0",
-      "overload": 0,
-      "signature": "(System.CommandLine:System.CommandLine.ParseResult) -\u003E corelib:System.Int32",
-      "fidelity": "Partial",
-      "fullyRaised": false,
-      "residual": "structuring: conditional-branch",
-      "passBug": null,
-      "validity": "not-sampled",
-      "fidelityCheck": "not-sampled",
-      "fidelityCauses": [
-        {
-          "code": "DEC0009",
-          "discriminator": "display-class-type-name",
-          "sites": 12
-        }
-      ],
-      "displayMethod": "dotnet-inspect!DotnetInspector.CommandLineBuilder.\u003C\u003Ec__DisplayClass27_0::\u003CCreateRootCommand\u003Eb__0#0"
     },
     {
       "assembly": "dotnet-inspect",
@@ -24361,12 +24355,12 @@
   ],
   "metrics": {
     "totalMethods": 1500,
-    "fullyRaisedMethods": 1264,
-    "fullyRaisedBasisPoints": 8427,
-    "conditionalBranchMethods": 35,
-    "conditionalBranchBasisPoints": 233,
-    "forwardMergeStoppedContainers": 36,
-    "forwardMergeBasisPoints": 240,
+    "fullyRaisedMethods": 1265,
+    "fullyRaisedBasisPoints": 8433,
+    "conditionalBranchMethods": 34,
+    "conditionalBranchBasisPoints": 227,
+    "forwardMergeStoppedContainers": 35,
+    "forwardMergeBasisPoints": 233,
     "fullMalformedMethods": 0,
     "semanticCheckedMethods": 0,
     "semanticDefectMethods": 0,
@@ -24376,19 +24370,19 @@
       "fidelity: DEC0008": 2,
       "fidelity: DEC0009": 185,
       "fidelity: unsupported-node": 12,
-      "structuring: conditional-branch": 35,
+      "structuring: conditional-branch": 34,
       "structuring: unconditional-branch": 1
     },
     "structuring": {
       "totalMethods": 1500,
-      "structuredContainers": 585,
-      "stoppedContainers": 46,
-      "methodsWithStops": 43,
+      "structuredContainers": 586,
+      "stoppedContainers": 45,
+      "methodsWithStops": 42,
       "passBugs": 0,
       "stopReasons": {
         "arm-externally-entered": 2,
         "cond-target-past-region": 24,
-        "forward-branch-not-region-exit": 12,
+        "forward-branch-not-region-exit": 11,
         "unconsumed-regions": 8
       }
     },

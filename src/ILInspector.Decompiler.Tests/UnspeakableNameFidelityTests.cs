@@ -629,6 +629,93 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void RetainedLocalConflictingWithFlattenedLocalFunction_DegradesToPartial()
+    {
+        var localFunction = new LocalFunctionStatement(
+            "Pick",
+            Int32,
+            [new Parameter("value", Int32)],
+            isStatic: true,
+            locals: [],
+            localNames: [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new LoadArgument(0, "value", Int32))));
+        var function = Function(
+            Int32,
+            [],
+            [Int32],
+            Container(
+                new StoreLocal(0, Int32, new Constant(1, Int32)),
+                localFunction,
+                new Return(new LoadLocal(0, Int32))));
+        function.LocalNames = ["Pick"];
+
+        string output = CSharpPrinter.Print(function).Output!;
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Contains("int V_0 = 1;", output);
+        Assert.Contains("static int Pick(int value)", output);
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("local-function declaration", issue?.Reason);
+    }
+
+    [Fact]
+    public void SameNamedBindingsInOneSwitchArm_DegradeToPartial()
+    {
+        var accessor = new MethodRef(
+            Target,
+            "get_Value",
+            Int32,
+            [],
+            HasThis: true);
+        var arm = new PatternSwitchExpressionArm(
+            Target,
+            localIndex: 0,
+            new PropertySubpattern(accessor, Int32, LocalIndex: 1),
+            new Constant(1, Int32));
+        var function = Function(
+            Int32,
+            [],
+            [Target, Int32],
+            Container(new Return(new PatternSwitchExpression(
+                new Constant(null, Target),
+                [arm],
+                new Constant(0, Int32)))));
+        function.LocalNames = ["same", "same"];
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("duplicate local name", issue?.Reason);
+    }
+
+    [Fact]
+    public void SwitchArmBindingConflictingWithParameter_DegradesToPartial()
+    {
+        var parameter = new Parameter("same", Target);
+        var arm = new PatternSwitchExpressionArm(
+            Target,
+            localIndex: 0,
+            subpattern: null,
+            new Constant(1, Int32));
+        var function = Function(
+            Int32,
+            [parameter],
+            [Target],
+            Container(new Return(new PatternSwitchExpression(
+                new LoadArgument(0, parameter),
+                [arm],
+                new Constant(0, Int32)))));
+        function.LocalNames = ["same"];
+
+        var issue = CSharpSpellability.InspectUnrepresentableMetadataName(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Contains("conflicts with a parameter", issue?.Reason);
+    }
+
+    [Fact]
     public void LocalConflictingWithMethodGenericParameter_DegradesToPartial()
     {
         var signature = new MethodSignature(
@@ -749,9 +836,11 @@ public class UnspeakableNameFidelityTests
     [Fact]
     public void RaisedLambdaParameterMatchingCapturedOuterParameter_DegradesToPartial()
     {
+        var outerParameter = new Parameter("value", Int32);
+        var lambdaParameter = new Parameter("value", Int32);
         var lambda = new Lambda(
             FuncIntInt,
-            [new Parameter("value", Int32)],
+            [lambdaParameter],
             [],
             [],
             usesUpdatedMemorySafetyRules: false,
@@ -760,14 +849,11 @@ public class UnspeakableNameFidelityTests
                 BinaryKind.Add,
                 isChecked: false,
                 isUnsigned: false,
-                new LoadArgument(1, "value", Int32),
-                new LoadArgument(0, "value", Int32)))))
-        {
-            CapturedBinderNames = ["value"],
-        };
+                new LoadArgument(0, lambdaParameter),
+                new LoadArgument(0, outerParameter)))));
         var function = Function(
             FuncIntInt,
-            [new Parameter("value", Int32)],
+            [outerParameter],
             [],
             Container(new Return(lambda)));
 
@@ -775,6 +861,81 @@ public class UnspeakableNameFidelityTests
 
         Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
         Assert.Contains("actually referenced enclosing binder", issue?.Reason);
+    }
+
+    [Fact]
+    public void SynthesizedOuterParameterYieldsToExactCapturedLambdaParameter()
+    {
+        var outerParameter = new Parameter(
+            "arg0",
+            Int32,
+            NameIsSynthesized: true);
+        var lambdaParameter = new Parameter("arg0", Int32);
+        var lambda = new Lambda(
+            FuncIntInt,
+            [lambdaParameter],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(new Return(new Binary(
+                BinaryKind.Add,
+                isChecked: false,
+                isUnsigned: false,
+                new LoadArgument(0, lambdaParameter),
+                new LoadArgument(0, outerParameter)))));
+        var function = Function(
+            FuncIntInt,
+            [outerParameter],
+            [],
+            Container(new Return(lambda)));
+
+        new ParameterNameAllocationPass().Run(function, PassContext.None);
+        var result = CSharpPrinter.Print(function);
+        new ParameterNameAllocationPass().Run(function, PassContext.None);
+        var secondResult = CSharpPrinter.Print(function);
+
+        Assert.Equal("return arg0 => arg0 + arg0_1;\n", result.Output);
+        Assert.Equal(["arg0_1"], result.ParameterNames);
+        Assert.Equal(result.Output, secondResult.Output);
+        Assert.Equal(result.ParameterNames, secondResult.ParameterNames);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Equal(["arg0_1"], lambda.CapturedBinderNames);
+    }
+
+    [Fact]
+    public void StoreArgumentCompoundSugarUsesBinderIdentity()
+    {
+        var outerParameter = new Parameter("outer", Int32);
+        var lambdaParameter = new Parameter("nested", Int32);
+        var lambda = new Lambda(
+            FuncIntInt,
+            [lambdaParameter],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            Container(
+                new StoreArgument(
+                    0,
+                    outerParameter,
+                    new Binary(
+                        BinaryKind.Add,
+                        isChecked: false,
+                        isUnsigned: false,
+                        new LoadArgument(0, lambdaParameter),
+                        new Constant(1, Int32))),
+                new Return(new LoadArgument(0, lambdaParameter))));
+        var function = Function(
+            FuncIntInt,
+            [outerParameter],
+            [],
+            Container(new Return(lambda)));
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Contains("outer = nested + 1;", result.Output);
+        Assert.DoesNotContain("outer++;", result.Output);
     }
 
     [Fact]
@@ -805,10 +966,12 @@ public class UnspeakableNameFidelityTests
     [Fact]
     public void RaisedLocalFunctionParameterMatchingCapturedOuterParameter_DegradesToPartial()
     {
+        var outerParameter = new Parameter("value", Int32);
+        var localParameter = new Parameter("value", Int32);
         var localFunction = new LocalFunctionStatement(
             "Local",
             Int32,
-            [new Parameter("value", Int32)],
+            [localParameter],
             isStatic: false,
             locals: [],
             localNames: [],
@@ -818,14 +981,11 @@ public class UnspeakableNameFidelityTests
                 BinaryKind.Add,
                 isChecked: false,
                 isUnsigned: false,
-                new LoadArgument(1, "value", Int32),
-                new LoadArgument(0, "value", Int32)))))
-        {
-            CapturedBinderNames = ["value"],
-        };
+                new LoadArgument(0, localParameter),
+                new LoadArgument(0, outerParameter)))));
         var function = Function(
             Void,
-            [new Parameter("value", Int32)],
+            [outerParameter],
             [],
             Container(localFunction, new Return(null)));
 

@@ -74,11 +74,14 @@ internal static class CSharpSpellability
                 function.Signature.Parameters,
                 function.Signature.GenericParameterNames)
                 ?? LocalNamesIssue(
+                    function,
+                    function.Locals.Length,
                     function.LocalNames,
                     function.EliminatedLocalSlots,
-                    function.Signature.Parameters
-                        .Select(parameter => parameter.Name)
-                        .Concat(function.Signature.GenericParameterNames)),
+                    ExactLocalNameAllocation.ReservedNames(
+                        function,
+                        function.Signature.Parameters,
+                        function.Signature.GenericParameterNames)),
             Call call => MethodIssue(call.Callee),
             NewObject newObject => ConstructorIssue(newObject.Constructor),
             AddressOfMethod address => MethodGroupTargetIssue(address.Method),
@@ -134,23 +137,23 @@ internal static class CSharpSpellability
             : new HashSet<string>(reservedNames, StringComparer.Ordinal);
         foreach (var parameter in parameters)
         {
-            if (!HasLosslessBodyIdentifierSpelling(parameter.Name))
+            if (!HasLosslessBodyIdentifierSpelling(parameter.DisplayName))
             {
                 return Issue(
                     DecompilerFidelityDiscriminators.UnspellableParameterName,
-                    $"parameter name '{parameter.Name}' has no lossless C# spelling");
+                    $"parameter name '{parameter.DisplayName}' has no lossless C# spelling");
             }
-            if (!parameterNames.Add(parameter.Name))
+            if (!parameterNames.Add(parameter.DisplayName))
             {
                 return Issue(
                     DecompilerFidelityDiscriminators.UnspellableParameterName,
-                    $"duplicate parameter name '{parameter.Name}' has no lossless C# binding");
+                    $"duplicate parameter name '{parameter.DisplayName}' has no lossless C# binding");
             }
-            if (reserved?.Contains(parameter.Name) == true)
+            if (reserved?.Contains(parameter.DisplayName) == true)
             {
                 return Issue(
                     DecompilerFidelityDiscriminators.UnspellableParameterName,
-                    $"parameter name '{parameter.Name}' conflicts with {reservedNameDescription}");
+                    $"parameter name '{parameter.DisplayName}' conflicts with {reservedNameDescription}");
             }
         }
 
@@ -158,15 +161,21 @@ internal static class CSharpSpellability
     }
 
     static NameIssue? LocalNamesIssue(
+        IrNode scope,
+        int localCount,
         ImmutableArray<string?> localNames,
         IReadOnlySet<int>? eliminatedLocalSlots = null,
         IEnumerable<string>? reservedNames = null,
         IrNode? retainedScope = null)
     {
-        HashSet<string>? reserved = reservedNames is null
-            ? null
+        var reserved = reservedNames is null
+            ? new HashSet<string>(StringComparer.Ordinal)
             : new HashSet<string>(reservedNames, StringComparer.Ordinal);
-        var retainedNames = new HashSet<string>(StringComparer.Ordinal);
+        var allocation = ExactLocalNameAllocation.Allocate(
+            scope,
+            localCount,
+            localNames,
+            reserved);
         for (var index = 0; index < localNames.Length; index++)
         {
             string? name = localNames[index];
@@ -184,18 +193,16 @@ internal static class CSharpSpellability
                     $"local name '{name}' has no lossless C# spelling",
                     DecompilerFidelityLocation.AtLocal(index));
             }
-            if (reserved?.Contains(name) == true)
+            if (index < allocation.Dispositions.Length
+                && allocation.Dispositions[index]
+                    == ExactLocalNameDisposition.Collision)
             {
+                string reason = reserved.Contains(name)
+                    ? $"local name '{name}' conflicts with a parameter, method generic parameter, captured binder, or local-function declaration"
+                    : $"duplicate local name '{name}' has no lossless C# binding";
                 return new NameIssue(
                     DecompilerFidelityDiscriminators.UnspellableLocalName,
-                    $"local name '{name}' conflicts with a parameter or method generic parameter",
-                    DecompilerFidelityLocation.AtLocal(index));
-            }
-            if (!retainedNames.Add(name))
-            {
-                return new NameIssue(
-                    DecompilerFidelityDiscriminators.UnspellableLocalName,
-                    $"duplicate local name '{name}' has no lossless C# binding",
+                    reason,
                     DecompilerFidelityLocation.AtLocal(index));
             }
         }
@@ -209,31 +216,45 @@ internal static class CSharpSpellability
         BlockContainer body,
         ImmutableArray<string> capturedBinderNames)
         => LocalNamesIssue(
+            body,
+            localNames.Length,
             localNames,
-            reservedNames: parameters
-                .Select(parameter => parameter.Name)
-                .Concat(capturedBinderNames)
-                .Concat(ExternalArgumentNamesInScope(body, parameters)),
+            reservedNames: ExactLocalNameAllocation.ReservedNames(
+                body,
+                parameters,
+                [],
+                capturedBinderNames.Concat(
+                    ExternalArgumentNamesInScope(body, parameters))),
             retainedScope: body);
 
     internal static IEnumerable<string> ExternalArgumentNamesInScope(
         IrNode scope,
         ImmutableArray<Parameter> parameters)
     {
+        var parameterBindings = new HashSet<Parameter>(
+            parameters,
+            ReferenceEqualityComparer.Instance);
         var parameterNames = new HashSet<string>(
-            parameters.Select(parameter => parameter.Name),
+            parameters.Select(parameter => parameter.DisplayName),
             StringComparer.Ordinal);
         foreach (var node in scope.DescendantsOutsideNestedFunctions.Prepend(scope))
         {
-            string? name = node switch
+            (string? Name, Parameter? Parameter) argument = node switch
             {
-                LoadArgument argument => argument.Name,
-                LoadArgumentAddress address => address.Name,
-                StoreArgument store => store.Name,
-                _ => null,
+                LoadArgument load => (load.Name, load.Parameter),
+                LoadArgumentAddress address => (address.Name, address.Parameter),
+                StoreArgument store => (store.Name, store.Parameter),
+                DeconstructionTarget { Kind: DeconstructionTargetKind.Argument } target
+                    => (target.ArgumentName, target.ArgumentParameter),
+                _ => default,
             };
-            if (name is not null && !parameterNames.Contains(name))
-                yield return name;
+            if (argument.Name is not null
+                && (argument.Parameter is { } binding
+                    ? !parameterBindings.Contains(binding)
+                    : !parameterNames.Contains(argument.Name)))
+            {
+                yield return argument.Name;
+            }
         }
     }
 
@@ -264,6 +285,9 @@ internal static class CSharpSpellability
     {
         var pending = new Stack<IrExpression>();
         var seenPlaces = new HashSet<(PlaceKind Kind, int Index)>();
+        var seenArgumentBindings = new HashSet<Parameter>(
+            ReferenceEqualityComparer.Instance);
+        var seenUnboundArgumentIndices = new HashSet<int>();
         var bodyNodes = function.DescendantsOutsideNestedFunctions.ToList();
         pending.Push(expression);
 
@@ -345,9 +369,15 @@ internal static class CSharpSpellability
                         pending.Push(patternDefault);
                     break;
                 case LoadArgument load
-                    when seenPlaces.Add((PlaceKind.Argument, load.Index)):
+                    when load.Parameter is { } parameter
+                        ? seenArgumentBindings.Add(parameter)
+                        : seenUnboundArgumentIndices.Add(load.Index):
                     foreach (var store in bodyNodes.OfType<StoreArgument>())
-                        if (store.Index == load.Index)
+                        if (PlaceIdentity.SameArgument(
+                                load.Index,
+                                load.Parameter,
+                                store.Index,
+                                store.Parameter))
                             pending.Push(store.Value);
                     break;
                 case LoadLocal load

@@ -571,7 +571,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
             {
                 string? name = value switch
                 {
-                    LoadArgument argument => argument.Name,
+                    LoadArgument => null,
                     LoadLocal local when local.Index < host.LocalNames.Length
                         => host.LocalNames[local.Index],
                     _ => null,

@@ -63,7 +63,8 @@ public static class MethodImporter
         var decoded = GuardedDecode.MethodSignature(reader, method, scope);
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
-        string[] parameterNames = MetadataParameterNames.Resolve(
+        MetadataParameterNames.ResolvedName[] parameterNames =
+            MetadataParameterNames.ResolveWithProvenance(
             reader,
             method.GetParameters(),
             decoded.ParameterTypes.Length,
@@ -100,10 +101,11 @@ public static class MethodImporter
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
             parameters.Add(new Parameter(
-                parameterNames[i],
+                parameterNames[i].Name,
                 decoded.ParameterTypes[i],
                 hasDefaultByIndex.GetValueOrDefault(i),
-                dynamicByIndex.GetValueOrDefault(i))
+                dynamicByIndex.GetValueOrDefault(i),
+                parameterNames[i].IsSynthesized)
             {
                 ArrayElementIsDynamic = arrayElementDynamicByIndex.GetValueOrDefault(
                     i,

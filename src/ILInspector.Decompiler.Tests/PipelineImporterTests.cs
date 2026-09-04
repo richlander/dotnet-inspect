@@ -67,6 +67,22 @@ public class PipelineImporterTests
         Assert.Equal(0, parameter.Type.GenericParameterIndex);
     }
 
+    [Fact]
+    public void Import_InstanceMethod_BindsImplicitReceiverByIdentity()
+    {
+        using var source = MetadataSource.Open(
+            typeof(ThisQualificationSpecimen).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(ThisQualificationSpecimen).FullName!,
+            nameof(ThisQualificationSpecimen.ReadField));
+
+        var receiver = Assert.IsType<LoadArgument>(
+            Assert.Single(function!.Descendants.OfType<LoadArgument>()));
+        Assert.Same(function.ReceiverParameter, receiver.Parameter);
+        Assert.Equal("this", receiver.Name);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -116,9 +132,13 @@ public class PipelineImporterTests
 
             Assert.Equal("arg0", Assert.Single(imported!.Signature.Parameters).Name);
             Assert.Equal("arg0", Assert.Single(function!.Signature.Parameters).Name);
+            Assert.True(Assert.Single(imported.Signature.Parameters).NameIsSynthesized);
+            Assert.True(Assert.Single(function.Signature.Parameters).NameIsSynthesized);
 
             IrPasses.Run(function);
-            Assert.Equal("return arg0;", CSharpPrinter.Print(function).Output!.TrimEnd());
+            var result = CSharpPrinter.Print(function);
+            Assert.Equal("return arg0;", result.Output!.TrimEnd());
+            Assert.Empty(result.ParameterNames);
         }
         finally
         {
@@ -167,11 +187,15 @@ public class PipelineImporterTests
             Assert.Equal(
                 ["arg0_1", "arg0"],
                 function!.Signature.Parameters.Select(parameter => parameter.Name).ToArray());
+            Assert.True(function.Signature.Parameters[0].NameIsSynthesized);
+            Assert.False(function.Signature.Parameters[1].NameIsSynthesized);
 
             IrPasses.Run(function);
+            var result = CSharpPrinter.Print(function);
             Assert.Equal(
                 "return arg0_1 + arg0;",
-                CSharpPrinter.Print(function).Output!.TrimEnd());
+                result.Output!.TrimEnd());
+            Assert.Empty(result.ParameterNames);
         }
         finally
         {
