@@ -74,7 +74,9 @@ internal sealed class SourceDocumentPathResolver
         if (string.IsNullOrWhiteSpace(filePath))
             throw new BadImageFormatException("A portable-PDB source document has an empty path.");
 
-        if (_map.TryResolve(filePath, out var resolution))
+        SLF.SourceLinkResolutionStatus status =
+            _map.Resolve(filePath, out var resolution);
+        if (status == SLF.SourceLinkResolutionStatus.Resolved)
         {
             // The canonical path is whatever the key did not cover, which is the
             // repository-relative path for a conventional "/_/*" map; its leading separator is
@@ -89,17 +91,25 @@ internal sealed class SourceDocumentPathResolver
 
             // The URL is built by the owner from the untrimmed remainder, so trimming for display
             // cannot alter what gets fetched.
-            return new SourceDocumentPathResolution(canonical, resolution.Url, IsMapped: true);
+            return new SourceDocumentPathResolution(
+                canonical,
+                resolution.Url,
+                SourceDocumentResolutionStatus.Resolved);
         }
 
         return new SourceDocumentPathResolution(
             SourceDocumentPath.TrimSyntheticRoot(SourceDocumentPath.NormalizeSeparators(filePath)),
             ResolvedUrl: null,
-            IsMapped: false);
+            status == SLF.SourceLinkResolutionStatus.Rejected
+                ? SourceDocumentResolutionStatus.Rejected
+                : SourceDocumentResolutionStatus.Unmapped);
     }
 }
 
 internal sealed record SourceDocumentPathResolution(
     string CanonicalPath,
     string? ResolvedUrl,
-    bool IsMapped);
+    SourceDocumentResolutionStatus Status)
+{
+    public bool IsMapped => Status == SourceDocumentResolutionStatus.Resolved;
+}
