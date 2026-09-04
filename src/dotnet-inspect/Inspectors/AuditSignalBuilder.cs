@@ -361,10 +361,17 @@ internal static class AuditSignalBuilder
                 ? null
                 : new SignalValue(FormatCount(context.Metadata.DynamicDependencyCount), "DynamicDependencyAttribute");
 
-        private static SignalValue? ResolveMemorySafetyModel(in LibrarySignalContext context) =>
-            context.Metadata == null
-                ? null
-                : new SignalValue(FormatMemorySafetyModel(context.Metadata.MemorySafetyRulesVersion), "module MemorySafetyRulesAttribute");
+        private static SignalValue? ResolveMemorySafetyModel(in LibrarySignalContext context)
+        {
+            if (context.Metadata == null)
+            {
+                return null;
+            }
+
+            var (value, evidence) =
+                FormatMemorySafetyModel(context.Metadata.MemorySafetyRules);
+            return new SignalValue(value, evidence);
+        }
 
         private static SignalValue? ResolveMemorySafetyRequiresUnsafeMembers(in LibrarySignalContext context) =>
             context.Metadata == null
@@ -796,12 +803,75 @@ internal static class AuditSignalBuilder
     private static string FormatCount(int count, string singular)
         => count == 1 ? $"1 {singular}" : $"{count} {singular}s";
 
-    private static string FormatMemorySafetyModel(int? version) => version switch
+    private const string MemorySafetyMarkerEvidence =
+        "module MemorySafetyRulesAttribute";
+
+    /// <summary>
+    /// Projects the typed module rules state onto the Signals row. Every state
+    /// renders distinctly so an unrecognized marker version is never reported
+    /// as the updated model, and unreadable metadata never renders as unmarked.
+    /// </summary>
+    internal static (string Value, string Evidence) FormatMemorySafetyModel(
+        MemorySafetyRulesResult? rules)
     {
-        >= 2 => $"Updated (v{version})",
-        { } marked => $"Marked v{marked}",
-        null => "Not marked"
-    };
+        switch (rules)
+        {
+            case null:
+                return ("Not marked", MemorySafetyMarkerEvidence);
+
+            case MemorySafetyRulesResult.Unavailable unavailable:
+                return (
+                    "Unavailable",
+                    $"{MemorySafetyMarkerEvidence}; {unavailable.Failure.Detail}");
+
+            case MemorySafetyRulesResult.Available available:
+                return available.State switch
+                {
+                    MemorySafetyRulesState.Legacy =>
+                        ("Not marked", MemorySafetyMarkerEvidence),
+                    MemorySafetyRulesState.Updated =>
+                        (
+                            $"Updated{FormatMemorySafetyVersion(available)}",
+                            MemorySafetyMarkerEvidence),
+                    MemorySafetyRulesState.Unsupported =>
+                        (
+                            $"Unsupported{FormatMemorySafetyVersion(available)}",
+                            MemorySafetyMarkerEvidence),
+                    MemorySafetyRulesState.Malformed =>
+                        (
+                            "Malformed marker",
+                            FormatMemorySafetyMarkerDetail(available)),
+                    MemorySafetyRulesState.Conflicting =>
+                        (
+                            "Conflicting markers",
+                            $"{MemorySafetyMarkerEvidence}; {FormatCount(available.Observations.Length, "marker")}"),
+                    _ => ("Unavailable", MemorySafetyMarkerEvidence)
+                };
+
+            default:
+                return ("Unavailable", MemorySafetyMarkerEvidence);
+        }
+    }
+
+    private static string FormatMemorySafetyVersion(
+        MemorySafetyRulesResult.Available available)
+        => available.Observations
+            .Select(observation => observation.Version)
+            .FirstOrDefault(version => version is not null) is { } decoded
+                ? $" (v{decoded})"
+                : string.Empty;
+
+    private static string FormatMemorySafetyMarkerDetail(
+        MemorySafetyRulesResult.Available available)
+    {
+        string? detail = available.Observations
+            .FirstOrDefault(observation =>
+                observation.State == MemorySafetyRulesObservationState.Malformed)
+            ?.Detail;
+        return string.IsNullOrEmpty(detail)
+            ? MemorySafetyMarkerEvidence
+            : $"{MemorySafetyMarkerEvidence}; {detail}";
+    }
 
     private static string FormatNullableBool(bool? value) => value switch
     {

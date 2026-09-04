@@ -499,37 +499,45 @@ public class CatalogDirectCallerQueryTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            if (request.Target
-                is not AssemblyBindingTarget.AssemblyReference reference)
-            {
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable));
-            }
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
 
-            string path = Path.Combine(
-                _frameworkDirectory,
-                reference.Identity.Name + ".dll");
-            if (!File.Exists(path))
+            AssemblyBindingSelection SelectCore()
             {
-                return AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable));
-            }
+                if (request.Target
+                    is not AssemblyBindingTarget.AssemblyReference reference)
+                {
+                    return AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.CandidateUnavailable));
+                }
 
-            ResolvedAssemblyReference assembly =
-                ResolvedAssemblyReference.CreateFromPath(
-                    path,
-                    AssemblyResolutionProvenance.Local(
-                        "framework direct-caller test"));
-            return assembly.Identity == reference.Identity
-                ? AssemblyBindingSelection.Found(assembly)
-                : AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.IdentityPolicyRequired));
+                string path = Path.Combine(
+                    _frameworkDirectory,
+                    reference.Identity.Name + ".dll");
+                if (!File.Exists(path))
+                {
+                    return AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.CandidateUnavailable));
+                }
+
+                ResolvedAssemblyReference assembly =
+                    ResolvedAssemblyReference.CreateFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local(
+                            "framework direct-caller test"));
+                return assembly.Identity == reference.Identity
+                    ? AssemblyBindingSelection.Found(assembly)
+                    : AssemblyBindingSelection.CannotSelect(
+                        new AssemblyBindingFailure(
+                            AssemblyBindingFailureKind.IdentityPolicyRequired));
+
+            }
         }
     }
 
@@ -540,13 +548,22 @@ public class CatalogDirectCallerQueryTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
+        public AssemblyBindingSelectionSnapshot Select(
             AssemblyBindingRequest request)
         {
-            AssemblyBindingSelection selection = inner.Select(request);
-            if (selection is AssemblyBindingSelection.Selected)
-                SelectedCount++;
-            return selection;
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore()
+            {
+                AssemblyBindingSelection selection =
+                    inner.Select(request).Selection;
+                if (selection is AssemblyBindingSelection.Selected)
+                    SelectedCount++;
+                return selection;
+
+            }
         }
     }
 
@@ -562,15 +579,22 @@ public class CatalogDirectCallerQueryTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && _assemblies.TryGetValue(
-                    reference.Identity,
-                    out ResolvedAssemblyReference? assembly)
-                    ? AssemblyBindingSelection.Found(assembly)
-                    : AssemblyBindingSelection.NotFound();
+                reference.Identity,
+                out ResolvedAssemblyReference? assembly)
+                ? AssemblyBindingSelection.Found(assembly)
+                : AssemblyBindingSelection.NotFound();
+        }
     }
 
     sealed class UnavailablePolicy : IAssemblyBindingPolicy
@@ -579,10 +603,17 @@ public class CatalogDirectCallerQueryTests
 
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            AssemblyBindingSelection.CannotSelect(
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                AssemblyBindingSelection.CannotSelect(
                 new AssemblyBindingFailure(
-                    AssemblyBindingFailureKind.CandidateUnavailable));
+                AssemblyBindingFailureKind.CandidateUnavailable));
+        }
     }
 }

@@ -32,7 +32,6 @@ import {
   packageForView,
   packageIdentityKey,
   packageLenses,
-  parameterTitleHtml,
   partitionGraphMembers,
   platformPackForGraphAssembly,
   platformPackFromProvenance,
@@ -664,6 +663,8 @@ let homeReadyGlintPending = true;
 const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
+  memberFiltersExpanded: false,
+  typeFiltersExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -2112,6 +2113,23 @@ function accessibilityControl() {
   </div>`;
 }
 
+function typeFilterSummary() {
+  const buckets = accessibilityBuckets();
+  const activeAccessibility =
+    buckets.filter(bucket => state.accessibilityFilter.has(bucket.id));
+  const accessibilitySummary = activeAccessibility.length === buckets.length
+    ? ""
+    : activeAccessibility
+      .map(bucket => bucket.label.toLowerCase())
+      .join(", ");
+  return [
+    state.typeFilter,
+    state.namespaceFilter,
+    state.kindFilter,
+    accessibilitySummary,
+  ].filter(Boolean).join(" · ") || "All types";
+}
+
 // Options for the namespace picker dropdown: every namespace in the active
 // package (honoring the library + accessibility filters), sorted, with its type
 // count.
@@ -2250,32 +2268,44 @@ function availableMemberTraits(type: AppTypeSurface) {
 }
 
 function renderMemberFilterControls(type: AppTypeSurface) {
-  const groups = publicMemberGroups(type);
-  const visible = visibleMemberGroups(type);
   const kinds = memberKinds(type);
   const accessibilities = memberAccessibilities(type);
   const traits = availableMemberTraits(type);
+  const activeTrait = traits.find(
+    ([property]) => property === state.memberTraitFilter)?.[1];
+  const filterSummary = [
+    state.memberTextFilter ? `text: ${state.memberTextFilter}` : "",
+    state.memberKindFilter === "all"
+      ? ""
+      : state.memberKindFilter.replaceAll("-", " "),
+    state.memberAccessibilityFilter === "all"
+      ? ""
+      : state.memberAccessibilityFilter,
+    activeTrait ?? "",
+  ].filter(Boolean).join(" · ") || "All members";
   return `
-    <div class="type-search member-search">
-      <span aria-hidden="true">/</span>
-      <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
-      <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
-    </div>
-    <div class="member-filter-stack">
-      <div class="namespace-chips kind-chips" aria-label="Member kind filters">
-        <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
-        ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+    <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
+      <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
+      <div class="type-search member-search">
+        <span aria-hidden="true">/</span>
+        <input id="member-filter" aria-label="Filter members and signatures" value="${escapeHtml(state.memberTextFilter)}" placeholder="Filter members and signatures" autocomplete="off" spellcheck="false" />
+        <button class="tiny-button" id="clear-member-filter" title="Clear member filters" aria-label="Clear member filters">×</button>
       </div>
-      ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
-        <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
-        ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
-      </div>` : ""}
-      ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
-        <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
-        ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
-      </div>` : ""}
-    </div>
-    <div class="member-filter-result">${visible.length} of ${groups.length} member groups</div>`;
+      <div class="member-filter-stack">
+        <div class="namespace-chips kind-chips" aria-label="Member kind filters">
+          <button class="${state.memberKindFilter === "all" ? "active" : ""}" data-member-kind-filter="all" aria-pressed="${state.memberKindFilter === "all"}">all kinds</button>
+          ${kinds.map(kind => `<button class="${state.memberKindFilter === kind ? "active" : ""}" data-member-kind-filter="${escapeHtml(kind)}" aria-pressed="${state.memberKindFilter === kind}">${escapeHtml(kind.replaceAll("-", " "))}</button>`).join("")}
+        </div>
+        ${accessibilities.length ? `<div class="namespace-chips access-chips" aria-label="Member accessibility filters">
+          <button class="${state.memberAccessibilityFilter === "all" ? "active" : ""}" data-member-access-filter="all" aria-pressed="${state.memberAccessibilityFilter === "all"}">all access</button>
+          ${accessibilities.map(accessibility => `<button class="${state.memberAccessibilityFilter === accessibility ? "active" : ""}" data-member-access-filter="${escapeHtml(accessibility)}" aria-pressed="${state.memberAccessibilityFilter === accessibility}">${escapeHtml(accessibility)}</button>`).join("")}
+        </div>` : ""}
+        ${traits.length ? `<div class="namespace-chips member-trait-chips" aria-label="Member trait filters">
+          <button class="${!state.memberTraitFilter ? "active" : ""}" data-member-trait-filter="" aria-pressed="${!state.memberTraitFilter}">all traits</button>
+          ${traits.map(([property, label]) => `<button class="${state.memberTraitFilter === property ? "active" : ""}" data-member-trait-filter="${property}" aria-pressed="${state.memberTraitFilter === property}">${label}</button>`).join("")}
+        </div>` : ""}
+      </div>
+    </details>`;
 }
 
 function compositionFilterButton(
@@ -2390,6 +2420,12 @@ function memberSourceHasConcreteOverload() {
     && selectedConcreteOverload(
       member.overloads,
       state.selectedOverloadIndex));
+}
+
+function memberSectionUsesWorkingSurface(section: MemberSection) {
+  return section === "overview"
+    || section === "call-graph"
+    || section === "facts";
 }
 
 function currentSourceOperationKind() {
@@ -2840,6 +2876,21 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         : null;
   const sourceWorkingSurface =
     sourcePageKind !== null && sourcePageSource !== null;
+  const apiWorkingSurface =
+    activeScope === "type" && state.lens === "api";
+  const currentMember = current ? selectedMember(current) : undefined;
+  const memberOverloadPicker =
+    currentMember !== undefined
+    && currentMember.overloads.length > 1
+    && !selectedConcreteOverload(
+      currentMember.overloads,
+      state.selectedOverloadIndex);
+  const memberWorkingSurface =
+    activeScope === "member"
+    && current !== null
+    && currentPendingGraphMember() === null
+    && (memberOverloadPicker
+      || memberSectionUsesWorkingSurface(state.memberSection));
   const annotatedPageContext =
     activeScope === "member"
     && state.memberSection === "annotated"
@@ -2877,7 +2928,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               <span class="title-search-glyph" aria-hidden="true">⌕</span>
               <span class="title-search-label title-search-label-full">Search types, members, packages</span>
               <span class="title-search-label title-search-label-compact">Search</span>
-              <kbd>Ctrl P</kbd>
             </button>
           </nav>`,
       })}
@@ -2929,7 +2979,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3164,6 +3214,8 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     libraryControlHtml: libraryControl(),
+    filtersExpanded: state.typeFiltersExpanded,
+    filterSummary: typeFilterSummary(),
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -4428,6 +4480,17 @@ function renderTypeSourceHtml(item: AppTypeSurface) {
   });
 }
 
+function currentPendingGraphMember() {
+  const pending = state.pendingGraphMemberDeepLink;
+  return pending
+    && graphMemberPendingMatchesView(
+      pending,
+      packageIdentityKey(state.package),
+      viewSignature())
+    ? pending
+    : null;
+}
+
 function renderLens(item: AppTypeSurface | null | undefined) {
   if (scope() === "workspace") return renderWorkspaceView();
   if (state.atPackageRoot) return renderPackageView();
@@ -4445,12 +4508,8 @@ function renderLens(item: AppTypeSurface | null | undefined) {
 }
 
 function renderApiLens(item: AppTypeSurface) {
-  const pending = state.pendingGraphMemberDeepLink;
-  if (pending
-    && graphMemberPendingMatchesView(
-      pending,
-      packageIdentityKey(state.package),
-      viewSignature())) {
+  const pending = currentPendingGraphMember();
+  if (pending) {
     const title =
       state.graphMemberNavigationTitle
       || `${typeDisplayName(item)}.${pending.target.memberName}`;
@@ -4458,15 +4517,6 @@ function renderApiLens(item: AppTypeSurface) {
   }
   const member = selectedMember(item);
   if (member) return renderMember(item, member);
-  if (state.memberBrowseTypeId === item.id) {
-    return `
-      ${typeHeadingHtml(item)}
-      <section class="document-section empty-document">
-        <span class="large-glyph">⌕</span>
-        <h2>No member selected</h2>
-        <p>Adjust the member filters or choose a member from the list.</p>
-      </section>`;
-  }
   const { publicMembers, graphMembers } =
     partitionGraphMembers(item.api);
   const publicSurface = {
@@ -4474,17 +4524,36 @@ function renderApiLens(item: AppTypeSurface) {
     api: publicMembers
   };
   const publicGroups = memberGroups(publicSurface);
+  const visibleGroups = visibleMemberGroups(publicSurface);
+  if (state.memberBrowseTypeId === item.id) {
+    return `
+      <section class="member-surface member-empty-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">Members</h1>
+          <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· no member selected</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <section class="empty-member-section">
+            <span class="large-glyph">⌕</span>
+            <h2>No member selected</h2>
+            <p>Adjust the member filters or choose a member from the list.</p>
+          </section>
+        </div>
+      </section>`;
+  }
   const graphGroups = memberGroups({
     ...item,
     api: graphMembers
   });
-  const visibleGroups = visibleMemberGroups(publicSurface);
   return `
-    ${typeHeadingHtml(item)}
-    <section class="document-section">
-      <div class="section-title"><h2>Public API</h2><span>${publicGroups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-browser-controls">${renderMemberFilterControls(publicSurface)}</div>
-      <div class="api-list">${visibleGroups.map(group => {
+    <section class="api-surface" aria-labelledby="api-surface-title">
+      <header class="api-surface-head">
+        <h1 id="api-surface-title">Members</h1>
+        <p>${visibleGroups.length} of ${publicGroups.length} member groups <span>· ${item.members} overloads</span></p>
+      </header>
+      <div class="member-browser-controls api-surface-controls">${renderMemberFilterControls(publicSurface)}</div>
+      <div class="api-surface-scroll">
+        <div class="api-list api-surface-list">${visibleGroups.map(group => {
         const overload = group.overloads[0];
         if (!overload)
           throw new Error(`Member group '${group.key}' did not contain an overload.`);
@@ -4494,24 +4563,28 @@ function renderApiLens(item: AppTypeSurface) {
           <code>${highlight(overload.signature)}</code>
           <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
         </button>`;
-      }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
-    </section>
-    ${graphGroups.length
-      ? `<section class="document-section">
-          <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
-          <div class="api-list">${graphGroups.map(group => {
-            const overload = group.overloads[0];
-            if (!overload)
-              throw new Error(`Member group '${group.key}' did not contain an overload.`);
-            return `
-            <button class="api-row" data-member="${escapeHtml(group.key)}">
-              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
-            </button>`;
-          }).join("")}</div>
-        </section>`
-      : ""}`;
+        }).join("") || '<div class="empty-list">No declared public members match these filters.</div>'}</div>
+        ${graphGroups.length
+          ? `<section class="api-surface-secondary">
+              <div class="section-title"><h2>Graph-discovered implementation members</h2><span>${graphGroups.reduce((count, group) => count + group.overloads.length, 0)} projected</span></div>
+              <div class="api-list">${graphGroups.map(group => {
+                const overload = group.overloads[0];
+                if (!overload)
+                  throw new Error(`Member group '${group.key}' did not contain an overload.`);
+                return `
+                <button class="api-row" data-member="${escapeHtml(group.key)}">
+                  <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+                  <code>${highlight(overload.signature)}</code>
+                  <small>${group.overloads.length === 1 ? "implementation" : `${group.overloads.length} implementations`}</small>
+                </button>`;
+              }).join("")}</div>
+            </section>`
+          : ""}
+      </div>
+      <footer class="api-surface-footer">
+        <span>Select a row to inspect its API</span>
+      </footer>
+    </section>`;
 }
 
 function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
@@ -4523,19 +4596,25 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     && selectedOverloadIndex < member.overloads.length;
   if (member.overloads.length > 1 && !hasSelectedOverload) {
     return `
-      <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
-      <section class="overload-picker">
-        <p class="eyebrow">${escapeHtml(member.kind)} group</p>
-        <h1>${escapeHtml(member.name)}</h1>
-        <p>Choose a specific overload to inspect.</p>
-        <div class="api-list">
-          ${member.overloads.map((overload, index) => `
-            <button class="api-row overload-row" data-overload="${index}">
-              <span class="member-icon">${index + 1}</span>
-              <code>${highlight(overload.signature)}</code>
-              <small>open →</small>
-            </button>`).join("")}
+      <section class="member-surface member-overload-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+          <p>${member.overloads.length} overloads <span>· ${escapeHtml(member.kind)}</span></p>
+        </header>
+        <div class="member-surface-scroll">
+          <div class="api-list api-surface-list member-surface-list">
+            ${member.overloads.map((overload, index) => `
+              <button class="api-row overload-row" data-overload="${index}">
+                <span class="member-icon">${index + 1}</span>
+                <code>${highlight(overload.signature)}</code>
+                <small>open →</small>
+              </button>`).join("")}
+          </div>
         </div>
+        <footer class="api-surface-footer member-surface-footer">
+          <button class="member-back" id="member-back">← ${escapeHtml(typeDisplayName(type))}</button>
+          <span>Choose an overload to inspect</span>
+        </footer>
       </section>`;
   }
   const overloadIndex = hasSelectedOverload ? selectedOverloadIndex ?? 0 : 0;
@@ -4552,21 +4631,10 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   const documentationError = documentationState.error;
   let content;
   if (state.memberSection === "overview") {
-    const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
     const parameters = overload.parameters ?? [];
     content = `
       <article class="learn-overview">
-        <header class="learn-title">
-          <p>${escapeHtml(type.namespace)}</p>
-          <h1>${escapeHtml(typeDisplayName(type))}.${escapeHtml(member.name)}${parameterTitleHtml(parameters)} ${escapeHtml(pageKind)}</h1>
-          <span>${escapeHtml(pkg.id)} · ${escapeHtml(pkg.activeFramework)}</span>
-        </header>
-        <section class="learn-section definition-section">
-          <dl class="definition-list">
-            <div><dt>Namespace:</dt><dd>${escapeHtml(type.namespace || "global")}</dd></div>
-            <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
-            <div><dt>Package:</dt><dd>${escapeHtml(pkg.id)} v${escapeHtml(pkg.version)}</dd></div>
-          </dl>
+        <section class="learn-section member-overview-intro">
           ${documentationLoading
             ? '<p class="docs-loading">Loading package documentation…</p>'
             : documentationError
@@ -4702,9 +4770,17 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   } else {
     assertNever(state.memberSection, "member section");
   }
+  if (!memberSectionUsesWorkingSurface(state.memberSection)) return content;
   // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
   // the top scope+lens bar, so the detail view renders only the section content itself.
-  return content;
+  return `
+    <section class="member-surface" aria-labelledby="member-surface-title">
+      <header class="api-surface-head member-surface-head">
+        <h1 id="member-surface-title">${escapeHtml(member.name)}</h1>
+        <p>${escapeHtml(member.kind)} <span>· ${overloadIndex + 1} of ${member.overloads.length}</span></p>
+      </header>
+      <div class="member-surface-scroll">${content}</div>
+    </section>`;
 }
 
 // The annotated section renders the product's portable AnnotatedSourceDocument directly: canonical
@@ -5165,10 +5241,8 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
-      state.libraryScope = null;
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-      focusFilter({ immediate: true });
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -5243,6 +5317,9 @@ function bindTypePanelEvents() {
       normalizeMemberSelection();
       renderPreservingMemberFocus();
     },
+    onMemberFilterDisclosureToggle: expanded => {
+      state.memberFiltersExpanded = expanded;
+    },
     onMemberFilterClear: () => {
       resetMemberFilters();
       normalizeMemberSelection();
@@ -5308,6 +5385,9 @@ function bindTypePanelEvents() {
       resetMemberFilters();
       render();
       focusFilter({ immediate: true });
+    },
+    onTypeFilterDisclosureToggle: expanded => {
+      state.typeFiltersExpanded = expanded;
     },
     onTypeFilterEscape: () => {
       state.typeFilter = "";
@@ -6771,6 +6851,18 @@ function focusFilter(
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
+    const memberDisclosure = input.closest<HTMLDetailsElement>(
+      "[data-member-filter-disclosure]");
+    const typeDisclosure = input.closest<HTMLDetailsElement>(
+      "[data-type-filter-disclosure]");
+    const disclosure = memberDisclosure ?? typeDisclosure;
+    if (disclosure && !disclosure.open) {
+      if (memberDisclosure)
+        state.memberFiltersExpanded = true;
+      else
+        state.typeFiltersExpanded = true;
+      disclosure.open = true;
+    }
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
   };

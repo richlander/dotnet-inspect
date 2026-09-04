@@ -2818,7 +2818,12 @@ public static class IrImporter
     // difference between an old-rules and a new-rules build (an `unsafe` block or
     // member modifier has no IL representation), so it is what the printer keys
     // on to choose explicit `unsafe { }` blocks over the member modifier.
-    static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
+    //
+    // Internal rather than private because recompilation must replay the exact
+    // mode the printer used. The decompiler harness calls this same predicate so
+    // the two cannot drift; deriving the harness mode from a separate reader
+    // (however more faithful) reintroduces that drift.
+    internal static bool ModuleUsesUpdatedMemorySafetyRules(MetadataReader reader)
     {
         foreach (var handle in reader.GetModuleDefinition().GetCustomAttributes())
             if (AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor)

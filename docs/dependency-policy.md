@@ -109,8 +109,9 @@ The checked-in rules provide full gate coverage for these dependency claims:
    documented source-neutral `DotnetInspector.Artifacts` exception.
 3. Product libraries use only repository and platform assemblies unless an
    owner-specific rule names an external assembly. Markout is admitted only at
-   the metadata-rendering boundary; package, query, service, and NuGet
-   acquisition libraries retain their explicit narrow exceptions.
+   the metadata-rendering and shared-presentation boundaries; package, query,
+   service, and NuGet acquisition libraries retain their explicit narrow
+   exceptions.
 4. The direct project and compiled dependencies of the CSharp, Metadata,
    Instructions, Analysis, ILDiff, Decompiler, SourceLink, Research,
    JavaScript-export, and TypeScript-generation components stay within their
@@ -138,6 +139,12 @@ non-vacuity, deterministic DP0001/DP0002 outcomes, and a real evaluated
 project closure and the fail-closed collision, target-output, metadata, and
 reference-decoding boundaries. The final command evaluates the real Release
 project and assembly graphs.
+
+Pull-request and merge-group candidates run both the tests and real policy in
+the Release test job. Every push to `main` also builds the Release graph and
+runs the real policy in a focused post-merge job. That post-merge gate catches
+interactions between independently validated PRs without repeating the complete
+test suite, and `ci-required` includes its result.
 
 ## Non-claims
 
