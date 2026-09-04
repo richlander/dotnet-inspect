@@ -962,7 +962,7 @@ test("explicit coordinate changes discard a floating canonical basis", () => {
   assert.match(packageFramework, /invalidateWorkspaceShareBasis: true/);
   assert.match(
     packageLoader,
-    /if \(options\.invalidateWorkspaceShareBasis\)\s*state\.workspaceShareBasis = null;\s*activatePackage/);
+    /activatePackage\(packageModel, \{ resetAccessibility: true \}\);[\s\S]*if \(options\.invalidateWorkspaceShareBasis\)\s*state\.workspaceShareBasis = null;/);
   assert.match(
     platformVersion,
     /if \(!loaded\)[\s\S]*return;[\s\S]*state\.workspaceShareBasis = null;[\s\S]*activatePackage/);
@@ -6410,6 +6410,18 @@ test("dependency group selection resets when package identity changes", () => {
   assert.match(
     appSource,
     /const changed = !packageIdentityEquals\(state\.package, pkg\);\s+state\.workspaceSubjectOpen = false;\s+state\.package = pkg;\s+if \(changed\)\s+state\.dependenciesGroupIndex = null;/);
+  const applyLoaded =
+    appSource.match(/function applyLoadedWorkspacePackage\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    applyLoaded,
+    /activatePackage\(target, \{ resetAccessibility: true \}\);\s*if \(workspaceDisposition === "replace"\)\s*replaceWorkspacePackagesWith\(target\);/);
+  const loadPackage =
+    appSource.match(/async function loadPackage\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    loadPackage,
+    /activatePackage\(packageModel, \{ resetAccessibility: true \}\);\s*if \(options\.workspaceDisposition === "replace"\)\s*replaceWorkspacePackagesWith\(packageModel\);/);
 });
 
 test("missing exact dependency groups never create graph edges", () => {

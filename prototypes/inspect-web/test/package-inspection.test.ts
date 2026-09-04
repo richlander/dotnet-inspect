@@ -862,6 +862,46 @@ test("re-added packages do not reuse invalidated package results", async () => {
   assert.equal(queries, 2);
 });
 
+test("invalidation retires pending workspace dependency authority", async () => {
+  const packageItem = packageModel();
+  const firstRequest = deferred<BrowserPackageDependencies>();
+  let queries = 0;
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => {
+        queries++;
+        return queries === 1
+          ? firstRequest.promise
+          : dependencyResult();
+      },
+    }));
+
+  const staleLoad = coordinator.ensureWorkspaceDependencies();
+  assert.deepEqual(
+    [...state.workspaceDependencyLoads],
+    [workspaceDependencyKey(packageItem)]);
+
+  coordinator.invalidatePackageResults();
+  assert.equal(state.workspaceDependencyLoads.size, 0);
+
+  firstRequest.resolve(dependencyResult());
+  await staleLoad;
+  assert.equal(
+    Object.hasOwn(
+      state.workspaceDependencies,
+      workspaceDependencyKey(packageItem)),
+    false);
+
+  await coordinator.ensureWorkspaceDependencies();
+  assert.equal(queries, 2);
+  assert.equal(
+    Object.hasOwn(
+      state.workspaceDependencies,
+      workspaceDependencyKey(packageItem)),
+    true);
+});
+
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
   const partial = packageModel({ id: "Example.Partial" });

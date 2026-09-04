@@ -167,6 +167,7 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
+  let workspaceDependencyGeneration = 0;
   let metadataRequestSequence = 0;
 
   const clearPackageResults = () => {
@@ -203,6 +204,7 @@ export function createPackageInspectionCoordinator(
   });
 
   const ensureWorkspaceDependencies = async () => {
+    const generation = workspaceDependencyGeneration;
     const missing = state.packages.filter(packageModel =>
       !packageModel.isRuntimePack
       && !Object.hasOwn(
@@ -215,11 +217,13 @@ export function createPackageInspectionCoordinator(
       return;
     }
     for (const packageModel of missing) {
+      if (generation !== workspaceDependencyGeneration) return;
       const key = workspaceDependencyKey(packageModel);
       if (!packageIsResident(state.packages, packageModel)) continue;
       state.workspaceDependencyLoads.add(key);
       try {
         const result = await dependencies.queryDependencies(packageModel);
+        if (generation !== workspaceDependencyGeneration) continue;
         if (!packageIsResident(state.packages, packageModel)) continue;
         state.workspaceDependencies[key] = {
           dependencyGroups: result?.dependencyGroups || [],
@@ -240,10 +244,12 @@ export function createPackageInspectionCoordinator(
         state.workspaceDependencyErrors[key] =
           dependencies.describeError(error);
       } finally {
-        state.workspaceDependencyLoads.delete(key);
+        if (generation === workspaceDependencyGeneration)
+          state.workspaceDependencyLoads.delete(key);
       }
     }
 
+    if (generation !== workspaceDependencyGeneration) return;
     if (state.atPackageRoot && state.packageLens === "dependencies") {
       dependencies.render();
     }
@@ -253,7 +259,9 @@ export function createPackageInspectionCoordinator(
   return {
     invalidatePackageResults() {
       packageResultGeneration++;
+      workspaceDependencyGeneration++;
       metadataRequestSequence++;
+      state.workspaceDependencyLoads.clear();
       clearPackageResults();
     },
 

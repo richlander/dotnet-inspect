@@ -2334,9 +2334,9 @@ function applyLoadedWorkspacePackage(
   workspaceDisposition: WorkspacePackageDisposition,
 ) {
   state.home = false;
+  activatePackage(target, { resetAccessibility: true });
   if (workspaceDisposition === "replace")
     replaceWorkspacePackagesWith(target);
-  activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
   state.selectedTypeId = "";
   state.selectedMemberKey = "";
@@ -11334,11 +11334,11 @@ async function loadPackage(
     });
     if (!packageModel) return null;
     if (background) return packageModel;
+    activatePackage(packageModel, { resetAccessibility: true });
     if (options.workspaceDisposition === "replace")
       replaceWorkspacePackagesWith(packageModel);
     if (options.invalidateWorkspaceShareBasis)
       state.workspaceShareBasis = null;
-    activatePackage(packageModel, { resetAccessibility: true });
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
