@@ -997,17 +997,41 @@ rows or declared depths exceed the envelope is rejected as malformed instead
 of being converted into a bound marker.
 
 The host or query coordinator is the operation driver. After an explicit query
-returns evidence, the Browser or CLI may submit `ExpandDependencies` and then
-rerun the query against the resulting revision. This owner never self-schedules
-expansion, repeats a query, or expands merely because a scope is registered.
-The follow-up query covers the complete current Ready Root sequence again; the
-unevaluated frontier is visible disclosure, not authority to submit a
-frontier-only evidence batch.
+and any required adjacent-owner adapter produce one complete
+`ExternalDependencyEvidenceBatch`, the Browser or CLI may submit
+`ExpandDependencies` and then rerun the query against the resulting revision.
+This owner never self-schedules expansion, repeats a query, or expands merely
+because a scope is registered. The follow-up query covers the complete current
+Ready Root sequence again; the unevaluated frontier is visible disclosure, not
+authority to submit a frontier-only evidence batch.
 
 A raw unresolved `AssemblyRef` name is not a package coordinate. This owner
 must not search a package catalog by assembly name, concatenate a prefix, or
-guess package ownership. Exact-package and package-prefix scopes can match only
-evidence carrying package-owner-issued coordinate correspondence.
+guess package ownership. Exact-package and package-prefix policy matching
+requires package-owner-issued canonical package identity; admission additionally
+requires the exact owner-issued acquisition coordinate used for candidate
+correspondence and capacity.
+
+The landed [Package Dependency Evidence
+Query](package-dependency-evidence.md) supplies canonical package identity and
+version-constraint declarations but deliberately does not claim a resolved
+dependency version for package manifests. That result is not directly a
+submit-ready expansion batch. [#5765](https://github.com/richlander/dotnet-inspect/issues/5765)
+owns the focused host-neutral composition from eligible declaration evidence
+through package-source authorization and version-constraint resolution to an
+owner-issued exact acquisition candidate. Until that adapter lands, a
+package-manifest relationship without such a coordinate is `unsupported` and
+remains visible as incomplete evidence; a host must not reinterpret an omitted
+version as latest or resolve the constraint through an ad hoc path.
+
+Closed evaluation and expansion-scope registration invoke no #5765 work. For a
+selectively open Workspace, the coordinator may ask the adapter only about
+dependency identities that match an exact-package or package-prefix scope. The
+adapter preserves producer order and returns exact candidate, failure, or
+incomplete evidence; Scope still performs exact-coordinate coalescing and Root
+capacity assignment before Artifact preparation. Restored-project evidence
+that already names an exact resolved coordinate passes through the same
+candidate-result contract without redundant range resolution.
 
 Package sets are explicit Root-request producers, not dependency-expansion
 scopes. An ecosystem-pack package-set selection returns only `PackageSetId`;
@@ -1184,6 +1208,7 @@ The implementation must demonstrate:
 | User cancels a slow Add | The Add returns `Cancelled`, the prior revision remains current, and provisional resources release |
 | Cancellation arrives after the parent final commit starts | Publication wins; the complete committed logical and physical result returns rather than a false `Cancelled` result |
 | Prefix scope matches text but evidence is only an `AssemblyRef` | No expansion; the exact unsupported boundary remains visible |
+| Prefix scope matches a package-manifest declaration before #5765 supplies an exact candidate | No ad hoc range-to-latest conversion; the relationship remains visible as unsupported incomplete evidence |
 | One successful expansion appends a Root while another dependency is outside the registered scopes | `NotEvaluated` retains the new-Root frontier and the same-operation outside-boundary evidence |
 | Two dependency relationships name the same exact acquisition coordinate with one remaining Root slot | One candidate is prepared and admitted; both relationships settle against it and neither becomes `CapacityDeclined` |
 | Four eligible dependencies realize and one fails | One atomic revision appends the three successful Roots and records the failure plus those new Roots as an unevaluated frontier |
@@ -1248,7 +1273,8 @@ or artifact evidence later claimed by those owners.
 | `EmptyExpansionScopes_MeanClosedBoundary` | Closed is derived from the empty scope set and causes no acquisition. |
 | `ExpansionScopeRegistration_PerformsNoDiscoveryOrAcquisition` | Registration only changes logical eligibility. |
 | `ClosedExpansion_EvidenceRemainsClosedAndPerformsNoPreparation` | An empty scope set has precedence, records observed outside-boundary and producer-bound evidence, performs no source, acquisition, or receipt work, and uses the receipt-free parent gate only when closure changes. |
-| `PackageExpansion_RequiresOwnerIssuedCoordinateEvidence` | Package scopes cannot match assembly names, labels, or uncorrelated references. |
+| `PackageExpansion_RequiresOwnerIssuedIdentityAndCandidate` | Package scopes never match assembly names, labels, or uncorrelated references; policy uses owner-issued package identity and admission requires an exact owner-issued candidate. |
+| `PackageManifestConstraint_RequiresOwnerIssuedCandidate` | Declaration evidence without #5765's exact source-authorized candidate remains visible as unsupported; Scope and hosts never reinterpret a version range as latest. |
 | `Expansion_CommitsSuccessfulCandidatesWithExactIncompleteEvidence` | Successfully prepared selected candidates publish atomically; every unsupported, capacity-declined, rejected, or failed relationship and every producer-bound marker remains typed and visible. |
 | `Expansion_AddingRootsLeavesUnevaluatedFrontier` | A revision containing newly expanded Roots cannot claim those Roots were already evaluated. |
 | `Expansion_AddingRootsRetainsCurrentBoundaryEvidence` | A Root-adding expansion retains exact prior Ready-generation coverage, its new-Root frontier, and same-operation outside-boundary evidence in one `NotEvaluated` state. |
@@ -1315,8 +1341,11 @@ action, and receipt identities.
    `Microsoft.Extensions` membership under the 64-Root logical profile. Browser
    adoption #5576 separately owns the physical budget needed to realize that
    complete set.
-8. Implement the three typed expansion scopes and bounded dependency-evidence
-   loop.
+8. Land #5765's dependency-evidence-to-candidate adapter, then implement the
+   three typed expansion scopes and bounded dependency-evidence loop. Package
+   manifest dependencies remain unsupported until that adapter supplies exact
+   source-authorized candidates; restored-project evidence may already satisfy
+   that contract.
 9. Adopt the full Browser Workspace viewer/editor through the Inspect Web
    presentation and consumer owners.
 10. Have Workspace Definitions #5525 decide portable capacity and projection
