@@ -275,6 +275,25 @@ claiming either a complete graph or a certified absence. How a command
 presents a scan that carries rejections is a separate, CLI-owned concern,
 whose named consumer is #5632.
 
+Relationship facts are decoded during staging, while the owning participant is
+still in rejection scope, and strictly — a signature rejection is raised rather
+than collapsed to an absent name. Both choices are load-bearing. Decoding a
+base or interface token after the participant has published puts the failure
+outside any scope that can attribute it, which both aborts the surrounding scan
+and lets a malformed row shadow a healthy same-name definition. Resolving
+leniently is worse than either: the malformed participant publishes, silently
+loses the edge, and answers with a certified-looking empty graph.
+
+**Behavior change, and its cost.** Because staging validates *every* public
+type, one malformed type rejects the whole participant even when the caller
+asked about an unrelated healthy type in the same file. Before this contract,
+only the matched type's closure was decoded, so such a query answered. The
+scan now reports the rejection instead. This is the deliberate consequence of
+scoping rejections per participant: shadowing is decided at index time, so
+whether a row is trustworthy must be known before it is published. Narrowing
+the unit of rejection from the participant to the individual row would
+preserve both properties and is tracked by #5814 rather than taken up here.
+
 The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires
 universal adoption. Further adoption is deferred rather than scheduled: it is
