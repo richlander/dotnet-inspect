@@ -324,7 +324,7 @@ its own demand evidence, and the following subsection lists meanings that do
 not. Membership here means exactly that and nothing more.
 
 **Requirement 5 is not met by the tree today.** It is the one requirement the
-existing components were written without. Auditing all six rows found three
+existing components were written without. Auditing all six rows found four
 failures, so requirement 5 is stated here as a forward contract, not as
 something the precedents demonstrate.
 
@@ -333,21 +333,30 @@ the disposition it received without parsing prose. It fails in two ways, and
 the audit found both — a reachable disposition with *no case at all*, and one
 recoverable only from a `Detail` string.
 
-A fourth row is broken in a way requirement 5 does not describe, and the
-difference matters enough to keep separate. Publishing a coarse outcome says
-*less* than the substrate knows; publishing the wrong outcome says something
-**untrue about the artifact**. The state-machine index does the second, and no
-enrichment of its vocabulary alone fixes it — the mapping is wrong, not just
-narrow.
+**Publishing a wrong case is a second, separate defect**, and one row commits
+both. A missing case makes a substrate say *less* than it knows. A wrong case
+makes it say something **untrue about the artifact**, which is worse: a
+consumer acting on it reports a defect that does not exist. These are separate
+obligations — the vocabulary must *contain* the case, and the implementation
+must *route to* it — and satisfying the first does not discharge the second.
+Requirement 5 can only ever enforce the first, which is recorded under
+**Open questions**.
 
 | Established meaning | Requirement 5 today |
 | --- | --- |
-| State-machine claims and kickoff/type pairing | **Fails.** An out-of-range caller handle routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`). The vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). |
+| State-machine claims and kickoff/type pairing | **Fails — no case at all, and the wrong case published in its place.** "The caller supplied an invalid handle" is reachable, and the vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). A nil or out-of-range handle instead routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`) — a claim about the *artifact*, when the artifact is fine. This is the only row with both defects, and adding the case would not by itself correct the routing. |
 | Exact `MoveNext` execution-role selection | Conforming — role selection and rejection are typed. |
 | Module memory-safety rules markers | Conforming — version, malformed, conflicting, unsupported, and budget states are each typed. |
 | Member unsafe contracts | **Fails.** The attribute-row budget (`MemorySafetyMetadataIndex.cs:748`-`752`), a `MetadataBudgetException` (`:801`-`803`), and malformed metadata (`:805`-`810`) all return `Unavailable`, published as `AttributeUnavailable`; the failure enum has no budget case (`:102`-`110`). |
 | Exact TypeDef declaration | **Fails.** Budget exhaustion is reported as `Malformed`: `MetadataTypeNameFailureMechanism` declares only `Metadata`, `Relationship`, `Signature`, and `TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`), and `Malformed` hard-codes `Mechanism.Metadata` (`:76`-`:82`). |
 | TypeDef kind classification | **Fails.** `MetadataTypeDefinitionKind` offers only `Unknown`, `Class`, `Interface`, `ValueType` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`), and `Unknown` is returned for bound exhaustion or a cycle (`MetadataTypeDeclarationProbe.cs:785`-`789`), an unsupported TypeSpec shape (`:818`-`857`), a rejected name read (`:864`-`881`), and malformed metadata (`:910`-`915`) — inside a success-shaped `Defined` result (`:640`-`648`). |
+
+Note the scope of the state-machine row precisely: it covers a **nil or
+out-of-range** handle, the case a range check can see. An in-range handle from
+a *different* module is not detected at all and yields a well-typed answer
+about the wrong row — a separate limit of the raw-handle key type, recorded in
+its own deviation and tracked under
+[#5711](https://github.com/richlander/dotnet-inspect/issues/5711).
 
 All four are recorded in **Known deviations** and tracked by
 [#5730](https://github.com/richlander/dotnet-inspect/issues/5730) and
@@ -355,11 +364,12 @@ All four are recorded in **Known deviations** and tracked by
 carrying a recorded deviation is non-conforming and tracked, not silently
 admitted, and **may not be cited as precedent for the requirement it fails**.
 
-That half the rows mishandle the same distinction — a bound *we* imposed
+That four of the six rows mishandle the same distinction — a bound *we* imposed
 versus a defect in the *artifact* — is the most useful thing this inventory
 found. Each component chose its own failure vocabulary in isolation, and each
-independently lost that distinction somewhere: two by omitting the case, one
-by hiding it in prose, one by asserting the wrong case. A shared contract is
+independently lost that distinction somewhere: three by omitting the case, one
+of those also publishing a wrong case in its place, and one by hiding the
+distinction in prose. A shared contract is
 the only thing that would have caught it, which is the argument for naming the
 pattern.
 
@@ -498,7 +508,7 @@ non-conforming work:
 | Substrate | Deviation | Evidence |
 | --- | --- | --- |
 | Type declaration and forwarding resolution | Budget exhaustion is reported as `Malformed`, collapsing the **Budget-limited** distinction into malformed metadata. A consumer cannot tell a hostile-artifact bound from a broken artifact. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:67` returns `TypeDeclarationResult.Rejected(MetadataTypeNameFailure.Malformed(...))` with the message "exceeded its structural-name work budget". |
-| `StateMachineRelationshipIndex` | **Not an outcome-collapse but a false outcome.** An out-of-range or foreign caller handle is published as `Rejected(Malformed)` — a closed, typed claim that the *artifact* is unreadable, when the artifact is fine. The vocabulary has `BudgetExceeded` but no `InvalidHandle`, so the correct disposition has nowhere to go. | `MalformedHandle` at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`, reached from `:139` and `:156`, versus the recoverable-failure path at `:124`-`127`; vocabulary at `src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
+| `StateMachineRelationshipIndex` | **A missing case, and a wrong one in its place.** The vocabulary has `BudgetExceeded` but no `InvalidHandle`, so the correct disposition has nowhere to go; a nil or out-of-range caller handle is published instead as `Rejected(Malformed)` — a claim that the *artifact* is unreadable, when the artifact is fine. Adding the case and routing to it are separate corrections. An in-range handle from another module is a different limit, tracked under [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). | `MalformedHandle` at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`, reached from `:139` and `:156`, versus the recoverable-failure path at `:124`-`127`; vocabulary at `src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
 | `MemorySafetyMetadataIndex` | Attribute-row budget, name-work budget, and malformed metadata all publish as `AttributeUnavailable`; the failure enum has no budget case. | `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:748`-`752`, `:801`-`803`, `:805`-`810`; enum at `:102`-`110`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
 | Type declaration and forwarding resolution | TypeDef **kind** collapses bound exhaustion, unsupported TypeSpec shapes, rejected name reads, and malformed metadata into `Unknown`, published inside a success-shaped `Defined` result. | `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:785`-`789`, `:818`-`857`, `:864`-`881`, `:910`-`915`, published at `:640`-`648`; enum at `src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`. Tracked as [#5730](https://github.com/richlander/dotnet-inspect/issues/5730). |
 | Type declaration and forwarding resolution | The whole-table paths take **no work bound at all**, so the construction rule above is unmet rather than merely misreported. Array sizes come straight from untrusted table counts. | `Probe` scans every TypeDef and ExportedType — `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:113`-`203`; the `Index` constructor allocates from `reader.TypeDefinitions.Count` and `reader.ExportedTypes.Count` and reads every entry — `:219`-`301`; reached lazily from `src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`-`375`. Only `ProbeDefinition` has a budget. Tracked as [#5731](https://github.com/richlander/dotnet-inspect/issues/5731). |
@@ -590,15 +600,21 @@ owner's effort — this document does not specify another owner's gates.
 ## Open questions
 
 **The admission test checks that a vocabulary is closed, not that it is used
-correctly.** Requirement 5 is an expressiveness property: every reachable
-disposition must have a published case. It is satisfied by a substrate whose
-cases are complete and whose mapping is wrong — which is what the
-state-machine index does when it reports an invalid caller handle as
-`Malformed`, a true-shaped claim about an artifact that is not at fault.
+correctly.** Requirement 5 quantifies over the *existence* of cases: every
+reachable disposition must have a published one. It says nothing about the
+mapping from state to case, so a substrate whose cases are complete and whose
+routing is wrong satisfies it exactly as well as a correct one.
 
-Requirement 5 cannot be extended to cover this without changing its character
-from a property of types to a property of behaviour, which no review of the
-published surface could check. The honest position is that correctness of
-mapping is a **testable** obligation rather than an admission one, and this
-document does not yet say which gate owns it. Recording it as open rather than
-inventing a requirement the admission test cannot enforce.
+This is a structural property of the requirement rather than an observation
+about any particular component, and it is stated that way deliberately. The
+tree offers no clean example — the state-machine index gets an invalid handle
+wrong, but it is *also* missing the `InvalidHandle` case, so it demonstrates
+both defects rather than isolating this one. A reviewer reading only the
+published types could not tell the two apart, which is the point.
+
+Requirement 5 cannot be extended to close this without changing its character
+from a property of types into a property of behaviour, which no review of a
+published surface can check. Correctness of mapping is therefore a
+**testable** obligation rather than an admission one, and this document does
+not yet say which gate owns it. Recorded as open rather than papered over with
+a requirement the admission test cannot enforce.
