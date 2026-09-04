@@ -1591,7 +1591,9 @@ test("application scopes yield before inspection identity without dropping focus
   await expect(query).toBeFocused();
 
   await page.keyboard.press("Tab");
-  await expect(page.locator("[data-scope='type']")).toBeFocused();
+  await expect(
+    page.locator(".slide-strip-subject [data-subject-tab]:focus"),
+  ).toHaveCount(1);
   await expect(page.locator(".titlebar > .application-scope-region"))
     .toBeHidden();
   await expect(page.locator(".slide-strip-subject")).toBeVisible();
