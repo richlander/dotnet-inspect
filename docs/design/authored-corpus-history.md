@@ -282,16 +282,24 @@ and fail-closed subsequent verification. Crash atomicity itself is not claimed.
 
 ## Durable verification and trust
 
-Complete-store verification proves, for every accepted row:
+Complete-store verification proves for the sequence:
 
 - strict physical framing and closed decoding;
-- required field presence and legal historical absence;
+- the singleton root and exact original grandfathered value; and
+- required field presence and legal historical absence.
+
+For every non-grandfathered observation it additionally proves:
+
 - well-formed identities and known methodology;
 - complete, nonnegative, closing measurement partitions;
 - internally derived percentage agreement;
 - commit or historical-prefix resolution, `origin/main` ancestry, and
-  methodology agreement at the resolved commit; and
-- exact preservation of the sole grandfathered observation.
+  methodology agreement at the resolved commit.
+
+The grandfathered observation has no retained evidence for complete
+partitions, derived percentage, commit resolution, ancestry, or methodology.
+Exact-value preservation admits that reduced historical evidence; it does not
+manufacture the missing proofs.
 
 `TrackedHistory_VerifiesUnchangedWithoutRequiringADeepCheckout` runs the typed
 verifier over the tracked bytes with repository provenance supplied by a
