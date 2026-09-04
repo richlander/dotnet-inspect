@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text.Json;
 
 using DotnetInspector.CommandLine;
 using DotnetInspector.Commands;
@@ -530,6 +531,51 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.Empty(error);
     }
 
+    [Theory]
+    [InlineData("1.0.0", "1.0.0")]
+    [InlineData("latest", "2.0.0")]
+    [InlineData("1.0.0..2.0.0", "1.0.0")]
+    [InlineData("2.0.0..1.0.0", "2.0.0")]
+    [InlineData("2.1.0-preview.1", "2.1.0-preview.1")]
+    public async Task FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity(
+        string selector,
+        string expectedVersion)
+    {
+        string packageName = $"FeedCoordinate{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                ["1.0.0", "2.0.0", "2.1.0-preview.1"],
+                [
+                    "package",
+                    $"{packageName}@{selector}",
+                    "--versions-with-feed",
+                    "-n",
+                    "1",
+                    "--json",
+                    "--source",
+                    SecondSource,
+                ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using JsonDocument document =
+            JsonDocument.Parse(output);
+        JsonElement row =
+            Assert.Single(
+                document.RootElement.EnumerateArray());
+        Assert.Equal(
+            expectedVersion,
+            row.GetProperty("version").GetString());
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                row.GetProperty("feed").GetString()));
+        Assert.Equal(
+            "listed",
+            row.GetProperty("listing").GetString());
+    }
+
     [Fact]
     public async Task StableSingleVersionListingDoesNotFallBackToPrerelease()
     {
@@ -720,6 +766,35 @@ public sealed class SourceScopedRoutingTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Equal("2.0.0", output.Trim());
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("requires credentials", error);
+        Assert.Contains(RefusedSource, error);
+    }
+
+    [Fact]
+    public async Task PackageVersionFeedListing_LimitOneStillReportsPartialEvidence()
+    {
+        string packageName = $"PartialLimitedFeedList{Guid.NewGuid():N}";
+
+        var (exit, output, error, _) =
+            await RunOnlineVersionFeedCommandAsync(
+                packageName,
+                "2.0.0",
+                [
+                    "package",
+                    packageName,
+                    "--versions-with-feed",
+                    "-n",
+                    "1",
+                    "--source",
+                    RefusedSource,
+                    "--source",
+                    SecondSource,
+                ],
+                refusedStatus: HttpStatusCode.Unauthorized);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("2.0.0", output, StringComparison.Ordinal);
         Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("requires credentials", error);
         Assert.Contains(RefusedSource, error);

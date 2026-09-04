@@ -367,6 +367,48 @@ public class PackageCommand
             {
                 try
                 {
+                    if (options.ListVersionsWithFeed)
+                    {
+                        var rangeFeeds =
+                            await PackageExtractor.GetVersionListingsWithSourceAsync(
+                                context.HttpClient,
+                                range!.PackageId,
+                                range.IncludesPrerelease
+                                    || options.IncludePrerelease,
+                                options.IncludeUnlisted,
+                                limit: null,
+                                logger.Log,
+                                options.SourceOptions);
+                        if (rangeFeeds == null)
+                        {
+                            WriteVersionLookupFailure(
+                                range.PackageId,
+                                $"Package '{range.PackageId}' not found on eligible configured sources.");
+                            return 1;
+                        }
+
+                        PackageVersionVector feedVector =
+                            PackageVersionVector.Create(
+                                range,
+                                rangeFeeds.Select(
+                                    row => row.Version),
+                                options.IncludePrerelease);
+                        List<PackageVersionSourceInfo> rangeFeedRows =
+                        [
+                            .. feedVector.Addresses.SelectMany(
+                                address =>
+                                    rangeFeeds.Where(
+                                        row => PackageVersionsEqual(
+                                            row.Version,
+                                            address.Version
+                                                .ToNormalizedString()))),
+                        ];
+                        return WriteVersionFeedRows(
+                            range.PackageId,
+                            rangeFeedRows,
+                            options);
+                    }
+
                     if (options.IncludeUnlisted)
                     {
                         // Listing-aware range: resolve the vector from the full listing (unlisted
@@ -470,7 +512,8 @@ public class PackageCommand
 
             if (!string.IsNullOrEmpty(versionQueryPinned)
                 && singleVersionListing
-                && !options.ForceLatest)
+                && !options.ForceLatest
+                && !options.ListVersionsWithFeed)
             {
                 if (!options.IncludeUnlisted
                     && NuGetCache.TryGetCachedPackage(
@@ -559,7 +602,9 @@ public class PackageCommand
                 return 1;
             }
 
-            if (singleVersionListing && options.ForceLatest)
+            if (singleVersionListing
+                && options.ForceLatest
+                && !options.ListVersionsWithFeed)
             {
                 var sources = NuGetSourceResolver.ResolveSourcesForPackage(
                     options.SourceOptions,
@@ -656,9 +701,20 @@ public class PackageCommand
 
             if (options.ListVersionsWithFeed)
             {
+                bool hasPinnedSemanticCoordinate =
+                    !string.IsNullOrEmpty(versionQueryPinned)
+                    && singleVersionListing
+                    && !options.ForceLatest;
                 var versionFeeds = await PackageExtractor.GetVersionListingsWithSourceAsync(
-                    context.HttpClient, normalizedName, options.IncludePrerelease,
-                    options.IncludeUnlisted, options.Limit, logger.Log, options.SourceOptions);
+                    context.HttpClient,
+                    normalizedName,
+                    options.IncludePrerelease
+                        || hasPinnedSemanticCoordinate,
+                    options.IncludeUnlisted
+                        || hasPinnedSemanticCoordinate,
+                    limit: null,
+                    logger.Log,
+                    options.SourceOptions);
                 if (versionFeeds == null)
                 {
                     WriteVersionLookupFailure(
@@ -667,22 +723,61 @@ public class PackageCommand
                     return 1;
                 }
 
-                if (!TrySelectVersionRows(
-                        versionFeeds,
-                        options,
-                        out IReadOnlyList<PackageVersionSourceInfo> visibleVersionFeeds))
+                if (hasPinnedSemanticCoordinate
+                    && versionQueryPinned is { } pinnedVersion)
                 {
-                    return 1;
+                    versionFeeds =
+                    [
+                        .. versionFeeds.Where(
+                            row => PackageVersionsEqual(
+                                row.Version,
+                                pinnedVersion)),
+                    ];
+                    if (versionFeeds.Count == 0)
+                    {
+                        if (HasVersionSourceFailures())
+                        {
+                            WriteVersionLookupFailure(
+                                normalizedName,
+                                $"Version '{pinnedVersion}' of package '{normalizedName}' not found.");
+                        }
+                        else
+                        {
+                            CommandError.Write(
+                                $"Version '{pinnedVersion}' of package '{normalizedName}' not found. Use --versions to see available versions.");
+                        }
+
+                        return 1;
+                    }
                 }
-                if (LensProjection.TryProject(
-                        options,
-                        "--versions-with-feed",
-                        visibleVersionFeeds.Count,
-                        out var feedExit,
-                        VersionFeedColumns(visibleVersionFeeds, options)))
-                    return feedExit;
-                OutputFormatter.WriteVersionFeedTable(visibleVersionFeeds, options, Console.Out);
-                return 0;
+
+                if (singleVersionListing
+                    && options.ForceLatest)
+                {
+                    PackageVersionSourceInfo? latest =
+                        versionFeeds.FirstOrDefault(
+                            row => row.Listed);
+                    if (latest is null)
+                    {
+                        WriteVersionLookupFailure(
+                            normalizedName,
+                            $"Package '{packageArgs[0]}' not found on eligible configured sources.");
+                        return 1;
+                    }
+
+                    versionFeeds =
+                    [
+                        .. versionFeeds.Where(
+                            row => PackageVersionsEqual(
+                                row.Version,
+                                latest.Version)),
+                    ];
+                }
+
+                return WriteVersionFeedRows(
+                    normalizedName,
+                    versionFeeds,
+                    options);
             }
 
             if (options.IncludeUnlisted)
@@ -1342,6 +1437,93 @@ public class PackageCommand
                     RowSelectionStageKind.Head
                     or RowSelectionStageKind.Tail
                 && operation.Count == 1) == true;
+
+    private static int WriteVersionFeedRows(
+        string packageName,
+        IReadOnlyList<PackageVersionSourceInfo> rows,
+        InspectionOptions options)
+    {
+        WritePartialVersionFeedWarning(packageName);
+        if (!TrySelectVersionRows(
+                rows,
+                options,
+                out IReadOnlyList<PackageVersionSourceInfo> visibleRows))
+        {
+            return 1;
+        }
+        if (LensProjection.TryProject(
+                options,
+                "--versions-with-feed",
+                visibleRows.Count,
+                out int exitCode,
+                VersionFeedColumns(visibleRows, options)))
+        {
+            return exitCode;
+        }
+
+        OutputFormatter.WriteVersionFeedTable(
+            visibleRows,
+            options,
+            Console.Out);
+        return 0;
+    }
+
+    private static bool PackageVersionsEqual(
+        string left,
+        string right)
+    {
+        return NuGet.Versioning.NuGetVersion.TryParse(
+                left,
+                out var leftVersion)
+            && NuGet.Versioning.NuGetVersion.TryParse(
+                right,
+                out var rightVersion)
+            ? NuGet.Versioning.VersionComparer
+                .VersionReleaseMetadata
+                .Equals(
+                    leftVersion,
+                    rightVersion)
+            : string.Equals(
+                left,
+                right,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasVersionSourceFailures() =>
+        FeedFailureTelemetry.Current?.Failures.Any(
+            failure => failure.Phase is
+                NetworkTrafficKind.PackageSourceDiscovery
+                or NetworkTrafficKind.PackageVersionList) == true;
+
+    private static void WritePartialVersionFeedWarning(
+        string packageName)
+    {
+        FeedFailure[] failures =
+        [
+            .. FeedFailureTelemetry.Current?.Failures.Where(
+                failure => failure.Phase is
+                    NetworkTrafficKind.PackageSourceDiscovery
+                    or NetworkTrafficKind.PackageVersionList)
+                ?? [],
+        ];
+        if (failures.Length == 0)
+            return;
+
+        CommandError.WriteWarning(
+            $"Version results for package '{packageName}' are partial.",
+            [
+                .. failures.Select(
+                    static failure => failure.Kind switch
+                    {
+                        FeedFailureKind.Authentication =>
+                            $"{failure.Url} — source requires credentials while {failure.PhaseText}.",
+                        FeedFailureKind.Authorization =>
+                            $"{failure.Url} — source denied access while {failure.PhaseText}.",
+                        _ =>
+                            $"{failure.Url} — {failure.StatusText} while {failure.PhaseText}.",
+                    }),
+            ]);
+    }
 
     private static void WriteVersionLookupFailure(
         string packageName,

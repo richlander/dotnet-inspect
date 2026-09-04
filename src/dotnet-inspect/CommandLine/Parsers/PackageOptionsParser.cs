@@ -82,8 +82,12 @@ public static class PackageOptionsParser
             ? libraryValue ?? ""
             : null;
 
+        bool hasExplicitVersionSelector =
+            parseResult.GetResult(args.VersionOption) is { Implicit: false };
         // Bare --version (no value): treat as a version query.
-        bool bareVersion = explicitVersion == null && parseResult.GetResult(args.VersionOption) is { Implicit: false };
+        bool bareVersion =
+            explicitVersion == null
+            && hasExplicitVersionSelector;
 
         bool showVersionsWithFeed =
             parseResult.GetValue(args.VersionsWithFeedOption);
@@ -94,7 +98,8 @@ public static class PackageOptionsParser
             || showVersionList;
         if ((showVersionList && showVersionsWithFeed)
             || (showPluralVersions
-                && (bareVersion || showLatestVersion)))
+                && (hasExplicitVersionSelector
+                    || showLatestVersion)))
         {
             return new InvalidArguments(
                 "--versions and --versions-with-feed cannot be combined "

@@ -407,6 +407,24 @@ public class PackageVersionTests
         Assert.Empty(root.Parse(args).Errors);
     }
 
+    [Fact]
+    public void Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] args =
+        [
+            "--out",
+            "--versions",
+            "2"
+        ];
+
+        Assert.False(
+            CommandLineBuilder.TryGetStaleArgumentError(
+                args,
+                root,
+                out _));
+    }
+
     [Theory]
     [InlineData("--versions", "--version")]
     [InlineData("--versions", "--latest-version")]
@@ -424,6 +442,38 @@ public class PackageVersionTests
             "-n",
             "2",
             conflictingSelector);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "cannot be combined",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not found",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("--version", "2.0.10")]
+    [InlineData("--version=2.0.10", null)]
+    public async Task Versions_ValuedSingularSelectorConflictsBeforeAcquisition(
+        string versionSelector,
+        string? versionValue)
+    {
+        string[] selectorArgs = versionValue is null
+            ? [versionSelector]
+            : [versionSelector, versionValue];
+        var (exit, output, error) = await RunAppAsync(
+            [
+                "package",
+                "ThisQueryMustNotReachTheNetwork",
+                "--versions",
+                "-n",
+                "2",
+                .. selectorArgs,
+            ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);

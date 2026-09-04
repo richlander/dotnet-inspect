@@ -79,15 +79,25 @@ public static class CommandLineBuilder
         bool isExplicitPackageVersionCommand =
             rawParse.CommandResult.Command.Name
                 == PackageCommand.Name;
+        bool isImplicitPackageVersionCandidate =
+            ArgumentPreprocessor.IsImplicitPackageCandidate(args);
         bool supportsValuedVersionSelectorGuidance =
             isExplicitPackageVersionCommand
-            || ArgumentPreprocessor.IsImplicitPackageCandidate(args);
+            || isImplicitPackageVersionCandidate;
+        string[] ownershipArgs = args;
+        ParseResult ownershipParse = rawParse;
+        if (isImplicitPackageVersionCandidate)
+        {
+            ownershipArgs = [PackageCommand.Name, .. args];
+            ownershipParse = rootCommand.Parse(ownershipArgs);
+        }
+
         return ArgumentPreprocessor.TryGetStaleArgumentError(
-            args,
-            rawParse,
+            ownershipArgs,
+            ownershipParse,
             supportsValuedVersionSelectorGuidance,
             requireOwnedVersionSelector:
-                isExplicitPackageVersionCommand,
+                supportsValuedVersionSelectorGuidance,
             out error);
     }
 
