@@ -174,9 +174,9 @@ snapshot runs and how its result changes round state.
 ### Obtain one snapshot
 
 Follow [GitHub status queries](github-status-queries.md) for API selection,
-request ordering, fixed-head checks, and response classification. This document
-does not restate those mechanics. It consumes one classified snapshot and
-applies the round transition below.
+request ordering, live-base conflict probing, fixed-head checks, and response
+classification. This document does not restate those mechanics. It consumes
+one classified snapshot and applies the round transition below.
 
 ### Apply the result
 
@@ -196,7 +196,7 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
+| GitHub reports a conflict, or the local live-base test merge conflicts | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
@@ -233,7 +233,9 @@ Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
 and exits before querying GitHub. A current run stops itself, clears the
 retained ID, obtains one snapshot, and may arm one successor only when the
-deadline still permits it.
+deadline still permits it. Retain `conflict-checked-base` with the wait state;
+each snapshot fetches the live base and locally tests it only when that exact
+tip has not already been checked for the expected head.
 
 For rate limits, never schedule before the query classification's
 retry-not-before time. GitHub documents `Retry-After` as authoritative,
@@ -244,10 +246,12 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, clear `schedule`, keep the
-unresolved predicates, publish the report below, set `rec=stop`, and end. This
-is an informational stop: it ends observation only and neither closes nor
-abandons the PR.
+When the budget expires with status unresolved, obtain a final snapshot. Do not
+publish the report below unless its fetched live base equals
+`conflict-checked-base`; classify and surface a fetch or probe failure instead.
+Then clear `schedule`, keep the unresolved predicates, publish the report, set
+`rec=stop`, and end. This is an informational stop: it ends observation only
+and neither closes nor abandons the PR.
 
 ### Status budget report
 
@@ -260,6 +264,7 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - Unresolved: <waiting predicates>
 - Last observation: ci-required=<state|not-observed>,
   mergeable=<true|false|null|not-observed> at <datetime>.
+- Local conflict probe: base=<40-character SHA>, checked at <datetime>.
 - Cause: <rate-limit evidence, transient failure, or still running/queued>.
 - Snapshots: <count>, last at <datetime>.
 - This is not a CI result. No failing check was observed. GitHub documents

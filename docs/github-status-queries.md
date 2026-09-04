@@ -92,6 +92,40 @@ and response headers; `--jq` selects values from the response body. See
 [required-check troubleshooting][required-checks],
 [REST pagination][pagination], and the [`gh api` manual][gh-api].
 
+## Probe the live base locally
+
+GitHub's test-merge result does not replace a local conflict probe during a
+bounded status wait. After the PR response validates lifecycle, head, and base
+ref, a reported GitHub conflict may short-circuit the snapshot. Otherwise,
+fetch the live base non-mutating before querying checks:
+
+```bash
+git fetch origin "$base_ref"
+base_tip=$(git rev-parse FETCH_HEAD)
+```
+
+Compare `base_tip` with the `conflict-checked-base` recorded for the expected
+head and base ref. When no tip is recorded or the tip changed, run the
+non-mutating test merge:
+
+```bash
+git merge-tree --write-tree "$head_sha" "$base_tip"
+```
+
+Exit status zero records `conflict-checked-base=$base_tip` and allows the
+snapshot to continue. Exit status one means the candidate conflicts with the
+live base and enters conflict recovery before any CI query. Any other exit
+status is a probe failure, not evidence of either outcome; classify a concrete
+transport failure as transient and an invalid ref, missing object, or command
+failure as terminal.
+
+Fetch on every scheduled snapshot so base movement is discovered, but rerun
+the test merge only for an unrecorded tip. Base movement alone does not
+invalidate the candidate, trigger integration, or spend review evidence. The
+probe establishes only whether Git can form a tree merge for that head and
+base tip; it does not establish CI state, semantic non-interaction, or merge
+authorization.
+
 ## Graph-shaped snapshots
 
 When GraphQL is justified, request the lifecycle and fixed-head fields needed
@@ -104,8 +138,8 @@ is missing. These fields and the `MergeableState` and `MergeStateStatus` enums
 are defined in the [GraphQL object][graphql-pr] and
 [enum][graphql-enums] references.
 
-Use `git fetch`, not GraphQL, to discover the live base tip for carry-forward
-analysis.
+Use `git fetch`, not GraphQL, to discover the live base tip for local conflict
+probes and carry-forward analysis.
 
 ## Classify failures
 
@@ -152,6 +186,8 @@ Keep these distinctions:
   `mergeable: MERGEABLE` positive mergeability. GitHub explicitly documents
   the GraphQL value in terms of merge conflicts and documents the REST value as
   the result of its test-merge computation.
+- A local conflict against the fetched live base takes precedence over positive
+  or pending GitHub mergeability and enters conflict recovery.
 - A missing `ci-required` is inconclusive, not green.
 - GitHub branch protection accepts required-check conclusions `success`,
   `skipped`, and `neutral`. This repository deliberately uses the stricter
