@@ -502,7 +502,7 @@ or display text.
 A `Selection required` Member state remains distinct from unavailable or
 failed. Its hierarchy item is enabled, labelled `Choose a member`, carries no
 product action ID, and uses `aria-controls` to identify the Member choices
-surface. It is neither `aria-current` nor `aria-disabled`; at a narrow viewport
+surface. It is neither `aria-current` nor `aria-disabled`.
 Activation is a local presentation action: it closes the hierarchy menu and
 moves focus to the first owner-ordered visible Member row in the navigation
 pane. If host filters hide every row, focus moves to the Member text filter

@@ -961,6 +961,9 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*queryDependencies:[\s\S]*queryPackageIntegrations:[\s\S]*queryPlatformMetadata:/);
   assert.match(
     appSource,
+    /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
+  assert.match(
+    appSource,
     /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageModel\.assemblyId\)/);
   for (const engine of [
     "inspectPackageIntegrations",

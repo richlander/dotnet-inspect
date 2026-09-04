@@ -3791,7 +3791,7 @@ const packageInspection = createPackageInspectionCoordinator({
     platformPackForAssembly(assemblyName) ?? "",
   describeError: errorMessage,
   refreshPackageStats,
-  render,
+  render: renderPreservingMemberFocus,
   renderDependencyGraph,
 });
 
