@@ -17,8 +17,11 @@ the higher source's registration and flat-container resources authoritatively re
 package version is absent; an unreadable or metadata-incapable higher source produces no metadata
 rather than borrowing another feed's answer.
 
-Metadata cache entries include the canonical source identity, so equal package coordinates from
-different feeds cannot share aggregate metadata. The
+Current metadata cache keys include a source-URL-derived key, so many distinct feeds do not share
+aggregate metadata. The target
+[package metadata persistence](package-metadata-persistence.md) contract instead requires a
+package-owner-issued durable configured-authority key, complete current-format observations, and
+time-bounded present or absent reuse. The
 [package index cache](package-index-cache.md) separately owns persistent
 filesystem-derived inspection results. Its current producer-scoped key is a
 legacy boundary; the target consumes package-owned authority and retained
