@@ -41,7 +41,8 @@ public static class MemberOptionsParser
                 ? sourceInputs.Args[typeIndex]
                 : null;
         List<string> positionalMembers =
-            sourceInputs.Args.Length > typeIndex + 1
+            typeIndex >= 0
+            && sourceInputs.Args.Length > typeIndex + 1
                 ? [.. sourceInputs.Args[(typeIndex + 1)..]]
                 : [];
         string[] optionMembers =
@@ -93,6 +94,11 @@ public static class MemberOptionsParser
                 args.PackageOption,
                 args.AssemblyOption,
                 args.PlatformOption);
+        error =
+            SharedParsers.GetStructuralUnrecognizedOptionError(
+                sourceInputs);
+        if (error is not null)
+            return true;
         string[] optionMembers =
             parseResult.GetValue(args.MemberOption) ?? [];
         bool ctor = parseResult.GetValue(args.CtorOption);
@@ -116,7 +122,8 @@ public static class MemberOptionsParser
             ? sourceInputs.Args[typeIndex]
             : null;
         List<string> positionalMembers =
-            sourceInputs.Args.Length > typeIndex + 1
+            typeIndex >= 0
+            && sourceInputs.Args.Length > typeIndex + 1
                 ? [.. sourceInputs.Args[(typeIndex + 1)..]]
                 : [];
         ApplySyntacticMemberSplit(
@@ -136,6 +143,7 @@ public static class MemberOptionsParser
         ];
         targetFree =
             string.IsNullOrWhiteSpace(typeName)
+            && sourceInputs.Args.Length == 0
             && !sourceInputs.HasExplicitSource
             && !hasProjectSource
             && members.Length == 0

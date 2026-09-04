@@ -637,11 +637,16 @@ public static class RouterCommandDefinition
                 tail,
                 rootCommand,
                 out string libraryValue);
+            bool hasPackageRelativeLibrary =
+                hasLibraryValue
+                && SourceResolver
+                    .IsPackageRelativeLibraryValue(libraryValue);
             bool hasExplicitApiSource =
                 ContainsOption(tail, "--package")
                 || ContainsOption(tail, "--platform")
                 || ContainsOption(tail, "--project")
-                || hasLibraryValue;
+                || (hasLibraryValue
+                    && !hasPackageRelativeLibrary);
             bool hasVersionQuery =
                 ContainsOption(tokens, "--version")
                 || CommandLineHelpers.IsBooleanOptionEnabled(
@@ -652,8 +657,7 @@ public static class RouterCommandDefinition
                     tokens,
                     "--versions-with-feed");
             bool hasStructuralPackageAssetPath =
-                hasLibraryValue
-                && IsPackageRelativeLibraryPath(libraryValue)
+                hasPackageRelativeLibrary
                 && (libraryValue.Contains('/')
                     || libraryValue.Contains('\\'));
 
@@ -676,6 +680,13 @@ public static class RouterCommandDefinition
                     structuralSchema,
                     out rewritten))
             {
+                return true;
+            }
+
+            if (hasTypeOption
+                && hasPackageRelativeLibrary)
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
                 return true;
             }
 
@@ -744,7 +755,7 @@ public static class RouterCommandDefinition
                 && !ContainsOption(tail, "--package")
                 && !ContainsOption(tail, "--platform")
                 && !ContainsOption(tail, "--project")
-                && IsPackageRelativeLibraryValue(libraryValue)
+                && hasPackageRelativeLibrary
                 && (!structuralSchema
                     || hasStructuralPackageAssetPath))
             {
@@ -913,9 +924,10 @@ public static class RouterCommandDefinition
             }
 
             memberSelector = target[(memberBoundary + 1)..];
-            if (!MemberTargetSelector.Parse(memberSelector).Name.StartsWith(
-                    "op_",
-                    StringComparison.Ordinal))
+            if (!OperatorNames.IsMetadataOperatorName(
+                    MemberTargetSelector
+                        .Parse(memberSelector)
+                        .Name))
             {
                 typeTarget = "";
                 memberSelector = "";
@@ -1252,29 +1264,6 @@ public static class RouterCommandDefinition
                     static command => command.Options))
                 .FirstOrDefault(
                     option => MatchesOption(option, optionName));
-        }
-
-        private static bool IsPackageRelativeLibraryValue(string value)
-        {
-            if (value.StartsWith('-'))
-                return false;
-
-            if (SourceResolver.IsLibrarySelector(value, package: null))
-                return true;
-
-            return IsPackageRelativeLibraryPath(value)
-                && value.EndsWith(
-                    ".dll",
-                    StringComparison.OrdinalIgnoreCase)
-                && !CommandLineHelpers
-                    .IsExplicitLibraryPath(value);
-        }
-
-        private static bool IsPackageRelativeLibraryPath(string value)
-        {
-            // A hygienic relative asset path is authoritative even when the target
-            // resembles a type; consulting cwd would make routing nondeterministic.
-            return PackageCoordinateResolver.IsPackageRelativeAssetPath(value);
         }
 
         private static bool IsExplicitSourceIdentity(

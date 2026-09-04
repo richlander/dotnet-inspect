@@ -249,7 +249,13 @@ public static class TypeCommand
 
                     // The type resolved after all, so a select the preamble deferred was never a
                     // listing request. Report it against the pipeline that is rendering.
-                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                    if (ApiCommand.RejectDeferredSelectForSingleType(
+                            options,
+                            memberPipeline)
+                        || ApiCommand
+                            .RejectDeferredDiscoveryForSingleType(
+                                options,
+                                memberPipeline))
                         return 1;
 
                     // Check each member filter before producing output
@@ -452,11 +458,45 @@ public static class TypeCommand
                     if (selectedSurfaceExitCode != 0)
                         return selectedSurfaceExitCode;
                 }
+                else if (options.EffectiveDiscovery
+                    && options.DiscoverDeferredToListing)
+                {
+                    if (TryWritePrefixBrowse(
+                            api,
+                            apiDllPath,
+                            originalTypeQuery,
+                            typeName,
+                            packageName,
+                            apiSource,
+                            apiVersion,
+                            selectedTfm,
+                            options,
+                            typePipeline)
+                        is { } prefixBrowseExitCode)
+                    {
+                        return prefixBrowseExitCode;
+                    }
+
+                    var widePrefixExitCode =
+                        await TryExecuteWidePlatformPrefixFallbackAsync(
+                            options,
+                            originalTypeQuery,
+                            typePipeline);
+                    if (widePrefixExitCode.HasValue)
+                        return widePrefixExitCode.Value;
+
+                    ApiCommand
+                        .RejectDeferredDiscoveryForSingleType(
+                            options,
+                            memberPipeline);
+                    return 1;
+                }
                 else if (options.EffectiveDiscovery)
                 {
                     // A deferred select belongs to this listing, and discovery filters by it, so it
                     // has to be resolved before the filter is applied rather than after.
                     if (options.SelectDeferredToListing
+                        || options.DiscoverDeferredToListing
                         || options.Select is { Length: > 0 }
                         || options.SelectDefault)
                     {
@@ -489,7 +529,8 @@ public static class TypeCommand
                     apiSource,
                     apiVersion,
                     selectedTfm,
-                    options) is { } prefixBrowseExitCode)
+                    options,
+                    typePipeline) is { } prefixBrowseExitCode)
                 {
                     if (prefixBrowseExitCode != 0)
                         return prefixBrowseExitCode;
@@ -504,7 +545,13 @@ public static class TypeCommand
                     // deferred select, because a glob never enters the preamble as a single type --
                     // so a deferred select has no listing to belong to and is reported the way the
                     // preamble would have reported it.
-                    if (ApiCommand.RejectDeferredSelectForSingleType(options, memberPipeline))
+                    if (ApiCommand.RejectDeferredSelectForSingleType(
+                            options,
+                            memberPipeline)
+                        || ApiCommand
+                            .RejectDeferredDiscoveryForSingleType(
+                                options,
+                                memberPipeline))
                         return 1;
 
                     if (lookupResult.Suggestions.Count > 0)
@@ -715,6 +762,7 @@ public static class TypeCommand
         // preamble deferred resolves here, against the pipeline doing the rendering. Without this
         // the deferred select would be dropped and the listing would ignore -S entirely.
         if (browseOptions.SelectDeferredToListing
+            || browseOptions.DiscoverDeferredToListing
             || browseOptions.Select is { Length: > 0 }
             || browseOptions.SelectDefault)
         {
@@ -978,7 +1026,8 @@ public static class TypeCommand
         string? apiSource,
         string? apiVersion,
         string? selectedTfm,
-        TypeOptions options)
+        TypeOptions options,
+        SectionPipeline<ApiSurface> typePipeline)
     {
         if (options.BodyKindQuery.HasFilter || string.IsNullOrWhiteSpace(originalTypeQuery))
             return null;
@@ -1010,6 +1059,35 @@ public static class TypeCommand
         var resolved = ApiCommand.ReresolveSectionsForListing(browseOptions);
         if (resolved == null)
             return 1;
+
+        if (resolved.EffectiveDiscovery)
+        {
+            var schema =
+                ApiViewContext.Default
+                    .GetSchemaInfo<CliApiSurface>()!
+                    .ToDocumentSchema();
+            var effective =
+                typePipeline.GetDiscoverableSections(
+                    api,
+                    resolved.IncludeSections);
+            return DiscoverOutput.ExecuteEffective(
+                resolved.Discover,
+                effective,
+                schema,
+                tree: resolved.Tree,
+                json: resolved.JsonOutput,
+                tsv: resolved.Tsv,
+                jsonl: resolved.Jsonl,
+                markdown:
+                    !resolved.Tabular
+                    && !resolved.JsonOutput,
+                verbosity: (int)resolved.Verbosity,
+                sectionCostAnnotations:
+                    typePipeline.GetCostAnnotations(),
+                sectionCategories:
+                    typePipeline.GetCategoryMap(),
+                projection: resolved);
+        }
 
         return ApiCommand.WriteFullApiOutput(api, resolved, selectedTfm);
     }

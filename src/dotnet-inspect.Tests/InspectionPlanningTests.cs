@@ -1128,6 +1128,8 @@ public sealed class InspectionPlanningTests
         var result = await RunAppAsync(
             "type",
             "System.String",
+            "--platform",
+            "System.Private.CoreLib",
             "-D",
             "--schema",
             "--table",
@@ -2740,7 +2742,7 @@ public sealed class InspectionPlanningTests
                 "member",
                 "Missing.Type",
                 "--library",
-                "missing-for-schema.dll",
+                "./missing-for-schema.dll",
                 .. projection,
             ]);
 
@@ -2932,6 +2934,219 @@ public sealed class InspectionPlanningTests
         Assert.Equal(explicitMarkdownResult, defaultResult);
         Assert.Equal(0, defaultResult.Exit);
     }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task StaticSchemaRejectsUnrecognizedOptions(
+        string command)
+    {
+        var result = await RunAppAsync(
+            command,
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--bogus",
+            "-D",
+            "--schema",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Unrecognized option '--bogus'",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessStaticSchemaRejectsUnrecognizedOptions()
+    {
+        var result = await RunAppAsync(
+            "System.String",
+            "--platform",
+            "System.Private.CoreLib",
+            "--bogus",
+            "-D",
+            "--schema",
+            "--count",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Unrecognized option '--bogus'",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task PackageRelativeLibraryPrecedesCommandlessTypeFilter()
+    {
+        string[] tail =
+        [
+            "--library",
+            "lib/net8.0/Missing.dll",
+            "-t",
+            "Missing.Type",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var commandless = await RunAppAsync(
+            ["Missing.Package", .. tail]);
+        var explicitPackage = await RunAppAsync(
+            ["package", "Missing.Package", .. tail]);
+
+        Assert.Equal(explicitPackage, commandless);
+        Assert.Equal(0, commandless.Exit);
+        Assert.Contains(
+            "SourceLink: Files",
+            commandless.Output);
+    }
+
+    [Fact]
+    public async Task ExplicitSourceOrdinaryOpPrefixRetainsAlternatives()
+    {
+        var result = await RunAppAsync(
+            "System.String.op_Helpers",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[member/type-view/",
+            result.Output);
+        Assert.Contains(
+            "[member/member-target/",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task PositionalSourceOnlySchemaMatchesExplicitPackage(
+        string command)
+    {
+        string[] tail =
+        [
+            "-D",
+            "--schema",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            [command, "Missing.Package.For.Schema", .. tail]);
+        var explicitPackage = await RunAppAsync(
+            [
+                command,
+                "--package",
+                "Missing.Package.For.Schema",
+                .. tail,
+            ]);
+
+        Assert.Equal(explicitPackage, positional);
+        Assert.Equal(0, positional.Exit);
+        Assert.Contains("|", positional.Output);
+    }
+
+    [Fact]
+    public async Task TypeSelectorDoesNotReinterpretPositionalSource()
+    {
+        string[] tail =
+        [
+            "-m",
+            "Run",
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            ["type", "Missing.Package.For.Schema", .. tail]);
+        var explicitPackage = await RunAppAsync(
+            [
+                "type",
+                "--package",
+                "Missing.Package.For.Schema",
+                .. tail,
+            ]);
+
+        Assert.Equal(explicitPackage, positional);
+        Assert.Equal(0, positional.Exit);
+    }
+
+    [Fact]
+    public async Task MemberIndexDoesNotReinterpretPositionalSource()
+    {
+        string[] tail =
+        [
+            "--index",
+            "1",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var positional = await RunAppAsync(
+            ["member", "Missing.Package.For.Schema", .. tail]);
+        var explicitPackage = await RunAppAsync(
+            [
+                "member",
+                "--package",
+                "Missing.Package.For.Schema",
+                .. tail,
+            ]);
+
+        Assert.Equal(explicitPackage, positional);
+        Assert.Equal(1, positional.Exit);
+        Assert.Contains(
+            "--index/Name:N requires exactly one member name",
+            positional.Error);
+    }
+
+    [Theory]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task SyntaxProvenBareTypeRetainsTypeCatalog(
+        string command)
+    {
+        string[] tail =
+        [
+            "-D",
+            "--schema",
+            "--table",
+            "--tips",
+            "q",
+        ];
+        var bareAlias = await RunAppAsync(
+            [command, "string", .. tail]);
+        var explicitPlatform = await RunAppAsync(
+            [
+                command,
+                "string",
+                "--platform",
+                "System.Private.CoreLib",
+                .. tail,
+            ]);
+
+        Assert.Equal(explicitPlatform, bareAlias);
+        Assert.Equal(0, bareAlias.Exit);
+    }
+
     [Fact]
     public async Task OrdinaryOpPrefixRetainsCommandlessAlternatives()
     {

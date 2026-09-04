@@ -40,6 +40,11 @@ public static class TypeOptionsParser
                 args.PackageOption,
                 args.AssemblyOption,
                 args.PlatformOption);
+        error =
+            SharedParsers.GetStructuralUnrecognizedOptionError(
+                sourceInputs);
+        if (error is not null)
+            return true;
         bool hasProjectSource =
             !string.IsNullOrWhiteSpace(
                 parseResult.GetValue(args.ProjectOption));
@@ -92,6 +97,7 @@ public static class TypeOptionsParser
                 parseResult.GetValue(args.TypeFilterOption));
         targetFree =
             string.IsNullOrWhiteSpace(typeName)
+            && sourceInputs.Args.Length == 0
             && !sourceInputs.HasExplicitSource
             && !hasProjectSource
             && parseResult.GetValue(args.TypeFilterOption) is null

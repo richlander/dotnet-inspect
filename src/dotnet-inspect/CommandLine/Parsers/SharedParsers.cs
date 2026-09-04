@@ -1,7 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using CSharpText;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -73,6 +75,18 @@ public static class SharedParsers
         return null;
     }
 
+    public static OptionError? GetStructuralUnrecognizedOptionError(
+        SourceSelectionInputs inputs)
+    {
+        string? option = inputs.Args.FirstOrDefault(
+            static value => value.StartsWith('-'));
+        if (option is null)
+            return null;
+
+        return new OptionError(
+            $"Unrecognized option '{option}'.");
+    }
+
     public static int GetStructuralTypeArgumentIndex(
         SourceSelectionInputs inputs,
         bool hasProjectSource)
@@ -92,7 +106,21 @@ public static class SharedParsers
             return 1;
         }
 
-        return inputs.Args.Length >= 2 ? 1 : 0;
+        if (inputs.Args.Length >= 2)
+            return 1;
+
+        string value = inputs.Args[0];
+        bool primitiveAlias =
+            PrimitiveTypeNames.TryToClrFullName(
+                value.ToLowerInvariant(),
+                out _);
+        return primitiveAlias
+            || TypeMatcher.HasExplicitGenericNotation(value)
+            || TypeMatcher.IsTypeGlobPattern(value)
+            || StructuralViewRegistry
+                .HasUnambiguousMemberTail(value)
+                ? 0
+                : -1;
     }
 
     public static async Task<SourceSelection> ResolveSourceSelectionAsync(

@@ -325,6 +325,24 @@ public class ApiCommand
         var typePipeline = ApiTypeSectionDescriptors.CreatePipeline();
         var bareSelectSections = typePipeline.FixedOverviewSectionNames;
 
+        if (options.DiscoverDeferredToListing)
+        {
+            SelectResult discoverResult =
+                ResolveDiscoveryForListing(
+                    options,
+                    typePipeline);
+            if (DiscoverOutput.WriteUnresolvedSections(
+                    discoverResult))
+            {
+                return null;
+            }
+
+            options = options with
+            {
+                DiscoverDeferredToListing = false,
+            };
+        }
+
         if (HasNoBareSelectOverview(options, bareSelectSections))
         {
             CommandError.Write(
@@ -427,6 +445,40 @@ public class ApiCommand
             typePipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
 
+    private static SelectResult ResolveDiscoveryForListing(
+        ApiOptions options,
+        SectionPipeline<ApiSurface> typePipeline)
+        => SelectResolver.ResolveSelectAsSections(
+            options.Discover,
+            typePipeline.SelectableSectionNames,
+            typePipeline.FixedOverviewSectionNames,
+            typePipeline.GetCategoryMap(),
+            selectDefault: false);
+
+    internal static bool ShouldDeferDiscoveryToListing(
+        ApiOptions options,
+        bool singleTypeMode,
+        SelectResult singleTypeResult,
+        SectionPipeline<ApiSurface> typePipeline)
+    {
+        if (options is not TypeOptions
+            || !singleTypeMode
+            || options.Discover is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        bool totalFailure =
+            singleTypeResult.Unresolved.Count > 0
+            && singleTypeResult.Sections
+                is null or { Count: 0 };
+        return totalFailure
+            && ResolveDiscoveryForListing(
+                    options,
+                    typePipeline)
+                .Sections is { Count: > 0 };
+    }
+
     /// <summary>
     /// Reports a deferred <c>-S</c> against the single-type pipeline for a query that turned out to
     /// render a single type after all, restoring the rejection the preamble held back. Returns true
@@ -451,6 +503,24 @@ public class ApiCommand
             memberPipeline.GetCategoryMap(),
             selectDefault: options.SelectDefault);
         SelectOutput.WriteUnresolved(result);
+        return true;
+    }
+
+    internal static bool RejectDeferredDiscoveryForSingleType(
+        ApiOptions options,
+        SectionPipeline<ApiType> memberPipeline)
+    {
+        if (!options.DiscoverDeferredToListing)
+            return false;
+
+        SelectResult result =
+            SelectResolver.ResolveSelectAsSections(
+                options.Discover,
+                memberPipeline.SelectableSectionNames,
+                memberPipeline.FixedOverviewSectionNames,
+                memberPipeline.GetCategoryMap(),
+                selectDefault: false);
+        DiscoverOutput.WriteUnresolvedSections(result);
         return true;
     }
 
@@ -577,6 +647,18 @@ public class ApiCommand
                 // Hold the rejection rather than resolving it here, because which pipeline is right is
                 // not known until the type lookup runs.
                 options = options with { SelectDeferredToListing = true };
+            }
+            else if (discoveryOnly
+                && ShouldDeferDiscoveryToListing(
+                    options,
+                    singleTypeMode,
+                    selectResult,
+                    typePipeline))
+            {
+                options = options with
+                {
+                    DiscoverDeferredToListing = true,
+                };
             }
             else
             {

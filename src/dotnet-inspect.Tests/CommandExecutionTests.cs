@@ -8736,6 +8736,97 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Enums", discoverOutput, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Type_PrefixBrowse_DiscoveryValidOnlyForListingIsDeferred()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Command",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Kind", output, StringComparison.Ordinal);
+        Assert.Contains("Type", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactMatch_ListingOnlyDiscoveryIsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "DotnetInspector.Tests.CommandExecutionTests",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            SectionNames.Baseclass,
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_NoPrefixMatch_DeferredDiscoveryIsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "Zqqxnomatch",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_DiscoveryUsesFilteredSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IAsync",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A deferred select must use the listing pipeline for both count-map ordering and reduction;
     /// otherwise it either retains the obsolete single-section rejection or emits one scalar total.

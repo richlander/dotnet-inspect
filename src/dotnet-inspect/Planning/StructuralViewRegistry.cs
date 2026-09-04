@@ -390,11 +390,29 @@ public static class StructuralViewRegistry
         bool hasTypeOption =
             ContainsOption(tokens, "--type")
             || ContainsOption(tokens, "-t");
+        string? libraryValue =
+            GetOptionValues(tokens, "--library")
+                .LastOrDefault();
+        bool hasPackageRelativeLibrary =
+            libraryValue is not null
+            && SourceResolver
+                .IsPackageRelativeLibraryValue(libraryValue);
+        if (hasTypeOption
+            && hasPackageRelativeLibrary)
+        {
+            classification = new CommandlessStructuralRoute(
+                Route(
+                    StructuralViewIdentity.PackageSingleLibrary,
+                    InspectionCatalogIdentity.Library),
+                [PackageCommand.Name, .. tokens]);
+            return true;
+        }
         bool hasExplicitApiSource =
             ContainsOption(tokens, "--package")
             || ContainsOption(tokens, "--platform")
             || ContainsOption(tokens, "--project")
-            || ContainsOption(tokens, "--library");
+            || (ContainsOption(tokens, "--library")
+                && !hasPackageRelativeLibrary);
         string? typeOptionValue =
             GetOptionValues(tokens, "-t", "--type")
                 .LastOrDefault();
@@ -467,11 +485,23 @@ public static class StructuralViewRegistry
         {
             InspectionCatalogIdentity catalog =
                 GetImpliedMemberCatalog(target, tokens);
+            string[] rewrittenTokens =
+                ContainsOption(tokens, "--index")
+                && SharedParsers.SplitTrailingMember(target)
+                    is { MemberName: { } memberName } split
+                    ? [
+                        MemberCommand.Name,
+                        split.TypeName,
+                        "-m",
+                        memberName,
+                        .. tokens[1..],
+                    ]
+                    : [MemberCommand.Name, .. tokens];
             classification = new CommandlessStructuralRoute(
                 Route(
                     StructuralViewIdentity.MemberTarget,
                     catalog),
-                [MemberCommand.Name, .. tokens]);
+                rewrittenTokens);
             return true;
         }
 
@@ -555,14 +585,17 @@ public static class StructuralViewRegistry
         string? libraryValue =
             GetOptionValues(tokens, "--library")
                 .FirstOrDefault();
+        bool hasPackageRelativeLibrary =
+            libraryValue is not null
+            && SourceResolver
+                .IsPackageRelativeLibraryValue(libraryValue);
         bool hasExplicitLibraryPath =
             libraryValue is not null
-            && CommandLineHelpers
-                .IsExplicitLibraryPath(libraryValue);
+            && !hasPackageRelativeLibrary;
         hasExplicitApiSource |= hasExplicitLibraryPath;
         bool hasLibraryGesture =
             ContainsOption(tokens, "--library")
-            && !hasExplicitLibraryPath;
+            && hasPackageRelativeLibrary;
         bool hasTypeMarker =
             ContainsOption(tokens, "-t")
             || ContainsOption(tokens, "--type");
