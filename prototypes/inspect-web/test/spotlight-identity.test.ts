@@ -1272,11 +1272,14 @@ test("delayed Share completion preserves newer focus ownership", () => {
 });
 
 test("deferred Spotlight focus preserves newer Application-menu focus", () => {
+  const focusGuard =
+    appSource.match(/function canRestoreWorkbenchFocus\([\s\S]*?\n}/)?.[0]
+    ?? "";
   const focusTypeList =
     appSource.match(/function focusTypeList\([\s\S]*?\n}/)?.[0] ?? "";
-  assert.equal(
-    focusTypeList.match(/applicationMenuOwnsFocus\(document\)/g)?.length,
-    2);
+  assert.match(focusGuard, /applicationMenuOwnsFocus\(document\)/);
+  assert.equal(focusTypeList.match(/canRestoreWorkbenchFocus\(generation\)/g)
+    ?.length, 2);
 });
 
 test("the shell separates typed target and Subject navigation rows", () => {
@@ -1294,7 +1297,7 @@ test("the shell separates typed target and Subject navigation rows", () => {
 
   assert.match(
     render,
-    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace"[\s\S]*renderApplicationMenu\(true\)/);
+    /workbenchShellHtml\(\{[\s\S]*contextualActionsHtml:[\s\S]*class="working-surface-actions"[\s\S]*inspectedTargetHtml:[\s\S]*class="inspected-target"[\s\S]*renderInspectedSubjectIcon\(pkg\)[\s\S]*class="subject-path"[\s\S]*subjectInspectorHtml: renderScopeBar\(\)[\s\S]*titleNavigationHtml: renderTitleNavigation\([\s\S]*<main id="subject-panel" class="workspace\$\{contentFrameEnabled[\s\S]*renderApplicationMenu\(true\)/);
   assert.doesNotMatch(render, /id="copy-name"|id="taste-btn"/);
   assert.doesNotMatch(
     render,
@@ -1401,7 +1404,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.doesNotMatch(
     appSource,
     /document\.querySelector\("\[data-graph-back\]"\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 2);
+  assert.match(
+    appSource,
+    /document\.addEventListener\("focusin", trackContentFrameFocus\)/);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 3);
 });
 
 test("typed document inspection owns package document request coordination", () => {
@@ -1520,7 +1526,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source)"\)/);
   assert.match(
     binding,
-    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*action\(\);[\s\S]*focusTypeList\(focusGeneration\)/);
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*contentFramePane = "navigation";[\s\S]*action\(\);[\s\S]*focusContentNavigation\(document\)/);
   const callbackSource = (name: string) =>
     binding.match(
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
@@ -1541,7 +1547,7 @@ test("typed type panel owns its rendered control bindings", () => {
   }
   assert.match(
     binding,
-    /onMemberGroupOpen: memberKey => \{\s*enterMemberNavigation\(\(\) => openMemberGroup\(memberKey\)\)/);
+    /onMemberGroupOpen: memberKey => \{\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
@@ -1590,7 +1596,7 @@ test("typed type panel owns its rendered control bindings", () => {
       "#namespace-jump": 0,
     });
   assert.equal(selectorCount("#type-filter"), 1);
-    assert.equal(selectorCount("#type-list"), 6);
+  assert.equal(selectorCount("#type-list"), 5);
 });
 
 test("typed scope bar owns its rendered control bindings", () => {
@@ -1624,12 +1630,16 @@ test("typed scope bar owns its rendered control bindings", () => {
   const memberSection = callbackProperty(actions, "onMemberSectionSelect");
   assert.deepEqual(
     statementSignatures(memberSection.body.body),
-    ["call:applyMemberSection(section)"]);
+    [
+      'assign:contentFramePane = "detail"',
+      "call:applyMemberSection(section)",
+    ]);
 
   const packageLens = callbackProperty(actions, "onPackageLensSelect");
   assert.deepEqual(
     statementSignatures(packageLens.body.body),
     [
+      'assign:contentFramePane = "detail"',
       "assign:state.packageLens = lens",
       "call:render()",
     ]);
@@ -1638,6 +1648,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(
     statementSignatures(scope.body.body),
     [
+      'assign:contentFramePane = "detail"',
       {
         if: 'target === "workspace"',
         whenTrue: [
@@ -1700,6 +1711,7 @@ test("typed scope bar owns its rendered control bindings", () => {
   assert.deepEqual(
     statementSignatures(typeLens.body.body),
     [
+      'assign:contentFramePane = "detail"',
       "assign:state.lens = lens",
       'assign:state.selectedMemberKey = ""',
       'assign:state.memberBrowseTypeId = ""',
@@ -2275,7 +2287,7 @@ test("Spotlight navigation waits for selection data before restoring focus", () 
     /async function pickSpotlight\([\s\S]*packageResult:[\s\S]*typeId: string,[\s\S]*const selectionData = loadSelectionData\(\);[\s\S]*await selectionData;[\s\S]*focusTypeList\(focusGeneration\)/);
   assert.match(
     appSource,
-    /let spotlightFocusGeneration = 0[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*generation !== spotlightFocusGeneration[\s\S]*isTextEntry\(\)/);
+    /let spotlightFocusGeneration = 0[\s\S]*function canRestoreWorkbenchFocus\(generation: number\)[\s\S]*generation === spotlightFocusGeneration[\s\S]*isTextEntry\(\)[\s\S]*function focusTypeList\(generation = spotlightFocusGeneration\)[\s\S]*canRestoreWorkbenchFocus\(generation\)/);
   assert.match(
     spotlightSource,
     /const generation = interactionGeneration;[\s\S]*const focusAfterExecution = \(\) => \{[\s\S]*generation === interactionGeneration[\s\S]*Promise\.resolve\(execution\)\.then\(\s*focusAfterExecution,\s*\(error: unknown\) => \{\s*options\.reportCommandError\(error\);\s*focusAfterExecution\(\)/);
@@ -2445,7 +2457,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /onShowTypes: exitMemberScope/);
+    /onShowTypes: \(\) => \{\s*contentFramePane = "navigation";\s*exitMemberScope\(\);\s*\}/);
   assert.match(
     appSource,
     /const renderMemberFilterAndRestoreFocus = \(selector = ""\) => \{[\s\S]*renderWithMemberFocus\(preserved\)/);
@@ -2727,16 +2739,16 @@ test("malformed package routes use the contained restore failure path", () => {
     /state\.retryAction === retryUnavailable\s*\? ""\s*: `<button id="retry-load" type="button">retry<\/button>`/);
 });
 
-test("member entry controls move focus into the resulting member navigation", () => {
+test("member entry controls choose the resulting content-frame pane", () => {
   const bindings =
     appSource.match(/function bindTypePanelEvents\(\) \{[\s\S]*?\n}(?=\n\nfunction )/)?.[0]
     ?? "";
   assert.match(
     bindings,
-    /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*action\(\);\s*focusTypeList\(focusGeneration\);/);
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";\s*action\(\);\s*afterCurrentNavigationFrame\(\(\) => \{\s*if \(canRestoreWorkbenchFocus\(focusGeneration\)\)\s*focusContentNavigation\(document\);\s*}\);/);
   assert.match(
     bindings,
-    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{[\s\S]*enterMemberNavigation\(\(\) => openMemberGroup/);
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
 });
 
 test("workspace package selection resets type-specific member filters", () => {

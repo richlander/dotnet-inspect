@@ -45,6 +45,14 @@ import {
   renderWorkspaceSubject,
   renderWorkspaceView,
 } from "../src/workspace-subject.ts";
+import {
+  bindContentFrame,
+  focusContentNavigation,
+  focusContentNavigationToggle,
+  renderContentNavigationBar,
+  renderContentNavigationCloseButton,
+  type ContentFramePane,
+} from "../src/content-frame.ts";
 
 declare global {
   interface Window {
@@ -77,6 +85,7 @@ const memberMode = params.has("member");
 const emptyMode = params.has("empty");
 const annotatedMode = params.has("annotated");
 const sourceMode = params.has("source");
+const metadataMode = params.has("metadata");
 const graphMode = params.has("graph");
 const limitationMode = params.has("limitation");
 const historyBackMode = params.has("history-back");
@@ -181,8 +190,13 @@ let activeScope: WorkspaceScope = workspaceMode
       ? "member"
       : "type";
 let activePackageLens: PackageLens = "overview";
-let activeTypeLens: TypeLens = sourceMode ? "source" : "api";
+let activeTypeLens: TypeLens = sourceMode
+  ? "source"
+  : metadataMode
+    ? "metadata"
+    : "api";
 let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+let contentFramePane: ContentFramePane = "detail";
 const source = {
   provider: limitationMode ? "decompiled" : "pdb",
   provenance: limitationMode
@@ -251,13 +265,17 @@ function scopeBarHtml() {
   });
 }
 
+const contentNavigationLabel = memberMode ? "Members" : "Types";
 const navigationHtml = workspaceMode
   ? workspaceNavigationHtml()
-  : `<section class="type-browser">
-      <header class="browser-head">Target inventory</header>
+  : `<aside id="content-navigation-pane" class="type-browser${memberMode ? " member-nav" : ""}" aria-label="${contentNavigationLabel}">
+      <header class="browser-head">
+        <span class="pane-label">${contentNavigationLabel.toUpperCase()}</span>
+        ${renderContentNavigationCloseButton()}
+      </header>
       <label class="type-search">
         <span>/</span>
-        <input aria-label="Filter types" placeholder="Filter types" />
+        <input aria-label="Filter ${contentNavigationLabel.toLowerCase()}" placeholder="Filter ${contentNavigationLabel.toLowerCase()}" />
       </label>
       <div class="namespace-picker">
         <select id="namespace-jump" class="scope-select">
@@ -269,10 +287,81 @@ const navigationHtml = workspaceMode
           <button class="active">all kinds</button>
         </div>
       </div>
-      <div class="type-list">
-        <button class="namespace-row">System.Text.Json</button>
+      <div id="type-list" class="type-list" role="listbox" tabindex="0">
+        <button class="type-row selected" type="button" role="option"
+          aria-selected="true" data-harness-navigation-row>
+          <span class="${memberMode ? "member-icon" : "kind-icon"}">${memberMode ? "M" : "C"}</span>
+          <span class="type-name">${memberMode ? "DeserializeSync" : "JsonSerializer"}</span>
+          <small>${memberMode ? "method" : "class"}</small>
+        </button>
+      </div>
+    </aside>`;
+
+function detailHtml() {
+  if (sourceMode) {
+    return renderSourceResult({
+      source,
+      escapeHtml,
+      highlightCSharp: escapeHtml,
+    });
+  }
+  if (workspaceMode) return workspaceDetailHtml();
+  if (metadataMode) {
+    return `<section class="metadata-surface" aria-labelledby="metadata-surface-title">
+      <header class="metadata-surface-head">
+        <h1 id="metadata-surface-title">Metadata</h1>
+        <p>sealed class <span>· public</span></p>
+      </header>
+      <div class="metadata-surface-scroll">
+        <section class="document-section metadata-shape-section">
+          <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
+        </section>
+      </div>
+      <footer class="metadata-surface-footer">
+        <span>System.Text.Json.JsonSerializer</span>
+        <span>net10.0 · System.Text.Json.dll</span>
+      </footer>
+    </section>`;
+  }
+  if (memberMode) {
+    return `<section class="member-surface" aria-labelledby="member-surface-title">
+      <header class="api-surface-head member-surface-head">
+        <h1 id="member-surface-title">DeserializeSync</h1>
+        <p>method <span>· 1 of 1</span></p>
+      </header>
+      <div class="member-surface-scroll">
+        <article class="learn-overview">
+          <section class="learn-section member-overview-intro">
+            <p class="docs-unavailable">No summary was found in the package XML documentation.</p>
+            <div class="signature-panel">
+              <div class="signature-language"><span>C#</span><small>declaration</small></div>
+              <pre class="language-csharp signature-code"><code>public static object? DeserializeSync(string json)</code></pre>
+            </div>
+          </section>
+        </article>
       </div>
     </section>`;
+  }
+  if (!packageMode) {
+    return `<section class="api-surface" aria-labelledby="api-surface-title">
+      <header class="api-surface-head">
+        <h1 id="api-surface-title">Members</h1>
+        <p>12 of 12 member groups <span>· 18 overloads</span></p>
+      </header>
+      <div class="member-browser-controls api-surface-controls"></div>
+      <div class="api-surface-scroll"></div>
+      <footer class="api-surface-footer"><span>Select a row to inspect its API</span></footer>
+    </section>`;
+  }
+  return `<h1>${subjectPath.at(-1)?.label}</h1>
+    <section class="document-section package-coordinate-editor">
+      <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
+      <div class="package-coordinate-fields">
+        <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
+        <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
+      </div>
+    </section>`;
+}
 const harnessKeybindings = new KeybindingRegistry();
 harnessKeybindings.register({
   id: "workspace.open-all",
@@ -411,27 +500,18 @@ app.innerHTML = `
         historyForwardMode),
     })}
     <div class="notice-stack"></div>
-    <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+    <main id="subject-panel" class="workspace${workspaceMode ? "" : " content-frame"}"
+      ${workspaceMode ? "" : `data-content-pane="${contentFramePane}"`}
+      role="tabpanel" aria-labelledby="active-subject-tab">
       ${navigationHtml}
-      <section class="detail-pane">
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
-          ${sourceMode
-            ? renderSourceResult({
-                source,
-                escapeHtml,
-                highlightCSharp: escapeHtml,
-              })
-            : workspaceMode
-              ? workspaceDetailHtml()
-              : `<h1>${subjectPath.at(-1)?.label}</h1>
-              ${packageMode ? `
-                <section class="document-section package-coordinate-editor">
-                  <div class="section-title"><h2>Package coordinate</h2><span>1 target framework</span></div>
-                  <div class="package-coordinate-fields">
-                    <label class="version-select"><span>Version</span><select id="package-version"><option>10.0.0</option></select></label>
-                    <label class="framework-select"><span>Framework</span><select id="framework"><option>net10.0</option></select></label>
-                  </div>
-                </section>` : ""}`}
+      <section class="detail-pane${workspaceMode
+        ? ""
+        : packageMode || sourceMode
+          ? " content-navigation-separated"
+          : " content-navigation-integrated"}">
+        ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+          ${detailHtml()}
         </article>
       </section>
     </main>
@@ -627,6 +707,27 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
+bindContentFrame(document, {
+  onShowDetail: () => {
+    contentFramePane = "detail";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigationToggle(document));
+  },
+  onShowNavigation: () => {
+    contentFramePane = "navigation";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigation(document));
+  },
+});
+document.querySelectorAll<HTMLElement>("[data-harness-navigation-row]")
+  .forEach(row => row.addEventListener("click", () => {
+    contentFramePane = "detail";
+    document.querySelector<HTMLElement>(".content-frame")
+      ?.setAttribute("data-content-pane", contentFramePane);
+    requestAnimationFrame(() => focusContentNavigationToggle(document));
+  }));
 if (workspaceMode) document.body.dataset.workspaceExecutionCount = "0";
 
 window.focusWorkbenchSearchProbe = () => focusWorkbenchSearch(document);

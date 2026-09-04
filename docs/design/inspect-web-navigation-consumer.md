@@ -382,7 +382,8 @@ returned effect authority remains current.
 Before an asynchronous transition or snapshot installation removes the focused
 element, the UI synchronously parks focus on the persistent `dotnet-inspect`
 shell control outside replaceable destination renderers. This applies to
-closing a focused menu, dialog, or drawer, replacing a native Library `select`
+closing a focused menu or dialog, replacing a local navigation pane, replacing
+a native Library `select`
 with the custom listbox, and omitting a focused lens tablist after a
 no-effective-lens result. This parking step reflects local surface cleanup, not
 a product result.

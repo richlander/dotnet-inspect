@@ -575,6 +575,7 @@ test("the type nav lists namespace groups with the current type selected", () =>
   assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(html, /data-kind-filter="class"/);
   assert.match(html, /id="type-list" data-nav-scope="types"/);
   assert.match(html, /data-nav-selection="type:System\.Text\.Json\.JsonSerializer"/);
@@ -661,6 +662,7 @@ test("the member nav marks the active group and its selected overload", () => {
   });
 
   assert.match(html, /class="type-row member-row active-group [^"]*" data-nav-member="method:Serialize"/);
+  assert.match(html, /id="content-navigation-pane"/);
   assert.match(
     html,
     /data-nav-overload="1" role="option" aria-selected="true"/);

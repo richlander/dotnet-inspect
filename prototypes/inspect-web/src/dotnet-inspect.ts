@@ -272,6 +272,18 @@ import {
   renderPackageOpportunities as renderPackageOpportunitiesPure,
 } from "./package-opportunities.ts";
 import {
+  bindContentFrame,
+  bindContentFrameMedia,
+  CONTENT_FRAME_NARROW_QUERY,
+  decideContentFrameResize,
+  focusContentNavigation,
+  focusContentNavigationToggle,
+  renderContentNavigationBar,
+  type ContentFrameFocusOwner,
+  type ContentFrameFocusTarget,
+  type ContentFramePane,
+} from "./content-frame.ts";
+import {
   bindTypePanel,
   renderGraphMemberPending,
   renderMemberNav,
@@ -1478,6 +1490,9 @@ let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
 let spotlightFocusGeneration = 0;
+let contentFramePane: ContentFramePane = "detail";
+let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value: unknown) {
@@ -1591,7 +1606,8 @@ const spotlight = createSpotlight({
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
-  focusAfterDismiss: () => focusTypeList(spotlightFocusGeneration),
+  focusAfterDismiss: () =>
+    restoreContentFrameFocusAfterDismiss(spotlightFocusGeneration),
 });
 
 function beginSpotlightNavigation() {
@@ -1609,18 +1625,106 @@ function isInteractiveElement(element: Element | null) {
     + "[role=button], [role=link], [role=checkbox]"));
 }
 
+function canRestoreWorkbenchFocus(generation: number) {
+  return generation === spotlightFocusGeneration
+    && !state.spotlightOpen && !state.graphSourceOpen && !state.docViewerOpen
+    && !state.settings && !state.keyboardHelp
+    && !applicationMenuOwnsFocus(document) && !isTextEntry();
+}
+
 function focusTypeList(generation = spotlightFocusGeneration) {
-  if (generation !== spotlightFocusGeneration
-      || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-      || state.settings || state.keyboardHelp
-      || applicationMenuOwnsFocus(document) || isTextEntry()) return;
+  if (!canRestoreWorkbenchFocus(generation)) return;
   afterCurrentNavigationFrame(() => {
-    if (generation !== spotlightFocusGeneration
-        || state.spotlightOpen || state.graphSourceOpen || state.docViewerOpen
-        || state.settings || state.keyboardHelp
-        || applicationMenuOwnsFocus(document) || isTextEntry()) return;
-    document.querySelector<HTMLElement>("#type-list")?.focus();
+    if (!canRestoreWorkbenchFocus(generation)) return;
+    if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      contentFramePane = "detail";
+      render({ synchronizeUrl: false });
+      afterCurrentNavigationFrame(() =>
+        focusContentNavigationToggle(document));
+      return;
+    }
+    focusContentNavigation(document);
   });
+}
+
+function restoreContentFrameFocusAfterDismiss(
+  generation = spotlightFocusGeneration,
+) {
+  if (!canRestoreWorkbenchFocus(generation)) return;
+  afterCurrentNavigationFrame(() => {
+    if (!canRestoreWorkbenchFocus(generation)) return;
+    if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      if (contentFramePane === "navigation")
+        focusContentNavigation(document);
+      else
+        focusContentNavigationToggle(document);
+      return;
+    }
+    focusContentNavigation(document);
+  });
+}
+
+function contentFrameUsesPush() {
+  return scope() !== "workspace";
+}
+
+function showContentNavigation() {
+  if (!contentFrameUsesPush()) return;
+  contentFramePane = "navigation";
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(() => focusContentNavigation(document));
+}
+
+function showContentDetail() {
+  if (!contentFrameUsesPush()) return;
+  contentFramePane = "detail";
+  render({ synchronizeUrl: false });
+  afterCurrentNavigationFrame(() =>
+    focusContentNavigationToggle(document));
+}
+
+function showContentDetailAfterRender() {
+  contentFramePane = "detail";
+  if (!contentFrameMedia.matches) return;
+  afterCurrentNavigationFrame(() =>
+    focusContentNavigationToggle(document));
+}
+
+function focusContentFrameTarget(target: ContentFrameFocusTarget) {
+  if (target === "navigation")
+    focusContentNavigation(document);
+  else if (target === "navigation-toggle")
+    focusContentNavigationToggle(document);
+}
+
+function trackContentFrameFocus(event: FocusEvent) {
+  const focused = event.target instanceof HTMLElement ? event.target : null;
+  if (!focused || focused === document.body) return;
+  if (focused.id === "content-navigation-toggle")
+    contentFrameFocusOwner = "navigation-toggle";
+  else if (focused.closest("#content-navigation-pane"))
+    contentFrameFocusOwner = "navigation";
+  else if (focused.closest(".detail-pane"))
+    contentFrameFocusOwner = "detail";
+  else
+    contentFrameFocusOwner = null;
+}
+
+function handleContentFrameResize(event: MediaQueryListEvent) {
+  if (!contentFrameUsesPush()) return;
+  const decision = decideContentFrameResize(
+    contentFramePane,
+    event.matches,
+    contentFrameFocusOwner);
+  contentFramePane = decision.pane;
+  if (decision.render) {
+    render({ synchronizeUrl: false });
+    afterCurrentNavigationFrame(() =>
+      focusContentFrameTarget(decision.focus));
+    return;
+  }
+  if (decision.focus)
+    requestAnimationFrame(() => focusContentFrameTarget(decision.focus));
 }
 
 function openSpotlight(seed = "", spotlightScope: SpotlightScope = "all") {
@@ -2708,7 +2812,10 @@ function drillIn() {
   } else {
     const member = selectedMember(type);
     if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+      showContentDetailAfterRender();
       openOverload(0);
+    } else if (contentFrameUsesPush() && contentFrameMedia.matches) {
+      showContentDetail();
     } else {
       document.querySelector<HTMLElement>(".detail-scroll")?.focus();
     }
@@ -2900,6 +3007,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const inspectorPanelSemantics = hasEffectiveInspector()
     ? ' role="tabpanel" aria-labelledby="active-inspector-tab"'
     : "";
+  const contentFrameEnabled = activeScope !== "workspace";
+  const contentNavigationLabel =
+    navMode() === "member" && current ? "Members" : "Types";
+  const contentNavigationIntegrated =
+    apiWorkingSurface || metadataWorkingSurface || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -2958,10 +3070,19 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           : ""}
       </div>
 
-      <main id="subject-panel" class="workspace" role="tabpanel" aria-labelledby="active-subject-tab">
+      <main id="subject-panel" class="workspace${contentFrameEnabled ? " content-frame" : ""}"
+        ${contentFrameEnabled ? `data-content-pane="${contentFramePane}"` : ""}
+        role="tabpanel" aria-labelledby="active-subject-tab">
         ${renderNavPane(current, visible)}
 
-        <section class="detail-pane">
+        <section class="detail-pane${contentFrameEnabled
+          ? contentNavigationIntegrated
+            ? " content-navigation-integrated"
+            : " content-navigation-separated"
+          : ""}">
+          ${contentFrameEnabled
+            ? renderContentNavigationBar(contentNavigationLabel)
+            : ""}
           <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
@@ -5205,8 +5326,12 @@ function bindTypePanelEvents() {
   };
   const enterMemberNavigation = (action: () => void) => {
     const focusGeneration = beginSpotlightNavigation();
+    contentFramePane = "navigation";
     action();
-    focusTypeList(focusGeneration);
+    afterCurrentNavigationFrame(() => {
+      if (canRestoreWorkbenchFocus(focusGeneration))
+        focusContentNavigation(document);
+    });
   };
   bindTypePanel(document, {
     onClearFilters: () => {
@@ -5314,7 +5439,8 @@ function bindTypePanelEvents() {
       return true;
     },
     onMemberGroupOpen: memberKey => {
-      enterMemberNavigation(() => openMemberGroup(memberKey));
+      showContentDetailAfterRender();
+      openMemberGroup(memberKey);
     },
     onMemberKindFilterSelect: value => {
       state.memberKindFilter = value ?? "all";
@@ -5325,7 +5451,10 @@ function bindTypePanelEvents() {
     onMemberSelect: memberKey => {
       const group = memberGroups(selectedType())
         .find(item => item.key === memberKey);
-      if (group) selectMemberNavEntry({ kind: "member", group }, false);
+      if (group) {
+        showContentDetailAfterRender();
+        selectMemberNavEntry({ kind: "member", group }, false);
+      }
     },
     onMemberTraitFilterSelect: value => {
       state.memberTraitFilter = value ?? "";
@@ -5344,9 +5473,15 @@ function bindTypePanelEvents() {
     },
     onOverloadSelect: index => {
       const group = selectedMember(selectedType());
-      if (group) selectMemberNavEntry({ kind: "overload", group, index }, false);
+      if (group) {
+        showContentDetailAfterRender();
+        selectMemberNavEntry({ kind: "overload", group, index }, false);
+      }
     },
-    onShowTypes: exitMemberScope,
+    onShowTypes: () => {
+      contentFramePane = "navigation";
+      exitMemberScope();
+    },
     onTypeFilterChange: value => {
       state.typeFilter = value;
       state.typeCursor = 0;
@@ -5367,6 +5502,7 @@ function bindTypePanelEvents() {
       focusFilter({ immediate: true });
     },
     onTypeSelect: typeId => {
+      showContentDetailAfterRender();
       state.atPackageRoot = false;
       state.selectedTypeId = typeId;
       state.selectedMemberKey = "";
@@ -5382,13 +5518,16 @@ function bindTypePanelEvents() {
 function bindScopeBarEvents() {
   scopeBarBinding = bindScopeBar(document, {
     onMemberSectionSelect: section => {
+      contentFramePane = "detail";
       applyMemberSection(section);
     },
     onPackageLensSelect: lens => {
+      contentFramePane = "detail";
       state.packageLens = lens;
       render();
     },
     onScopeSelect: target => {
+      contentFramePane = "detail";
       if (target === "workspace") {
         state.workspaceSubjectOpen = true;
         state.atPackageRoot = true;
@@ -5420,6 +5559,7 @@ function bindScopeBarEvents() {
       render();
     },
     onTypeLensSelect: lens => {
+      contentFramePane = "detail";
       state.lens = lens;
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
@@ -5476,6 +5616,13 @@ function bindPackageOpportunitiesEvents() {
       state.atPackageRoot = false;
       navigateToType(candidate.type);
     },
+  });
+}
+
+function bindContentFrameEvents() {
+  bindContentFrame(document, {
+    onShowDetail: showContentDetail,
+    onShowNavigation: showContentNavigation,
   });
 }
 
@@ -5715,6 +5862,7 @@ function bindEvents() {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
+  bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
     observeAsync(ensureDotnetReleases(), "Loading .NET release information");
@@ -6819,6 +6967,12 @@ function executeCommand(
 function focusFilter(
   { immediate = false }: { immediate?: boolean } = {},
 ) {
+  if (contentFrameUsesPush()
+    && contentFrameMedia.matches
+    && contentFramePane !== "navigation") {
+    contentFramePane = "navigation";
+    render({ synchronizeUrl: false });
+  }
   const focus = () => {
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
@@ -11501,6 +11655,8 @@ keybindings.register({
 });
 
 keybindings.attach(document);
+document.addEventListener("focusin", trackContentFrameFocus);
+bindContentFrameMedia(contentFrameMedia, handleContentFrameResize);
 
 // Re-apply state when the address bar changes underneath us (browser back/forward, or a
 // hand-edited URL). Within the loaded package we mutate selection directly; a different
