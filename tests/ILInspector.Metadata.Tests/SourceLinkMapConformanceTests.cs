@@ -340,6 +340,26 @@ public class SourceLinkMapConformanceTests
         Assert.Equal("https://right.test/src/Foo.cs", map.ResolveUrl("/_/src/Foo.cs"));
     }
 
+    [Fact]
+    public void ARejectedConformantKey_IsDocumentSpecificWhenNoValidEntryResolves()
+    {
+        var map = SLF.SourceLinkResolver.Parse(
+            """{"documents":{"/_/*":42,"/other/*":"https://right.test/*"}}""");
+
+        Assert.Equal(
+            SLF.SourceLinkResolutionStatus.Rejected,
+            map.Resolve("/_/src/Foo.cs", out _));
+        Assert.Equal(
+            SLF.SourceLinkResolutionStatus.Unmapped,
+            map.Resolve("/unmapped/Foo.cs", out _));
+
+        SourceDocumentPathResolution resolution =
+            SourceDocumentPathResolver.Create(map).Resolve("/_/src/Foo.cs");
+        Assert.Equal(
+            SourceDocumentResolutionStatus.Rejected,
+            resolution.Status);
+    }
+
     /// <summary>
     /// An entry whose URL names no origin source can be retrieved from is rejected on the same
     /// terms as a malformed value, rather than matching and resolving to a string nothing can

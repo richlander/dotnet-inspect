@@ -3,10 +3,18 @@
 This directory stores the compact trend history for the EVIL authored-source
 correspondence benchmark tracked by #3079.
 
-`history.jsonl` is newline-delimited JSON, newest-last. Each line is one full
-`--benchmark-authored-corpus --json` run summarized to stable header metrics.
-The multi-megabyte per-row JSON stays out-of-tree as a session artifact, issue
-attachment, or CI artifact. Do not commit full per-row run payloads here.
+The normative admission, persistence, sequence, and verification contract is
+[Committed authored-corpus history](../../../../docs/design/authored-corpus-history.md).
+This README is the operational guide for producing, interpreting, and consuming
+that evidence.
+
+`history.jsonl` is newline-delimited JSON in append order. Each line is one
+full `--benchmark-authored-corpus --json` run summarized to stable header
+metrics. File position is the observation address within one committed history:
+dates and commits are provenance rather than uniqueness keys, so repeated runs
+are retained. The multi-megabyte per-row JSON stays out-of-tree as a session
+artifact, issue attachment, or CI artifact. Do not commit full per-row run
+payloads here.
 
 ## Schema
 
@@ -75,12 +83,12 @@ Each row contains these fields:
 - `poolSha256`: identity of the assembly pool measured, copied from the run
   JSON. Runs derive it from the assemblies themselves (each named and
   content-hashed), so it always describes exactly what was decompiled.
-- `sweepManifestSha256`: the superseded pool identity on rows from 2026-07, a
-  hand-recorded SHA-256 of the sweep manifest *file*. It could not identify the
-  pool — the pool is the **union** of the sweep and a fixed set of real-world
-  assemblies, and the manifest described only the sweep half — so it does not
-  interoperate with `poolSha256` and rows carrying only it record no pool
-  identity under the current scheme.
+- `sweepManifestSha256`: the superseded pool identity on legacy rows through
+  2026-08-07, a hand-recorded SHA-256 of the sweep manifest *file*. It could not
+  identify the pool — the pool is the **union** of the sweep and a fixed set of
+  real-world assemblies, and the manifest described only the sweep half — so it
+  does not interoperate with `poolSha256` and rows carrying only it record no
+  pool identity under the current scheme.
 - `methodologyVersion`: which authored-corpus attribution controls were active.
   **Every version is a lower bound on decompiler-caused body defects**; a later
   version tightens the bound rather than measuring the true count. Copy this
@@ -216,7 +224,10 @@ Each row contains these fields:
    classifications, requires the producer summaries to agree, proves the
    recorded commit is on `origin/main`, reads the methodology implemented at
    that commit, verifies the complete existing store, and appends one canonical
-   JSONL object.
+   JSONL object. Preserve the full run artifact with the review evidence: after
+   it is no longer available to the verifier, the verifier can still prove the
+   row's framing, measurement closure, commit ancestry, and methodology, but
+   cannot replay the discarded per-row projection.
 6. Re-run the verifier before committing:
 
    ```bash
@@ -225,7 +236,12 @@ Each row contains these fields:
    ```
 
    CI runs the same command. `--history-path <file>` selects a non-default store
-   for either command.
+   location for either command; the relocated file must still be this singleton
+   history rooted at the exact 2026-07-20 observation. It cannot bootstrap
+   another or empty history. The append is a visible local-file operation
+   rather than a transactional database write. If it is interrupted, do not
+   salvage a prefix: restore the working-tree file from Git or the retained
+   artifact and require the complete verifier to pass.
 
 ### The partition is enforced, not assumed
 
