@@ -1339,7 +1339,7 @@ public class PackageCommand
         if (kinds.Contains(PackageAuthorityFailureKind.Transport))
         {
             remediation.Add(
-                "Check the package source URL and network connectivity before retrying.");
+                "Check the package source location, access permissions, and connectivity before retrying.");
         }
 
         CommandError.Write(
