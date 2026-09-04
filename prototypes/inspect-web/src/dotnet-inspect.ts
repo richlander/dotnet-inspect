@@ -4447,6 +4447,14 @@ function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   applyExplorerFocus();
 }
 
+function openExplorerOverview(assemblyFileName: string) {
+  const ex = buildBaseExplorer(assemblyFileName);
+  if (!ex) return;
+  ex.overview = true;
+  state.explorer = ex;
+  render();
+}
+
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
 function openExplorerHeap(assemblyFileName: string, heapName: string) {
   const ex = buildBaseExplorer(assemblyFileName);
@@ -4675,6 +4683,7 @@ function bindMetadataViewerEvents() {
     onHeapFocus: heap => pushExplorerFocus({ heap }),
     onJump: explorerJump,
     onOpenHeap: openExplorerHeap,
+    onOpenOverview: openExplorerOverview,
     onOpenTable: openExplorer,
     onPage: (index, startRowId) =>
       observeAsync(

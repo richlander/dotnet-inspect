@@ -1421,21 +1421,31 @@ kbd {
 
 /* Metadata lens: the image-level "container" view (heaps, tables, headers). */
 .meta-assembly + .meta-assembly { margin-top: 4px; }
+.meta-assembly-title { align-items: center; }
+.meta-assembly-title > div { min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+.meta-assembly-title > div > h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-assembly-title > div > span { min-width: 0; overflow: hidden; color: var(--dim); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.meta-explore { flex: none; min-height: 28px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 2px; background: transparent; color: var(--text); font: 10px var(--mono); cursor: pointer; }
+.meta-explore:hover { background: var(--panel-active); }
 .meta-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 14px; }
 .meta-fact { display: flex; flex-direction: column; gap: 2px; }
 .meta-fact-k { font: 9px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
 .meta-fact-v { font: 11px var(--mono); color: var(--text); }
-.meta-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; }
 .meta-col-title { margin: 0 0 8px; font-size: 11px; color: var(--muted); display: flex; align-items: baseline; gap: 8px; }
 .meta-col-note { font: 9px var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
-.meta-heaps { display: flex; flex-direction: column; gap: 5px; }
+.meta-heaps-section { margin-bottom: 18px; }
+.meta-heaps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 5px; }
 .meta-heap { display: grid; grid-template-columns: 64px auto 1fr; align-items: baseline; gap: 10px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); width: 100%; text-align: left; cursor: pointer; transition: border-color 0.12s ease, background 0.12s ease; }
 .meta-heap:hover { border-color: var(--accent, var(--line-strong)); background: var(--panel-active); }
 .meta-heap-name { font: 11px var(--mono); color: var(--accent); }
 .meta-heap-size { font: 11px var(--mono); color: var(--text); }
 .meta-heap-addr { font: 10px var(--mono); color: var(--dim); text-align: right; }
-.meta-tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px; }
-.meta-table-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; text-align: left; transition: border-color 0.1s, background 0.1s; }
+.meta-table-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; align-items: start; }
+.meta-table-group { min-width: 0; }
+.meta-table-group h4 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 5px; color: var(--dim); font: 9px var(--mono); font-weight: 400; letter-spacing: .06em; text-transform: uppercase; }
+.meta-table-group h4 span { color: var(--muted); letter-spacing: 0; }
+.meta-table-list { display: flex; flex-direction: column; gap: 4px; }
+.meta-table-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 11px; align-items: baseline; gap: 8px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: pointer; text-align: left; transition: border-color 0.1s, background 0.1s; }
 .meta-table-row:hover { border-color: var(--accent, var(--line-strong)); background: var(--panel-active); }
 .meta-table-go { font: 11px var(--mono); color: var(--dim); opacity: 0; transition: opacity 0.1s; }
 .meta-table-row:hover .meta-table-go { opacity: 1; color: var(--accent, var(--text)); }
@@ -1444,7 +1454,10 @@ kbd {
 .meta-table-unprojected { border-style: dashed; opacity: 0.75; }
 .meta-table-unprojected .meta-table-name { color: var(--dim); }
 .meta-empty { font: 11px var(--mono); color: var(--dim); padding: 6px 2px; }
-@media (max-width: 720px) { .meta-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) {
+  .meta-assembly-title > div { display: block; }
+  .meta-assembly-title > div > span { display: block; margin-top: 3px; }
+}
 
 /* ─── Metadata Explorer ─────────────────────────────────────────────────────── */
 .metadata-explorer { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); }
