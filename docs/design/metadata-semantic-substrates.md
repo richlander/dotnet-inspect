@@ -341,12 +341,13 @@ its own demand evidence, and the following subsection lists meanings that do
 not. Membership here means exactly that and nothing more.
 
 **Requirement 5 is not met by the tree today.** It is the one requirement the
-existing components were written without. Auditing all six rows found four
+existing components were written without. Auditing all six rows found five
 failing rows, so requirement 5 is stated here as a forward contract, not as
 something the precedents demonstrate. The requirement is two-sided, and the two
-halves were audited separately: four rows fail the expressibility half, and two
-of those four also fail the reachability half, across three distinct instances.
-One of those rows was recorded as passing by two earlier audits.
+halves were audited separately: four rows fail the expressibility half; three
+rows fail the reachability half across four distinct instances; and two rows
+fail both. Two of the reachability instances are in rows that earlier audits
+recorded as passing — one after two such audits, one after three.
 
 All four fail the expressibility half the same way: a reachable disposition has
 **no case at all**.
@@ -379,9 +380,9 @@ evidence posture under **Open questions**.
 
 | Established meaning | Requirement 5 today |
 | --- | --- |
-| State-machine claims and kickoff/type pairing | **Fails both halves.** *Reachability:* one six-case vocabulary is published from four surfaces with four codomains; `Relationships` reaches two, `GetByImplementation` three ([#5754](https://github.com/richlander/dotnet-inspect/issues/5754)). *Expressibility:* **no case at all, and the wrong case published in its place.** "The caller supplied an invalid handle" is reachable, and the vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). A nil or out-of-range handle instead routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`) — a claim about the *artifact*, when the artifact is fine. Adding the case would not by itself correct the routing; they are separate corrections. |
-| Exact `MoveNext` execution-role selection | Conforming — role selection and rejection are typed. |
-| Module memory-safety rules markers | Conforming — version, malformed, conflicting, unsupported, and budget states are each typed. |
+| State-machine claims and kickoff/type pairing | **Fails both halves.** *Reachability:* one six-case vocabulary is published from four surfaces with three codomains — `Relationships` reaches two, `GetByImplementation` three, and `GetByKickoff` and `GetByStateMachine` both reach all six ([#5754](https://github.com/richlander/dotnet-inspect/issues/5754)). *Expressibility:* **no case at all, and the wrong case published in its place.** "The caller supplied an invalid handle" is reachable, and the vocabulary has `BudgetExceeded` but no `InvalidHandle` (`src/ILInspector.Metadata/StateMachineRelationship.cs:186`-`194`), though the sibling index models exactly that case (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:102`-`104`). A nil or out-of-range handle instead routes through `MalformedHandle` (`src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:174`-`180`) to the same `Rejected(Malformed)` a genuinely unreadable artifact produces (`:124`-`127`) — a claim about the *artifact*, when the artifact is fine. Adding the case would not by itself correct the routing; they are separate corrections. |
+| Exact `MoveNext` execution-role selection | **Fails the reachability half.** *Expressibility:* conforming — role selection and rejection are typed. *Reachability:* the role surfaces are indexed by an argument, and their codomain narrows with it. `GetRole` returns the two-case `StateMachineRoleDisposition` and `TryGetMethod` returns `bool` (`src/ILInspector.Metadata/StateMachineRelationship.cs:121`-`151`), but `MoveNext` belongs to every claim kind (`:154`-`175`) while `CanBeAbsent` permits absence only for classic-async `SetStateMachine` (`:178`-`182`), and the constructor rejects an absent disposition for every other role (`:97`-`104`). For the argument `MoveNext`, `AbsentFromArtifact` and `false` cannot occur ([#5754](https://github.com/richlander/dotnet-inspect/issues/5754)). |
+| Module memory-safety rules markers | **Conforming on the expressibility half** — version, malformed, conflicting, unsupported, and budget states are each typed. Its reachability half is `unverified`: it survived every audit run so far, and the audits below explain why that is weak evidence. |
 | Member unsafe contracts | **Fails.** The attribute-row budget (`MemorySafetyMetadataIndex.cs:748`-`752`), a `MetadataBudgetException` (`:801`-`803`), and malformed metadata (`:805`-`810`) all return `Unavailable`, published as `AttributeUnavailable`; the failure enum has no budget case (`:102`-`110`). |
 | Exact TypeDef declaration | **Fails both halves.** *Reachability:* two of the four declared failure mechanisms cannot be reached through any declaration entry point ([#5750](https://github.com/richlander/dotnet-inspect/issues/5750)), and `ProbeDefinition` cannot return two of `TypeDeclarationResult`'s six cases ([#5754](https://github.com/richlander/dotnet-inspect/issues/5754)). *Expressibility:* **no case, and the wrong case published in its place.** `MetadataTypeNameFailureMechanism` declares only `Metadata`, `Relationship`, `Signature`, and `TypeSpecification` (`src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:8`-`14`), so budget exhaustion has no case. It is published through `Malformed`, which hard-codes `Mechanism.Metadata` (`:76`-`:82`) and surfaces `Kind` as `"MalformedMetadata"` (`:44`-`:46`) for a bound *we* imposed (`src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:67`-`71`). This is one of the two rows where the `Detail` string still carries the distinction — recoverable only by parsing prose. |
 | TypeDef kind classification | **Fails.** `MetadataTypeDefinitionKind` offers only `Unknown`, `Class`, `Interface`, `ValueType` (`src/ILInspector.Metadata/TypeDeclaration.cs:14`-`20`), and `Unknown` is returned for bound exhaustion or a cycle (`MetadataTypeDeclarationProbe.cs:785`-`789`), an unsupported TypeSpec shape (`:818`-`857`), a rejected name read (`:864`-`881`), and malformed metadata (`:910`-`915`) — inside a success-shaped `Defined` result (`:640`-`648`). |
@@ -395,7 +396,7 @@ several surfaces has a separate codomain per surface, and nothing in the type
 says so.
 
 **This document does not claim a complete reachability audit, and the reason is
-instructive.** Three successive audits were run against these six rows, each
+instructive.** Four successive audits were run against these six rows, each
 asking a cheaper question than requirement 5 actually asks:
 
 1. *Is the case constructed anywhere in product code?* — every row passed.
@@ -403,11 +404,17 @@ asking a cheaper question than requirement 5 actually asks:
    [#5750](https://github.com/richlander/dotnet-inspect/issues/5750).
 3. *Can it be reached through the entry point that publishes it?* — found two
    more instances, one of them in a row the first two audits both passed.
+4. *Can it be reached through that entry point **for a given argument**?* —
+   found the `MoveNext` role instance, in a row all three earlier audits had
+   recorded as conforming.
 
-Each cheaper question returned a clean bill of health, and each was wrong. A
-fourth question may exist. The verdicts recorded below are the ones that were
-established; **the audit is `unverified`** and is not evidence that the
-unlisted cases conform.
+Each cheaper question returned a clean bill of health, and each was wrong. The
+fourth question was reached only because a reviewer asked it, after the third
+had been written up as though the unit were settled; a fifth may exist, and
+nothing here bounds the sequence. The verdicts recorded below are the ones that
+were established; **the audit is `unverified`** and is not evidence that the
+unlisted cases conform. No row's reachability verdict should be read as
+established absence — only as absence of a defect the audits looked for.
 
 **The shared-vocabulary instance.** `MetadataTypeNameFailure` spans two
 unrelated domains — structural TypeDef declaration lookup and signature-blob
@@ -422,10 +429,13 @@ declaration path calls. A consumer reading `TypeDeclarationResult.Rejected`
 of which cannot occur (#5750).
 
 **The entry-point instances.** The state-machine index publishes one six-case
-failure vocabulary from four surfaces with four different codomains — only
-`GetByKickoff` can produce all six — and `ProbeDefinition` can return only four
-of `TypeDeclarationResult`'s six cases, while `Probe` and `Index.Probe` can
-return all six. Tracked as
+failure vocabulary from four surfaces with three different codomains —
+`Relationships` reaches two and `GetByImplementation` three — and
+`ProbeDefinition` can return only four of `TypeDeclarationResult`'s six cases,
+while `Probe` and `Index.Probe` can return all six. A third instance is indexed
+not by surface but by *argument*: `StateMachineRelationship.GetRole` and
+`TryGetMethod` can never report `MoveNext` as absent, because only classic-async
+`SetStateMachine` may be absent. Tracked as
 [#5754](https://github.com/richlander/dotnet-inspect/issues/5754) and detailed
 in **Known deviations**.
 
@@ -472,8 +482,9 @@ That four of the six rows lose the same kind of distinction — *our* fault or t
 inventory found. Each component chose its own failure vocabulary in isolation,
 and each dropped a case somewhere: a budget stop in three of them, an invalid
 caller handle in the fourth. Two then published a case blaming the artifact, and
-those same two kept the truth in a `Detail` string; the other two published a
-coarse case with no detail at all. A shared contract is
+those same two kept the truth in a `Detail` string; of the other two, one
+published an identical non-distinguishing literal and one no detail at all. A
+shared contract is
 the only thing that would have caught it, which is the argument for naming the
 pattern.
 
@@ -623,7 +634,8 @@ non-conforming work:
 | Type declaration and forwarding resolution | The whole-table paths take **no work bound at all**, so the construction rule above is unmet rather than merely misreported. Array sizes come straight from untrusted table counts. | `Probe` scans every TypeDef and ExportedType — `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:113`-`203`; the `Index` constructor allocates from `reader.TypeDefinitions.Count` and `reader.ExportedTypes.Count` and reads every entry — `:219`-`301`; reached lazily from `src/ILInspector.Metadata/AssemblyInspectionSession.cs:371`-`375`. Only `ProbeDefinition` has a budget. Tracked as [#5731](https://github.com/richlander/dotnet-inspect/issues/5731). |
 | Type declaration and forwarding resolution | Publishes bare row coordinates throughout its result graph, so a retained result cannot be rebound to a module safely. The correction boundary is **every** published coordinate, not the examples cited. | `TypeDefinitionToken.Value` — `src/ILInspector.Metadata/TypeDeclaration.cs:27`; `ExportedTypeToken.Value` — `:50`; `MetadataTypeNameFailure.SubjectToken` — `src/ILInspector.MetadataPrimitives/MetadataTypeNameResult.cs:39`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
 | `MemorySafetyMetadataIndex` | Same defect, same boundary. | `MemorySafetyMemberContractEvidence.MemberToken` and `.AssociatedMemberToken` — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:94`; `MemorySafetyRulesObservation.AttributeToken` — `:24`. Tracked as [#5711](https://github.com/richlander/dotnet-inspect/issues/5711). |
-| `StateMachineRelationshipIndex` | **One failure vocabulary, four surfaces, four codomains.** The six-case `StateMachineRelationshipFailureKind` is published from `Relationships`, `GetByKickoff`, `GetByStateMachine`, and `GetByImplementation`, and only `GetByKickoff` can produce all six. `Relationships` is `Rejected` only from a global failure, which is always `BudgetExceeded` or `Malformed`; `GetByImplementation` reaches only `Ambiguous` besides those, because every rejection publisher passes an empty implementation-token set except the `Ambiguous` ones. Nothing in the published type records the partition. | `Relationships` at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:58`-`62`, global failures at `:109`-`:127`, success path at `:381`; `RejectClaims` passes `[]` implementations at `:1347`-`:1360`; the `Ambiguous` publishers that do not are `:917`, `:1008`, `:1058`, `:1073`. Tracked as [#5754](https://github.com/richlander/dotnet-inspect/issues/5754). |
+| `StateMachineRelationshipIndex` | **One failure vocabulary, four surfaces, three codomains.** The six-case `StateMachineRelationshipFailureKind` is published from `Relationships`, `GetByKickoff`, `GetByStateMachine`, and `GetByImplementation`. `Relationships` is `Rejected` only from a global failure, which is always `BudgetExceeded` or `Malformed`; `GetByImplementation` reaches only `Ambiguous` besides those, because every rejection publisher passes an empty implementation-token set except the `Ambiguous` ones; `GetByKickoff` and `GetByStateMachine` both reach all six. Nothing in the published type records the partition. | `Relationships` at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:58`-`62`, global failures at `:109`-`:127`, success path at `:381`; the `Ambiguous` publishers passing implementation tokens are `:917`, `:1008`, `:1058`, `:1073`, and every other publisher passes `[]`. `GetByStateMachine` reaches `Unresolved` because `ResolveRole` produces it (`:1127`, `:1236`) and its publisher passes the resolved state-machine token (`:970`-`:978`), and `Ambiguous`/`Duplicate`/`CrossKind` because `RejectClaims` is passed the resolved types at `:337`-`:342` and `:354`-`:362`. Tracked as [#5754](https://github.com/richlander/dotnet-inspect/issues/5754). |
+| `StateMachineRelationship` role surfaces | **The codomain is indexed by an argument, and the published type does not say so.** `GetRole` returns a two-case disposition and `TryGetMethod` a `bool`, but only classic-async `SetStateMachine` can be absent; for `MoveNext` — a role in every claim kind — `AbsentFromArtifact` and `false` are unreachable. A consumer must either handle a case it can never receive or rely on an invariant no signature states. The cost is visible in the decompiler: its `TryGetMethod(MoveNext)` failure route into `Filtered` is unreachable for a resolved classic-async relationship, though the branch itself still serves resolved relationships of other kinds. | Surfaces at `src/ILInspector.Metadata/StateMachineRelationship.cs:121`-`151`; role membership at `:154`-`175`; `CanBeAbsent` at `:178`-`182`; constructor rejection at `:97`-`104`; builder rejection of a missing non-optional role at `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:1230`-`1237`; the consumer at `src/ILInspector.Decompiler/Pipeline/ClassicAsyncRequestAdapter.cs:186`-`208`. Tracked as [#5754](https://github.com/richlander/dotnet-inspect/issues/5754). |
 | Type declaration and forwarding resolution | **`ProbeDefinition` can return only four of `TypeDeclarationResult`'s six cases**, while `Probe` and `Index.Probe` can return all six — two entry points on one substrate with different codomains, and no type-level record of it. The cost is already visible in a consumer: `IrImporter` closes with a branch that throws `BadImageFormatException` for the two cases `ProbeDefinition` cannot return, which is both unreachable and, if reached, would blame the artifact. | `ProbeDefinition` adds only `PendingDefinition` — `src/ILInspector.Metadata/MetadataTypeDeclarationProbe.cs:95`-`99`; `Forwarder`/`ModuleExport` come only from `TryReadExportedCandidate` (`:495`), called only at `:186` and `:420`; case mapping at `:640`-`:656`; the dead consumer branch at `src/ILInspector.Decompiler/Pipeline/Ir/IrImporter.cs:246`-`250`. Tracked as [#5754](https://github.com/richlander/dotnet-inspect/issues/5754). |
 | `MemorySafetyMetadataIndex`, `StateMachineRelationshipIndex` | Accept raw handles, so an in-range handle from another module is undetectable at the boundary. This is a limit of the key type; the deviation is that neither documents it. | `GetMemberContract(EntityHandle)` (`src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:363`) admits any handle its `IsValidMemberHandle` accepts, and that check tests kind and row number only — `src/ILInspector.Metadata/MemorySafetyMetadataIndex.cs:841`; `IsValidMethodHandle` checks row range alone — `src/ILInspector.Metadata/StateMachineRelationshipIndex.cs:164`. |
 
