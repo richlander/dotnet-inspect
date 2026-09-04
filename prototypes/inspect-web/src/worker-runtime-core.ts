@@ -55,6 +55,10 @@ export interface WorkerRuntimeFailure<TDiagnostic> {
   readonly diagnostic: TDiagnostic;
 }
 
+export type WorkerRuntimeBoundaryErrors<TError> = Readonly<{
+  [TKind in WorkerRuntimeFailureKind]: TError;
+}>;
+
 export type WorkerEpochClosure<TDiagnostic> =
   | {
       readonly kind: "planned-restart";
@@ -121,7 +125,6 @@ export interface WorkerRuntimeOperationRegistration<
   TOperationDiagnostic,
   TProgress,
   TPreparationError,
-  TRuntimeDiagnostic,
 > {
   readonly kind: string;
   readonly allowance: WorkerLivenessAllowance;
@@ -135,9 +138,7 @@ export interface WorkerRuntimeOperationRegistration<
   readonly mapPreparationError: (
     error: WorkerRuntimePreparationError,
   ) => TPreparationError;
-  readonly createBoundaryError: (
-    failure: WorkerRuntimeFailure<TRuntimeDiagnostic>,
-  ) => TError;
+  readonly boundaryErrors: WorkerRuntimeBoundaryErrors<TError>;
 }
 
 export type WorkerRuntimePreparationError =
@@ -268,6 +269,10 @@ type WorkerPostResult =
   | { readonly kind: "sent" }
   | { readonly kind: "failed"; readonly error: unknown };
 
+interface PreparedOperationReservation {
+  completion: (() => void) | null;
+}
+
 interface MainOperationRecord<TDiagnostic> {
   readonly identity: OperationIdentity;
   readonly reference: WorkerWireOperationReference;
@@ -322,7 +327,10 @@ interface MainEpoch<TDiagnostic> {
     | "draining"
     | "closed";
   closure: WorkerEpochClosure<TDiagnostic> | null;
+  preparationHighWater: number;
   operationHighWater: number;
+  readonly preparedOperations: Map<number, PreparedOperationReservation>;
+  flushingPreparedOperations: boolean;
   readonly operations: Map<
     string,
     MainOperationRecord<TDiagnostic>
@@ -703,8 +711,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError,
-      TDiagnostic
+      TPreparationError
     >,
   ): OperationProducerAdapter<
     TInput,
@@ -792,7 +799,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       detach: null,
       phase: "starting",
       closure: null,
+      preparationHighWater: 0,
       operationHighWater: 0,
+      preparedOperations: new Map(),
+      flushingPreparedOperations: false,
       operations: new Map(),
       held: [],
       commands: new Map(),
@@ -985,8 +995,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError,
-      TDiagnostic
+      TPreparationError
     >,
     identity: OperationIdentity,
     input: TInput,
@@ -1012,12 +1021,17 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     if (identity.sequence > this.#maximumOperationSequence()) {
       return reject({ kind: "operation-sequence-exhausted" });
     }
-    if (epoch.operationHighWater === this.#maximumOperationSequence()) {
+    if (epoch.preparationHighWater === this.#maximumOperationSequence()) {
       return reject({ kind: "operation-sequence-exhausted" });
     }
-    if (identity.sequence <= epoch.operationHighWater) {
+    if (identity.sequence <= epoch.preparationHighWater) {
       return reject({ kind: "operation-sequence-replayed" });
     }
+    epoch.preparationHighWater = identity.sequence;
+    const reservation: PreparedOperationReservation = {
+      completion: null,
+    };
+    epoch.preparedOperations.set(identity.sequence, reservation);
     epoch.preparedBindings++;
     let preparedLifetimeReleased = false;
     const releasePreparedLifetime = (): void => {
@@ -1025,15 +1039,23 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       preparedLifetimeReleased = true;
       this.#releasePreparedBinding(epoch);
     };
+    const skipPreparation = (): void => {
+      this.#resolvePreparedOperation(
+        epoch,
+        reservation,
+        () => undefined,
+      );
+      releasePreparedLifetime();
+    };
     let encoded: ReturnType<typeof registration.encodeInput>;
     try {
       encoded = registration.encodeInput(input);
     } catch (error: unknown) {
-      releasePreparedLifetime();
+      skipPreparation();
       throw error;
     }
     if (encoded.kind === "rejected") {
-      releasePreparedLifetime();
+      skipPreparation();
       return reject({
         kind: "payload-rejected",
         reason: encoded.reason,
@@ -1051,10 +1073,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     > | null = sink;
     let retainedPayload: unknown = encoded.value;
     let activatedRecord: MainOperationRecord<TDiagnostic> | null = null;
+    let activationAssigned = false;
+    let pendingCancellation: OperationCancelReason | null = null;
     const binding: PreparedOperationProducer = {
       requestCancellation: reason => {
-        if (activatedRecord !== null && retainedEpoch !== null)
+        if (activatedRecord === null || retainedEpoch === null) return;
+        if (activationAssigned) {
           this.#cancelOperation(retainedEpoch, activatedRecord, reason);
+        } else if (pendingCancellation === null) {
+          pendingCancellation = reason;
+        }
       },
       activate: () => {
         if (state !== "prepared") return;
@@ -1065,7 +1093,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         retainedSink = null;
         retainedPayload = undefined;
         if (assignedEpoch === null || assignedSink === null) {
-          releasePreparedLifetime();
+          skipPreparation();
           return;
         }
         const record = this.#createOperationRecord(
@@ -1076,11 +1104,24 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           assignedSink,
         );
         activatedRecord = record;
-        try {
-          this.#activatePrepared(assignedEpoch, record);
-        } finally {
-          releasePreparedLifetime();
-        }
+        this.#resolvePreparedOperation(
+          epoch,
+          reservation,
+          () => {
+            activationAssigned = true;
+            try {
+              this.#activatePrepared(assignedEpoch, record);
+              if (pendingCancellation !== null)
+                this.#cancelOperation(
+                  assignedEpoch,
+                  record,
+                  pendingCancellation,
+                );
+            } finally {
+              releasePreparedLifetime();
+            }
+          },
+        );
       },
       abandon: () => {
         if (state !== "prepared") return;
@@ -1088,10 +1129,43 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         retainedEpoch = null;
         retainedSink = null;
         retainedPayload = undefined;
-        releasePreparedLifetime();
+        skipPreparation();
       },
     };
     return { kind: "prepared", binding };
+  }
+
+  #resolvePreparedOperation(
+    epoch: MainEpoch<TDiagnostic>,
+    reservation: PreparedOperationReservation,
+    completion: () => void,
+  ): void {
+    if (reservation.completion !== null)
+      throw new Error("Prepared operation reservation was resolved twice.");
+    reservation.completion = completion;
+    this.#flushPreparedOperations(epoch);
+  }
+
+  #flushPreparedOperations(epoch: MainEpoch<TDiagnostic>): void {
+    if (epoch.flushingPreparedOperations) return;
+    epoch.flushingPreparedOperations = true;
+    try {
+      while (true) {
+        const next = epoch.preparedOperations.entries().next();
+        if (next.done) return;
+        const [sequence, reservation] = next.value;
+        const completion = reservation.completion;
+        if (completion === null) return;
+        epoch.preparedOperations.delete(sequence);
+        try {
+          completion();
+        } catch (error: unknown) {
+          this.#reportCallbackError(error);
+        }
+      }
+    } finally {
+      epoch.flushingPreparedOperations = false;
+    }
   }
 
   #createOperationRecord<
@@ -1109,8 +1183,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TError,
       TOperationDiagnostic,
       TProgress,
-      TPreparationError,
-      TDiagnostic
+      TPreparationError
     >,
     identity: OperationIdentity,
     payload: unknown,
@@ -1247,7 +1320,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
           closurePublication = invoke(current =>
             current.commitTerminal({
               kind: "failed",
-              error: registration.createBoundaryError(closure.failure),
+              error: registration.boundaryErrors[closure.failure.kind],
             }));
         }
       },

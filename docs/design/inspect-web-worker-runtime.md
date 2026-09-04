@@ -342,32 +342,55 @@ preparation contract.
 The runtime host is generic only in bootstrap and runtime diagnostic data.
 Each operation registration is independently generic in its input, value,
 error, operation diagnostic, progress, and preparation-error types, and owns
-its boundary-error mapping. The host erases those feature types only behind a
-private record of closed callbacks after registration; one operation kind
-cannot widen another kind's returned adapter or select its payload codecs.
+one closed, total boundary-error table keyed by every
+`WorkerRuntimeFailureKind`. Runtime diagnostic detail remains on the one epoch
+failure callback rather than requiring a fallible per-operation conversion
+during closure. The host erases feature types only behind a private record of
+closed callbacks and data after registration; one operation kind cannot widen
+another kind's returned adapter or select its payload codecs.
 
 Preparation synchronously:
 
 1. rejects if no starting or ready epoch accepts assignments;
-2. validates the operation reference, operation kind, feature adapter, and
-   structured-clone-safe input without retaining the producer sink on failure;
-3. creates one prepared binding with an already-usable cancellation endpoint;
+2. validates the operation reference, operation kind, and feature adapter
+   without retaining the producer sink on failure;
+3. reserves the operation sequence before invoking the input encoder, so a
+   nested preparation cannot activate a later assignment ahead of it;
 4. records one epoch-visible prepared lifetime before invoking the input
    encoder, so reentrant epoch closure cannot overtake a successful or rejected
-   preparation; and
-5. retains the sink and encoded payload only inside that binding, without
+   preparation;
+5. validates and encodes the structured-clone-safe input;
+6. creates one prepared binding with an already-usable cancellation endpoint;
+   and
+7. retains the sink and encoded payload only inside that binding, without
    creating an assigned operation record or calling the Worker until
    activation.
 
+Prepared reservations form one sequence-ordered lane across operation
+sessions. Activation waits behind every earlier unresolved preparation.
+Activation of the earlier binding assigns it before later activated bindings;
+rejection or abandonment releases its reservation as a legal sequence gap and
+unblocks later assignments. Cancellation of an activated binding waiting in
+that lane retains the first reason and applies it immediately after assignment.
+Reservation consumes the identity sequence even when encoding rejects or
+throws, or the binding is abandoned; operation authority never reuses those
+page-issued identities.
+
+Operation authority resolves every prepared binding through `activate()` or
+`abandon()` before the corresponding `start()` call returns. An intentionally
+unresolved prepared binding therefore blocks later assignments and realm
+release by contract rather than being force-abandoned by epoch termination.
+
 Abandoning a prepared binding synchronously releases its retained state and
-prepared lifetime without assigning Worker work. Activating it installs one
-epoch-assigned record before any worker callout can be observed, delivers any
-already committed closure and quiescence, and only then releases the prepared
-lifetime.
-Activation while the epoch is starting places the record in the held queue.
-Activation while ready posts `Start`. If the epoch closed between preparation
-and activation, activation reports that committed closure verbatim through the
-already-installed sink: planned restart reports
+prepared lifetime without assigning Worker work. Once an activated binding
+reaches the head of the prepared lane, it installs one epoch-assigned record
+before any worker callout can be observed, delivers any already committed
+closure and quiescence, and only then releases the prepared lifetime.
+At the head of that lane, activation while the epoch is starting places the
+record in the held queue, while activation when ready posts `Start`. If the
+epoch closed before the binding reaches the head, activation reports that
+committed closure verbatim through the already-installed sink: planned restart
+reports
 `Canceled("worker-restarted")`, while unexpected closure reports its boundary
 failure. Both paths report quiescence and do not throw.
 
@@ -984,7 +1007,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   flush without warm-start overtaking, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
-  failure without posting `Start`;
+  failure without posting `Start`, including cross-session preparation
+  reentrancy that preserves assignment order and queued cancellation plus
+  same-session replacement and encoder rejection that release sequence gaps;
 - current-source malformed or protocol-invalid messages before `Ready`
   immediately closing the partial realm with their specific failure kind,
   while the corresponding post-readiness faults use bounded draining,
@@ -1046,9 +1071,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   appropriate;
 - current-epoch invalid ordering as protocol failure and old-epoch messages as
   stale no-ops;
-- failure-complete sink notification and record release when adapter callbacks
-  throw, plus synchronous fake-worker admission aborting before invocation when
-  its response reentrantly terminates the realm; and
+- failure-complete sink notification and record release when sink callbacks
+  throw, compiler-complete boundary-error tables that require no closure-time
+  mapper callout, plus synchronous fake-worker admission aborting before
+  invocation when its response reentrantly terminates the realm; and
 - a neighboring browser-native producer proving operation authority does not
   depend on the worker adapter.
 

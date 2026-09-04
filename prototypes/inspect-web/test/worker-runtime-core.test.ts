@@ -26,12 +26,15 @@ import {
   type FakeWorkerOperationContext,
   type FakeWorkerOperationRegistration,
   type FakeWorkerRuntimeOptions,
+  type WorkerRuntimeBoundaryErrors,
   type WorkerRuntimeFailure,
+  type WorkerRuntimeFailureKind,
   type WorkerRuntimeOperationRegistration,
   type WorkerRuntimePreparationError,
   type WorkerRuntimeTransportBinding,
 } from "../src/worker-runtime-core.ts";
 import {
+  type BoundedPayloadDecodeResult,
   type BoundedPayloadDecoder,
   type ManagedOperationSettlement,
   type WorkerLivenessAllowance,
@@ -92,6 +95,9 @@ interface TestHarness {
 
 interface HarnessOptions {
   readonly bootstrap?: () => void | Promise<void>;
+  readonly encodeInput?: (
+    input: string,
+  ) => BoundedPayloadDecodeResult<unknown>;
   readonly invoke?: (
     input: string,
     context: FakeWorkerOperationContext,
@@ -171,6 +177,21 @@ function terminalCallbacks<TValue, TError>(
   };
 }
 
+function boundaryErrors<TError>(
+  create: (kind: WorkerRuntimeFailureKind) => TError,
+): WorkerRuntimeBoundaryErrors<TError> {
+  return {
+    startup: create("startup"),
+    "worker-crash": create("worker-crash"),
+    protocol: create("protocol"),
+    watchdog: create("watchdog"),
+    "control-response": create("control-response"),
+    "probe-exhaustion": create("probe-exhaustion"),
+    "worker-declared": create("worker-declared"),
+    "worker-message": create("worker-message"),
+  };
+}
+
 function diagnosticDecoder(): BoundedPayloadDecoder<TestDiagnostic> {
   return {
     decode: value => {
@@ -223,31 +244,33 @@ function recordDecoder<T>(
 
 function mainRegistration(
   allowance: WorkerLivenessAllowance,
+  encodeInput: (
+    input: string,
+  ) => BoundedPayloadDecodeResult<unknown> = input => input.length <= 32
+    ? { kind: "decoded", value: input }
+    : {
+        kind: "rejected",
+        reason: "oversized",
+        message: "Input exceeds 32 code units.",
+      },
 ): WorkerRuntimeOperationRegistration<
   string,
   string,
   string,
   TestDiagnostic,
   string,
-  WorkerRuntimePreparationError,
-  TestDiagnostic
+  WorkerRuntimePreparationError
 > {
   return {
     kind: "echo",
     allowance,
-    encodeInput: input => input.length <= 32
-      ? { kind: "decoded", value: input }
-      : {
-          kind: "rejected",
-          reason: "oversized",
-          message: "Input exceeds 32 code units.",
-        },
+    encodeInput,
     value: stringDecoder(),
     error: stringDecoder(),
     diagnostic: diagnosticDecoder(),
     progress: stringDecoder(),
     mapPreparationError: error => error,
-    createBoundaryError: failure => `boundary:${failure.kind}`,
+    boundaryErrors: boundaryErrors(kind => `boundary:${kind}`),
   };
 }
 
@@ -371,7 +394,9 @@ function createHarness(options: HarnessOptions = {}): TestHarness {
             options.createProbeSequenceAllocator,
         }),
   });
-  const adapter = host.registerOperation(mainRegistration(allowance));
+  const adapter = host.registerOperation(
+    mainRegistration(allowance, options.encodeInput),
+  );
   return {
     environment,
     producerClasses,
@@ -710,7 +735,7 @@ test("preparation rejects synchronously without posting or retaining a sink", ()
 test("abandonment is resource-free and activation installs before callout", async () => {
   const harness = createHarness();
   await startReady(harness);
-  const identity = captureIdentity();
+  const [identity, secondIdentity] = captureIdentities(2);
   const calls: string[] = [];
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
@@ -726,16 +751,15 @@ test("abandonment is resource-free and activation installs before callout", asyn
     reportUnexpectedFailure: () => undefined,
   };
   const abandoned = preparedBinding(
-    harness.adapter.prepare(identity, "input", sink),
+    harness.adapter.prepare(identity!, "input", sink),
   );
   abandoned.abandon();
   abandoned.activate();
   assert.deepEqual(operationMessages(harness.workers[0]!), ["initialize"]);
   assert.deepEqual(calls, []);
 
-  const secondIdentity = captureIdentity();
   const activated = preparedBinding(
-    harness.adapter.prepare(secondIdentity, "input", sink),
+    harness.adapter.prepare(secondIdentity!, "input", sink),
   );
   activated.activate();
   assert.equal(harness.host.snapshot().activeOperations, 1);
@@ -743,6 +767,188 @@ test("abandonment is resource-free and activation installs before callout", asyn
     operationMessages(harness.workers[0]!),
     ["initialize", "start"],
   );
+});
+
+test("cross-session preparation reentrancy preserves assignment order and queued cancellation", async () => {
+  let harness: TestHarness;
+  let secondSession: ReturnType<typeof session> | null = null;
+  const second: {
+    handle: OperationHandle<string, string> | null;
+  } = { handle: null };
+  let cancelResult: ReturnType<OperationHandle<string, string>["cancel"]>
+    | null = null;
+  harness = createHarness({
+    encodeInput: input => {
+      if (input === "first") {
+        if (secondSession === null)
+          throw new Error("Second session was not installed.");
+        second.handle = started(
+          secondSession.session.start("second", harness.adapter),
+        );
+        cancelResult = second.handle.cancel("user");
+      }
+      return { kind: "decoded", value: input };
+    },
+  });
+  await startReady(harness);
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `reentrant-prepare-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = session(harness.adapter, authority);
+  secondSession = session(harness.adapter, authority);
+
+  const firstHandle = started(
+    firstSession.session.start("first", harness.adapter),
+  );
+  await harness.environment.flushAsync();
+
+  const starts = harness.workers[0]!.receivedMessages.flatMap(message => {
+    if (typeof message !== "object" || message === null) return [];
+    return ownDataProperty(message, "kind") === "start"
+      ? [ownDataProperty(message, "operation")]
+      : [];
+  });
+  assert.deepEqual(starts, [
+    { operationId: "reentrant-prepare-1", operationSequence: 1 },
+    { operationId: "reentrant-prepare-2", operationSequence: 2 },
+  ]);
+  assert.deepEqual(cancelResult, { kind: "applied" });
+  assert.ok(second.handle);
+  assert.deepEqual(await firstHandle.outcome, {
+    kind: "succeeded",
+    value: "first",
+  });
+  assert.deepEqual(await second.handle.outcome, {
+    kind: "canceled",
+    reason: "user",
+  });
+  await Promise.all([firstHandle.quiesced, second.handle.quiesced]);
+  assert.equal(harness.failures.length, 0);
+});
+
+test("same-session preparation replacement releases its sequence gap", async () => {
+  let harness: TestHarness;
+  let operationSession: ReturnType<typeof session> | null = null;
+  const replacement: {
+    handle: OperationHandle<string, string> | null;
+  } = { handle: null };
+  harness = createHarness({
+    encodeInput: input => {
+      if (input === "first") {
+        if (operationSession === null)
+          throw new Error("Operation session was not installed.");
+        replacement.handle = started(
+          operationSession.session.start("replacement", harness.adapter),
+        );
+      }
+      return { kind: "decoded", value: input };
+    },
+  });
+  await startReady(harness);
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `reentrant-replacement-${id++}`;
+      })(),
+    },
+  });
+  operationSession = session(harness.adapter, authority);
+
+  assert.deepEqual(
+    operationSession.session.start("first", harness.adapter),
+    { kind: "rejected", reason: { kind: "session-changed" } },
+  );
+  await harness.environment.flushAsync();
+
+  const starts = harness.workers[0]!.receivedMessages.flatMap(message => {
+    if (typeof message !== "object" || message === null) return [];
+    return ownDataProperty(message, "kind") === "start"
+      ? [ownDataProperty(message, "operation")]
+      : [];
+  });
+  assert.deepEqual(starts, [
+    { operationId: "reentrant-replacement-2", operationSequence: 2 },
+  ]);
+  assert.ok(replacement.handle);
+  assert.deepEqual(await replacement.handle.outcome, {
+    kind: "succeeded",
+    value: "replacement",
+  });
+  await replacement.handle.quiesced;
+  assert.equal(harness.failures.length, 0);
+});
+
+test("rejected preparation releases its sequence gap for nested activation", async () => {
+  let harness: TestHarness;
+  let secondSession: ReturnType<typeof session> | null = null;
+  const second: {
+    handle: OperationHandle<string, string> | null;
+  } = { handle: null };
+  harness = createHarness({
+    encodeInput: input => {
+      if (input !== "first") return { kind: "decoded", value: input };
+      if (secondSession === null)
+        throw new Error("Second session was not installed.");
+      second.handle = started(
+        secondSession.session.start("second", harness.adapter),
+      );
+      return {
+        kind: "rejected",
+        reason: "invalid",
+        message: "First input was rejected.",
+      };
+    },
+  });
+  await startReady(harness);
+  const authority = createOperationAuthorityPage({
+    allocation: {
+      createId: (() => {
+        let id = 1;
+        return () => `reentrant-rejection-${id++}`;
+      })(),
+    },
+  });
+  const firstSession = session(harness.adapter, authority);
+  secondSession = session(harness.adapter, authority);
+
+  assert.deepEqual(
+    firstSession.session.start("first", harness.adapter),
+    {
+      kind: "rejected",
+      reason: {
+        kind: "producer-rejected",
+        error: {
+          kind: "payload-rejected",
+          reason: "invalid",
+          message: "First input was rejected.",
+        },
+      },
+    },
+  );
+  await harness.environment.flushAsync();
+
+  const starts = harness.workers[0]!.receivedMessages.flatMap(message => {
+    if (typeof message !== "object" || message === null) return [];
+    return ownDataProperty(message, "kind") === "start"
+      ? [ownDataProperty(message, "operation")]
+      : [];
+  });
+  assert.deepEqual(starts, [
+    { operationId: "reentrant-rejection-2", operationSequence: 2 },
+  ]);
+  assert.ok(second.handle);
+  assert.deepEqual(await second.handle.outcome, {
+    kind: "succeeded",
+    value: "second",
+  });
+  await second.handle.quiesced;
+  assert.equal(harness.failures.length, 0);
 });
 
 test("held cancellation is local and readiness flushes remaining starts in sequence order", async () => {
@@ -1756,7 +1962,7 @@ test("heterogeneous operation registrations retain narrow adapters and per-kind 
     diagnostic: textDiagnostic,
     progress: textProgress,
     mapPreparationError: error => ({ textPreparation: error }),
-    createBoundaryError: failure => ({ textError: failure.kind }),
+    boundaryErrors: boundaryErrors(kind => ({ textError: kind })),
   });
   const countAdapter = host.registerOperation({
     kind: "count",
@@ -1767,7 +1973,7 @@ test("heterogeneous operation registrations retain narrow adapters and per-kind 
     diagnostic: countDiagnostic,
     progress: countProgress,
     mapPreparationError: error => ({ countPreparation: error }),
-    createBoundaryError: failure => ({ countError: failure.kind.length }),
+    boundaryErrors: boundaryErrors(kind => ({ countError: kind.length })),
   });
   const narrowTextAdapter: OperationProducerAdapter<
     TextInput,
