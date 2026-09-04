@@ -322,6 +322,53 @@ section.
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.
 
+#### Graph Explore
+
+Member Call graph retains its inline default and exposes `Explore` in the
+working-surface action row when a graph result is available. Explore places
+the existing interactive result in a full-viewport dialog: a quiet heading,
+selected-member context, and Close above the graph, with scope, legend, and
+Mermaid source remaining accessible as secondary information. The diagram
+takes the remaining space rather than retaining the inline fixed-height card.
+At narrow widths context may elide, but Close and graph controls stay available
+without page-level horizontal overflow.
+
+This document owns that placement contract. The existing
+[shared modal semantics](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
+own focus, dismissal, background containment, modal replacement, and history.
+The implementation uses the browser's native modal dialog and the existing
+shell focus helper rather than adding a second custom inert-background system.
+Annotated Source's explicit Explore action is the local interaction precedent;
+its separate source-viewer sessions are not needed for a graph placement change.
+
+Opening and closing relocate one live graph, without another query, Mermaid
+mount, or loss of pan/zoom. Fit remains explicit for the larger viewport.
+Ordinary dismissal returns focus to Explore and keeps the selected member and
+platform descent. Existing result replacement, including theme changes, may
+remount the graph as it does inline. Workspace expansion, platform drill/back,
+and their loading, diagnostics, no-body, and failure results stay in Explore.
+A known member or source destination closes Explore before navigation; failure
+keeps the prior result visible inline and focuses Explore or its stable heading.
+Leaving the originating member, overload, package, framework, or inspector
+closes the viewer. Opening another dialog also closes it, without reopening it
+when that dialog is dismissed.
+
+The browser-only presentation scope was explicitly approved for
+[the two-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/5867).
+Step 1 is [Member Call graph](https://github.com/richlander/dotnet-inspect/issues/5868);
+step 2 is Package Dependencies using the same placement component. Dependencies
+does not advertise Explore until that separate slice lands. Inline presentation
+is not retired. Existing typed `BrowserCallGraph`/`InspectedCallGraph` results,
+target bindings, and Mermaid lowering continue to supply graph data and node
+identity. This host-only placement change bypasses Markout for the interactive
+browser canvas, adds no graph-analysis substrate, and does not change CLI output,
+query scope, traversal, acquisition, or layout algorithms.
+
+The browser gate covers live DOM and interaction retention across placement
+changes, result replacement, pending completion, no-body/failure visibility,
+dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
+the production action row, platform drill/back, and member navigation.
+
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
 success-shaped empty surfaces.

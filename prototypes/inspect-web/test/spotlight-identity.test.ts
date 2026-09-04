@@ -3244,7 +3244,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3526,7 +3526,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
