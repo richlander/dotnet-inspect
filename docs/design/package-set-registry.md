@@ -664,9 +664,7 @@ Aspire implementation adds or extends these Release gates:
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.AspireManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates. |
-| `PackageSetRegistryTests.AspireIncludesApiBreadthCanaries` | The manifest includes literal foundation, testing, separate-subsystem, first-party integration, partner integration, client-adapter, and non-.NET resource canaries such as `Aspire.Hosting`, `Aspire.Hosting.Testing`, `Aspire.TypeSystem`, `Aspire.Hosting.Azure`, `Aspire.Hosting.AWS`, `Aspire.Azure.Storage.Blobs`, and `Aspire.Hosting.Python`. |
-| `PackageSetRegistryTests.AspireExcludesBoundaryCanaries` | The manifest excludes owner-boundary canaries `Aspire.ClickHouse.Driver`, `Aspire.Hosting.ClickHouse`, `Aspire.Hosting.DocumentDB`, and `Aspire.Util.TestLogger`; legacy-line canary `Aspire.Hosting.Dapr`; package-type canaries `Aspire.AppHost.Sdk`, `Aspire.Cli`, and `Aspire.ProjectTemplates`; and public-API canaries `Aspire.Hosting.AppHost`, `Aspire.Hosting.CodeGeneration.TypeScript`, `Aspire.Dashboard.Sdk.linux-x64`, and `Aspire.Hosting.Orchestration.linux-x64`. |
+| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates; inclusion assertions cover foundation, testing, separate-subsystem, first-party integration, partner integration, client-adapter, and non-.NET resource canaries, while exclusion assertions cover owner-boundary, legacy-line, package-type, and public-API canaries. |
 
 These gates prove the reviewed source snapshot and registry behavior. They do
 not make the network audit a runtime operation or prove prefix-query and
