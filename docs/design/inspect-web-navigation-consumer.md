@@ -429,8 +429,9 @@ Opening a demo from the Workspace is an explicit replacement action. The
 consumer retains the source history entry while acquisition and destination
 rendering are in flight, pushes the canonical Workspace destination only after
 replacement succeeds, and leaves the source entry unchanged on failure.
-Opening an already loaded package occurrence from the demo catalog follows the
-same push classification so Back returns to the catalog.
+Any ordinary inspection action that leaves the demo catalog, including scope,
+Search, and loaded-package occurrence activation, follows the same push
+classification so Back returns to the catalog.
 
 ### Package query entry and return
 

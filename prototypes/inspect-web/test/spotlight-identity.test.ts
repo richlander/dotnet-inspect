@@ -1344,7 +1344,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
     ?? "";
   const callGraph =
-    appSource.match(/async function renderMermaidCallGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
+    appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
     ?? "";
   const callGraphBinding =
     appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
@@ -1387,7 +1387,13 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
   assert.match(
     callGraph,
-    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(active, nodeId\)/);
+    /const mounted = currentCallGraph\(\);[\s\S]*mounted\?\.mermaid !== definition[\s\S]*bindGraphPanZoom\(targetContainer, viewport, \{[\s\S]*resolveCallGraphNode: nodeId =>[\s\S]*callGraphNodeBinding\(mounted, nodeId\)/);
+  assert.match(
+    callGraph,
+    /active\.noBody\) return Promise\.resolve\(\{ status: "rendered" \}\);[\s\S]*pending\.definition === active\.mermaid[\s\S]*pending\.theme === theme[\s\S]*return pending\.promise/);
+  assert.match(
+    callGraph,
+    /catch \(error\) \{[\s\S]*const message = errorMessage\(error\);[\s\S]*graph-render-error[\s\S]*return \{ status: "failed", message \}/);
   assert.match(
     callGraphBinding,
     /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
@@ -2660,7 +2666,10 @@ test("canonical restoration is atomic and history adopts the active packet basis
   assert.match(sync, /state\.atPackageRoot/);
   assert.match(
     sync,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
+    /const pushFromProductDemos =\s*isProductHomeDemosPath\(location\.pathname\);[\s\S]*const destination = buildStateUrl\(\)\.toString\(\);[\s\S]*if \(pushFromProductDemos\) \{\s*workspaceLocation\.push\(destination\);\s*\} else \{\s*workspaceLocation\.replace\(destination, history\.state\);/);
+  assert.match(
+    sync,
+    /if \(pushFromProductDemos\) \{\s*workspaceLocation\.push\(\s*workspaceLocation\.build\(snapshot\)\.toString\(\)\);\s*\} else \{\s*workspaceLocation\.sync\(snapshot, history\.state\);/);
   assert.match(
     appSource,
     /const productDemosRouteVisible =\s*scope\(\) === "workspace"\s*&& isProductHomeDemosPath\(location\.pathname\);[\s\S]*document\.title = "Demos — dotnet-inspect";[\s\S]*else if \(options\.synchronizeUrl !== false\) \{\s*syncUrl\(\)/);
@@ -2782,9 +2791,6 @@ test("workspace package selection resets type-specific member filters", () => {
   assert.match(
     selection,
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
-  assert.match(
-    selection,
-    /const commitProductDemosExit =\s*!stayInWorkspace && isProductHomeDemosPath\(location\.pathname\);[\s\S]*if \(commitProductDemosExit\) \{\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\);\s*\}\s*render\(\)/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -2839,7 +2845,7 @@ test("home demos restore the complete parsed location", () => {
     /clearWorkspacePackages\(\);\s*for \(const packageModel of packages\)/);
   assert.match(
     callGraphDemo,
-    /state\.loading = false;\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*await renderMermaidCallGraph\(\);\s*if \(!commitDemoNavigation\(navigationSeq\)\) \{\s*cancelDemoNavigation\(navigationSeq\);\s*return;\s*\}\s*syncUrl\(\);\s*focusInspectionResult\(navigationSeq\)/);
+    /state\.loading = false;\s*stageDemoNavigation\(navigationSeq, buildStateUrl\(\)\.toString\(\)\);\s*render\(\);\s*let renderResult = await renderMermaidCallGraph\(\);\s*while \(renderResult\.status === "superseded"[\s\S]*renderResult = await renderMermaidCallGraph\(\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*if \(renderResult\.status === "superseded"\) \{\s*cancelDemoNavigation\(navigationSeq\);\s*syncUrl\(\);[\s\S]*if \(renderResult\.status === "failed"\) \{\s*throw new Error\(renderResult\.message\);[\s\S]*if \(!commitDemoNavigation\(navigationSeq\)\)/);
   assert.match(
     callGraphDemo,
     /state\.selectedTypeId = type\.id;\s*state\.atPackageRoot = false;\s*state\.lens = "api";\s*state\.packageLens = "overview";\s*resetMemberFilters\(\);\s*resetMemberSectionState\(\);\s*state\.platformStack = \[\];\s*state\.memberBrowseTypeId = type\.id;[\s\S]*state\.selectedMemberKey = member\.key;[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberSection = "call-graph";[\s\S]*state\.memberCallGraph = result\.callGraph;[\s\S]*await renderMermaidCallGraph\(\)/);
@@ -3015,9 +3021,6 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
   assert.match(
     appSource,
     /function focusTypeList\([\s\S]*afterCurrentNavigationFrame\(\(\) => \{[\s\S]*"#type-list"/);
-  assert.match(
-    appSource,
-    /workspaceLocation\.replace\(\s*buildStateUrl\(\)\.toString\(\),\s*history\.state\)/);
   assert.match(
     appSource,
     /workspaceLocation\.sync\(snapshot, history\.state\)/);

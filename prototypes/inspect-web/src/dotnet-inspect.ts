@@ -1171,7 +1171,9 @@ const callGraphInspection = createCallGraphInspectionCoordinator({
   describeError: errorMessage,
   render,
   renderPreservingMemberFocus,
-  renderCallGraph: renderMermaidCallGraph,
+  renderCallGraph: async () => {
+    await renderMermaidCallGraph();
+  },
   nextPaint,
   refreshPackageStats,
   patchCallGraphSection,
@@ -1542,6 +1544,15 @@ let mermaidModule: Promise<MermaidModule> | undefined;
 let markdownModule: Promise<[MarkedModule, DomPurifyModule]> | undefined;
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
 let callGraphRenderSeq = 0;
+type CallGraphRenderResult =
+  | { status: "rendered" }
+  | { status: "superseded" }
+  | { status: "failed"; message: string };
+let callGraphRenderOperation: {
+  definition: string;
+  theme: "light" | "dark";
+  promise: Promise<CallGraphRenderResult>;
+} | null = null;
 let spotlightFocusGeneration = 0;
 document.documentElement.dataset.theme = state.theme;
 
@@ -1991,8 +2002,6 @@ function selectWorkspacePackage(
   pkg: PackageControlPackage | null,
   { stayInWorkspace = false }: { stayInWorkspace?: boolean } = {},
 ) {
-  const commitProductDemosExit =
-    !stayInWorkspace && isProductHomeDemosPath(location.pathname);
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
@@ -2012,9 +2021,6 @@ function selectWorkspacePackage(
   resetMemberFilters();
   resetMemberSectionState();
   state.workspaceSubjectOpen = stayInWorkspace;
-  if (commitProductDemosExit) {
-    workspaceLocation.push(buildStateUrl().toString());
-  }
   render();
 }
 
@@ -7251,18 +7257,28 @@ function syncUrl() {
     && navigationSequence.isCurrent(pendingDemoNavigation.navigationSeq)) return;
   if (retainFailedWorkspaceUrl()) return;
   try {
+    const pushFromProductDemos =
+      isProductHomeDemosPath(location.pathname);
     if (state.atPackageRoot && state.package && !state.loading) {
       document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-      workspaceLocation.replace(
-        buildStateUrl().toString(),
-        history.state);
+      const destination = buildStateUrl().toString();
+      if (pushFromProductDemos) {
+        workspaceLocation.push(destination);
+      } else {
+        workspaceLocation.replace(destination, history.state);
+      }
       lastCanonicalWorkspaceHref = location.href;
       return;
     }
     const snapshot = captureWorkspaceUrlState();
     if (!snapshot || state.loading) return;
     document.title = `dotnet-inspect -- ${packageDisplayName(state.package)}`;
-    workspaceLocation.sync(snapshot, history.state);
+    if (pushFromProductDemos) {
+      workspaceLocation.push(
+        workspaceLocation.build(snapshot).toString());
+    } else {
+      workspaceLocation.sync(snapshot, history.state);
+    }
     lastCanonicalWorkspaceHref = location.href;
   } catch {
     // Keep the last canonical URL while the active Browser state is not projectable.
@@ -9036,39 +9052,83 @@ function patchCallGraphSection(previousMermaid: string | undefined) {
     observeAsync(renderMermaidCallGraph(), "Rendering the member call graph");
 }
 
-async function renderMermaidCallGraph() {
+function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
   const container =
     document.querySelector<HTMLElement>("#call-graph-diagram");
   const active = currentCallGraph();
-  if (!container || !active?.mermaid) return;
-  if (container.dataset.graphDef === active.mermaid
-    && container.querySelector(".graph-viewport")) return;
-  if (container.dataset.graphPending === active.mermaid) return;
-  container.dataset.graphPending = active.mermaid;
-  const seq = ++callGraphRenderSeq;
-  try {
-    mermaidModule ??= import("mermaid");
-    const { default: mermaid } = await mermaidModule;
-    if (seq !== callGraphRenderSeq) return;
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      theme: state.theme === "light" ? "default" : "dark",
-      themeVariables: { fontSize: "17px" },
-      flowchart: { htmlLabels: false, curve: "basis" }
+  if (!active) {
+    return Promise.resolve({
+      status: "failed",
+      message: "The call graph was not available.",
     });
-    const id = `call-graph-${Date.now().toString(36)}-${seq}`;
-    const rootStyle = getComputedStyle(document.documentElement);
-    const definition = active.mermaid.replace(
-      /var\((--[\w-]+)\)/g,
-      (whole: string, name: string) =>
-        rootStyle.getPropertyValue(name).trim() || whole
-    );
-    const { svg } = await mermaid.render(id, definition);
-    if (seq === callGraphRenderSeq
-      && document.querySelector("#call-graph-diagram") === container
-      && currentCallGraph()?.mermaid === active.mermaid) {
-      container.innerHTML =
+  }
+  if (active.noBody) return Promise.resolve({ status: "rendered" });
+  if (!active.mermaid) {
+    return Promise.resolve({
+      status: "failed",
+      message: "The call graph did not include a diagram.",
+    });
+  }
+  if (state.memberCallGraphLoading) {
+    return Promise.resolve({ status: "superseded" });
+  }
+  if (!container) {
+    return Promise.resolve(
+      scope() === "member" && state.memberSection === "call-graph"
+        ? {
+            status: "failed",
+            message: "The call graph diagram could not be mounted.",
+          }
+        : { status: "superseded" });
+  }
+  if (container.dataset.graphDef === active.mermaid
+    && container.querySelector(".graph-viewport")) {
+    return Promise.resolve({ status: "rendered" });
+  }
+  const theme: "light" | "dark" =
+    state.theme === "light" ? "light" : "dark";
+  const pending = callGraphRenderOperation;
+  if (pending
+    && pending.definition === active.mermaid
+    && pending.theme === theme) {
+    return pending.promise;
+  }
+
+  const seq = ++callGraphRenderSeq;
+  const definition = active.mermaid;
+  const promise = (async (): Promise<CallGraphRenderResult> => {
+    try {
+      mermaidModule ??= import("mermaid");
+      const { default: mermaid } = await mermaidModule;
+      if (seq !== callGraphRenderSeq) {
+        return { status: "superseded" };
+      }
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: theme === "light" ? "default" : "dark",
+        themeVariables: { fontSize: "17px" },
+        flowchart: { htmlLabels: false, curve: "basis" }
+      });
+      const id = `call-graph-${Date.now().toString(36)}-${seq}`;
+      const rootStyle = getComputedStyle(document.documentElement);
+      const renderDefinition = definition.replace(
+        /var\((--[\w-]+)\)/g,
+        (whole: string, name: string) =>
+          rootStyle.getPropertyValue(name).trim() || whole
+      );
+      const { svg } = await mermaid.render(id, renderDefinition);
+      if (seq !== callGraphRenderSeq) {
+        return { status: "superseded" };
+      }
+      const targetContainer =
+        document.querySelector<HTMLElement>("#call-graph-diagram");
+      const mounted = currentCallGraph();
+      if (!targetContainer
+        || mounted?.mermaid !== definition) {
+        return { status: "superseded" };
+      }
+      targetContainer.innerHTML =
         '<div class="graph-viewport"></div>'
         + '<div class="graph-controls">'
         + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
@@ -9076,28 +9136,43 @@ async function renderMermaidCallGraph() {
         + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
         + '</div>';
       const viewport =
-        container.querySelector<HTMLElement>(".graph-viewport");
-      if (!viewport) return;
+        targetContainer.querySelector<HTMLElement>(".graph-viewport");
+      if (!viewport) {
+        return {
+          status: "failed",
+          message: "The call graph diagram could not be mounted.",
+        };
+      }
       viewport.innerHTML = svg;
-      container.dataset.graphDef = active.mermaid;
-      bindGraphPanZoom(container, viewport, {
+      targetContainer.dataset.graphDef = definition;
+      bindGraphPanZoom(targetContainer, viewport, {
         keybindings,
         resolveCallGraphNode: nodeId =>
-          callGraphNodeBinding(active, nodeId),
+          callGraphNodeBinding(mounted, nodeId),
       });
+      return { status: "rendered" };
+    } catch (error) {
+      const message = errorMessage(error);
+      const targetContainer =
+        document.querySelector<HTMLElement>("#call-graph-diagram");
+      if (seq === callGraphRenderSeq
+        && targetContainer
+        && currentCallGraph()?.mermaid === definition
+        && !targetContainer.querySelector(".graph-viewport")) {
+        targetContainer.dataset.graphDef = "";
+        targetContainer.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(message)}</p></div>`;
+      }
+      return { status: "failed", message };
     }
-  } catch (error) {
-    if (seq === callGraphRenderSeq
-      && document.querySelector("#call-graph-diagram") === container
-      && !container.querySelector(".graph-viewport")) {
-      container.dataset.graphDef = "";
-      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+  })();
+  callGraphRenderOperation = { definition, theme, promise };
+  void promise.then(() => {
+    if (callGraphRenderOperation?.promise === promise) {
+      callGraphRenderOperation = null;
     }
-  } finally {
-    if (container.dataset.graphPending === active.mermaid) {
-      delete container.dataset.graphPending;
-    }
-  }
+    return null;
+  });
+  return promise;
 }
 
 function callGraphNodeBinding(
@@ -10865,7 +10940,25 @@ async function runCallGraphDemo(
     state.loading = false;
     stageDemoNavigation(navigationSeq, buildStateUrl().toString());
     render();
-    await renderMermaidCallGraph();
+    let renderResult = await renderMermaidCallGraph();
+    while (renderResult.status === "superseded"
+      && navigationSequence.isCurrent(navigationSeq)
+      && currentCallGraph()?.mermaid === result.callGraph.mermaid
+      && document.querySelector("#call-graph-diagram")) {
+      renderResult = await renderMermaidCallGraph();
+    }
+    if (!navigationSequence.isCurrent(navigationSeq)) {
+      cancelDemoNavigation(navigationSeq);
+      return;
+    }
+    if (renderResult.status === "superseded") {
+      cancelDemoNavigation(navigationSeq);
+      syncUrl();
+      return;
+    }
+    if (renderResult.status === "failed") {
+      throw new Error(renderResult.message);
+    }
     if (!commitDemoNavigation(navigationSeq)) {
       cancelDemoNavigation(navigationSeq);
       return;
