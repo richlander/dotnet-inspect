@@ -214,7 +214,7 @@ recipe-level inputs that the proof-carrying core will consume:
 single-method demonstration uses the same built assembly and product pipeline:
 
 ```bash
-dotnet build src/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
+dotnet build fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync -c Release
 dotnet run --project tools/DecompilerHarness -c Release -- \
   artifacts/bin/ILInspector.Decompiler.Fixtures.ClassicAsync/release/ILInspector.Decompiler.Fixtures.ClassicAsync.dll \
   --dump \

@@ -932,7 +932,7 @@ test("typed package controls own framework and version selection bindings", () =
     /export function bindPackageSelections\([\s\S]*#framework[\s\S]*#package-version/);
   assert.match(
     appSource,
-    /function packageCoordinateControls\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
+    /function packageCoordinateFields\(\)[\s\S]*id="package-version"[\s\S]*id="framework"/);
   assert.match(
     packageControlsBinding,
     /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
@@ -1158,6 +1158,12 @@ test("typed library controls own library and Platform picker bindings", () => {
   assert.match(
     binding,
     /onPlatformLibrarySelect: \(name, pack\) =>\s*observeAsync\(\s*openPlatformLibrary\(name, pack\),\s*"Opening a platform library"\)/);
+  assert.match(
+    appSource,
+    /const requiresSelection = options\.requireSelection === true && !scoped;[\s\S]*?<option value="" selected disabled>Choose a library<\/option>/);
+  assert.equal(
+    appSource.match(/requireSelection: true/g)?.length,
+    1);
   assert.match(
     binding,
     /onPlatformLensLibrarySelect: \(lens, name, pack\) =>\s*observeAsync\(\s*openPlatformLensLibrary\(lens, name, pack\),\s*"Opening a platform library"\)/);
@@ -2420,6 +2426,16 @@ test("ready status shows versioned linked build provenance", () => {
   assert.match(
     deploySource,
     /-getProperty:VersionPrefix[\s\S]*-p:VersionPrefix="\$version"[\s\S]*-p:SourceRevisionId="\$GITHUB_SHA"[\s\S]*-p:BuildTimestampUtc="\$built_at"/);
+});
+
+test("bootstrap reconciles persisted style choices with the product catalog", () => {
+  const bootstrap =
+    appSource.match(
+      /async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/,
+    )?.[0] ?? "";
+  assert.match(
+    bootstrap,
+    /state\.styleOptions = \([\s\S]*reconcileStyleTaste\(\s*state\.taste,\s*state\.styleOptions\);[\s\S]*state\.taste = reconciledTaste;[\s\S]*localStorage\.setItem\("inspect-taste", JSON\.stringify\(state\.taste\)\)/);
 });
 
 test("bare home paints before wasm engine download", () => {
@@ -5163,6 +5179,9 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   const renderMember =
     appSource.match(/function renderMember\([\s\S]*?\n}\n\n\/\/ The annotated section/)?.[0]
     ?? "";
+  const memberOverview =
+    renderMember.match(/if \(state\.memberSection === "overview"\) \{[\s\S]*?\n  \} else if \(state\.memberSection === "call-graph"\)/)?.[0]
+    ?? "";
   const emptyMember =
     renderApi.match(/if \(state\.memberBrowseTypeId === item\.id\) \{[\s\S]*?\n  \}/)?.[0]
     ?? "";
@@ -5182,6 +5201,18 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     renderMember,
     /if \(!memberSectionUsesWorkingSurface\(state\.memberSection\)\) return content;[\s\S]*?class="member-surface"[\s\S]*?<p>\$\{escapeHtml\(member\.kind\)} <span>· \$\{overloadIndex \+ 1} of \$\{member\.overloads\.length}<\/span><\/p>/);
+  assert.match(
+    memberOverview,
+    /class="learn-section member-overview-intro">\s*<section class="signature-panel"[\s\S]*?class="member-documentation"[\s\S]*?class="member-identity"/);
+  assert.doesNotMatch(
+    memberOverview,
+    /class="learn-section member-overview-intro">\s*\$\{documentationSummary\}[\s\S]*?class="signature-panel"/);
+  assert.match(
+    memberOverview,
+    /const documentationSummary = documentationLoading[\s\S]*?Documentation query failed:[\s\S]*?overload\.summary[\s\S]*?No summary was found in the package XML documentation/);
+  assert.match(
+    memberOverview,
+    /aria-labelledby="member-declaration-title"[\s\S]*?aria-label="Copy declaration"[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);
   assert.doesNotMatch(renderMember, /class="learn-title"/);
   assert.doesNotMatch(
     renderMember,
@@ -5195,6 +5226,15 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     stylesSource,
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
+  assert.match(
+    stylesSource,
+    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\) \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
+  assert.match(
+    stylesSource,
+    /\.member-documentation \{ max-width: 760px;/);
+  assert.match(
+    stylesSource,
+    /\.member-surface-scroll \{ container: member-surface \/ inline-size;[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-identity dl > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(
     stylesSource,
     /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
@@ -5228,6 +5268,78 @@ test("type metadata uses a full-area working surface without the inset type head
   assert.match(
     stylesSource,
     /\.metadata-surface-scroll \{[^}]*overflow: auto;/s);
+});
+
+test("package metadata uses compact coordinates in a full-area working surface", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+    ?? "";
+  const renderMetadata =
+    appSource.match(/function renderPackageMetadata\([\s\S]*?\n}\n\nasync function loadPackageMetadata/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const packageMetadataWorkingSurface =\s*activeScope === "package" && state\.packageLens === "metadata"/);
+  assert.match(
+    appSource,
+    /packageMetadataWorkingSurface \? " package-metadata-working-surface" : ""/);
+  assert.match(
+    appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| packageMetadataWorkingSurface[\s\S]*?;/);
+  assert.match(
+    renderPackage,
+    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+  assert.match(
+    renderMetadata,
+    /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.package-metadata-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.package-metadata-scroll \{[^}]*overflow: auto;/s);
+});
+
+test("package dependencies use compact coordinates in a full-area working surface", () => {
+  const renderPackage =
+    appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
+    ?? "";
+  const renderDependencies =
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction assemblyReferencesSectionHtml/)?.[0]
+    ?? "";
+  assert.match(
+    appSource,
+    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && state\.packageLens === "dependencies"/);
+  assert.match(
+    appSource,
+    /packageDependenciesWorkingSurface \? " package-dependencies-working-surface" : ""/);
+  assert.match(
+    appSource,
+    /const contentNavigationIntegrated =[\s\S]*?\|\| packageDependenciesWorkingSurface[\s\S]*?;/);
+  assert.match(
+    renderPackage,
+    /state\.packageLens === "dependencies"[\s\S]*?\|\| state\.packageLens === "metadata"\) return body;/);
+  assert.match(
+    appSource,
+    /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?packageCoordinateFields\(\)[\s\S]*?package-dependencies-scroll[\s\S]*?package-dependencies-surface-footer/);
+  assert.equal(
+    renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
+    5);
+  assert.match(
+    appSource,
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+  assert.match(
+    stylesSource,
+    /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
+  assert.match(
+    stylesSource,
+    /\.package-dependencies-surface,[\s\S]*?grid-template-rows: 40px auto minmax\(0, 1fr\) 34px;/s);
+  assert.match(
+    stylesSource,
+    /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {

@@ -208,7 +208,7 @@ public static class NuGetSourceResolver
             :
             [
                 .. activeDeclarations.Select(
-                    static declaration => declaration.Resolve()),
+                    ResolveSelectedDeclaration),
             ];
         AddExplicitSources(
             selected,
@@ -294,7 +294,7 @@ public static class NuGetSourceResolver
                     .. activeDeclarations
                         .Where(declaration =>
                             allowedNames.Contains(declaration.Name))
-                        .Select(static declaration => declaration.Resolve()),
+                        .Select(ResolveSelectedDeclaration),
                 ];
             AddExplicitSources(
                 selected,
@@ -914,5 +914,23 @@ public static class NuGetSourceResolver
         }
 
         return NuGetCredentialScope.CanonicalizeEndpoint(endpoint);
+    }
+
+    private static NuGetSource ResolveSelectedDeclaration(
+        PackageSourceDeclaration declaration)
+    {
+        try
+        {
+            return declaration.Resolve();
+        }
+        catch (UnsupportedSourceException ex)
+        {
+            InertString alias = PackageSourceDisplay.ForDiagnostics(
+                declaration.Name,
+                url: null);
+            throw new UnsupportedSourceException(
+                $"Configured package source '{alias}' is unsupported: "
+                + ex.Message);
+        }
     }
 }

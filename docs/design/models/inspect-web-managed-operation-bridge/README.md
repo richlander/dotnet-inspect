@@ -12,6 +12,10 @@ behavior.
 admitted to one dynamic active-operation table, and one feature-owned shared
 physical producer that both operations attach to as waiters.
 
+The module retains its original `Progress*` identifiers as abstract callout
+names. Each now represents any scoped nonterminal event callout; event-category
+meaning and producer ordering remain outside this lifecycle model.
+
 The modeled mechanism is:
 
 - synchronous registration of a complete entry before the feature body starts;
@@ -23,10 +27,10 @@ The modeled mechanism is:
 - entry-scoped callout leases: cancellation stores the first reason and claims
   token signaling, then takes a lease and calls `Cancel` outside the table
   guard, and every callout records its failure before releasing its lease;
-- settlement that seals the entry against new cancellation and progress, waits
+- settlement that seals the entry against new cancellation and events, waits
   for every in-flight callout lease to drain, then classifies and releases;
 - one atomic settlement transition and one typed terminal outcome;
-- the release sequence — close the progress callback lease, detach the shared
+- the release sequence — close the event callback lease, detach the shared
   subscription, remove the exact entry, then quiesce;
 - independent waiter detachment from one shared producer, where a final detach
   that leaves the producer running is an atomic handoff;
@@ -37,7 +41,7 @@ The modeled mechanism is:
   allocation; and
 - visible work-sequence exhaustion under a finite `MaxWorkSequence` bound.
 
-The model keeps these values abstract: request, progress, result, error,
+The model keeps these values abstract: request, nonterminal event, result, error,
 diagnostic, and cancellation-reason payloads; producer keys and cache contents;
 and the opaque liveness allowance.
 
@@ -69,14 +73,14 @@ Deliberately outside the model, and owned elsewhere:
   bridge reason, or an expected or unexpected producer failure.
 - At most one callout lease is in flight per entry. One is enough to expose
   drain ordering; the bound makes no concurrency claim.
-- A failing token callback and a failing progress callback are different
+- A failing token callback and a failing event callback are different
   failures. A token-callback failure is recorded on the entry and forces an
-  unexpected-failure terminal outcome. A progress-callback failure is a
-  boundary failure: it closes further progress on that entry and rejects the
+  unexpected-failure terminal outcome. An event-callback failure is a
+  boundary failure: it closes further events on that entry and rejects the
   exported task after release. The model still classifies the feature-body
   observation once, but that classification is inert and not returned when the
   boundary failure exists.
-- Progress reporting, cancellation requests, duplicate-admission attempts, and
+- Event reporting, cancellation requests, duplicate-admission attempts, and
   post-close report attempts are globally budgeted rather than per operation.
   Each budget is a state-space bound, not a throughput or fairness claim.
 - Registration and body start are one atomic step in the faithful model, so
@@ -87,7 +91,7 @@ Deliberately outside the model, and owned elsewhere:
 - Weak fairness covers body observation, callout drain, settlement,
   classification, callback close, detachment, table removal, quiescence,
   producer settlement, and producer finalization. Admission, attachment,
-  cancellation, progress, and producer stop are not fair.
+  cancellation, event reporting, and producer stop are not fair.
 
 ## Checked properties
 
@@ -100,11 +104,11 @@ Deliberately outside the model, and owned elsewhere:
 | Cancellation returns not-active once settlement begins | `SettlingOperationRejectsCancellation` |
 | The returned result distinguishes active from not-active | `CancellationResultMatchesEntryState` |
 | The reason is stored before the cancel callout runs outside the table guard | `CancelCalloutFollowsStoredReason` |
-| Settlement seals the entry against new progress callouts | `SettlementSealsProgressAdmission` |
+| Settlement seals the entry against new event callouts | `SettlementSealsProgressAdmission` |
 | Only post-drain state classifies the result | `CalloutsDrainBeforeClassification` |
 | A recorded callout failure is visible to classification | `ClassificationObservesCalloutFailure` |
 | No callout failure is still unrecorded at quiescence | `CalloutFailuresRecordedBeforeQuiescence` |
-| A progress-callback failure closes further progress | `ProgressFailureClosesCallback` |
+| An event-callback failure closes further events | `ProgressFailureClosesCallback` |
 | At most one terminal classification per admitted operation | `OneTerminalClassification` |
 | Canceled outcomes carry the exact first reason, and an unexpected failure is never hidden as cancellation | `CancellationReasonIsFaithful` |
 | No callback invocation after callback close | `NoCallbackAfterClose` |
@@ -179,9 +183,9 @@ additional product behaviors.
 | An `AlreadyRequested` cancellation-request result | comprehensive |
 | A callout still in flight when settlement begins | comprehensive |
 | A cancel callout in flight, holding a lease outside the table guard | comprehensive |
-| A progress callout still draining while the entry is settling | comprehensive |
-| A recorded progress-callback failure carried to quiescence | comprehensive |
-| A progress-callback failure that leaves a succeeded terminal outcome | comprehensive |
+| An event callout still draining while the entry is settling | comprehensive |
+| A recorded event-callback failure carried to quiescence | comprehensive |
+| An event-callback failure that leaves a succeeded terminal outcome | comprehensive |
 | A recorded token-callback failure reaching terminal classification | comprehensive |
 | A token-callback failure outranking an expected feature failure | comprehensive |
 | Visible work-sequence exhaustion | exhaustion |
@@ -199,11 +203,11 @@ concrete invariant violation; a clean exit means the gate is vacuous or broken.
 | `ReasonOverwrite` | Lets a later request overwrite the stored reason | `FirstCancellationReasonWins` |
 | `SettlingAcceptsCancel` | Accepts cancellation after settlement began | `SettlingOperationRejectsCancellation` |
 | `ClassifyBeforeDrain` | Classifies before entry callouts drain | `CalloutsDrainBeforeClassification` |
-| `ProgressAfterSeal` | Admits a progress callout after settlement sealed the entry | `SettlementSealsProgressAdmission` |
+| `ProgressAfterSeal` | Admits an event callout after settlement sealed the entry | `SettlementSealsProgressAdmission` |
 | `ProgressAfterSealQuiescence` | The same defect, observed as an undrained callout at quiescence | `QuiescenceRequiresCalloutDrain` |
 | `ReleaseLeaseBeforeRecordingFailure` | Releases a callout lease before recording its failure | `ClassificationObservesCalloutFailure` |
 | `ReleaseLeaseBeforeRecordingFailureQuiescence` | The same defect, observed as an unrecorded failure at quiescence | `CalloutFailuresRecordedBeforeQuiescence` |
-| `CallbackAfterClose` | Invokes the progress callback after close | `NoCallbackAfterClose` |
+| `CallbackAfterClose` | Invokes the event callback after close | `NoCallbackAfterClose` |
 | `RemoveBeforeCallbackClose` | Removes the table entry before closing the callback | `CallbackClosesBeforeRemoval` |
 | `QuiesceBeforeRelease` | Quiesces before removal and release | `QuiescenceRequiresRelease` |
 | `FirstWaiterStopsProducer` | Stops the shared producer on a non-final detach | `OneWaiterDoesNotStopSharedProducer` |

@@ -558,6 +558,7 @@ internal static class LibraryMetadataService
         NuGetSourceOptions? sourceOptions = null)
     {
         var pdbContext = service.Context;
+        string? pdbStoreFailure = null;
 
         if (pdbContext.HasPdb)
         {
@@ -578,13 +579,14 @@ internal static class LibraryMetadataService
         // If no local PDB, try downloading (only when a selected section authorizes remote acquisition)
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
-            await SourceEnricher.AcquirePdbAsync(
+            pdbStoreFailure = await AcquirePdbForAuditAsync(
                 pdbContext,
                 httpClient,
                 packageName,
                 packageVersion,
                 isPlatformAssembly,
-                logger.Log,
+                logger,
+                cacheOnly: false,
                 sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
@@ -607,9 +609,9 @@ internal static class LibraryMetadataService
         // provenance) can reflect an already-cached PDB. cacheOnly never touches the network.
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !allowPdbDownload && readCachedPdb)
         {
-            await SourceEnricher.AcquirePdbAsync(
+            pdbStoreFailure = await AcquirePdbForAuditAsync(
                 pdbContext, httpClient, packageName, packageVersion,
-                isPlatformAssembly, logger.Log, cacheOnly: true,
+                isPlatformAssembly, logger, cacheOnly: true,
                 sourceOptions: sourceOptions);
 
             if (pdbContext.HasPdb)
@@ -634,7 +636,11 @@ internal static class LibraryMetadataService
         }
         else
         {
-            if (inspection.WindowsPdbDetected)
+            if (pdbStoreFailure is not null)
+            {
+                inspection.SourceLinkUnavailableReason = pdbStoreFailure;
+            }
+            else if (inspection.WindowsPdbDetected)
             {
                 inspection.SourceLinkUnavailableReason = "Windows PDB";
             }
@@ -661,6 +667,36 @@ internal static class LibraryMetadataService
 
         ApplySourceLinkAudit(service, inspection);
         inspection.Builder = InferBuilder(inspection);
+    }
+
+    private static async Task<string?> AcquirePdbForAuditAsync(
+        PdbContext context,
+        HttpClient httpClient,
+        string? packageName,
+        string? packageVersion,
+        bool isPlatformAssembly,
+        VerboseLogger logger,
+        bool cacheOnly,
+        NuGetSourceOptions? sourceOptions)
+    {
+        try
+        {
+            await SourceEnricher.AcquirePdbAsync(
+                context,
+                httpClient,
+                packageName,
+                packageVersion,
+                isPlatformAssembly,
+                logger.Log,
+                cacheOnly,
+                sourceOptions).ConfigureAwait(false);
+            return null;
+        }
+        catch (PdbStoreAcquisitionException exception)
+        {
+            logger.LogWarning(exception.Message);
+            return exception.Message;
+        }
     }
 
     private static void ApplySourceLinkAudit(

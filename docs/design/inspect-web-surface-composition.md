@@ -14,8 +14,8 @@ focused owners; this document places them.
 This owner defines:
 
 - which working surfaces exist (Type API, Member API, Type Metadata, Source,
-  Annotated Source, Package query, Diagnostics) and their page-level placement relative to
-  Type/Member navigation;
+  Annotated Source, Package query, Diagnostics) and their page-level placement
+  relative to Type/Member navigation;
 - the `/query` route's placement and layout, including placement of its
   per-row `Open in workspace` action;
 - Source and Annotated Source pane placement and independent scrolling;
@@ -217,9 +217,10 @@ these named browser tests in `workspace-titlebar.spec.ts`:
 
 ## Working surfaces
 
-Type API, Member API, Type Metadata, Source, Annotated Source, and Diagnostics
-are working surfaces rather than documents inset inside a general page. Package
-Metadata and the Metadata Explorer retain their separately owned composition.
+Type API, Member API, Type Metadata, Package Dependencies, Package Metadata,
+Source, Annotated Source, and Diagnostics are working surfaces rather than
+documents inset inside a general page. The Metadata Explorer retains its
+separately owned full-bleed composition.
 
 The package-query surface's internal query behavior remains owned by
 `package-query-experience.md`; product facet identities, ordering, evidence,
@@ -262,8 +263,35 @@ Member Overview retains package documentation, declaration copying, stable
 identity, parameters, returns, exceptions, and applicability. It removes the
 large documentation-style title and the repeated Namespace, Assembly, Package,
 and framework summary because the subject path already supplies that
-orientation. Call graph and Facts retain their owned result semantics and use
-the same full-area scroller.
+orientation.
+
+The C# declaration is the first stable artifact below the quiet member header.
+It remains anchored while package documentation is loading or resolves to a
+summary, failure, or absence state. A compact `Summary` region follows the
+declaration and keeps every documentation state visible without giving missing
+documentation the surface's highest prominence. Stable identity begins as a
+separate structured section after that region.
+
+```text
+C# declaration                                      Copy
+signature
+
+Summary
+package documentation, loading, failure, or absence
+
+Identity
+stable selector, digest, canonical signature
+```
+
+The declaration and identity use the working surface's available width while
+summary prose retains a readable line length. Subsequent documentation sections
+retain their established readable measure rather than expanding with the
+declaration and identity. At constrained widths the declaration scrolls
+horizontally without separating its Copy action, and identity labels stack
+above their values rather than forcing page-level horizontal overflow.
+
+Call graph and Facts retain their owned result semantics and use the same
+full-area scroller.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
@@ -303,6 +331,82 @@ successful empty projection.
 At narrow widths, header status and both context values may elide as complete
 strings. The surface retains one scroll owner and creates no page-level
 horizontal overflow.
+
+### Package Dependencies
+
+Package Dependencies uses the complete package inspector area. It does not
+retain the generic package hero or inset Package coordinate section used by
+document-style package lenses. The persistent subject path remains the owner
+of the package identity.
+
+The surface contains:
+
+```text
+Dependencies                         package and reference count or state
+Version · Framework
+target-framework groups, graph, package dependencies, assembly references
+package@version                                             active framework
+```
+
+The quiet header labels the lens and reports the selected dependency group's
+package count together with the selected assembly's direct reference count.
+A compact control row keeps Version and Framework available. Dependency-group
+selection remains with the result because it selects a manifest group rather
+than changing the active package coordinate.
+
+One independently scrolling content region retains the exact-group notice,
+target-framework selector, dependency graph, package dependency list, assembly
+references, and partial workspace warning. Selecting another manifest group
+patches its list and graph in place without changing the surface frame or
+resetting the package coordinate.
+
+The fixed bottom context row preserves the exact package coordinate and active
+framework. Loading, query failure, no-dependency, no-exact-group, graph
+failure, and partial-workspace states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from successful
+empty results.
+
+At narrow widths, the `Types` return control shares the quiet header, controls
+wrap within their row, and header and footer values may elide as complete
+strings. The surface creates no page-level horizontal overflow. This slice
+does not change dependency selection, graph construction or navigation,
+Package Overview, Integrations, Opportunities, Analysis, Package Metadata, or
+the Metadata Explorer.
+
+### Package Metadata
+
+Package Metadata uses the complete package inspector area. It does not retain
+the generic package hero or inset Package coordinate section used by the other
+package lenses. The persistent subject path remains the owner of the package
+identity.
+
+The surface contains:
+
+```text
+Metadata images                                  assembly count or state
+Version · Framework · optional platform Library
+assembly image facts, heaps, and populated tables
+package@version                           TFM · optional scoped library
+```
+
+The quiet header labels the image-level lens and reports its assembly count or
+current state. A compact control row keeps Version and Framework available and,
+for the platform package, adds the scoped Library selector. The independently
+scrolling content region begins with assembly metadata rather than a repeated
+package summary. Each assembly retains its format, header facts, heaps, and
+populated-table controls, and those controls continue to open the separately
+owned Metadata Explorer.
+
+The fixed bottom context row preserves the exact package coordinate, target
+framework, and optional scoped library. Library-required, loading, failure,
+partial-failure, and no-image states retain the same header, controls, scroll
+owner, and context row. Failures remain visibly distinct from a successful
+empty result.
+
+At narrow widths, controls wrap within their row and header and footer values
+may elide as complete strings. The surface creates no page-level horizontal
+overflow. This slice does not change the Metadata Explorer or other package
+lenses.
 
 ### Package query
 
@@ -507,9 +611,11 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact product-information line. It does not wrap,
 expand, or host runtime diagnostics:
 
+<!-- markdownlint-disable MD013 -->
 ```text
 dotnet-inspect v0.35.2 · abc1234 · Aug 27, 2026 UTC · Package source: Corporate mirror (pkgs.dev.azure.com/org/_packaging/feed/nuget/v3/index.json) · CLI tool · Agent skill
 ```
+<!-- markdownlint-enable MD013 -->
 
 The data bar includes:
 
@@ -649,6 +755,44 @@ with the absence of a synthesized `Default feed` control.
 3. Repeat with a long generic type identity, long package coordinate, and a
    narrow viewport. Confirm that header and footer values elide as complete
    strings without selective loss or page-level horizontal overflow.
+
+### Package Metadata working surface
+
+1. Open package Metadata and confirm that the quiet header, compact Version and
+   Framework controls, assembly image facts, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Open platform Metadata before and after choosing a Library. Confirm that the
+   Library selector remains in the compact control row, the required-selection
+   state keeps the full-area frame, and the selected assembly's heap and table
+   controls still open the Metadata Explorer.
+3. Exercise loading, read failure, partial failure, no-image, and a package
+   containing enough assembly content to scroll. Confirm that only the content
+   region scrolls and that failure is never presented as successful emptiness.
+4. Repeat with long package and library names at a narrow viewport. Confirm
+   that controls wrap within their row, context values elide as complete
+   strings, and no page-level horizontal overflow appears.
+
+### Package Dependencies working surface
+
+1. Open package Dependencies and confirm that the quiet header, compact
+   Version and Framework controls, target-framework groups, dependency graph,
+   package dependencies, assembly references, and bottom exact package context
+   fill the inspector pane without the generic package hero or inset coordinate
+   section.
+2. Switch manifest target-framework groups and confirm that the dependency
+   list and graph update in place while the surface frame, package coordinate,
+   and scroll ownership remain stable. Open or load a dependency from both the
+   list and graph and confirm that existing navigation behavior is preserved.
+3. Exercise loading, query failure, no declared dependencies, no exact group,
+   graph rendering failure, and partial workspace failure. Confirm that each
+   keeps the full-area frame and that failure is never presented as successful
+   emptiness.
+4. Open a package with enough graph and list content to scroll. Repeat with a
+   long package coordinate and narrow viewport; confirm that the `Types`
+   control shares the quiet header, controls wrap within their row, context
+   values elide as complete strings, and no page-level horizontal overflow
+   appears.
 
 ### Source working surface
 

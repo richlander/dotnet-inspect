@@ -332,6 +332,7 @@ import {
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
+  reconcileStyleTaste,
   renderSettingsView,
   type StyleOption,
   type StyleTier,
@@ -3240,6 +3241,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageDependenciesWorkingSurface =
+    activeScope === "package" && state.packageLens === "dependencies";
+  const packageMetadataWorkingSurface =
+    activeScope === "package" && state.packageLens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -3268,7 +3273,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationLabel =
     navMode() === "member" && current ? "Members" : "Types";
   const contentNavigationIntegrated =
-    apiWorkingSurface || metadataWorkingSurface || memberWorkingSurface;
+    apiWorkingSurface
+    || metadataWorkingSurface
+    || packageDependenciesWorkingSurface
+    || packageMetadataWorkingSurface
+    || memberWorkingSurface;
 
   if (scopeBarOwnsFocus) {
     app.tabIndex = -1;
@@ -3335,7 +3344,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3824,6 +3833,22 @@ function packageHeading() {
   </header>`;
 }
 
+function packageCoordinateFields() {
+  const pkg = currentPackage();
+  return `<label class="version-select">
+    <span>Version</span>
+    <select id="package-version">
+      ${versionOptionsHtml(pkg)}
+    </select>
+  </label>
+  <label class="framework-select">
+    <span>Framework</span>
+    <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
+      ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
+    </select>
+  </label>`;
+}
+
 function packageCoordinateControls() {
   const pkg = currentPackage();
   return `<section class="document-section package-coordinate-editor" aria-labelledby="package-coordinate-heading">
@@ -3831,25 +3856,14 @@ function packageCoordinateControls() {
       <h2 id="package-coordinate-heading">Package coordinate</h2>
       <span>${pkg.frameworks.length} target framework${pkg.frameworks.length === 1 ? "" : "s"}</span>
     </div>
-    <div class="package-coordinate-fields">
-      <label class="version-select">
-        <span>Version</span>
-        <select id="package-version">
-          ${versionOptionsHtml(pkg)}
-        </select>
-      </label>
-      <label class="framework-select">
-        <span>Framework</span>
-        <select id="framework"${pkg.frameworks.length <= 1 ? " disabled" : ""}>
-          ${pkg.frameworks.map(item => `<option ${item === pkg.activeFramework ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}
-        </select>
-      </label>
-    </div>
+    <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
   </section>`;
 }
 
 function renderPackageView() {
   const body = packageLensBody();
+  if (state.packageLens === "dependencies"
+    || state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
@@ -3886,18 +3900,60 @@ function packageDependenciesSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
+function renderPackageDependenciesSurface(content: string, status: string) {
+  const pkg = currentPackage();
+  const coordinate = `${pkg.id}@${pkg.version}`;
+  return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+    <header class="api-surface-head package-dependencies-surface-head">
+      <h1 id="package-dependencies-surface-title">Dependencies</h1>
+      <p data-package-dependencies-status>${escapeHtml(status)}</p>
+    </header>
+    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+      <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
+    </section>
+    <div class="package-dependencies-scroll">
+      ${content}
+    </div>
+    <footer class="api-surface-footer package-dependencies-surface-footer">
+      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
+    </footer>
+  </section>`;
+}
+
+function packageDependenciesStatus(
+  data: BrowserPackageDependencies,
+  selectedGroupIndex: number | null,
+) {
+  const groups = data.dependencyGroups || [];
+  const selectedGroup =
+    groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
+  const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
+  const referenceCount = data.assemblyReferences?.length ?? 0;
+  const referenceStatus = data.assemblyReferenceError
+    ? "reference read failed"
+    : `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`;
+  return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"} · ${referenceStatus}`;
+}
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
   if (state.packageDependenciesLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`,
+      "reading");
   }
   if (fresh && state.packageDependenciesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
+      "query failed");
   }
   const data = fresh ? state.packageDependencies : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
+      "loading");
   }
 
   const groups = data.dependencyGroups || [];
@@ -3907,7 +3963,9 @@ function renderPackageDependencies() {
     ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
     : "";
   if (!groups.length) {
-    return `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
+    return renderPackageDependenciesSurface(
+      `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`,
+      packageDependenciesStatus(data, null));
   }
 
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
@@ -3930,7 +3988,9 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`;
+  return renderPackageDependenciesSurface(
+    `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`,
+    packageDependenciesStatus(data, selectedGroupIndex));
 }
 
 function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
@@ -4000,14 +4060,18 @@ function dependencyListSectionHtml(
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const data = state.packageDependencies;
+  const groups = data?.dependencyGroups || [];
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
-  if (!groups.length || !listSection) { render(); return; }
+  const status =
+    document.querySelector<HTMLElement>("[data-package-dependencies-status]");
+  if (!data || !groups.length || !listSection || !status) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
+  status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -4359,13 +4423,35 @@ function maybeAutoLoadPackagePerformance() {
 // it scopes to one runtime-pack assembly (the shared framework is ~160 assemblies); for a
 // NuGet package it describes every active-framework lib/ assembly.
 function renderPackageMetadata() {
-  const isPlatform = state.package?.isRuntimePack === true;
+  const pkg = currentPackage();
+  const isPlatform = pkg.isRuntimePack;
   const fresh = state.packageMetadataKey === packageScopeSignature();
+  const scopedLibrary = scopedPlatformLibrary() || "";
+  const platformMetadataSelect = isPlatform
+    ? platformLibrarySelectHtml({
+        dataAttr: "data-platform-metadata-library",
+        selected: scopedLibrary,
+        requireSelection: true,
+      })
+    : "";
+  const metadataLibraryControl = platformMetadataSelect
+    ? `<label class="metadata-library-select">
+        <span>Library</span>
+        ${platformMetadataSelect}
+      </label>`
+    : "";
   return renderPackageMetadataHtml({
     isPlatform,
-    scopedLibrary: scopedPlatformLibrary() || "",
-    activeFramework: state.package?.activeFramework || "",
-    pickerHtml: isPlatform ? platformLensPicker("data-platform-metadata-library") : "",
+    scopedLibrary,
+    packageId: pkg.id,
+    packageVersion: pkg.version,
+    activeFramework: pkg.activeFramework,
+    controlsHtml: `<section class="package-metadata-controls" aria-label="Metadata coordinate">
+      <div class="package-coordinate-fields">
+        ${packageCoordinateFields()}
+        ${metadataLibraryControl}
+      </div>
+    </section>`,
     fresh,
     loading: state.packageMetadataLoading,
     error: state.packageMetadataError || "",
@@ -5061,26 +5147,35 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
   let content;
   if (state.memberSection === "overview") {
     const parameters = overload.parameters ?? [];
+    const documentationSummary = documentationLoading
+      ? '<p class="docs-loading">Loading package documentation…</p>'
+      : documentationError
+        ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
+        : overload.summary
+          ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
+          : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
     content = `
       <article class="learn-overview">
         <section class="learn-section member-overview-intro">
-          ${documentationLoading
-            ? '<p class="docs-loading">Loading package documentation…</p>'
-            : documentationError
-              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(documentationError)}</p>`
-            : overload.summary
-              ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
-              : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>'}
-          <div class="signature-panel">
-            <div class="signature-language"><span>C#</span><small>declaration</small><button id="copy-signature" type="button">copy</button></div>
+          <section class="signature-panel" aria-labelledby="member-declaration-title">
+            <div class="signature-language">
+              <h2 id="member-declaration-title"><span>C#</span><small>declaration</small></h2>
+              <button id="copy-signature" type="button" aria-label="Copy declaration">copy</button>
+            </div>
             <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
-          </div>
+          </section>
+          <section class="member-documentation" aria-labelledby="member-documentation-title">
+            <div class="member-documentation-heading">
+              <h2 id="member-documentation-title">Summary</h2>
+            </div>
+            ${documentationSummary}
+          </section>
           <section class="member-identity" aria-labelledby="member-identity-title">
             <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
             <dl>
-              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector">copy</button></dd></div>
-              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest">copy</button></dd></div>
-              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical">copy</button></dd></div>
+              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector" aria-label="Copy stable selector">copy</button></dd></div>
+              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest" aria-label="Copy digest">copy</button></dd></div>
+              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical" aria-label="Copy canonical signature">copy</button></dd></div>
             </dl>
             <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
           </section>
@@ -11131,6 +11226,7 @@ type PlatformLibrary = ReturnType<typeof platformLibraryRoster>[number];
 interface PlatformLibrarySelectOptions {
   dataAttr?: string;
   selected?: string | null;
+  requireSelection?: boolean;
 }
 
 function platformLibrarySelectHtml(
@@ -11158,9 +11254,10 @@ function platformLibrarySelectHtml(
   };
   for (const entry of state.platformRecent || []) pushRecent(byAssembly.get(entry.assembly));
   for (const lib of roster) if (lib.loaded) pushRecent(lib);
-  // The selector always shows a single "current" library: whatever is scoped,
-  // else the most-recent, else the largest library — never a useless reset row.
-  const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
+  const requiresSelection = options.requireSelection === true && !scoped;
+  const current = requiresSelection
+    ? ""
+    : scoped || recent[0]?.assembly || roster[0]?.assembly || "";
   let selectedMarked = false;
   const option = (lib: PlatformLibrary) => {
     const isSel = !selectedMarked && lib.assembly === current;
@@ -11175,6 +11272,7 @@ function platformLibrarySelectHtml(
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
   return `<select class="scope-select platform-library-select" ${dataAttr} aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
+      ${requiresSelection ? '<option value="" selected disabled>Choose a library</option>' : ""}
       ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
@@ -11881,6 +11979,13 @@ async function bootstrap() {
       state.styleOptions = (
         sections.find(section => section.id === "csharp.style-choices")?.values
         || []).filter(isStyleOption);
+      const reconciledTaste = reconcileStyleTaste(
+        state.taste,
+        state.styleOptions);
+      if (reconciledTaste.length !== state.taste.length) {
+        state.taste = reconciledTaste;
+        localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
+      }
     } catch (error) {
       state.styleTiers = [];
       state.styleOptions = [];

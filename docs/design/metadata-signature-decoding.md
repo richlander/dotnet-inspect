@@ -65,8 +65,10 @@ observe that one callback read a megabyte. The code reads as bounded and is not.
 
 The ceilings therefore need two justifications, and each answers a different
 failure. They must sit far enough above real artifacts that no legitimate
-signature is refused, which the census establishes: the largest real decode
-consumed 1,182 ledger units against a ceiling of 262,144. And they must bind on
+signature is refused. Establishing that for the planned implementation requires
+its complete pinned baseline. The historical census supplies initial magnitude
+evidence only for the charges it recorded: the largest observed decode recorded
+1,182 ledger units against a ceiling of 262,144. And the ceilings must bind on
 the quantity that actually grows, which is what the classification below is
 for.
 
@@ -272,7 +274,7 @@ within one decode:
 | Quantity | Largest single | Largest per decode | Charges | Per-item cap |
 | --- | ---: | ---: | ---: | --- |
 | Type name characters | 175 | 1,078 | 2,574,175 | 4,096 |
-| Resolution-scope chain length | 3 | 19 | 1,465,380 | 256 |
+| Resolution-scope chain length | 3 | *19 (partial)* | *1,465,380 (partial)* | 256 |
 | Declaring-type chain length | *unmeasured* | *unmeasured* | *unmeasured* | 256 |
 | Array shape bounds | *unmeasured* | *unmeasured* | *unmeasured* | guard allowance |
 | `AssemblyRef` name storage | 58 | 292 | 1,232,837 | none |
@@ -284,14 +286,21 @@ within one decode:
 Three quantities are unmeasured, for three different reasons, and none is
 measured at zero.
 
-The declaring-type chain is unmeasured because the census measures what the
-instrumented build charged, and that build charges the chain length only on the
-`TypeRef` resolution-scope path. A conforming implementation charges it on the
-`TypeDef` path too, so the ledger figures above are a **lower bound** for a
-conforming decode, understated by at most one charge per declaring-chain node
-per projected nested name. The per-walk cap still holds unconditionally: the
-walk reads into caller-owned storage of exactly `MaxRelationshipNodes` entries
-and is refused beyond it.
+The chain-walk evidence is incomplete on both named-type paths. Projecting a
+`TypeRef` made two identical resolution-scope walks: the name reader walked the
+chain to project the full name, then terminal-scope projection walked it again.
+The instrumented build charged only the second walk. The largest single value
+of 3 is therefore valid per walk, but the per-decode total, charge count, and
+work-ledger figures include only one of the two walks.
+
+Projecting a `TypeDef` walked its declaring chain to build the full name and
+charged none of it, so that quantity is entirely unmeasured. The ledger figures
+are lower bounds on what the historical decodes would have charged under the
+complete cost model at that build's projection frequency. They are not a
+minimum for every future implementation, because caching may change that
+frequency. The per-walk cap still holds unconditionally: each walk reads into
+caller-owned storage of exactly `MaxRelationshipNodes` entries and is refused
+beyond it.
 
 Array shape bounds are unmeasured because of *where* they are enforced.
 `SignatureBlobGuard` charges the declared size and lower-bound counts against
@@ -316,20 +325,24 @@ Two results set the ceilings, for the measured quantities. Every measured
 Class A quantity stays far below its cap -- the longest single type name
 observed is 175 characters against a 4,096 ceiling, and the longest
 resolution-scope chain is 3 against 256 -- so the caps constrain nothing real.
-And no decode approached any of the three instrumented budgets, which is what
-makes those budgets available to bound repetition rather than typical cost.
-That statement does not extend to the guard's separate shape allowance.
+Across the quantities it measured, no observed decode approached any of the
+three instrumented budgets. That is initial evidence for ceilings intended to
+bound repetition rather than typical cost, not a complete margin claim; it
+does not cover either omitted chain-walk charge or the guard's separate shape
+allowance.
 
 The headroom column divides each ceiling by a measured maximum, so where the
 maximum is understated the ratio is an **upper bound on headroom**, not
-guaranteed headroom. This affects the work ledger, the one budget the
-declaring-type chain would charge. Its guaranteed floor is obtained by assuming
-the worst unmeasured case: every occurrence copy in the largest observed decode
-projects a nested name whose declaring chain runs to the full
-`MaxRelationshipNodes` cap. That is `1,182 + 158 * 256 = 41,630` against a
-262,144 ceiling, or roughly **6.3x** guaranteed, against 222x measured. The
-conclusion that the ledger is not the binding constraint survives, but only the
-6.3x figure is load-bearing until the charge is added and the census re-run.
+guaranteed headroom. This affects the work ledger, which the omitted chain
+walks would charge. No guaranteed headroom follows from the historical result:
+deriving one would require both complete charging and an assumption about how
+often the future implementation projects a named type, but this design
+specifies no caching strategy and the planned operation does not yet exist. The
+1,182-unit maximum is therefore only a lower bound for the historical decodes
+at the measurement build's projection frequency, not evidence that the ledger
+cannot bind legitimate input. The first conforming implementation must charge
+every chain walk and reproduce the pinned baseline; that complete measurement
+establishes its initial work-ledger headroom.
 
 The last three rows were never exercised, and no probe below drives the culture
 or `ModuleRef` name paths. That is a statement about the corpus, not about
@@ -343,11 +356,12 @@ reached through a custom modifier, where `TypeDefOrRefOrSpecEncoded` admits a
 
 #### What the census cannot show
 
-The census bounds the Class A quantities it measured. It does not bound the two
-Class A quantities disclosed above as unmeasured: each is structurally bounded
-by its guard, but neither has an observed margin. And it cannot bound Class B
-at all, because the largest Class B value in any corpus is a fact about the
-authors who happened to produce it.
+The census supplies observed bounds only for the Class A charges it recorded.
+It records one of the two `TypeRef` resolution-scope walks, and it does not
+observe the two Class A quantities disclosed above as unmeasured: each is
+structurally bounded by its guard, but neither has an observed margin. It
+cannot bound Class B at all, because the largest Class B value in any corpus is
+a fact about the authors who happened to produce it.
 
 A single method taking no parameters, whose one `TypeRef` is scoped to an
 `AssemblyRef` carrying a full public key, consumes ledger units equal to that
@@ -361,12 +375,12 @@ key's size:
 | 1,048,576 | 1,048,585 | **4.0x** |
 | 16,777,216 | 16,777,225 | **64.0x** |
 
-Every real decode measured stayed under 1,182 units. One author-chosen field
-reaches four orders of magnitude beyond that, from an artifact small enough to
-mail, and it scales linearly with no upper limit. This is the entire reason the
-ledger exists and the reason charging must precede a Class B read: no census,
-however large, would have predicted the fourth row, and no count of callbacks
-would observe it.
+Every real decode measured recorded at most 1,182 units. One author-chosen
+field reaches four orders of magnitude beyond that incomplete historical
+maximum, from an artifact small enough to mail, and it scales linearly with no
+upper limit. This is the entire reason the ledger exists and the reason charging
+must precede a Class B read: no census, however large, would have predicted the
+fourth row, and no count of callbacks would observe it.
 
 The `TypeSpec` probe shows the contrasting Class A shape. Charged units track
 the blob exactly, and the pre-existing guard, not the ledger, rejects the
@@ -397,23 +411,25 @@ The census is a measurement build, not product code: it replaces the three
 budget checks with accumulators, tags each charge site by caller line, and
 decodes every member signature in each input. Rebuild it by instrumenting
 `SignatureOccurrenceWorkBudget`. A change that alters what a decode charges
-must re-run it, because the observed maxima are the only evidence that the
-ceilings clear real artifacts.
+must re-run it. The first conforming implementation must likewise reproduce
+the pinned baseline with every cost-model charge present before claiming
+legitimate-input headroom.
 
 A census run also checks that every charge the instrumented build *made* was
 accounted for: charges that no classified site accounts for are recorded
 against an unmapped bucket, which was zero across all 2,750,623 decodes. A
 non-zero unmapped count means the table above is missing a quantity.
 
-That check has a blind spot, and two of the three unmeasured quantities above
-fell into it. The unmapped bucket sees only charges that execute. The
-declaring-type chain is never charged on one path, and array shape bounds are
-charged by the guard before the accumulators start; neither produces an
-unmapped entry, because neither produces an entry at all. A zero unmapped count
-therefore does not establish that the closed set is complete; it establishes
-only that the charges the build made were classified. The `PublicKeyOrToken`
-split is unmeasured for an unrelated reason -- that charge executed and was
-mapped, but the census did not record the flag that separates the classes.
+That check has a blind spot, and both omitted chain walks plus the array-shape
+allowance fell into it. The unmapped bucket sees only charges that reach its
+accumulators. The first `TypeRef` walk and the `TypeDef` declaring-chain walk
+executed without a charge, while array shape bounds were charged by the guard
+before the accumulators started; none produced an unmapped entry. A zero
+unmapped count therefore does not establish that the closed set is complete; it
+establishes only that the charges the build made were classified. The
+`PublicKeyOrToken` split is unmeasured for an unrelated reason -- that charge
+executed and was mapped, but the census did not record the flag that separates
+the classes.
 
 The pricing costs in *The two classes of cost* are measured separately and need
 no product code. Emit an assembly whose single `AssemblyRef` carries a name and

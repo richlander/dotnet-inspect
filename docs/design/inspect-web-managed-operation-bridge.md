@@ -6,19 +6,25 @@ This document defines the target managed boundary for long-running inspect-web
 operations. It is the normative owner for issue
 [#5094](https://github.com/richlander/dotnet-inspect/issues/5094).
 
-The design is not yet implemented. Its abstract lifecycle is checked by the
-companion
+The dynamic operation lifecycle through quiescent release is implemented by
+`BrowserManagedOperationBridge` and gated by
+`BrowserManagedOperationBridgeTests` in the Release browser-engine suite. Its
+abstract lifecycle is checked by the companion
 [managed operation bridge model](models/inspect-web-managed-operation-bridge/README.md).
-Concrete browser and managed gates named below remain required before an
-implementation may claim the corresponding behavior.
+The generated `[JSExport]` Browser/Wasm canary also gates authenticated
+nonterminal callback shape, ordered progress and durable event delivery,
+terminal-after-events settlement, callback-failure rejection, and callback
+closure after release. Shared-producer attachment, epoch-work leases, and the
+remaining complete browser-host gate cases named below remain required before
+an implementation may claim those corresponding behaviors.
 
 ## Decision
 
 Inspect-web uses a dynamic `ActiveOperationTable` at the managed browser-host
 boundary. Each worker-invoked long-running export registers one operation ID,
 one `CancellationTokenSource`, one immutable first cancellation reason, and
-one scoped progress callback before the exported method can reach its first
-incomplete wait.
+one scoped nonterminal event callback before the exported method can reach its
+first incomplete wait.
 
 The table is not a static catalog of operations. Its container may be held by
 static `[JSExport]` entry points, but an entry exists only from synchronous
@@ -27,9 +33,9 @@ admission until that invocation closes its callback and removes its resources.
 The bridge:
 
 - receives an owner-issued opaque operation ID and a feature-specific
-  synchronous progress callback from worker TypeScript;
+  synchronous nonterminal event callback from worker TypeScript;
 - provides the feature operation with a cancellation token and a scoped
-  progress reporter;
+  event sink;
 - accepts cancellation by operation ID and preserves the first normalized
   reason separately from `CancellationToken`;
 - fulfills ordinary operation calls with a closed succeeded, failed, or
@@ -60,17 +66,21 @@ The worker placement, not `Task` or `Promise`, provides DOM responsiveness.
 This bridge makes no claim that a managed await yields to the DOM thread or
 that CPU-only work processes worker messages promptly.
 
-### Progress reporting
+### Nonterminal event reporting
 
 A feature export accepts a bounded synchronous `Action` callback supported by
-the authenticated `ts-jsexport` facade. Managed code reports a semantic phase
-or aggregate checkpoint. The callback runs worker JavaScript, validates its
-primitive fields, and immediately calls `postMessage`; it never performs DOM
-work.
+the authenticated `ts-jsexport` facade. Managed code reports the
+feature-owned nonterminal union through one scoped event sink. That union can
+contain advisory progress plus durable Item and ItemFailure variants; the
+semantic distinction remains owned by the
+[engine-to-browser async event stream](engine-browser-async-event-stream.md).
+The callback runs worker JavaScript, validates its primitive fields, and
+immediately calls `postMessage`; it never performs DOM work.
 
 The main thread applies its own current-operation authority before rendering.
 The managed bridge guarantees only operation-scoped callback lifetime and
-release, not DOM publication.
+release plus producer-order callback invocation. It does not coalesce progress,
+discard durable events, batch messages, or grant DOM publication authority.
 
 ### User cancellation and supersession
 
@@ -92,7 +102,7 @@ browser latency gate required by the relevant feature owner.
 ### Shared physical work
 
 Two operations can await one package acquisition or another feature-owned
-producer. Canceling one operation stops that waiter, removes its progress
+producer. Canceling one operation stops that waiter, removes its event
 subscription, and lets its wrapper return `Canceled` without canceling the
 producer while another waiter remains.
 
@@ -117,7 +127,7 @@ This document owns:
 - dynamic active-entry identity and duplicate-active rejection;
 - `CancellationTokenSource` lifetime;
 - first-reason storage and cancellation-result classification;
-- operation-scoped progress reporter and callback lifetime;
+- operation-scoped nonterminal event sink and callback lifetime;
 - managed result-envelope classification;
 - settlement, callback close, table removal, and managed quiescence ordering;
 - shared-producer waiter attachment and detachment at the managed bridge;
@@ -130,6 +140,8 @@ It consumes:
   [inspect-web operation authority](inspect-web-operation-authority.md);
 - authenticated synchronous callback and result types from
   [`ts-jsexport`](ts-jsexport.md);
+- progress, durable Item and ItemFailure meaning, and terminal ordering from
+  [engine-to-browser async event streams](engine-browser-async-event-stream.md);
 - worker placement and the epoch-work allowance type from #5093;
 - concrete work, error payloads, progress phases, cancellation checkpoints,
   producer sharing keys, and last-waiter policy from feature owners; and
@@ -145,7 +157,8 @@ It does not own:
   response, restart, realm destruction, or hard cancellation;
 - generic `[JSExport]` discovery, facade generation, runtime bootstrap, or
   TypeScript compilation;
-- feature-specific progress unions or payload budgets;
+- feature-specific event unions, progress coalescing, batching, or payload
+  budgets;
 - feature cancellation checkpoints, timeout duration, retry, cache, or
   producer-sharing policy; or
 - package-source identity, transport, reservation, or publication semantics.
@@ -176,6 +189,13 @@ public enum ManagedOperationFailureKind
     Unexpected,
 }
 
+public interface ManagedOperationEvents<in TEvent>
+{
+    bool IsClosed { get; }
+
+    void Report(TEvent operationEvent);
+}
+
 public abstract record ManagedOperationResult<TValue, TError, TDiagnostic>
 {
     public sealed record Succeeded(TValue Value)
@@ -203,6 +223,11 @@ public abstract record ManagedCancellationRequestResult
 }
 ```
 
+`IsClosed` means no later report can reach the JavaScript callback. It is also
+true when an active operation was admitted without a callback or after a
+callback failure; it does not mean the feature body or operation has settled
+and must not control whether feature work is performed.
+
 The wire envelope is closed and versioned. `Succeeded` always carries its
 value, `Failed` always carries its feature-owned safe error and diagnostic
 payloads, and `Canceled` always carries the exact stored reason. A discriminator
@@ -217,9 +242,9 @@ suppression cannot hide it.
 
 Promise rejection is reserved for runtime, interop, serialization, or
 bridge-contract failure, including an invalid boundary value, duplicate active
-ID, or throwing progress callback. The worker runtime owner narrows an unknown
-rejection into its boundary-failure path; it never infers expected cancellation
-from error text.
+ID, or throwing nonterminal event callback. The worker runtime owner narrows
+an unknown rejection into its boundary-failure path; it never infers expected
+cancellation from error text.
 
 `ManagedCancellationRequestResult.Requested` means the reason was installed
 and token signaling was attempted. `AlreadyRequested` returns the immutable
@@ -244,7 +269,7 @@ active / settling state
 CancellationTokenSource
 first normalized cancellation reason, initially absent
 token-callback failure, initially absent
-operation-scoped progress gate and callback reference
+operation-scoped event gate and callback reference
 in-flight bridge-callout count
 zero or one shared-producer subscription
 terminal classification state
@@ -261,9 +286,9 @@ Admission is a synchronous, non-awaiting transition:
 
 1. validate the required boundary values without parsing meaning from the
    opaque operation ID;
-2. construct the cancellation source and closed progress gate;
+2. construct the cancellation source and closed event gate;
 3. atomically add the complete entry if the ID is not already active;
-4. expose the entry's token and scoped reporter to the feature adapter; and
+4. expose the entry's token and scoped event sink to the feature adapter; and
 5. invoke the feature body.
 
 The add completes before the feature body can reach an incomplete wait or make
@@ -277,8 +302,8 @@ on the bridge retaining an unbounded set of completed IDs.
 
 This ordering is checked abstractly by
 `RegistrationPrecedesManagedWork` and `OneActiveEntryPerId` in the companion
-model. The concrete ordering remains unverified until the
-`inspect-web-managed-operation-bridge` Release gate exists.
+model. `BrowserManagedOperationBridgeTests` and the compiled Browser/Wasm
+canary gate the concrete admission ordering for the implemented lifecycle.
 
 ### Cancellation
 
@@ -318,53 +343,72 @@ the cancellation callout before classification and release. Concrete reentrancy
 and throwing-token callback behavior remain unverified until the required
 Release gate exists.
 
-### Progress
+### Nonterminal events
 
-The bridge gives feature code a scoped managed reporter rather than the raw
-JavaScript delegate. The reporter owns the only path to that delegate.
+The bridge gives feature code a scoped managed event sink rather than the raw
+JavaScript delegate. The sink owns the only path to that delegate. Its
+`TEvent` is the feature-owned complete nonterminal union; the bridge does not
+reinterpret a durable Item or ItemFailure as progress.
 
 Each report:
 
 1. validates the feature-owned bounded payload before crossing interop;
-2. enters the operation's progress gate and acquires one entry-scoped callout
+2. enters the operation's event gate and acquires one entry-scoped callout
    lease only while the entry is active and the callback lease is open;
 3. invokes the synchronous callback without holding the active-table guard;
 4. records callback failure as a bridge-contract failure;
-5. leaves the progress gate; and
+5. leaves the event gate; and
 6. releases the callout lease.
 
 Settlement seals the gate against new callouts, then asynchronously waits for
-every existing cancellation and progress callout lease to drain. It never
+every existing cancellation and event callout lease to drain. It never
 blocks a synchronous reentrant callback stack. Closing the gate then drops the
 callback reference. Reports racing with or following the seal do not invoke
-JavaScript. Feature code must not retain the scoped reporter beyond the
+JavaScript. Feature code must not report through a retained sink beyond the
 operation or call another managed export from the callback.
+
+The callback observes every event admitted while the gate is open
+synchronously in producer order. Among admitted events, the bridge neither
+coalesces progress nor drops or batches durable events. Reports racing with or
+following the seal are not admitted and cannot invoke JavaScript; an adapter
+must finish its legitimate nonterminal handoff before returning the terminal
+body result. The adapter retains semantic `Completed` and returns it through
+the terminal result envelope; it never reports `Completed` through this
+callback.
 
 The callback performs bounded validation and `postMessage` in worker
 JavaScript. It returns `undefined`, never a Promise, and never accesses the DOM.
-The main-thread owner independently rejects progress from operations that no
+The main-thread owner independently rejects events from operations that no
 longer hold publication authority.
 
-A callback exception closes further progress, requests cooperative operation
+A callback exception closes further events, requests cooperative operation
 cancellation, and is rethrown by the outer bridge only after its `finally`
 releases the entry. It is a Promise-rejecting boundary failure, not a
 feature-owned `Failed` envelope.
 
+That cooperative request uses the same reason-and-signal claim as keyed
+cancellation. When no earlier reason exists, it stores
+`FeatureObserverFailed` before signaling the token. A concurrent or reentrant
+keyed request therefore observes `AlreadyRequested(FeatureObserverFailed)`
+rather than signaling the token again. An earlier accepted reason remains
+unchanged and its signal is not repeated.
+
 The bridge still classifies the feature body's observation once after callout
 drain so failure precedence and diagnostics remain deterministic. That
-classification is inert bookkeeping when a progress boundary failure exists:
-it does not replace the rejection, and the worker must not publish it as the
+classification is inert bookkeeping when an event boundary failure exists: it
+does not replace the rejection, and the worker must not publish it as the
 managed terminal result. #5093 maps the rejection to its boundary-failure path.
 
 `NoCallbackAfterClose` in the companion model checks the abstract release
 invariant. Authenticated callback shape is already gated by `ts-jsexport`;
-same-operation routing, callback exceptions, in-flight close, and no callback
-after return remain unverified until the browser bridge gate exists.
+the compiled Browser/Wasm canary gates same-operation ordered nonterminal
+routing, callback rejection, and no callback after return. In-flight close
+remains gated by `BrowserManagedOperationBridgeTests`.
 
 ### Settlement and terminal classification
 
 Settlement begins with one atomic transition from active to settling. That
-transition closes cancellation and progress admission. The wrapper then awaits
+transition closes cancellation and event admission. The wrapper then awaits
 the entry's callout drain. Every callout records its failure before releasing
 its lease, so only the post-drain state supplies the first reason and failures
 used for classification.
@@ -373,12 +417,12 @@ The wrapper classifies its physical result by the first matching row:
 
 | Observation at settlement | Recorded bridge failure | Stored reason | Bridge result |
 | --- | --- | --- | --- |
-| Progress callback failure | present | either | Promise rejection after release |
+| Nonterminal event callback failure | present | either | Promise rejection after release |
 | Token-callback failure | present | either | `Failed(Unexpected, error, diagnostic)` |
 | Unexpected feature failure | absent | either | `Failed(Unexpected, error, diagnostic)` |
 | Expected feature failure | absent | either | `Failed(Expected, error, diagnostic)` |
 | Value returned | absent | present | `Canceled(reason)` |
-| Matching operation-token cancellation | absent | present | `Canceled(reason)` |
+| `OperationCanceledException` after the operation token was signaled | absent | present | `Canceled(reason)` |
 | `OperationCanceledException` | absent | absent | `Failed(Unexpected, error, diagnostic)` |
 | Value returned | absent | absent | `Succeeded(value)` |
 
@@ -386,6 +430,12 @@ An accepted cancellation therefore wins over an ordinary late value and
 preserves its exact reason. An unexpected failure is never hidden as expected
 cancellation merely because cancellation was also requested. Feature adapters
 return expected failures explicitly; an escaping exception is unexpected.
+A cancellation exception is matched by the accepted reason and the operation
+token's signaled state, not by comparing
+`OperationCanceledException.CancellationToken`: linked feature tokens may
+surface a different token identity after the bridge's operation token is
+signaled. Without an accepted reason and a signaled operation token, a
+`TaskCanceledException` or `OperationCanceledException` remains unexpected.
 A recorded token-callback failure outranks an otherwise expected feature
 failure and forces `Failed(Unexpected, ...)`. Feature adapters own the safe
 error and diagnostic projection; the bridge owns the failure class, closed
@@ -411,9 +461,9 @@ remain unverified until the required Release gate exists.
 
 Every admitted wrapper executes one release sequence in `finally`:
 
-1. seal the entry against new cancellation and progress callouts;
+1. seal the entry against new cancellation and event callouts;
 2. asynchronously drain every existing callout lease;
-3. close the progress gate and drop the JavaScript callback reference;
+3. close the event gate and drop the JavaScript callback reference;
 4. detach any shared-producer subscription through the final-detach handoff;
 5. remove the exact entry instance from `ActiveOperationTable`;
 6. dispose the operation `CancellationTokenSource`; and
@@ -450,7 +500,7 @@ formed, what it caches, and whether last-waiter cancellation is legal. The
 bridge consumes a feature-owned broker through a narrow attachment contract:
 
 ```text
-Attach(operation, scoped progress reporter) -> waiter subscription
+Attach(operation, scoped event sink) -> waiter subscription
 Await(subscription, operation token) -> feature result
 Detach(subscription) -> producer disposition
 ```
@@ -471,9 +521,9 @@ leaves only when its feature-owned policy permits that transition. Existing
 evidence: `Task.WaitAsync(cancellationToken)` releases a canceled waiter while
 the shared acquisition task continues.
 
-Detachment closes operation progress before the broker can acknowledge release
+Detachment closes operation events before the broker can acknowledge release
 of the subscription. A broker never retains the raw JavaScript callback. It
-may retain only the scoped reporter, which stops all JavaScript invocation when
+may retain only the scoped sink, which stops all JavaScript invocation when
 the bridge closes it.
 
 Final detachment is a two-phase transition under the broker's producer guard:
@@ -554,8 +604,8 @@ const result = await facade.inspectPackage(
   start.operationId,
   start.packageId,
   start.version,
-  (phase, completed, total) => {
-    forwardManagedProgress(start.operationId, { phase, completed, total });
+  (kind, payload) => {
+    forwardManagedEvent(start.operationId, { kind, payload });
     return undefined;
   },
 );
@@ -587,8 +637,8 @@ main thread            worker TypeScript         managed bridge
 -----------            -----------------         --------------
 start op-41        ->  invoke facade         ->  register op-41
                                              ->  attach waiter A
-                    <- progress callback     <-  bounded phase
-progress op-41     <-
+                    <- event callback        <-  progress/item/item failure
+event op-41        <-
 cancel(user)       ->  cancel op-41          ->  store "user", signal token
                                              ->  detach waiter A
                                              ->  producer continues for B
@@ -607,16 +657,19 @@ operation behind a static slot and expose parameterless `CancelCurrent()`.
 Those coordinators are evidence for token propagation and cooperative
 cancellation, not the target identity contract.
 
-Implementation should:
+Implementation proceeds in independently coherent slices:
 
-1. introduce the bridge and its focused Release gate without changing feature
-   progress semantics;
-2. adapt one current export to pass an operation ID, concrete result envelope,
-   and authenticated synchronous progress callback;
-3. replace parameterless cancellation with keyed cancellation for that export;
-4. migrate shared acquisition waits through broker subscriptions and epoch-work
-   leases where needed; and
-5. remove singleton coordinators only after every caller uses keyed operation
+1. introduce the dynamic lifecycle core and
+   `BrowserManagedOperationBridgeTests` Release sub-gate without changing
+   feature event semantics;
+2. add the generated `[JSExport]` Browser/Wasm canary for the complete
+   nonterminal union and callback lifetime;
+3. adapt one current export to pass an operation ID, concrete result envelope,
+   and authenticated synchronous nonterminal event callback;
+4. replace parameterless cancellation with keyed cancellation for that export;
+5. migrate shared acquisition waits through broker subscriptions and
+   epoch-work leases where needed; and
+6. remove singleton coordinators only after every caller uses keyed operation
    identity.
 
 The migration must not thread browser operation IDs into host-neutral
@@ -650,10 +703,26 @@ The model proves only the finite abstract transition system. It does not prove
 C#, JavaScript, interop, browser scheduling, worker protocol, or feature
 implementation behavior.
 
+The model's abstract progress action represents any nonterminal callback
+callout. Event-category semantics and producer order are enforced by the
+concrete Release gates rather than added as another bridge state machine.
+
 ## Required implementation gate
 
-`inspect-web-managed-operation-bridge` is a Release browser-host gate. It does
-not yet exist and must include:
+`BrowserManagedOperationBridgeTests` is the Release managed-core sub-gate. It
+covers synchronous admission, duplicate rejection, keyed first-reason
+cancellation, counted non-blocking callout drain, ordered advisory and durable
+nonterminal events, event callback closure, terminal precedence, exact-entry
+removal, failure-complete local cleanup, and quiescent task settlement. It does
+not stand in for browser interop evidence.
+
+`inspect-web-managed-operation-bridge` is the complete Release browser-host
+gate. Its compiled Browser/Wasm canary now covers authenticated callback and
+result shapes, ordered Progress, Item, and ItemFailure delivery before the
+terminal result, callback-failure rejection, and no invocation through a
+retained sink after release. The canary runs through
+`eng/test-inspect-web-multi-facade-canary.sh`. The complete gate remains open
+and must combine the managed-core sub-gate and canary with:
 
 - two concurrent feature operations with distinct IDs and keyed cancellation
   reaching only the selected token;
@@ -675,10 +744,10 @@ not yet exist and must include:
 - concrete succeeded, failed, and canceled envelope serialization, including
   malformed required-payload negatives;
 - expected terminal variants fulfilling the Promise and bridge/runtime,
-  malformed-contract, serialization, and progress-callback failures rejecting
+  malformed-contract, serialization, and event-callback failures rejecting
   it;
-- synchronous progress before cancellation and suppression during close,
-  after close, after table removal, and after Task settlement;
+- synchronous nonterminal events before cancellation and suppression during
+  close, after close, after table removal, and after Task settlement;
 - callback close racing an in-flight report without deadlock or a later
   JavaScript invocation, with callback failure recorded before settlement
   classification;
@@ -704,8 +773,6 @@ not yet exist and must include:
   failure, and normal reporter unregister only after all leases finish;
 - monotonic work sequences at the JavaScript safe-integer boundary, visible
   exhaustion, and no wrap or reuse;
-- a compiled browser `[JSExport]` canary using the generated facade's
-  authenticated callback and result shapes; and
 - a neighboring operation without progress or shared work, proving the bridge
   does not require those optional capabilities.
 
@@ -728,6 +795,6 @@ This owner does not claim:
 - package acquisition, cache, reservation, or publication correctness; or
 - that an epoch-work allowance is bounded.
 
-Those claims require their adjacent owner and named gate. Until the concrete
-bridge and browser gates exist, implementation behavior described by this
-target design is unverified.
+Those claims require their adjacent owner and named gate. Until the remaining
+browser, shared-producer, and epoch-work gates exist, those implementation
+behaviors described by this target design are unverified.
