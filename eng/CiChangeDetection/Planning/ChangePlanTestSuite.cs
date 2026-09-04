@@ -135,6 +135,8 @@ internal static class ChangePlanTestSuite
             ("eng/test-ts-jsexport-typescript.sh", "web"),
             ("eng/generate-inspect-web-multi-facade-canary.sh", "web"),
             ("eng/test-inspect-web-multi-facade-canary.sh", "web"),
+            ("eng/generate-inspect-web-managed-operation-bridge-canary.sh", "web"),
+            ("eng/test-inspect-web-managed-operation-bridge-canary.sh", "web"),
             ("eng/validate-inspect-web-promotion.cs", "web"),
             ("eng/validate-inspect-web-promotion.sh", "web"),
             ("eng/generate-inspect-web-engine-facade.sh", "web"),

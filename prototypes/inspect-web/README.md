@@ -736,7 +736,24 @@ uninitialized second facade, or a dropped managed invocation. This canary does
 not split the production engine binding or expose raw `ILInspector` APIs; that
 production partition remains [#4497].
 
+The purpose-built `managed-operation-bridge-canary` directly drives the product
+`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
+controlled feature bodies expose synchronous progress, keyed cancellation, and
+terminal release without reproducing lifecycle logic in the harness.
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
+host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
+cancellation routing, all six normalized reasons, concrete fulfilled result
+envelopes, boundary rejection, progress callback argument fidelity and closure,
+and operation readmission after release. The verifier, managed counters, and
+facade drift check reject skipped scenarios, wrong cancellation routing, stale
+facade output, or omitted callback release probes. This is Node-hosted
+Browser/Wasm evidence, not a Worker,
+real-browser, DOM-responsiveness, shared-producer, or epoch-work claim; the
+[managed operation bridge design] owns that scope and the remaining aggregate
+gate.
+
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+[managed operation bridge design]: ../../docs/design/inspect-web-managed-operation-bridge.md
 
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
@@ -786,18 +803,19 @@ tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
 Oxlint checks all seven compiler-derived production facade artifact triples and
-both multi-facade canary source modules as consumer contracts. The
-`src/facades/*.d.ts` declarations receive the TypeScript rules, while the exact
-seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
-correctness and suspicious rules described below. The checked-in production and
-canary TypeScript facades are compiled separately against the exact SDK-owned
-`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
-modules in that same program. TypeScript compilation and the generated facade
-drift gates provide independent source and declaration coverage. The toolchain
-test pins every separately compiled and derived lint input so a generator
-change cannot silently leave analysis coverage. The configuration disables
-four non-correctness rules: underscore spelling, function relocation, listener
-API preference, and `Array.prototype.sort`. Those rules prescribe
+the multi-facade and managed-operation canary sources as consumer contracts.
+The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
+exact seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
+correctness and suspicious rules described below. The checked-in production
+and canary TypeScript facades are compiled separately against the exact
+SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
+initializer and exercise modules in that same program. TypeScript compilation
+and the generated facade drift gates provide independent source and declaration
+coverage. The toolchain test pins every separately compiled and derived lint
+input so a generator change cannot silently leave analysis coverage. The
+configuration disables four non-correctness rules: underscore spelling,
+function relocation, listener API preference, and `Array.prototype.sort`.
+Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
 project targets ES2022. Those four, plus the generated-facade overrides, are
 the *complete* set of disabled rules. The compiler-derived JavaScript disables

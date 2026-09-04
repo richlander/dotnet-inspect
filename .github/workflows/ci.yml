@@ -346,6 +346,9 @@ jobs:
       - name: Test shared-runtime multi-facade canary
         run: eng/test-inspect-web-multi-facade-canary.sh
 
+      - name: Test managed-operation bridge Browser/Wasm canary
+        run: eng/test-inspect-web-managed-operation-bridge-canary.sh
+
       - name: Typecheck generated ts-jsexport facade
         run: eng/test-ts-jsexport-typescript.sh
 
