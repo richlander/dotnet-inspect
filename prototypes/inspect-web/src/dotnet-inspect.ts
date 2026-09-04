@@ -152,8 +152,8 @@ import {
   focusApplicationMenuButton,
   focusWorkbenchSearch,
   renderApplicationMenu,
-  renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   type ApplicationAction,
   type HomeShellBindingActions,
@@ -2951,6 +2951,22 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen ? " inert" : ""}>
       ${workbenchShellHtml({
+        contextualActionsHtml: annotatedPageContext || sourcePageKind
+          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${annotatedPageContext
+                ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
+                : ""}
+              ${sourcePageKind
+                ? renderSourcePageActions({
+                    source: sourcePageSource,
+                    copyButtonId: sourcePageKind === "member"
+                      ? "copy-source"
+                      : "copy-type-source",
+                    escapeHtml,
+                  })
+                : ""}
+            </div>`
+          : "",
         inspectedTargetHtml: `
           <div class="inspected-target" aria-label="Inspected target">
             ${renderInspectedSubjectIcon(pkg)}
@@ -2958,42 +2974,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
               ${renderInspectedSubjectPath(subjectPath)}
             </div>
           </div>`,
-        titleNavigationHtml: `
-          <nav class="title-navigation" aria-label="Search and history">
-            <div class="nav-history">
-              <button id="nav-back" ${navigationHistory.canBack() ? "" : "disabled"} title="Back (Alt+← or Shift+←)" aria-label="Back">←</button>
-              <button id="nav-forward" ${navigationHistory.canForward() ? "" : "disabled"} title="Forward (Alt+→ or Shift+→)" aria-label="Forward">→</button>
-            </div>
-            <button id="open-search" class="title-search" type="button" aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
-              <span class="title-search-glyph" aria-hidden="true">⌕</span>
-              <span class="title-search-label title-search-label-full">Search types, members, packages</span>
-              <span class="title-search-label title-search-label-compact">Search</span>
-            </button>
-          </nav>`,
+        subjectInspectorHtml: renderScopeBar(),
+        titleNavigationHtml: renderTitleNavigation(
+          navigationHistory.canBack(),
+          navigationHistory.canForward()),
       })}
-
-      <header class="subject-zone" aria-label="Subjects and inspectors">
-        <div class="subject-inspector-region">${renderScopeBar()}</div>
-        <div class="shell-actions${annotatedPageContext ? " annotated-page-actions" : ""}${sourcePageKind ? " source-page-actions" : ""}">
-          ${annotatedPageContext || sourcePageKind
-            ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
-                ${annotatedPageContext
-                  ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
-                  : ""}
-                ${sourcePageKind
-                  ? renderSourcePageActions({
-                      source: sourcePageSource,
-                      copyButtonId: sourcePageKind === "member"
-                        ? "copy-source"
-                        : "copy-type-source",
-                      escapeHtml,
-                    })
-                  : ""}
-              </div>`
-            : ""}
-          ${renderApplicationMenuButton()}
-        </div>
-      </header>
 
       <div class="notice-stack">
         ${visibleQueryNotice()
