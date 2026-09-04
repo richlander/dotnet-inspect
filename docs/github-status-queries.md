@@ -18,12 +18,13 @@ limit endpoint can itself count against secondary limits. See
 The [round cadence](round-orchestration.md#bounded-status-waiting) is a decision
 that justifies a read; it is not a time-triggered poll. Repository policy uses
 REST for routine PR lifecycle, mergeability, and CI status. Use GraphQL for
-graph-shaped data such as review threads or one consistent snapshot of related
-objects. A merge or readiness goal also justifies a GraphQL snapshot because
+graph-shaped data such as review threads or a consistent group of related
+objects. A merge or readiness goal also justifies GraphQL because
 `mergeStateStatus` is the documented field that reports a blocked merge.
-During a bounded third- or sixth-round wait, GraphQL may also provide the
-status snapshot when the REST **primary** limit is exhausted because the
-primary limits are separate. Do not switch APIs to evade a secondary limit.
+During a bounded third- or sixth-round wait, GraphQL may also provide CI status
+when the REST **primary** limit is exhausted because the primary limits are
+separate, but the lifecycle and status reads remain separated by the local
+conflict probe below. Do not switch APIs to evade a secondary limit.
 
 ## Routine REST snapshot
 
@@ -128,14 +129,19 @@ authorization.
 
 ## Graph-shaped snapshots
 
-When GraphQL is justified, request the lifecycle and fixed-head fields needed
-by the same interpretation rules: `state`, `merged`, `headRefOid`,
-`baseRefName`, `baseRefOid`, `baseRef { target { oid } }`, `isDraft`,
-`mergeable`, `mergeStateStatus`, and `statusCheckRollup` state and contexts with
-`pageInfo`. Request enough contexts for the normal check matrix; if another
-page exists and `ci-required` is absent, page before concluding that the check
-is missing. These fields and the `MergeableState` and `MergeStateStatus` enums
-are defined in the [GraphQL object][graphql-pr] and
+When GraphQL is justified during a bounded status wait, first request only the
+lifecycle and fixed-head fields needed by the same interpretation rules:
+`state`, `merged`, `headRefOid`, `baseRefName`, `baseRefOid`,
+`baseRef { target { oid } }`, `isDraft`, `mergeable`, and `mergeStateStatus`.
+Do not request `statusCheckRollup` in that first query.
+
+After validating the response and completing a clean local conflict probe,
+request `headRefOid` and `statusCheckRollup` state and contexts with `pageInfo`
+in a second query. Confirm `headRefOid` still equals the expected head before
+using the status result. Request enough contexts for the normal check matrix;
+if another page exists and `ci-required` is absent, page before concluding that
+the check is missing. These fields and the `MergeableState` and
+`MergeStateStatus` enums are defined in the [GraphQL object][graphql-pr] and
 [enum][graphql-enums] references.
 
 Use `git fetch`, not GraphQL, to discover the live base tip for local conflict
