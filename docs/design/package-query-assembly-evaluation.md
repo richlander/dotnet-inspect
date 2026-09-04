@@ -27,13 +27,18 @@ deadline bounds, the evaluator:
 1. maps the frozen package selection to a typed non-applicable or failure
    outcome, or resolves exactly one canonical selected asset for the pattern's
    declared role;
-2. asks the package adapter to project only that selected package entry into
-   one neutral artifact-backed participant;
-3. may reject it through an owner-proved conservative byte prefilter;
-4. otherwise obtains the semantic producer's typed verdict;
-5. returns a resource-free match, non-match, non-applicable outcome, or visible
-   item failure; and
-6. closes the candidate workspace, artifact generation, image, metadata or
+2. asks the package adapter to attempt projection of only that selected package
+   entry and, on its `Available` arm, transfer one neutral artifact-backed
+   participant and group;
+3. enters the Metadata owner's artifact query validation before any rejecting
+   prefilter or semantic producer;
+4. may reject the validated image through an owner-proved conservative byte
+   prefilter;
+5. otherwise obtains the semantic producer's typed verdict;
+6. returns a resource-free match, non-match, non-applicable outcome, or visible
+   item failure with the Artifact Acquisition owner's exact package Root
+   reacquisition request; and
+7. closes the candidate workspace, artifact generation, image, metadata or
    analysis session, and borrowed capability before returning or propagating
    cancellation or an unexpected exception, and never returns success when
    close reports incomplete cleanup.
@@ -41,7 +46,7 @@ deadline bounds, the evaluator:
 The result is scoped to the exact package plus selected asset. It preserves the
 retained-content generation, frozen selection, pattern, and producer evidence
 that participated in the verdict. Display text is never used to reconstruct
-any of those joins.
+any of those joins or the later Workspace opening request.
 
 ## Why this is a separate owner
 
@@ -73,6 +78,37 @@ surface assets. This evaluator instead has **package + selected asset** grain.
 Full role realization remains the right path when the question requires a
 complete role, dependency binding, or cross-assembly relationship.
 
+### Implementation prerequisites
+
+This design can lock before its dependencies implement, but evaluator
+execution cannot land until all of these owner contracts are available:
+
+- the #5798 sparse selected-assembly projection and its Release gates;
+- the Artifact Acquisition-owned pre-transfer cleanup receipt tracked by
+  [#5842](https://github.com/richlander/dotnet-inspect/issues/5842), completing
+  the sparse projection's promised secondary-cleanup boundary;
+- the Metadata-owned admission and query-validation seam designed by
+  [#5143](https://github.com/richlander/dotnet-inspect/issues/5143) and tracked
+  for implementation by
+  [#4857](https://github.com/richlander/dotnet-inspect/issues/4857), including
+  the named gates that reject both Windows Metadata kinds before producer
+  execution; and
+- the sparse projection's composition with that Metadata admission result,
+  tracked by
+  [#5843](https://github.com/richlander/dotnet-inspect/issues/5843), so a
+  compatibility rejection carrier cannot substitute for an
+  `ArtifactAssemblyProjection`; and
+- the Artifact Acquisition-owned exact package Root reacquisition request
+  tracked by
+  [#5837](https://github.com/richlander/dotnet-inspect/issues/5837).
+
+The current compatibility snapshot path does not invoke
+`MetadataImageFormatClassifier`, and `RealizedMemberCoordinate.Package`
+preserves the acquisition framework rather than every selection target.
+Neither current path is a substitute for these prerequisites. The dependent
+format-admission, exact-opening, and pre-transfer-cleanup claims below remain
+explicitly **unverified** until their named owner gates land.
+
 ## Consumers and host plan
 
 The named consumers are:
@@ -97,9 +133,10 @@ does not pre-empt those decisions.
 
 | Owner | Supplies to this evaluator | Remains outside this contract |
 | --- | --- | --- |
-| [Package adapter](artifact-acquisition-and-workspaces.md#sparse-selected-assembly-projection) | Exact `PackageRootBinding`, frozen compile and implementation asset selection, content-generation identity, selection identity, and the closed sparse-projection outcome carrying one canonical asset, one-participant group, exact participant, and `IdentityDecoded` signal when available | Source authorization, download, archive admission, cache policy, TFM/RID reduction, asset ordering, package provenance, and artifact materialization |
+| [Package adapter](artifact-acquisition-and-workspaces.md#sparse-selected-assembly-projection) | Exact `PackageRootBinding`, frozen compile and implementation asset selection, content-generation identity, selection identity, and the closed sparse-projection outcome. Its `Available` arm transfers one canonical asset, one-participant group, and exact participant; #5843 supplies the closed Metadata admission variant, and #5842 supplies a resource-free owner cleanup receipt only for incomplete pre-transfer cleanup | Source authorization, download, archive admission, cache policy, TFM/RID reduction, asset ordering, package provenance, artifact materialization, and pre-transfer cleanup mechanics |
+| [Artifact Root reacquisition](https://github.com/richlander/dotnet-inspect/issues/5837) | One owner-issued resource-free request preserving the binding's exact realized coordinate and selection target for later Workspace opening | Destination Workspace mutation, source authorization, reacquired generation, and opening presentation |
 | [NuGet package structure](../nuget-package-structure.md) | Compile and implementation role meanings | A new package-layout interpretation |
-| [Assembly inspection query](assembly-inspection-query.md) | Package-neutral managed-image classification and typed Metadata query results | Package identity, package selection, or corpus policy |
+| [Assembly inspection query](assembly-inspection-query.md) | Package-neutral `ArtifactAssemblyQueryOutcome<TResult>`, managed-image format and identity validation, and callback-scoped Metadata query execution | Package identity, package selection, or corpus policy |
 | [Inspection layers](inspection-layers.md) | Metadata ownership of metadata facts and Analysis ownership of IL-body evidence | Reclassifying one layer's evidence as another layer's fact |
 | [Engine event streams](engine-browser-async-event-stream.md) | Durable item/failure and completion meanings for later composition | Pattern evaluation, candidate scheduling, or host rendering |
 | [Progressive disclosure](progressive-disclosure.md) | Explicit capability and cost-gesture requirements | CLI or Browser gesture spelling |
@@ -118,6 +155,13 @@ the public request or outcome object graph. The evaluator chooses an asset
 from the binding's frozen selection, then asks the package adapter to validate
 and project that exact asset. It does not dereference `IPackageContent` or
 construct an artifact registration itself.
+
+Before candidate resources are created, the evaluator also asks Artifact
+Acquisition to issue #5837's exact package Root reacquisition request from that
+same binding. The request is resource-free and contains no candidate Workspace
+identity or physical-generation authority. It enters every completed outcome
+as opaque opening intent; the evaluator does not reconstruct it from the
+coordinate, selected asset, TFM, RID, or presentation evidence.
 
 Planning resolves the opaque pattern identity to an internal static executable
 binding. The public request accepts no package ID plus file-name pair, raw
@@ -180,8 +224,11 @@ contexts.
 An optional prefilter binding receives a callback-scoped
 `AssemblyImageView`. The semantic binding receives a callback-scoped
 `AssemblyInspectionSession` and an admitted semantic budget. Orchestration
-obtains both views from the same retained `AssemblyImageSnapshot`; neither
-binding may retain its view or session.
+obtains both views inside one Metadata-owned
+`ArtifactAssemblyQueryOutcome<TResult>.Validated` callback over the same
+query-authorized retained image; neither binding may retain its view or
+session. `NotAssembly` and `Rejected` outcomes are mapped before either
+binding runs.
 
 The semantic binding returns one closed producer-owned verdict:
 
@@ -290,7 +337,8 @@ only the selector-issued default.
 One successful or semantic non-match outcome is valid only for the exact tuple:
 
 ```text
-package coordinate
+exact package Root reacquisition request
++ package coordinate
 + PackageContentGenerationIdentity
 + PackageRootSelectionIdentity
 + selected PackageCompileAsset identity
@@ -309,13 +357,14 @@ reselection.
 
 The artifact registration and participant are execution-time checks, never
 receipt fields. Every post-selection outcome carries one resource-free
-selected-asset context containing the exact realized package coordinate,
-opaque `PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`,
-requested runtime identifier, selection-relative asset occurrence identity,
-contained selected-asset evidence, role, pattern identity and validated
-operand, semantic producer identity, and the number of selected siblings that
-were not evaluated. Match evidence and non-match discrimination compose with
-that context rather than repeating or reconstructing it.
+selected-asset context containing the Artifact Acquisition owner's exact Root
+reacquisition request, exact realized package coordinate, opaque
+`PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`, requested
+runtime identifier, selection-relative asset occurrence identity, contained
+selected-asset evidence, role, pattern identity and validated operand, semantic
+producer identity, and the number of selected siblings that were not
+evaluated. Match evidence and non-match discrimination compose with that
+context rather than repeating or reconstructing it.
 
 The two process-local identities contain no content or opening authority; they
 preserve current-run correspondence only. For compile-surface evaluation the
@@ -331,9 +380,12 @@ no implementation counterpart, no implementation asset was evaluated, so the
 non-applicable outcome reports the full `ImplementationAssets.Count`.
 
 The process-local identities are receipts for current-run correspondence, not
-portable cache keys. A later Workspace transition uses the exact package
-coordinate and reacquires or independently reuses authorized content. It does
-not adopt a disposed evaluation stream or reconstruct a generation token.
+portable cache keys. A later Workspace transition consumes #5837's exact Root
+reacquisition request, reapplies destination-host authorization, and reacquires
+or independently reuses authorized content. It does not adopt a disposed
+evaluation stream, use the candidate Workspace's
+`PackageArtifactRootCorrespondence`, or reconstruct a generation token or
+selection target.
 [Durable package-content identity](https://github.com/richlander/dotnet-inspect/issues/5484)
 remains a prerequisite only for persistent derived-result reuse across
 processes.
@@ -360,8 +412,9 @@ semantic `NoMatch`.
 The non-applicable algebra has two resource-free shapes:
 
 - **Selection not applicable** carries the exact subject,
-  `PackageContentGenerationIdentity`, `PackageRootSelectionIdentity`, pattern
-  request, declared role, and typed `NoCompileAssets`,
+  owner-issued Root reacquisition request, `PackageContentGenerationIdentity`,
+  `PackageRootSelectionIdentity`, pattern request, declared role, and typed
+  `NoCompileAssets`,
   `NoMatchingTargetFramework`, or `EmptyCompileGroup` reason. It carries no
   selected asset because none was issued.
 - **Implementation counterpart not applicable** carries those same fields plus
@@ -393,8 +446,9 @@ reopening content or inferring a failure from exception text:
 
 | Sparse projection outcome | Evaluator action |
 | --- | --- |
-| `Available` with `IdentityDecoded` | Attempt ordinary snapshot acquisition through the exact returned group and participant. A typed rejection becomes `Failure(ImageAdmission)`; only a ready snapshot may reach the prefilter or semantic producer. |
-| `Available` without `IdentityDecoded` | Attempt ordinary snapshot acquisition with an evaluator no-op callback, map its typed rejection to `Failure(ImageAdmission)`, and do not invoke the prefilter or semantic producer. An unexpectedly ready snapshot is `Failure(ProjectionContractViolation)` because the rejection-carrier identity is not semantic evidence. |
+| #5843 `Projected` plus an `Available` sparse realization | Enter the Metadata owner's artifact query validation with the exact `ArtifactAssemblyProjection`. `NotAssembly` or `Rejected` becomes `Failure(ImageAdmission)` with the exact owner-typed query reason. Only the `Validated` callback may reach the prefilter or semantic producer. |
+| #5843 `NotAssembly` or `Rejected` | Return `Failure(ImageAdmission)` with the exact Metadata admission reason and do not invoke query validation, the prefilter, or the semantic producer. If #5843's owner shape transfers a compatibility carrier, it remains cleanup authority only; otherwise the candidate workspace remains empty. |
+| Missing, contradictory, or unknown #5843 Metadata admission evidence | Return `Failure(ProjectionContractViolation)`. `IdentityDecoded` compatibility evidence never repairs or replaces the owner-issued admission variant. |
 | `InvalidBinding` | Return `Failure(InvalidBinding)`. This remains a defensive parent outcome even if the first immutable binding implementation cannot currently produce it. |
 | `InvalidSelectedAsset` | Return `Failure(ProjectionContractViolation)`. The evaluator supplied a canonical object from the same binding, so this arm indicates a composition defect rather than package-authored content. |
 | `SelectedEntryUnavailable` | Return `Failure(SelectedEntryUnavailable)`. |
@@ -404,7 +458,14 @@ reopening content or inferring a failure from exception text:
 The evaluator does not reproduce the package owner's missing-entry sentinel,
 manifest preflight, observed-copy limit mapping, aggregate byte partition, or
 cleanup rules. Those mechanics and their gates remain wholly with the sparse
-projection.
+projection. If a non-`Available` projection performed owner-local cleanup
+before ownership transfer and reports that cleanup as incomplete, #5842
+supplies the exact resource-free owner-issued receipt beside the primary
+projection outcome. Successful or unnecessary cleanup supplies no receipt. The
+evaluator copies an issued receipt opaquely as secondary `ProjectionCleanup`
+evidence. It neither defines the receipt's internal shape nor copies an
+exception, invents cleanup failure from an empty workspace report, or replaces
+the primary projection reason.
 
 ## Selected-entry and image lifetime
 
@@ -415,18 +476,21 @@ selection. Evaluation adds a narrower candidate-scoped realization:
    artifact materialization.
 2. Resolve the selected asset only through the frozen selection.
 3. Create a candidate-scoped asynchronous workspace.
-4. Ask the package adapter to project only that asset into one bounded artifact
-   generation and one-participant group.
-5. Consume the projection's exact participant and `IdentityDecoded` signal.
-   When identity was not decoded, attempt ordinary snapshot acquisition,
-   preserve `AssemblyImageSnapshotResult.Rejected.Failure`, and stop without
-   invoking either executable binding. An unexpectedly ready snapshot is a
-   projection contract violation.
-6. When identity was decoded, request one workspace snapshot scope. Preserve
-   any typed snapshot rejection as image-admission failure. For a ready
-   snapshot, give the optional prefilter a borrowed `AssemblyImageView` and the
-   semantic producer an `AssemblyInspectionSession` over that same
-   `AssemblyImageSnapshot`.
+4. Ask the package adapter to attempt projection of only that asset under the
+   bounded artifact generation. Only `Available` transfers a one-participant
+   group to the candidate workspace.
+5. Record whether #5843's final owner shape completed the existing `Available`
+   ownership transfer, then consume its exact Metadata admission variant.
+   `NotAssembly` or `Rejected` becomes image-admission failure without invoking
+   query validation or either executable binding. A missing or contradictory
+   variant is a projection contract violation; `IdentityDecoded` is
+   compatibility evidence only.
+6. For `Projected`, require the `Available` transfer and enter Metadata query
+   validation with the exact owner-issued projection. Preserve query-time
+   `NotAssembly` or `Rejected` as image-admission failure. Inside the one
+   `Validated` callback, give the optional prefilter a borrowed
+   `AssemblyImageView` and the semantic producer an
+   `AssemblyInspectionSession` over that same retained image.
 7. Copy all evidence needed by the outcome into resource-free values.
 8. In a `finally` path, dispose the query session and candidate workspace,
    then inspect the shared close report before returning an outcome or
@@ -478,12 +542,16 @@ that only that traversal would encounter. Completion for a prefilter-bearing
 pattern may claim semantic no-match coverage under the prefilter proof; it
 must not claim exhaustive producer-failure discovery.
 
-Base assembly admission runs before the prefilter, so native content, managed
-modules, unsupported Windows Metadata, and malformed PE/CLR headers cannot
-become byte-level `NoMatch` outcomes. Deeper malformed structures are visible
-when the selected semantic traversal encounters them; the evaluator does not
-claim to exhaustively validate unrelated metadata that a proven prefilter
-skips.
+Metadata-owned artifact query validation runs before the prefilter, so native
+content, managed modules, unsupported Windows Metadata, and malformed PE/CLR
+headers cannot become byte-level `NoMatch` outcomes. In particular, both
+Windows Metadata kinds must reach the owner-issued
+`Rejected(UnsupportedWindowsMetadata)` arm before either executable binding.
+This property is **unverified** and evaluator implementation is blocked until
+the #5143/#4857 validation path and its named unsupported-format gates land.
+Deeper malformed structures are visible when the selected semantic traversal
+encounters them; the evaluator does not claim to exhaustively validate
+unrelated metadata that a proven prefilter skips.
 
 Each prefilter-bearing descriptor defines a closed representation set for its
 operand inside one admitted image. Its Release fixtures are derived from that
@@ -546,18 +614,29 @@ attached as secondary evidence and cannot replace the original exception.
 
 `InspectionWorkspace.CloseAsync()` may complete normally while reporting
 direct-group release failure in `Groups` or artifact-session release failure in
-`ArtifactSessionCleanupFailures`. The evaluator owns a fresh workspace with
-exactly the one direct group returned by the sparse projection, so a successful
-close report must contain exactly one
-`InspectionWorkspaceDirectGroupCloseResult` with `Succeeded == true` and no
-artifact-session cleanup failures. A missing, additional, coordinated, or
-otherwise unexpected group result is a close-report contract failure rather
-than a result the evaluator tries to reinterpret.
+`ArtifactSessionCleanupFailures`. The evaluator tracks whether the sparse
+projection completed its `Available` ownership transfer:
+
+- before `Available`, a successful close report has no `Groups` and no
+  artifact-session cleanup failures because every non-available projection
+  publishes no participant and retains owner-local cleanup responsibility; and
+- after `Available`, a successful close report has exactly one
+  `InspectionWorkspaceDirectGroupCloseResult` with `Succeeded == true` and no
+  artifact-session cleanup failures.
+
+Before `Available`, any workspace group result or artifact-session cleanup
+failure is a close-report contract failure. After `Available`, a missing,
+additional, coordinated, or otherwise unexpected group result is a
+close-report contract failure rather than a result the evaluator tries to
+reinterpret. The empty pre-publication report is not a cleanup failure; any
+package-owner pre-transfer cleanup receipt is preserved separately as
+`ProjectionCleanup`.
 
 The evaluator applies one precedence rule to the whole report:
 
-- after a would-be `Matched` or `NoMatch`, any failed or unexpected group result
-  or artifact-session cleanup failure replaces the success with
+- after a would-be `Matched` or `NoMatch`, any failed or unexpected
+  post-`Available` group result or artifact-session cleanup failure replaces
+  the success with
   `Failure(CandidateCleanup)`;
 - after a typed evaluation failure, cleanup evidence is appended as secondary
   evidence without replacing the primary failure stage; and
@@ -569,8 +648,9 @@ bounded sequence of distinct cleanup stages and counts:
 
 - **GroupRelease** for an unsuccessful direct-group result;
 - **ArtifactSessionRelease** for reported artifact-session cleanup failures; and
-- **CloseReportContract** for a missing, additional, coordinated, or unknown
-  group result in this one-direct-group workspace.
+- **CloseReportContract** for any group or artifact cleanup entry before
+  `Available`, or a missing, additional, coordinated, or unknown group result
+  afterward.
 
 It carries no exception instances, messages, paths, or stack traces.
 Report-valued direct-group failure is not described as a thrown exception.
@@ -588,7 +668,9 @@ pipeline; no TLA+ model is required for this contract.
 
 ## Outcome algebra
 
-One completed evaluation returns exactly one resource-free outcome:
+One completed evaluation returns exactly one resource-free outcome. Every arm
+carries #5837's owner-issued exact package Root reacquisition request so a host
+never rebuilds opening intent from result display fields:
 
 - **Matched**: selected-asset context plus non-empty producer evidence.
 - **NoMatch**: selected-asset context plus a `PrefilterRejected` or
@@ -604,8 +686,9 @@ execution. Nulls and other caller contract violations retain argument
 exceptions rather than becoming candidate outcomes.
 
 Failures before an asset can be selected carry the exact subject,
-content-generation identity, selection identity, pattern request, declared
-role, and typed package-selection reason. They do not invent an asset context.
+owner-issued Root reacquisition request, content-generation identity, selection
+identity, pattern request, declared role, and typed package-selection reason.
+They do not invent an asset context.
 
 Every failure after asset selection carries the complete selected-asset
 context plus one stage-specific resource-free payload:
@@ -618,13 +701,21 @@ context plus one stage-specific resource-free payload:
 - artifact publication carries each owner-issued
   `ArtifactSetAdmissionFailureKind` and diagnostic code, copied without the
   diagnostic implementation object or cleanup exception;
-- image admission carries the exact Metadata-owned `CandidateOpenFailure`;
+- image admission carries the exact Metadata-owned
+  `ArtifactNonAssemblyKind`, `ArtifactAssemblyProjectionFailure`, or
+  `ArtifactAssemblyQueryFailure`, retaining whether the reason came from
+  sparse admission or later query validation;
 - semantic decode and unsupported-input failures carry the producer-owned
   typed failure;
 - semantic work limit carries the producer-owned budget kind, admitted limit,
   and charged work when available; and
 - candidate cleanup carries the bounded sequence of close stages and reported
   counts.
+
+A sparse projection failure may additionally carry the package owner's
+exact #5842 resource-free pre-transfer cleanup receipt as secondary
+`ProjectionCleanup` evidence. The evaluator preserves that opaque receipt
+without translating an exception or replacing the primary failure.
 
 A bounded product-authored presentation diagnostic may accompany a failure,
 but it is derived from the typed payload and is never the only durable cause.
@@ -668,10 +759,17 @@ rephrase the semantic fact from display text. Artifact-authored explanatory
 text is already contained by the asset or producer owner before either host
 receives it.
 
-Opening a match starts the standard typed Workspace transition from its exact
-realized package coordinate. The transition may reacquire content or use an
-independently authorized cache generation. It never adopts the evaluator's
-disposed image or assumes that a process-local generation identity is durable.
+Opening a match starts the standard typed Workspace transition with #5837's
+Artifact Acquisition-owned exact package Root reacquisition request. That
+request preserves both the producer-bound acquisition coordinate and the
+selection target that formed the evaluated Root, including a framework-neutral
+coordinate or a selection target that differs from the acquisition framework.
+The destination host reapplies current source authorization and may reacquire
+content or use an independently authorized cache generation. It never adopts
+the evaluator's disposed image, carries the candidate Workspace's
+`PackageArtifactRootCorrespondence`, assumes that a process-local generation
+identity is durable, or infers the selection target from contained display
+text.
 
 A later corpus completion counts `NotApplicable`, work-limit, and other
 candidate failures separately from semantic non-matches. Evaluating every
@@ -693,6 +791,11 @@ ECMA-335 structures. Image-admission failures and malformed structures
 encountered by the selected semantic path are visible typed outcomes or
 failures, never an empty match set.
 
+Unsupported Windows Metadata visibility depends on the unimplemented
+The #5143/#4857 Metadata artifact query-validation seam remains
+**unverified**. The evaluator must not ship a compatibility fallback that lets
+either Windows Metadata kind reach a prefilter or semantic producer.
+
 The tool never loads or executes the inspected assembly.
 
 ## Rendering strategy
@@ -713,21 +816,25 @@ The implementation must preserve focused fixtures for:
 2. a multi-assembly package whose default compile asset has a distinct
    RID-specific implementation counterpart;
 3. a reference-only package with no implementation counterpart;
-4. raw bytes containing the operand in an unrelated region while semantic
+4. a framework-neutral acquisition coordinate with a non-null selection target,
+   and an acquisition framework that differs from the selection target;
+5. raw bytes containing the operand in an unrelated region while semantic
    evaluation returns `NoMatch`;
-5. a semantic match in every encoding or indirection covered by an enabled
+6. a semantic match in every encoding or indirection covered by an enabled
    prefilter;
-6. a selected assembly at the exact byte limit and one byte above it;
-7. a selected asset whose assembly name, TFM, and package path contain control,
+7. a selected assembly at the exact byte limit and one byte above it;
+8. a selected asset whose assembly name, TFM, and package path contain control,
    format, bidirectional, or markup-significant text;
-8. producer evidence whose metadata name or decoded literal excerpt contains
+9. producer evidence whose metadata name or decoded literal excerpt contains
    the same hostile text classes;
-9. native, module, unsupported Windows Metadata, and malformed managed input;
-10. a selected entry that cannot be materialized from the retained content
+10. native, module, unsupported Windows Metadata, and malformed managed input;
+11. a selected entry that cannot be materialized from the retained content
    generation;
-11. semantic work reaching its exact limit and exceeding it;
-12. cancellation during sparse projection and semantic traversal; and
-13. a successful or throwing prefilter or producer whose candidate close also
+12. a non-`Available` sparse projection whose empty candidate workspace closes
+    cleanly, and whose owner-local pre-transfer cleanup separately fails;
+13. semantic work reaching its exact limit and exceeding it;
+14. cancellation during sparse projection and semantic traversal; and
+15. a successful or throwing prefilter or producer whose candidate close also
     reports direct-group or artifact-session cleanup failure.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
@@ -745,19 +852,20 @@ gates where a Metadata or Analysis binding is adopted.
 | --- | --- |
 | `PackageAssemblyEvaluation_PrimaryAssetIsSelectorIssuedAndAssetScoped` | General primary selection consumes the selector-issued default, preserves its exact asset identity and the role-sequence sibling count, and never claims that the heuristic proves a package-wide representative. |
 | `PackageAssemblyEvaluation_ImplementationUsesExactSelectedCounterpart` | An implementation-body pattern uses only the counterpart of the selected compile asset, including RID replacement and the `lib`-only case where both role intents resolve to the same asset. |
-| `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes with the exact generation and selection identities; counterpart absence also preserves the primary compile occurrence without inventing an implementation asset. |
+| `PackageAssemblyEvaluation_MissingRoleIsDistinctFromNoMatch` | Empty selection and missing implementation correspondence return typed `NotApplicable` outcomes with the exact Root reacquisition request plus generation and selection identities; counterpart absence also preserves the primary compile occurrence without inventing an implementation asset. |
 | `PackageAssemblyEvaluation_SelectedAssetEvidenceIsContained` | The complete public outcome closure rejects `PackageCompileAsset`; hostile package-authored assembly name, TFM, and path text become `InertString(TextPolicy.Field)` at result construction, while exact occurrence identity uses only the frozen asset-sequence kind, ordinal, and selection identity; evaluation role remains separate. |
 | `PackageAssemblyEvaluation_UsesSparsePackageArtifactProjection` | One evaluation calls the sparse selected-asset projection rather than the full package-role realization path. |
-| `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. |
-| `PackageAssemblyEvaluation_RequiresDecodedIdentityBeforeSemanticBinding` | A rejection-carrier participant is opened only through ordinary snapshot acquisition with a no-op evaluator callback; its typed rejection is preserved, an unexpectedly ready snapshot is a contract failure, and neither executable binding runs. |
-| `PackageAssemblyEvaluation_ReadyIdentityCanStillRejectSnapshot` | A decoded participant whose snapshot acquisition later rejects preserves the exact `CandidateOpenFailure` and cannot become semantic no-match. |
+| `PackageAssemblyEvaluation_MapsSparseProjectionOutcomesExactly` | Every package-owned projection arm maps as declared without reopening content, parsing diagnostics, or turning projection failure into semantic no-match. The exact #5842 resource-free owner-issued pre-transfer cleanup receipt remains secondary to the projection reason. |
+| `PackageAssemblyEvaluation_SparseMetadataAdmissionControlsSemanticBinding` | #5843's `Projected` variant is the only sparse result that may enter query validation. `NotAssembly` and `Rejected` preserve their exact Metadata admission evidence; a missing or contradictory variant is a contract failure, and `IdentityDecoded` or a compatibility carrier cannot authorize either executable binding. This gate remains unverified until #5843 lands. |
+| `PackageAssemblyEvaluation_MetadataValidationPrecedesSemanticBinding` | A projected participant can still produce exact `NotAssembly` or `ArtifactAssemblyQueryFailure` evidence at query time. Both Windows Metadata kinds produce `Rejected(UnsupportedWindowsMetadata)` during #5843 admission before the prefilter or producer; no compatibility fallback can return semantic no-match. This gate remains unverified until #5143/#4857 and #5843 land. |
 | `PackageAssemblyEvaluation_SuppliesSparseProjectionBounds` | The evaluator passes the admitted entry and aggregate retained-image bounds unchanged and maps the package owner's typed limit outcome without restating its partition mechanics. |
-| Conditional producer prefilter gate | Each prefilter-bearing adoption derives fixtures from its complete declared representation set, obtains byte and semantic views from the same snapshot, admits every semantic match, and requires semantic confirmation for false byte positives. A prefilter-free adoption needs no such gate. |
+| Conditional producer prefilter gate | Each prefilter-bearing adoption derives fixtures from its complete declared representation set, obtains byte and semantic views inside one Metadata-validated callback over the same retained image, admits every semantic match, and requires semantic confirmation for false byte positives. A prefilter-free adoption needs no such gate. |
 | `PackageAssemblyEvaluation_MapsProducerVerdictsExactly` | Match, no-match, bounded-decode rejection, unsupported input, work limit, and invalid match evidence map to their declared distinct outcomes without collapsing failure into semantic no-match. |
-| `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
-| `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
-| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`, closes its query and workspace, and attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
-| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | The fresh candidate close report must contain exactly one successful direct-group result and no artifact-session cleanup failures. Successful producer fixtures independently cover direct-group failure, artifact-session failure, and unexpected group-result shape; each becomes `Failure(CandidateCleanup)` with distinct stage evidence. An existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
+| `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves #5837's owner-issued Root reacquisition request and both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
+| `PackageAssemblyEvaluation_PreservesExactRootReacquisitionRequest` | Framework-neutral acquisition with a non-null selection target and differing acquisition/selection frameworks both retain #5837's exact owner-issued request; later Workspace opening repeats that selection intent without parsing display text. This gate remains unverified until #5837 lands. |
+| `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries the owner-issued Root reacquisition request and exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
+| `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preselection outcomes create no candidate resources. Every workspace-bearing sparse failure, match, non-match, semantic failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`; a pre-`Available` path closes an empty workspace while a post-`Available` path attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
+| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | Before sparse ownership transfer, the fresh candidate close report must contain no group or artifact cleanup entry; after `Available`, it must contain exactly one successful direct-group result and no artifact-session cleanup failures. Fixtures independently cover the legitimate empty report, direct-group failure, artifact-session failure, and unexpected result shape. Existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
@@ -773,6 +881,12 @@ receipt, evidence, and outcome types. It rejects streams, archives, readers,
 metadata handles, sessions, image buffers, package-content handles, leases,
 workspaces, artifact registrations, participants, callbacks, delegates, and
 executable bindings wherever nested.
+
+The #5837 Root reacquisition request is expressly admissible only when its owner
+gate proves that the full public closure contains no Workspace identity,
+physical-generation identity, content authority, opener, or lease. It is
+opening intent consumed by a later authorized Workspace transition, not an
+authority to access the disposed candidate.
 
 This gate does not prohibit operation-internal resource use. Entry streams,
 image buffers, artifact registrations, participants, readers, and sessions may
@@ -841,17 +955,27 @@ implementation.
 
 1. Lock this focused design and transfer the promoted-tier responsibility from
    the Package Query CLI proposal.
-2. Implement the merged #5798 sparse-projection contract and its named gates,
-   preserving the exact Root binding and avoiding full role realization.
-3. Define the first concrete producer under #5795, including its exact
+2. Implement the #5143/#4857 Metadata-owned artifact admission and query
+   validation path, including both unsupported-Windows-Metadata gates.
+3. Define #5843's sparse composition with the Metadata admission result and
+   query-validation registration.
+4. Define and implement #5837's Artifact Acquisition-owned exact package Root
+   reacquisition request and destination Workspace transition.
+5. Define #5842's Artifact Acquisition-owned resource-free pre-transfer cleanup
+   receipt.
+6. Implement the merged #5798 sparse-projection contract and its named gates,
+   preserving the exact Root binding, issuing #5842 receipts when applicable,
+   composing #5843's Metadata result, and avoiding full role realization.
+7. Define the first concrete producer under #5795, including its exact
    semantic occurrence, bounded operand, and optional UTF-16LE prefilter proof.
-4. Implement the one-candidate evaluator and its structural gates in
+8. Implement the one-candidate evaluator and its structural gates in
    `DotnetInspector.PackageQueries`.
-5. Adopt the first producer, adding its semantic gate and a prefilter gate only
+9. Adopt the first producer, adding its semantic gate and a prefilter gate only
    when that producer declares a complete representation set.
-6. Measure a pinned package corpus and choose explicit selected-entry,
+10. Measure a pinned package corpus and choose explicit selected-entry,
    retained-image, producer-working-set, and semantic-work bounds.
-7. Compose the evaluator into the bounded Package Query event stream, with
+11. Compose the evaluator into the bounded Package Query event stream, with
    candidate scheduling and disposal owned by a separate focused pipeline
    slice.
-8. Add CLI and Browser gestures in their respective owners.
+12. Add CLI and Browser gestures and exact result opening in their respective
+    owners.

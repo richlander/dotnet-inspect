@@ -418,8 +418,12 @@ and browser-history and focus-return outcomes are proved by
    evaluation](package-query-assembly-evaluation.md) owns one-candidate
    primary-assembly selection, semantic confirmation, evidence, and resource
    release. A later Browser composition slice owns the explicit gesture,
-   candidate scheduling, and rendering; this contract does not reserve
-   controls for it.
+   candidate scheduling, rendering, and exact result opening. Its
+   `Open in workspace` action consumes #5837's Artifact Acquisition-owned Root
+   reacquisition request rather than applying this assembly-free slice's
+   package-ID/version handoff to a result whose selection target may differ
+   from its acquisition coordinate. This contract does not reserve controls
+   for it.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.
