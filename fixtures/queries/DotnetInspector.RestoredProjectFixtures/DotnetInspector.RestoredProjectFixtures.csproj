@@ -31,13 +31,13 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
-    <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <PackageReference Include="NuGet.Packaging" />
     <PackageReference Include="MarkdownTable.Formatting" />
   </ItemGroup>
 
   <!--
-    UseArtifactsOutput (src/Directory.Build.props) copies a multi-targeted
+    UseArtifactsOutput (fixtures/Directory.Build.props) copies a multi-targeted
     project's output into per-TFM folders (release_net10.0, release_net11.0),
     but tests/DotnetInspector.FixtureInfrastructure/FixtureCatalog.cs assumes one flat
     per-configuration folder. project.assets.json is restore's single,

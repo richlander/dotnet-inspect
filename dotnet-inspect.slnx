@@ -12,6 +12,8 @@
     <Project Path="fixtures/diff/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V1/DiffFixtures.V1.csproj" />
     <Project Path="fixtures/diff/DiffFixtures.V2/DiffFixtures.V2.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Base/DotnetInspector.Services.RouteLearning.Base.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Consumer/DotnetInspector.Services.RouteLearning.Consumer.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Contract/DotnetInspector.Services.RouteLearning.Contract.csproj" />
@@ -38,9 +40,7 @@
     <Project Path="src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <Project Path="src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj" />
     <Project Path="src/DotnetInspector.Queries.Tests/DotnetInspector.Queries.Tests.csproj" />
-    <Project Path="src/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="src/DotnetInspector.Queries/DotnetInspector.Queries.csproj" />
-    <Project Path="src/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
     <Project Path="src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj" />
     <Project Path="src/DotnetInspector.RowSelection.Tests/DotnetInspector.RowSelection.Tests.csproj" />
     <Project Path="src/DotnetInspector.RowSelection/DotnetInspector.RowSelection.csproj" />
