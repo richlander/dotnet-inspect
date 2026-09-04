@@ -3254,6 +3254,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageDependenciesWorkingSurface =
+    activeScope === "package" && state.packageLens === "dependencies";
   const packageMetadataWorkingSurface =
     activeScope === "package" && state.packageLens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
@@ -3286,6 +3288,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationIntegrated =
     apiWorkingSurface
     || metadataWorkingSurface
+    || packageDependenciesWorkingSurface
     || packageMetadataWorkingSurface
     || memberWorkingSurface;
 
@@ -3354,7 +3357,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3872,7 +3875,8 @@ function packageCoordinateControls() {
 
 function renderPackageView() {
   const body = packageLensBody();
-  if (state.packageLens === "metadata") return body;
+  if (state.packageLens === "dependencies"
+    || state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
@@ -3909,18 +3913,60 @@ function packageDependenciesSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
+function renderPackageDependenciesSurface(content: string, status: string) {
+  const pkg = currentPackage();
+  const coordinate = `${pkg.id}@${pkg.version}`;
+  return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+    <header class="api-surface-head package-dependencies-surface-head">
+      <h1 id="package-dependencies-surface-title">Dependencies</h1>
+      <p data-package-dependencies-status>${escapeHtml(status)}</p>
+    </header>
+    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+      <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
+    </section>
+    <div class="package-dependencies-scroll">
+      ${content}
+    </div>
+    <footer class="api-surface-footer package-dependencies-surface-footer">
+      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
+    </footer>
+  </section>`;
+}
+
+function packageDependenciesStatus(
+  data: BrowserPackageDependencies,
+  selectedGroupIndex: number | null,
+) {
+  const groups = data.dependencyGroups || [];
+  const selectedGroup =
+    groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
+  const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
+  const referenceCount = data.assemblyReferences?.length ?? 0;
+  const referenceStatus = data.assemblyReferenceError
+    ? "reference read failed"
+    : `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`;
+  return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"} · ${referenceStatus}`;
+}
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
   if (state.packageDependenciesLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`,
+      "reading");
   }
   if (fresh && state.packageDependenciesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
+      "query failed");
   }
   const data = fresh ? state.packageDependencies : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
+      "loading");
   }
 
   const groups = data.dependencyGroups || [];
@@ -3930,7 +3976,9 @@ function renderPackageDependencies() {
     ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
     : "";
   if (!groups.length) {
-    return `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
+    return renderPackageDependenciesSurface(
+      `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`,
+      packageDependenciesStatus(data, null));
   }
 
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
@@ -3953,7 +4001,9 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`;
+  return renderPackageDependenciesSurface(
+    `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`,
+    packageDependenciesStatus(data, selectedGroupIndex));
 }
 
 function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
@@ -4023,14 +4073,18 @@ function dependencyListSectionHtml(
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const data = state.packageDependencies;
+  const groups = data?.dependencyGroups || [];
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
-  if (!groups.length || !listSection) { render(); return; }
+  const status =
+    document.querySelector<HTMLElement>("[data-package-dependencies-status]");
+  if (!data || !groups.length || !listSection || !status) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
+  status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -8343,7 +8397,7 @@ function openProductDemos(): void {
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
-// `resolveHomeDemo` (`ProductInspectionDemos` / CLI `demo <id>`). Type views
+// `resolveHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Type views
 // restore via share deep links built from the resolved projection;
 // member-bound Call Graph demos execute through one generated engine operation
 // over the product-resolved workspace and view.

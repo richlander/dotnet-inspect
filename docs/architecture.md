@@ -190,7 +190,7 @@ referencing the CLI assembly.
 
 | Host | Place in flow | Role | Primary guide |
 | ---- | ------------- | ---- | ------------- |
-| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity, audited membership, discovery, and lookup shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md) |
+| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity and membership, ecosystem-pack metadata, and lazy product-demo sources shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md), [Workspace Definitions](design/workspace-definitions.md#product-demos-are-closed-section-presets) |
 | `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
 | `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
@@ -198,6 +198,20 @@ referencing the CLI assembly.
 
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
+
+Within `tools/DecompilerHarness`, `AuthoredCorpusHistoryStore` is the focused
+owner for admitting complete EVIL benchmark artifacts as durable observations
+and validating the ordered committed sequence. Its
+[committed authored-corpus history](design/authored-corpus-history.md) contract
+separates persistence evidence from benchmark production, methodology,
+ratchet comparison, and history-card rendering.
+
+`SourceOracleCandidateLedger` is the focused harness owner for complete
+candidate-file accounting and deterministic next-enrollment ranking over one
+accepted source-oracle baseline. Its
+[candidate-ledger contract](design/source-oracle-candidate-ledger.md) consumes
+PDB mapping, acquisition, evaluation, syntax-inventory, and provenance evidence
+without taking ownership of those producers or of manifest enrollment.
 
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
