@@ -2288,9 +2288,12 @@ The residual open items from the list above are: group catalog grammar and
 subscribe lowering, filesystem `project` / `local` / `directory` coordinate
 hosts, and complete preset/query binding. Coordinate kinds
 `package`, `platform`, and `embedded` already lower; the record schema,
-serializer, registry, and product demos are gated by
-`InspectionDefinitionTests`. Every property that still depends on the residual
-items remains unverified.
+serializer, and registry are gated by `InspectionDefinitionTests`. Product
+demos are gated by the `ProductDemoSourceBindingTests`,
+`ProductEcosystemPackTests`, `DemoCommandTests`,
+`BrowserProductHomeDemosTests`, and `BrowserEngineBoundaryTests` suites named
+above. Every property that still depends on the residual items remains
+unverified.
 
 Until those residual gates exist, nothing in this note beyond the slices above
 is a behavior claim.

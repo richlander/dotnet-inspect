@@ -804,8 +804,9 @@ registry-enumeration reference.
 ten scenario IDs, pack mapping, metadata, and global order without deriving
 expectations from source records.
 `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
-resolves the transferred eight sources and compares their records and run plans
-with the locked donor fixtures.
+resolves the transferred eight sources and pins their package coordinates,
+navigation shape, type and member selection, section, and run-plan lowering to
+the donor behavior.
 `ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
 the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
 bindings.
