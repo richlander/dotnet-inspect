@@ -220,6 +220,8 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
     onOverloadSelect: value => calls.push(`overload:${value}`),
     onShowTypes: () => calls.push("types"),
     onTypeFilterChange: value => calls.push(`filter:${value}`),
+    onTypeFilterDisclosureToggle: value =>
+      calls.push(`type-filter-disclosure:${value}`),
     onTypeFilterEscape: () => calls.push("escape"),
     onTypeSelect: value => calls.push(`type:${value}`),
   };
@@ -294,6 +296,9 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   root.addAll("[data-namespace]", namespace, secondNamespace);
   root.addAll("[data-kind-filter]", kind, secondKind);
   const clear = root.add("#clear-filter", new FakeElement());
+  const disclosure = root.add(
+    "[data-type-filter-disclosure]",
+    new FakeElement());
   const namespaceJump = root.add("#namespace-jump", new FakeElement());
   const filter = root.add("#type-filter", new FakeElement());
   const typeList = root.add("#type-list", new FakeElement());
@@ -317,6 +322,8 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
   namespaceJump.dispatch("change");
   kind.dispatch("click");
   secondKind.dispatch("click");
+  disclosure.open = true;
+  disclosure.dispatch("toggle");
   clear.dispatch("click");
   filter.dispatch("input");
   const listKey = keyboardEvent("End");
@@ -330,10 +337,12 @@ test("type panel bindings dispatch the rendered type navigation controls", () =>
     "namespace:System.Text",
     "kind:class",
     "kind:interface",
+    "type-filter-disclosure:true",
     "clear",
     "filter:json",
     "list:End",
   ]);
+  assert.equal(clear.focused, true);
   assert.equal(forwardedListEvent, listKey.event);
   assert.equal(listKey.state.prevented, false);
 });
@@ -543,6 +552,8 @@ test("the type nav lists namespace groups with the current type selected", () =>
     kindFilters: ["class"],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -558,6 +569,10 @@ test("the type nav lists namespace groups with the current type selected", () =>
     /data-type="System\.Text\.Json\.JsonDocument" role="option" aria-selected="false"/);
   assert.match(html, /data-namespace="System\.Text\.Json"/);
   assert.match(html, /id="clear-filter"/);
+  assert.match(
+    html,
+    /<details class="filter-disclosure type-filter-disclosure" data-type-filter-disclosure>/);
+  assert.match(html, /<strong>Filters<\/strong><small>public<\/small>/);
   assert.match(html, /id="type-filter"/);
   assert.match(html, /id="namespace-jump"/);
   assert.match(html, /data-kind-filter="class"/);
@@ -578,6 +593,8 @@ test("the type nav reports no matches for an empty filtered group", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: true,
+    filterSummary: "nothing-matches · public",
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -585,6 +602,7 @@ test("the type nav reports no matches for an empty filtered group", () => {
   });
 
   assert.match(html, /No public types match this filter\./);
+  assert.match(html, /data-type-filter-disclosure open/);
 });
 
 test("the type nav handles a package with no projected types", () => {
@@ -600,6 +618,8 @@ test("the type nav handles a package with no projected types", () => {
     kindFilters: [],
     accessibilityControlHtml: "",
     libraryControlHtml: "",
+    filtersExpanded: false,
+    filterSummary: "All types",
     escapeHtml,
     typeDisplayName,
     kindIcon,

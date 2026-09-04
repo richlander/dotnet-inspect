@@ -83,10 +83,13 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. The proposed
-  [Package Set Registry](design/package-set-registry.md) places stable named-set
-  identity, discovery, and ordered package-coordinate membership with this
-  package owner; the current inventories remain CLI-owned until adoption.
+  resolution. The
+  [Package Set Registry](design/package-set-registry.md) reuses this package
+  owner's coordinate currency and validation while stable set identity, the
+  private shipped inventory, discovery, and lookup live in the front-end-only
+  `DotnetInspector.Ecosystems` application assembly. The CLI consumes that
+  application catalog and passes only package IDs into reusable scope
+  resolution.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -100,6 +103,9 @@ substrates, and inspection producers that will extend that space.
   and nuspec parsing. It owns the accepted package/metadata XML structure
   defined by [nuspec structural compatibility](design/nuspec-structural-compatibility.md);
   Queries owns manifest identity, dependency validation, and resource policy.
+  Its [package metadata persistence](design/package-metadata-persistence.md)
+  contract defines when one authority-scoped, time-bounded metadata observation
+  may replace a fresh metadata operation.
 - `src/DotnetInspector.Core/` is the reference-free tool runtime kernel beneath
   Packages, Services, and the CLI: cache roots and eviction (`CoreCache`,
   `AsyncCache`), the single `HttpClientFactory` seam with offline and
@@ -287,9 +293,15 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [View Facet Registry](design/view-facet-registry.md): stable product-owned
   inspection-facet identities, labels, order, structural applicability,
   discovery, and typed resolution outcomes.
-- [Package Set Registry](design/package-set-registry.md): stable product-owned
-  package-set identities, labels, purposes, order, static discovery, exact
-  lookup, and immutable ordered package-coordinate membership.
+- [Package Set Registry](design/package-set-registry.md): front-end-only static
+  application identity, labels, purposes, order, exact lookup, and immutable
+  ordered package-coordinate membership over the reusable package owner's
+  coordinate validation.
+- [Static Ecosystem Packs](design/ecosystem-packs.md): the proposed
+  front-end-only application catalog, private source contribution shape, and
+  static shipped-pack manifest that compose package-set identity, typed
+  package-prefix requests, and opaque Integration-owned semantic-scanner
+  bindings without making reusable infrastructure depend on the catalog.
 - [Inspection subject navigation](design/inspection-subject-navigation.md):
   host-neutral Workspace, Package or non-package Root, Library, Type, and
   Member descriptors, availability, initial recommendations, transitions,
@@ -328,6 +340,9 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   identity sets, union cases, and reference-identity operation objects.
 - [Finding adoption](design/finding-adoption.md): consumer migration, failure visibility, native-case presentation, and quality-gate rules.
 - [Source Finding producers](design/source-finding-producers.md): portable-PDB source/build-context inputs, outputs, identities, and migration boundaries.
+- [Member source diff presentation](design/member-source-diff-presentation.md):
+  canonical placement-aligned endpoint text, source-line analysis and statistics,
+  Markout mapped-text lowering, and the CLI Source Diff first adoption.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

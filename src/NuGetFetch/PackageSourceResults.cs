@@ -747,17 +747,47 @@ public sealed class PackageSourceResultFactory
         NuGetOperationDeadline operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
-        return SearchCore(results, truncationReason, operation);
+        return SearchCore(
+            results,
+            truncationReason,
+            PackageListingState.Listed,
+            operation);
+    }
+
+    internal PackageSearchResult Search(
+        IReadOnlyList<SearchResult> results,
+        PackageSearchTruncationReason truncationReason,
+        PackageListingState listingState,
+        NuGetOperationDeadline operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return SearchCore(
+            results,
+            truncationReason,
+            listingState,
+            operation);
     }
 
     private PackageSearchResult SearchCore(
         IReadOnlyList<SearchResult> results,
         PackageSearchTruncationReason truncationReason,
+        NuGetOperationDeadline? operation) =>
+        SearchCore(
+            results,
+            truncationReason,
+            PackageListingState.Listed,
+            operation);
+
+    private PackageSearchResult SearchCore(
+        IReadOnlyList<SearchResult> results,
+        PackageSearchTruncationReason truncationReason,
+        PackageListingState listingState,
         NuGetOperationDeadline? operation)
     {
         ArgumentNullException.ThrowIfNull(results);
         operation?.ThrowIfExpired();
         ValidateEnum(truncationReason, nameof(truncationReason));
+        ValidateEnum(listingState, nameof(listingState));
         operation?.ThrowIfExpired();
         var matches = new PackageSearchMatch[results.Count];
         operation?.ThrowIfExpired();
@@ -776,7 +806,7 @@ public sealed class PackageSourceResultFactory
                     metadata.Id,
                     metadata.Version),
                 PackageDiscoveryContract.KeywordSearch,
-                PackageListingState.Listed);
+                listingState);
             matches[i] = new PackageSearchMatch(
                 _ownerCapability,
                 _issuer,
@@ -1496,7 +1526,8 @@ internal static class PackageSourceOperation
             NuGetMetadataResponseTooLargeException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetRedirectLimitExceededException
-                or NuGetRegistrationResourceLimitExceededException =>
+                or NuGetRegistrationResourceLimitExceededException
+                or LocalPackageSourceLimitExceededException =>
                 PackageSourceFailureKind.ResponseRejected,
             NuGetSourceCapabilityUnavailableException =>
                 PackageSourceFailureKind.Unsupported,
@@ -1509,6 +1540,10 @@ internal static class PackageSourceOperation
                 StatusCode: HttpStatusCode.NotFound,
             } when allowNotFound =>
                 PackageSourceFailureKind.NotFound,
+            LocalPackageSourceNotFoundException when allowNotFound =>
+                PackageSourceFailureKind.NotFound,
+            LocalPackageSourceNotFoundException =>
+                PackageSourceFailureKind.InvalidResponse,
             HttpRequestException
             {
                 StatusCode: HttpStatusCode.NotFound,
@@ -1535,6 +1570,8 @@ internal static class PackageSourceOperation
             or NuGetMetadataResponseTooLargeException
             or NuGetRedirectLimitExceededException
             or NuGetRegistrationResourceLimitExceededException
+            or LocalPackageSourceLimitExceededException
+            or LocalPackageSourceNotFoundException
             or NuGetSourceCapabilityUnavailableException
             or NuGetSourceResponseException
             or System.Text.Json.JsonException

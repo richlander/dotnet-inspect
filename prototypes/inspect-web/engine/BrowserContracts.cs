@@ -225,6 +225,7 @@ public sealed record BrowserPackageQueryFacetDescriptor(
     int Weight,
     BrowserPackageQueryFacetTier Tier,
     string? SelectionGroupId,
+    bool CombinesWithinSelectionGroup,
     string? DisplayGroupId,
     string? DisplayGroupLabel);
 
@@ -263,6 +264,19 @@ public sealed record BrowserPackageQueryFailure(
     BrowserPackageQueryFailureKind Kind,
     string Message);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryProgressPhase>))]
+public enum BrowserPackageQueryProgressPhase
+{
+    Search,
+    Manifest,
+    PackageContent,
+}
+
+public sealed record BrowserPackageQueryProgress(
+    BrowserPackageQueryProgressPhase Phase,
+    int Completed,
+    int Limit);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryCompletionKind>))]
 public enum BrowserPackageQueryCompletionKind
 {
@@ -287,6 +301,7 @@ public sealed record BrowserPackageQueryCompletion(
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind
 {
+    Progress,
     Match,
     Failure,
     Completed,
@@ -296,7 +311,8 @@ public sealed record BrowserPackageQueryEvent(
     BrowserPackageQueryEventKind Kind,
     BrowserPackageQueryRow? Row,
     BrowserPackageQueryFailure? Failure,
-    BrowserPackageQueryCompletion? Completion);
+    BrowserPackageQueryCompletion? Completion,
+    BrowserPackageQueryProgress? Progress = null);
 
 /// <summary>
 /// One vocabulary field's discoverable contract, mapped verbatim from

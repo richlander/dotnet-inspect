@@ -716,6 +716,53 @@ public sealed class PolicyEvaluatorTests
         }
     }
 
+    [Fact]
+    public void CheckedInEcosystemRuleCoversEverySourceProductExceptTheCli()
+    {
+        string repository = FindRepositoryRoot();
+        DependencyPolicyDocument policy = PolicyLoader.Load(
+            Path.Combine(repository, "eng", "dependency-policy.json"));
+        DependencyRule rule = Assert.Single(
+            policy.Rules,
+            candidate => candidate.Id
+                == "ecosystem-catalog-stays-in-approved-hosts");
+        string[] productProjects = Directory
+            .EnumerateFiles(
+                Path.Combine(repository, "src"),
+                "*.csproj",
+                SearchOption.AllDirectories)
+            .Where(path =>
+                Path.GetDirectoryName(Path.GetDirectoryName(path))
+                    == Path.Combine(repository, "src"))
+            .Where(path =>
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                return !name.EndsWith(".Tests", StringComparison.Ordinal)
+                    && !name.Contains("Fixture", StringComparison.Ordinal);
+            })
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.NotEmpty(productProjects);
+        Assert.All(
+            productProjects.Where(path =>
+                Path.GetFileNameWithoutExtension(path) != "dotnet-inspect"),
+            path =>
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                string relativePath = Path.GetRelativePath(repository, path)
+                    .Replace(Path.DirectorySeparatorChar, '/');
+                Assert.True(
+                    DependencyPattern.Selects(rule, name, relativePath),
+                    $"{rule.Id} does not select {relativePath}.");
+            });
+        Assert.False(
+            DependencyPattern.Selects(
+                rule,
+                "dotnet-inspect",
+                "src/dotnet-inspect/dotnet-inspect.csproj"));
+    }
+
     private static ProjectDependencyNode Node(
         string name,
         string? projectPath = null,

@@ -77,38 +77,46 @@ publishing outright: there is no window to rename and no window-scoped option
 to attach state to, so silently continue the task without them rather than
 erroring or improvising a substitute.
 
-## Name the window for identity
+## Name the window for work identity
 
 ```sh
-tmux rename-window -t "${TMUX_PANE:?}" pr<number>
+tmux rename-window -t "${TMUX_PANE:?}" \
+  "PR 1234 | Agent UX | Improve tmux labels"
 ```
 
 Always target `"${TMUX_PANE:?}"`; a bare command renames another window, and an
 empty variable silently targets the current one — `tmux rename-window -t "" …`
 does not error, it silently renames whichever window is *current*, which may be
-someone else's. Rename the window, never the shared session. Use `pr<number>`,
-or `i<number>` before a PR exists. Keep the name stable except for these
-temporary suffixes:
+someone else's. Rename the window, never the shared session.
 
-| Suffix | Meaning |
-| --- | --- |
-| `-blocked` | waiting on a human decision |
-| `-conflict` | in conflict recovery |
+The window name has exactly three fields separated by ` | `:
+
+1. **Work item:** `PR <number>`, or `Issue <number>` before a PR exists.
+   Replace the Issue field when the PR is created.
+2. **Domain:** one or two words that locate the work, such as `Decompiler`,
+   `Inspect Web`, or `Agent UX`.
+3. **Short description:** a concise, recognizable statement of the work.
+
+Do not include the machine name, tmux session name, window index, branch, or
+live status in the window name. Tmux already supplies its own coordinates, and
+state belongs in the pane title and window options. Keep the work label stable
+through review, CI, blocking, and conflict recovery unless the work's identity
+or scope changes.
 
 ## Set the pane title for current activity
 
 ```sh
 tmux select-pane -t "${TMUX_PANE:?}" \
-  -T "agent-session-clarity: reviewing pr<number>"
+  -T "agent-session-clarity: reviewing PR 1234"
 ```
 
 The window name is stable identity; the pane title is live activity. Copilot
 sets a title at startup, which is a useful baseline but often becomes stale.
 Replace it at the start of work, after every resume, and at meaningful phase
 changes. Prefix a short factual activity with the theme slug, such as
-`agent-session-clarity: reviewing pr4405`,
-`agent-session-clarity: running tests for pr4405`, or
-`agent-session-clarity: waiting for checks on pr4405`; do not churn the title
+`agent-session-clarity: reviewing PR 4405`,
+`agent-session-clarity: running tests for PR 4405`, or
+`agent-session-clarity: waiting for checks on PR 4405`; do not churn the title
 for individual commands.
 
 Always target `"${TMUX_PANE:?}"` for the same ownership reason as
@@ -121,7 +129,7 @@ Update both window-scoped options whenever state changes:
 
 ```sh
 tmux set -w -t "${TMUX_PANE:?}" @agent \
-  "theme agent-session-clarity; round 6 on pr4405, waiting on CI"
+  "theme agent-session-clarity; round 6 on PR 4405, waiting on CI"
 tmux set -w -t "${TMUX_PANE:?}" @agent_state \
   "theme=agent-session-clarity pr=4405 head=595e5d4b round=6 reviews=1/2 blocked=4597,4611 rec=wait"
 
@@ -181,9 +189,9 @@ best-effort nudge:
 
 ```sh
 tmux set -w -t "${TMUX_PANE:?}" @agent \
-  "theme agent-session-clarity; HELP: integrate main into pr4405, or close it?"
+  "theme agent-session-clarity; HELP: integrate main into PR 4405, or close it?"
 tmux display-message -d 10000 -t "${TMUX_PANE:?}" \
-  "HELP pr4405 in w#{window_index}: integrate main, or close it?"
+  "HELP PR 4405 in w#{window_index}: integrate main, or close it?"
 ```
 
 Send the nudge once, then stop and wait; the flag is not an answer. Clear `HELP`
