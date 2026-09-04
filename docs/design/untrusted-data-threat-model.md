@@ -1726,8 +1726,9 @@ capability, and liveness policy is always rechecked and cannot be replaced by a
 version bump. The cache key, validation, and derived result must also consume
 the owner-retained immutable snapshot for every contributing artifact; equal
 pre/post hashes around work over a reopened mutable path do not exclude a
-W-to-S-to-W substitution. `MDP017` gates that ABA case for both assembly and
-PDB inputs to the library effective catalog. At that cutover, bounded
+W-to-S-to-W substitution. That ABA case for assembly and PDB inputs to the
+library effective catalog is unverified and tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478). At that
+cutover, bounded
 assembly-format admission also precedes every SourceLink/PDB probe and catalog
 lookup; only a supported assembly may reach the separately bounded
 identity-validated portable-PDB reader. The successor key includes complete

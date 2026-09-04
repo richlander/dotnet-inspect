@@ -235,10 +235,9 @@ does not recharge. It never rehashes the mutable source. A persistent
 derived-result cache that keys on that digest must run its cold gate and
 producer over the same snapshot and publish under the snapshot's digest; it may
 not hash a mutable source path, reopen it for production, and hash it again.
-Equal bracketing hashes do not exclude a W-to-S-to-W replacement. This is gated
-for the library effective catalog by `MDP017` in
-[member inspection planning and Metadata
-projection](member-inspection-planning-and-metadata-projection.md).
+Equal bracketing hashes do not exclude a W-to-S-to-W replacement. For the
+library effective catalog this remains unverified and is tracked by
+[#3478](https://github.com/richlander/dotnet-inspect/issues/3478).
 
 Publication atomically commits the sealed catalog, all projected participants,
 the artifact-count charge, and actual retained-byte charges. It releases the

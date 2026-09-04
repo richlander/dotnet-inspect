@@ -270,9 +270,10 @@ operation.
 An over-limit candidate returns typed `PortablePdbRetentionLimitExceeded` and
 performs no catalog read or write; it is not silently treated as `None` and does
 not fall through to another provider. Product effective-discovery construction
-cannot select `SourceLinkReadLimits.Unlimited`. `MDP017` gates near/over limits,
-every provider, the aggregate retained-byte peak, the one digest pass, and the
-same single-threaded Browser/Wasm failure.
+cannot select `SourceLinkReadLimits.Unlimited`. This retention budget is
+unimplemented and ungated; near/over limits, every provider, the aggregate
+retained-byte peak, the one digest pass, and the same single-threaded
+Browser/Wasm failure are tracked by [#3478](https://github.com/richlander/dotnet-inspect/issues/3478) and are unverified.
 
 ## Network and performance policy
 
