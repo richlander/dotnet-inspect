@@ -45,7 +45,12 @@ internal sealed record BrowserWorkspaceParticipant(
 /// instead, which disposes the group rather than half-emptying it.
 /// </para>
 /// <para>
-/// Disposal belongs to that registry, not to a caller.
+/// Disposal belongs to that registry, not to a caller, and is awaited: an
+/// artifact-backed scope releases its role groups and then awaits the product
+/// workspace's close, surfacing every artifact-session cleanup failure instead
+/// of dropping it.
+/// <c>BrowserWorkspace_ArtifactScopeDisposalClosesItsSession</c> gates that
+/// ordering.
 /// <c>BrowserEngineLayeringTests</c> in <c>engine.Tests</c> is the gate for the
 /// boundary this remark asserts: no engine source opens a session, a metadata source, an analysis
 /// index, or an image span.

@@ -57,11 +57,21 @@ selected assembly set.
    `PackageAssemblyContextSelection` applies
    `PackageCompileAssetSelector`'s reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`.
-   `InspectionWorkspace.RealizePackageAssemblyContextRoles` decodes each
+   `InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` decodes each
    healthy entry's real metadata identity, mints the descriptors, retains
    malformed/native/module entries as rejection carriers, applies the
    Browser-supplied admission policy, and creates the coordinated surface and
-   implementation roles. It owns equivalent-identity rejection,
+   implementation roles. One acquisition-bound coordinate — the shape every
+   production package operation resolves — is realized through that
+   artifact-backed path, which retains the selected assets in one exact
+   artifact session and generation the product workspace owns until the scope
+   closes. A workspace spanning several coordinates still uses the synchronous
+   binding-consistent `RealizePackageAssemblyContextRoles`, the only shape that
+   composes several package Roots into one group.
+   `BrowserWorkspace_SingleCoordinateScopeIsArtifactBacked`,
+   `BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles`, and
+   `BrowserWorkspace_ArtifactScopeKeepsRejectedParticipantVisible` gate that
+   split and its rejection carriers. It owns equivalent-identity rejection,
    reference-only surfaces, exact asset/participant associations, and exact
    surface-to-implementation correspondence. Browser retains transport,
    cache/deadline/lifetime policy, the 64 MB and 256-assembly limit values, and
@@ -121,6 +131,24 @@ Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
+Opening, evicting, removing, and releasing the last lease on a scope are
+awaited operations: a scope leaves the registry before its disposal is
+awaited, an archive leaves cache accounting only after every dependent scope's
+disposal has settled, and a scope's package leases are released only after
+that disposal completes. Nothing counts the room as free while a retained
+artifact session is still closing, and no cleanup runs unobserved in the
+background. Opening one exact coordinate set is single-flighted, so concurrent
+callers join one realization and observe one retained scope; each caller keeps
+its own cancellation, and a cancelled caller receives no scope. A completion
+that raced an eviction or a replacing download cannot republish that content:
+the exact archive identity is revalidated after every suspension and a stale
+coordinate fails visibly.
+`BrowserWorkspace_ConcurrentScopeOpensShareOneRealization`,
+`BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable`,
+`BrowserWorkspace_ArtifactScopeDisposalClosesItsSession`,
+`BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`, and
+`BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal` gate those
+lifetimes.
 A scope carries a 64 MB aggregate retained-image budget. Two distinct
 compile/implementation groups receive 32 MB each; a shared or reference-only
 single group receives the full 64 MB. Before decoding any identity, the host
