@@ -767,7 +767,7 @@ encoding.
 | --- | --- | --- |
 | **D1** | A generative gate varying the attacker-controlled dimensions jointly. Tracked as #5733. | Does not exist. Four hand-written amplification regressions pin four instances; four open defects violate it. |
 | **D2** | Slice 2's differential test: `null` wherever SRM throws, plus every existing guard and reader test green. **Blind to the `Int32` width default**, which SRM guesses identically; that belongs to D3. | Lands with slice 2. |
-| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle's SRM version is unpinned and must be chosen; see [Certification bounds](#certification-bounds). |
+| **D3** | The #5148 generator re-targeted from offset agreement to **value equality**, plus the stage-1 corpus below with zero refusals. **Must include the producer-truth width cases where an SRM oracle would be degenerate** — a non-`Int32` enum resolved across an assembly boundary from a *retained* defining image — and must not credit an SRM run that consulted the same adapter. Widths no path can resolve are carved out, not gated; see [D3](#d3--fidelity). #5065 is retitled to D3 by #5288 slice 4. | #5148 open; stage 1 not landed. The oracle is the SRM pinned by the gate's TFM; see [Certification bounds](#certification-bounds). |
 
 Until those gates exist, any statement in this document that an invariant
 *holds* is unverified in the sense of [Asserted properties name their
@@ -854,16 +854,18 @@ is both cheaper and more honest.
 
 Two version axes, behaving oppositely.
 
-**SRM** is the oracle, not the counterpart. It is **not** pinned today, and the
-D3 gate must choose its oracle rather than inherit one. `Directory.Build.props`
-resolves `net10.0` only for `OfficialBuild` non-AOT builds — the single managed
-fallback package — while development, tests, and the RID-specific Native AOT
-builds take `net$(NETCoreAppMaximumVersion)`. The AOT build that statically links
-SRM is therefore the one that does *not* get `net10.0`, and the gate runs on the
-latest TFM. Slice 3 must either name the oracle's runtime explicitly or run D3
-against each supported SRM version. Naming it states which decoder D3 is measured
-against; it no longer under-specifies a safety invariant, which is what leaving it
-implicit would have done under the previous design.
+**SRM** is the oracle, not the counterpart. It is **pinned by virtue of the
+TFM**: `System.Reflection.Metadata` is part of the BCL, carries no
+`PackageReference`, and so its version is whichever the target framework ships.
+Nothing needs to select it and nothing can float it.
+
+The TFM that pins it is `net$(NETCoreAppMaximumVersion)` — `net11.0` today —
+because that is what development, tests, and the RID-specific Native AOT builds
+resolve to. `Directory.Build.props` resolves `net10.0` only for `OfficialBuild`
+non-AOT builds, the single managed fallback package, so that TFM does not govern
+the gate. Naming the oracle states which decoder D3 is measured against; it no
+longer under-specifies a safety invariant, which is what leaving it implicit
+would have done under the previous design.
 
 **The producer toolchain** cannot narrow D1 or D2, because the adversary does not
 use an SDK. It narrows D3: the must-approve set is what compilers in the certified
