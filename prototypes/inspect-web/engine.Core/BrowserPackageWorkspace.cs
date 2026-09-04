@@ -406,6 +406,7 @@ internal static class BrowserPackageWorkspace
         if (coordinates.Count == 0)
             throw new ArgumentException("A workspace requires at least one package coordinate.");
 
+        cancellationToken.ThrowIfCancellationRequested();
         string key = PackageScopeKey(coordinates);
         if (TryReuseScope(key, coordinates) is { } reused)
             return reused;

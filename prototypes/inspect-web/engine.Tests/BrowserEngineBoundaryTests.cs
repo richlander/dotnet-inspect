@@ -6231,6 +6231,250 @@ public sealed class BrowserEngineBoundaryTests
                 MetadataTypeDefinitionName.Create(@namespace, [.. segments]))
             .Name;
 
+    [Fact]
+    public async Task BrowserWorkspace_SingleCoordinateScopeIsArtifactBacked()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Single.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Single.dll"),
+            TestContext.Current.CancellationToken);
+
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+
+        Assert.True(scope.ArtifactBacked);
+        BrowserWorkspaceParticipant participant =
+            Assert.Single(scope.SurfaceParticipants);
+        Assert.Same(
+            participant,
+            scope.SurfaceParticipant(
+                coordinate,
+                coordinate.DefaultAsset
+                    ?? throw new InvalidOperationException(
+                        "The artifact coordinate selected no default asset.")));
+        AssemblyContextApiSurfaceResult surface = scope.UseSurface(
+            group => AssemblyContextApiSurfaceQuery.Execute(group));
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
+            Assert.Single(surface.Assemblies.Assemblies));
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles()
+    {
+        byte[] surfaceImage =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] otherImage =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        string firstId = $"Artifact.Composite.A.{Guid.NewGuid():N}";
+        string secondId = $"Artifact.Composite.B.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate first = await ArtifactCoordinate(
+            firstId,
+            Package(surfaceImage, $"lib/net11.0/{firstId}.dll"),
+            TestContext.Current.CancellationToken);
+        BrowserPackageCoordinate second = await ArtifactCoordinate(
+            secondId,
+            Package(otherImage, $"lib/net11.0/{secondId}.dll"),
+            TestContext.Current.CancellationToken);
+
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [first, second],
+                TestContext.Current.CancellationToken);
+
+        Assert.False(scope.ArtifactBacked);
+        Assert.Equal(2, scope.SurfaceParticipants.Length);
+        Assert.Equal(firstId, scope.Coordinate(first).PackageId);
+        Assert.Equal(secondId, scope.Coordinate(second).PackageId);
+        AssemblyContextApiSurfaceResult surface = scope.UseSurface(
+            group => AssemblyContextApiSurfaceQuery.Execute(group));
+        Assert.Equal(2, surface.Assemblies.Assemblies.Length);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ConcurrentScopeOpensShareOneRealization()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.SingleFlight.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.SingleFlight.dll"),
+            TestContext.Current.CancellationToken);
+        int before = BrowserPackageWorkspace.Stats().Workspaces;
+
+        Task<BrowserInspectionScope> firstOpen =
+            BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        Task<BrowserInspectionScope> secondOpen =
+            BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+
+        BrowserInspectionScope[] opened =
+            await Task.WhenAll(firstOpen, secondOpen);
+
+        Assert.Same(opened[0], opened[1]);
+        Assert.True(opened[0].ArtifactBacked);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(opened[0]));
+        Assert.InRange(
+            BrowserPackageWorkspace.Stats().Workspaces,
+            Math.Min(before, 1),
+            before + 1);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Waiter.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Waiter.dll"),
+            TestContext.Current.CancellationToken);
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                cancelled.Token));
+
+        BrowserInspectionScope opened =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+
+        Assert.True(opened.ArtifactBacked);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(opened));
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ArtifactScopeDisposalClosesItsSession()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Disposal.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Disposal.dll"),
+            TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope =
+            await BrowserInspectionScope.CreateAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        Assert.True(scope.ArtifactBacked);
+        Assert.Single(scope.SurfaceParticipants);
+
+        await scope.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => scope.UseSurface(
+                group => AssemblyContextApiSurfaceQuery.Execute(group)));
+        await scope.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ArtifactScopeKeepsRejectedParticipantVisible()
+    {
+        BrowserPackageCoordinate malformed = await ArtifactCoordinate(
+            $"Artifact.Malformed.{Guid.NewGuid():N}",
+            Package([0x01, 0x02, 0x03], "lib/net11.0/Artifact.Malformed.dll"),
+            TestContext.Current.CancellationToken);
+
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [malformed],
+                TestContext.Current.CancellationToken);
+
+        Assert.True(scope.ArtifactBacked);
+        Assert.Single(scope.SurfaceParticipants);
+        AssemblyContextApiSurfaceResult surface = scope.UseSurface(
+            group => AssemblyContextApiSurfaceQuery.Execute(group));
+        Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
+            Assert.Single(surface.Assemblies.Assemblies));
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Stale.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate stale = await ArtifactCoordinate(
+            packageId,
+            Package(image, "lib/net11.0/Artifact.Stale.dll"),
+            TestContext.Current.CancellationToken);
+
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                Package(image, "lib/net11.0/Artifact.Stale.Replacement.dll"),
+                fromCache: false));
+
+        InvalidOperationException failure =
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                async () => await BrowserPackageWorkspace.OpenScopeAsync(
+                    [stale],
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            "escaped aggregate cache accounting",
+            failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Evicted.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Evicted.dll", 60 * MiB),
+            TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(scope));
+
+        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"artifact.pressure.{Guid.NewGuid():N}@1.0.0",
+            120L * MiB))
+        {
+            Assert.False(BrowserPackageWorkspace.IsScopeRetained(scope));
+            Assert.Throws<ObjectDisposedException>(
+                () => scope.UseSurface(
+                    group => AssemblyContextApiSurfaceQuery.Execute(group)));
+        }
+    }
+
+    /// <summary>
+    /// Registers one archive and resolves it the way production does, so the
+    /// returned coordinate carries the acquisition-issued
+    /// <c>PackageRootBinding</c> the artifact-backed realization requires.
+    /// </summary>
+    static async Task<BrowserPackageCoordinate> ArtifactCoordinate(
+        string id,
+        byte[] nupkg,
+        CancellationToken cancellationToken)
+    {
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(id, "1.0.0", nupkg, fromCache: false));
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                id,
+                "1.0.0",
+                "net11.0",
+                cancellationToken);
+        Assert.NotNull(coordinate.Binding);
+        return coordinate;
+    }
+
     static async Task<BrowserPackageCoordinate> Coordinate(string id, byte[] nupkg)
     {
         var package = new BrowserPackage(id, "1.0.0", nupkg, fromCache: false);
