@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
@@ -74,14 +75,23 @@ public sealed class ProductEcosystemPackTests
     [Fact]
     public void ShippedPackManifestCarriesOnlyPackageSetIdentity()
     {
-        Assert.Contains(
-            typeof(EcosystemPackRegistration).GetProperties(),
-            property => property.PropertyType == typeof(PackageSetId));
-        Assert.DoesNotContain(
-            typeof(EcosystemPackRegistration).GetProperties(),
-            property => property.PropertyType == typeof(PackageSetDescriptor)
-                || property.PropertyType == typeof(PackageSetRegistration)
-                || property.PropertyType == typeof(PackageSetRegistry));
+        Type[] packTypes =
+        [
+            typeof(EcosystemPackRegistration),
+            typeof(EcosystemPackDescriptor),
+        ];
+
+        Assert.All(
+            packTypes,
+            type =>
+            {
+                Assert.Contains(
+                    type.GetProperties(),
+                    property => property.PropertyType == typeof(PackageSetId));
+                Assert.DoesNotContain(
+                    type.GetProperties(),
+                    property => CarriesPackageSetState(property.PropertyType));
+            });
     }
 
     [Fact]
@@ -323,6 +333,15 @@ public sealed class ProductEcosystemPackTests
         ResolvedScenario scenario) =>
         Assert.IsType<WorkspaceMemberCoordinate.PackageMember>(
             Assert.Single(scenario.SelectedContext!.Members));
+
+    private static bool CarriesPackageSetState(Type type) =>
+        type == typeof(PackageSetDescriptor)
+        || type == typeof(PackageSetRegistration)
+        || type == typeof(PackageSetRegistry)
+        || type == typeof(PackageCoordinate)
+        || (type.IsArray && CarriesPackageSetState(type.GetElementType()!))
+        || (type.IsGenericType
+            && type.GetGenericArguments().Any(CarriesPackageSetState));
 
     private static ResolvedScenario Select(string scenarioId) =>
         Assert.IsType<EcosystemDemoSelectionResult.Known>(

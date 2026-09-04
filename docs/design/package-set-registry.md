@@ -662,7 +662,7 @@ Aspire membership is enforced by this Release gate:
 
 | Gate | Property |
 | --- | --- |
-| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates; inclusion assertions cover foundation, testing, separate-subsystem, first-party integration, partner integration, client-adapter, and non-.NET resource canaries. Exact sequence equality enforces every audited exclusion, with direct assertions for four representative archive-stage exclusions. |
+| `PackageSetRegistryTests.InitialManifestMatchesAuditedSnapshot` | Literal expectations prove the exact audited 82-package ordinal sequence as versionless target-neutral coordinates; direct inclusion assertions cover base hosting, testing, the type-system subsystem, AWS and Python integrations, and current MongoDB and RabbitMQ client lines. Exact sequence equality enforces every audited exclusion, with direct assertions for four representative archive-stage exclusions. |
 
 These gates prove the reviewed source snapshot and registry behavior. They do
 not make the network audit a runtime operation or prove prefix-query and

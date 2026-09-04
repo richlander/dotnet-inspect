@@ -49,6 +49,8 @@ public sealed class ProductDemoSourceBindingTests
 
         Assert.Equal("scenario", binding.Resolve().ScenarioId);
         Assert.Equal(1, s_invocations);
+        Assert.Equal("scenario", binding.Resolve().ScenarioId);
+        Assert.Equal(2, s_invocations);
     }
 
     [Fact]

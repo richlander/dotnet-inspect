@@ -781,7 +781,7 @@ ordinary non-friend consumer.
 | `EcosystemPackRegistryTests.InvalidDemoRegistrationsFailBeforePublication` | Duplicate global scenario IDs/order, empty display metadata, and non-ascending pack-local demo order reject the complete manifest without invoking a demo source. |
 | `EcosystemPackRegistryTests.DiscoveryAndMaterializationDoNotInvokeDemoSources` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, demo-source invocation, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. Pack, grouped-demo, and flat-demo discovery do not resolve or execute capabilities. |
 | `EcosystemPackRegistryTests.FlattenedDemoDiscoveryPreservesGlobalProductOrder` | A synthetic interleaved manifest returns one descriptor per registration in unique global demo order while retaining literal pack identity; grouped and flattened views contain the same descriptor instances. |
-| `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata` | Exact scenario-ID selection dispatches only that binding and returns its unchanged catalog descriptor beside the Workspace-Definitions-owned resolved scenario; neighboring sources and capabilities remain untouched, and catalog metadata may differ from portable scenario metadata. |
+| `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata` | Exact scenario-ID selection dispatches only that binding and returns its unchanged catalog descriptor beside the Workspace-Definitions-owned resolved scenario; neighboring demo sources remain untouched, and catalog metadata may differ from portable scenario metadata. |
 | `EcosystemPackRegistryTests.DemoSelectionPreservesOwnerFailures` | Unknown IDs produce typed unknown without invoking a source, while a selected source's mismatched scenario record remains an owner-domain failure rather than an empty or default demo. |
 | `ProductDemoSourceBindingTests.ResolveRequiresExactlyOneMatchingScenario` | A selected source must return exactly one scenario with the binding's exact ID; absent, duplicate, and mismatched scenario records fail visibly. |
 | `ProductDemoSourceBindingTests.ResolvePreservesDefinitionAndSectionFailures` | Invalid peer records and unsupported demo sections remain visible Workspace-Definitions-owned failures. |
@@ -799,9 +799,12 @@ Application adoption adds
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
 descriptor and reference expectations, plus
 `ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity` to
-prove compiled shipped pack fields and construction paths carry no package-set
-descriptor, registration, coordinate sequence, registry lookup, or
-registry-enumeration reference.
+prove the compiled registration and descriptor property shapes carry
+`PackageSetId` and no package-set descriptor, registration, coordinate
+sequence, or registry property.
+`EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder`
+constructs and discovers a pack with an unregistered package-set identity,
+gating the generic registry path's no-lookup behavior.
 `ProductEcosystemPackTests.ShippedDemoManifestMatchesLiteralPolicy` fixes the
 ten scenario IDs, pack mapping, metadata, and global order without deriving
 expectations from source records.
