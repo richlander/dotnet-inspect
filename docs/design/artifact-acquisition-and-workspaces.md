@@ -2454,6 +2454,13 @@ composition gate. Equality proves that neither a physical-composition change
 nor another scope-requested publication has intervened; it is not a scope
 revision, query lease, or access grant.
 
+Artifact Acquisition may reserve a fresh identity for one privately staged
+candidate composition before commit. Equality with that value proves only the
+same reservation, not currentness. Only successful publication makes it the
+current identity returned by
+`GetCurrentArtifactRootCompositionGeneration`; refusal discards it without
+reuse.
+
 Artifact Acquisition creates an initial composition identity when the runtime
 Workspace opens, including for an empty physical composition.
 `GetCurrentArtifactRootCompositionGeneration(Workspace)` observes the runtime
@@ -2482,10 +2489,13 @@ refused after the first publication advances that revision.
 
 The participant exposes two owner-defined steps:
 
-1. `PrepareCommit(current composition, projected desired Roots)` is
-   side-effect-free. It revalidates the scope candidate under the runtime
-   composition gate and returns either a typed refusal or one private,
-   single-use, no-fail commit token.
+1. `PrepareCommit(current composition, candidate composition identity,
+   projected desired Roots)` is side-effect-free. It revalidates the scope
+   candidate under the runtime composition gate and returns either a typed
+   refusal or one private, single-use, no-fail commit token. The candidate
+   identity is owner-issued and unpublished but is the exact identity that will
+   become current if the token commits, so the participant can preconstruct its
+   complete logical snapshot.
 2. The commit token performs only the scope owner's preconstructed current-state
    pointer swap and returns its already constructed operation result. It does
    not acquire, allocate, call a source, wait, yield, invoke user code, render,
@@ -2519,19 +2529,22 @@ Browser/Wasm. The final commit region is synchronous and non-yielding.
    unconsumed.
 3. Change every listed receipt to `Publishing`, privately stage the complete
    new physical composition, and construct unpublished candidate
-   `ArtifactRootScopeProjection` values for the desired Roots. A plan with no
-   preparations stages only retained or empty composition. Nothing is
-   query-admissible, current, returned, or retainable yet.
+   `ArtifactRootScopeProjection` values for the desired Roots. Reserve one fresh
+   unpublished candidate `ArtifactRootCompositionGenerationIdentity` for that
+   exact staged composition. A plan with no preparations stages only retained
+   or empty composition. Nothing is query-admissible, current, returned, or
+   retainable yet.
 4. Ask the participant to prepare its commit from the exact current composition
-   and ordered projected Roots. A stale scope candidate, supersession,
-   consumed participant, participant refusal, cancellation, or deadline expiry
-   releases all staging, changes every listed receipt to `Released`, and
-   preserves both current states.
+   together with the reserved candidate composition identity and ordered
+   projected Roots. A stale scope candidate, supersession, consumed participant,
+   participant refusal, cancellation, or deadline expiry releases all staging,
+   permanently discards the candidate identity, changes every listed receipt
+   to `Released`, and preserves both current states.
 5. Recheck cancellation, deadline, retained generation currentness, and
    composition identity. Then invoke the participant's no-fail commit token,
-   swap the staged physical composition into current query admission, assign a
-   fresh composition-generation identity, make the candidate projections valid
-   for that new current composition, and change every listed receipt to
+   swap the staged physical composition into current query admission, publish
+   the exact reserved composition identity, make the candidate projections
+   valid for that new current composition, and change every listed receipt to
    `Published` in one non-yielding critical region.
 6. Exit the gate with both current pointers changed or neither changed. Return
    the participant's complete scope-operation result and exact published Root
@@ -2546,9 +2559,11 @@ ordinary lease and drains under the existing generation-access contract.
 
 A product-level participant refusal occurs before the final commit token
 exists. Once issued, the token's pointer swap is no-fail by the participant
-contract. Process termination and runtime-corruption recovery are outside this
-transaction; the design does not add a broad exception-catching or durable
-journaling protocol.
+contract. A reserved candidate composition identity that does not commit never
+becomes current and is never reused; retaining or comparing it grants no
+authority. Process termination and runtime-corruption recovery are outside
+this transaction; the design does not add a broad exception-catching or
+durable journaling protocol.
 
 Cancellation or deadline expiry before the final recheck releases every listed
 preparation. After the non-yielding commit starts, publication wins and returns
@@ -2574,7 +2589,7 @@ The required pathological cases are:
 | Clear supersedes a slow prepared Add before publication | Participant refusal releases the complete prepared batch; Clear remains current |
 | Artifact budget or expected composition changes before publication | Typed refusal releases a present prepared batch; no logical or physical current state changes |
 | Replace retains one Root, adopts one Root, and omits one Root | One gate exit exposes the complete new logical scope and matching physical set; the omitted Root rejects new query entry |
-| Expansion prepares two optional candidates and one fails | The two successful independent receipts publish together while the scope participant records exact failure evidence for the third |
+| Expansion prepares three optional candidates and one fails | The two successful independent receipts publish together while the scope participant records exact failure evidence for the third |
 | Removed Root has an admitted query lease | No new query enters after publication; the existing lease drains normally |
 | Participant refuses after physical staging | Staging releases before gate exit; both old current states remain observable |
 | Any receipt is submitted twice after publication | Typed `PreparationAlreadyPublished`; every other still-Prepared listed receipt releases and no second adoption or scope publication occurs |
@@ -2597,6 +2612,7 @@ The target Release gates are:
 | `ArtifactRootPublication_StalePhysicalOrLogicalCandidateCannotCommit` | Stale composition, generation, scope base, supersession, budget, cancellation, and deadline checks preserve both current states and release every listed prepared batch once applicability validation starts. |
 | `ArtifactRootPublication_CompositionIdentityCoversEveryPhysicalChange` | Owner-internal Root retirement or replacement and scope-requested publication all advance one gate-observed physical-composition identity. |
 | `ArtifactRootPublication_CompositionIdentityIsOwnerIssued` | An empty or populated open Workspace exposes its current resource-free composition identity through a gate-observing owner read, and successful publication returns the fresh replacement identity. |
+| `ArtifactRootPublication_CandidateIdentityPrecedesParticipantCommit` | Scope receives the exact unpublished candidate composition identity before constructing its no-fail commit token; commit publishes that identity, while refusal discards it permanently. |
 | `ArtifactRootPublication_PreparationSetPublishesAtomically` | One plan adopts every entry from one or more independently prepared successful batches, publishes all listed receipts together, or releases every listed prepared batch. |
 | `ArtifactRootPublication_ReceiptFreePlanCommitsOrRefusesOnce` | Empty and retain-only plans use plan deadline/cancellation plus a single-use participant and cannot repeat logical publication. |
 | `ArtifactRootPublication_OldOrNewCompositionIsObserved` | Scope reads and query entries observe either the complete old logical/physical pair or the complete new pair, never a half-state. |
