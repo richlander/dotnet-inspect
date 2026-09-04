@@ -7,6 +7,7 @@ import {
   isPackageQueryPredecessor,
   packageQueryHistoryState,
   readPackageQueryHistory,
+  resolvePackageQueryWorkspaceSuccessor,
   validPackageQueryPrefix,
   withHistoryEntryId,
 } from "../src/package-query-route.ts";
@@ -46,6 +47,16 @@ test("package query history scopes predecessor identity to one entry", () => {
   });
   assert.equal(readPackageQueryHistory(predecessor), null);
   assert.equal(predecessor.retained, "value");
+  assert.deepEqual(readPackageQueryHistory(packageQueryHistoryState(
+    null,
+    "query-2",
+    {
+      predecessorEntryId: "workspace-1",
+      returnFocus: "application-query",
+    })), {
+    predecessorEntryId: "workspace-1",
+    returnFocus: "application-query",
+  });
 });
 
 test("package query history rejects incomplete or unknown entry state", () => {
@@ -75,4 +86,29 @@ test("only the recorded predecessor entry arms query return focus", () => {
     isPackageQueryPredecessor(successor, "workspace-before"),
     false);
   assert.equal(isPackageQueryPredecessor(predecessor, null), false);
+});
+
+test("Workspace successor resolution preserves navigation when projection fails", () => {
+  const retained = new URL("https://example.test/?package=A&w=retained#workspace");
+  const fallback = new URL(
+    "https://example.test/?package=A&version=1.0.0&framework=net10.0#workspace");
+  const projectionError = new Error("Select one library");
+
+  const projected = resolvePackageQueryWorkspaceSuccessor(
+    () => retained,
+    () => {
+      throw new Error("fallback should not run");
+    });
+  assert.equal(projected.url, retained);
+  assert.equal(projected.projected, true);
+  assert.equal(projected.projectionError, null);
+
+  const degraded = resolvePackageQueryWorkspaceSuccessor(
+    () => {
+      throw projectionError;
+    },
+    () => fallback);
+  assert.equal(degraded.url, fallback);
+  assert.equal(degraded.projected, false);
+  assert.equal(degraded.projectionError, projectionError);
 });
