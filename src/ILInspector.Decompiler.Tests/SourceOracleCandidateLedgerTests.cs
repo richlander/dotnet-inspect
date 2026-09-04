@@ -8,7 +8,7 @@ namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
 /// Gates on the source-oracle candidate ledger's classification, ranking, baseline
-/// intake, and durable shape.
+/// intake, and archiveable shape.
 ///
 /// <para>Everything here except the PDB canary is pure: <see
 /// cref="SourceOracleCandidateLedger.Build"/> takes the census and the per-target
@@ -19,9 +19,10 @@ namespace ILInspector.Decompiler.Tests;
 [Trait("Area", "Corpus")]
 public class SourceOracleCandidateLedgerTests
 {
-    const string FileA = "https://raw.githubusercontent.com/owner/repo/aaaa/src/A.cs";
-    const string FileB = "https://raw.githubusercontent.com/owner/repo/aaaa/src/B.cs";
-    const string FileC = "https://raw.githubusercontent.com/owner/repo/aaaa/src/C.cs";
+    const string Commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const string FileA = "https://raw.githubusercontent.com/owner/repo/" + Commit + "/src/A.cs";
+    const string FileB = "https://raw.githubusercontent.com/owner/repo/" + Commit + "/src/B.cs";
+    const string FileC = "https://raw.githubusercontent.com/owner/repo/" + Commit + "/src/C.cs";
 
     /// <summary>
     /// The defect the ledger exists for: a file whose eligible member was never measured
@@ -296,6 +297,38 @@ public class SourceOracleCandidateLedgerTests
         Assert.Equal(1, report.FilesQualified);
     }
 
+    [Fact]
+    public void MutableBaselineUrl_DoesNotSuppressAQualifiedCandidate()
+    {
+        const string movingUrl =
+            "https://raw.githubusercontent.com/owner/repo/main/src/A.cs";
+        var member = Member(0x06000001);
+        var report = Build(
+            [Mapped(member, movingUrl, eligible: true)],
+            [Qualified(member, movingUrl, "statement.if")],
+            enrolledSourceUrls: [movingUrl]);
+
+        var file = Assert.Single(report.Files);
+        Assert.Equal("Qualified", file.Status);
+        Assert.Equal(1, file.Rank);
+        Assert.Equal(0, report.FilesEnrolled);
+    }
+
+    [Fact]
+    public void BaselineMembership_DoesNotHideACurrentRejection()
+    {
+        var member = Member(0x06000001);
+        var report = Build(
+            [Mapped(member, FileA, eligible: true)],
+            [Rejected(member, FileA, SourceOracleCandidateLedger.CandidateReason.NotCorrect)],
+            enrolledSourceUrls: [FileA]);
+
+        var file = Assert.Single(report.Files);
+        Assert.Equal("Rejected", file.Status);
+        Assert.Equal("Quality", file.RejectionFamily);
+        Assert.Equal(0, report.FilesEnrolled);
+    }
+
     /// <summary>
     /// Equal gain breaks on total feature count, then eligible-target count, then source
     /// URL ordinal — never on dictionary or input order.
@@ -383,6 +416,49 @@ public class SourceOracleCandidateLedgerTests
                     .OrderBy(file => file.Rank)
                     .Select(file => file.Checksum)
                     .ToArray());
+        }
+    }
+
+    [Fact]
+    public void UnrankedFiles_AreOrderedByTheCompleteFileIdentity()
+    {
+        var first = Member(0x06000001);
+        var second = Member(0x06000002);
+        var identityA = new SourceOracleCandidateLedger.FileIdentity(FileA, "A", "SAME");
+        var identityB = new SourceOracleCandidateLedger.FileIdentity(FileA, "B", "SAME");
+
+        SourceOracleCandidateLedger.Report Run(bool reversed)
+        {
+            SourceOracleCandidateLedger.CensusMember[] members =
+            [
+                new(first, identityA, null, Eligible: true),
+                new(second, identityB, null, Eligible: true),
+            ];
+            SourceOracleCandidateLedger.TargetOutcome[] outcomes =
+            [
+                new(
+                    first,
+                    identityA,
+                    SourceOracleCandidateLedger.CandidateReason.NotCorrect,
+                    Evaluated: true,
+                    Features: []),
+                new(
+                    second,
+                    identityB,
+                    SourceOracleCandidateLedger.CandidateReason.NotCorrect,
+                    Evaluated: true,
+                    Features: []),
+            ];
+            return Build(
+                reversed ? [.. members.Reverse()] : members,
+                reversed ? [.. outcomes.Reverse()] : outcomes);
+        }
+
+        foreach (bool reversed in new[] { false, true })
+        {
+            Assert.Equal(
+                ["A", "B"],
+                Run(reversed).Files.Select(file => file.ChecksumAlgorithm).ToArray());
         }
     }
 
@@ -645,6 +721,52 @@ public class SourceOracleCandidateLedgerTests
         Assert.Equal(1, baseline.FilesRegistered);
         Assert.Equal(PrinterSyntaxInventory.Version, baseline.SyntaxInventoryVersion);
         Assert.Equal("digest", baseline.Digest);
+        Assert.True(baseline.SourceRevisionMatchesHead);
+    }
+
+    [Fact]
+    public void Provenance_IsDisclosedRatherThanAnAdmissionGate()
+    {
+        var baselineReport = Baseline() with
+        {
+            SourceStateAtBuild = "dirty",
+            SourceRevisionMatchesHead = false,
+            SourceDirty = true,
+        };
+        Assert.True(
+            SourceOracleCandidateLedger.TryParseBaseline(
+                SerializeBaseline(baselineReport),
+                "digest",
+                out var baseline,
+                out string? error),
+            error);
+
+        var member = Member(0x06000001);
+        var report = SourceOracleCandidateLedger.Build(
+            new SourceOracleCandidateLedger.LedgerInput(
+                [
+                    new SourceOracleCandidateLedger.ScannedAssembly(
+                        "Oracle",
+                        "1.0.0.0",
+                        Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                        new string('a', 64)),
+                ],
+                [Mapped(member, FileA, eligible: true)],
+                [Qualified(member, FileA, "statement.return")]),
+            baseline!,
+            new AuthoredCorpusHistoryStore.BenchmarkProvenance(
+                "2026-01-02",
+                new string('c', 40),
+                "dirty",
+                SourceRevisionMatchesHead: false,
+                SourceDirty: true));
+
+        Assert.False(report.Baseline.SourceRevisionMatchesHead);
+        Assert.True(report.Baseline.SourceDirty);
+        Assert.Equal("dirty", report.Baseline.SourceStateAtBuild);
+        Assert.False(report.SourceRevisionMatchesHead);
+        Assert.True(report.SourceDirty);
+        Assert.Equal(2, report.LedgerVersion);
     }
 
     [Theory]
@@ -1174,7 +1296,7 @@ public class SourceOracleCandidateLedgerTests
 
         Assert.NotEmpty(members);
 
-        // Every mapped member is either attributed to an immutable file identity or
+        // Every mapped member is either attributed to a checksum-pinned file identity or
         // carries the reason it is not. Neither state is silent.
         Assert.All(
             members,
@@ -1273,6 +1395,7 @@ public class SourceOracleCandidateLedgerTests
             "2026-01-01",
             new string('b', 40),
             "clean",
+            true,
             false,
             new string('d', 64),
             new string('e', 64),
