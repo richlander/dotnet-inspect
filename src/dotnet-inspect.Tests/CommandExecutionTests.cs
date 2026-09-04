@@ -743,6 +743,62 @@ public partial class CommandExecutionTests
         assemblyBuilder.Save(path);
     }
 
+    private static void WriteRuntimeAccessorAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("RuntimeAccessor");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "RuntimeAccessor.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+
+        var property = typeBuilder.DefineProperty(
+            "Value",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        var getter = typeBuilder.DefineMethod(
+            "get_Value",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(int),
+            Type.EmptyTypes);
+        getter.SetImplementationFlags(MethodImplAttributes.Runtime);
+        property.SetGetMethod(getter);
+
+        var setter = typeBuilder.DefineMethod(
+            "set_Value",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        setter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        property.SetSetMethod(setter);
+
+        var @event = typeBuilder.DefineEvent(
+            "Changed",
+            EventAttributes.None,
+            typeof(Action));
+        var adder = typeBuilder.DefineMethod(
+            "add_Changed",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        adder.SetImplementationFlags(MethodImplAttributes.Runtime);
+        @event.SetAddOnMethod(adder);
+
+        var remover = typeBuilder.DefineMethod(
+            "remove_Changed",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        remover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        @event.SetRemoveOnMethod(remover);
+
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteHostileFactDetailAssembly(string path)
     {
         var assemblyName = new AssemblyName("HostileFactDetail");
@@ -16588,6 +16644,71 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.DoesNotContain("| Finding Census |", output);
+    }
+
+    [Fact]
+    public async Task Member_FindingCensus_UsesSelectedAccessorBodyAvailability()
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-runtime-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "RuntimeAccessor.dll");
+            WriteRuntimeAccessorAssembly(dllPath);
+
+            foreach (var memberName in (string[])["Value", "Changed"])
+            {
+                var (bodylessDiscoverExit, bodylessDiscoverOutput, bodylessDiscoverError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:1", "-D", "--tips", "q");
+
+                Assert.Equal(0, bodylessDiscoverExit);
+                Assert.Empty(bodylessDiscoverError);
+                Assert.DoesNotContain(
+                    "| Finding Census |",
+                    bodylessDiscoverOutput);
+
+                var (bodylessExit, bodylessOutput, bodylessError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:1", "-S", "Finding Census", "--json",
+                        "--tips", "q");
+
+                Assert.Equal(1, bodylessExit);
+                Assert.Empty(bodylessOutput);
+                Assert.Contains("Finding Census", bodylessError);
+
+                var (bodyDiscoverExit, bodyDiscoverOutput, bodyDiscoverError) =
+                    await RunAppAsync(
+                        "member", "RuntimeAccessor.Target", "--library", dllPath,
+                        $"{memberName}:2", "-D", "--tips", "q");
+
+                Assert.Equal(0, bodyDiscoverExit);
+                Assert.Empty(bodyDiscoverError);
+                Assert.Contains("| Finding Census |", bodyDiscoverOutput);
+
+                var (bodyExit, bodyOutput, bodyError) = await RunAppAsync(
+                    "member", "RuntimeAccessor.Target", "--library", dllPath,
+                    $"{memberName}:2", "-S", "Finding Census", "--json",
+                    "--tips", "q");
+
+                Assert.Equal(0, bodyExit);
+                Assert.Empty(bodyError);
+                using var envelope = JsonDocument.Parse(bodyOutput);
+                Assert.NotEqual(
+                    Guid.Empty,
+                    envelope.RootElement
+                        .GetProperty("fact_census_receipt")
+                        .GetGuid());
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

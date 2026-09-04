@@ -32,6 +32,10 @@ Source Document. Category and broad wildcard expansion omit it; a non-exact
 selector that resolves only to Finding Census fails and requires its exact
 section name.
 
+For a property or event, the selected accessor MethodDef must have a managed
+body RVA. An accessor token without a body does not make Finding Census
+discoverable or renderable.
+
 The envelope uses this CLI-owned wire shape:
 
 ```json

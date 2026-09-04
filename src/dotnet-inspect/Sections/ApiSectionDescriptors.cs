@@ -494,10 +494,33 @@ public static class ApiMemberSectionDescriptors
     internal static bool IsBodyBacked(ApiMember member) =>
         IsMethodLike(member) || HasAccessorTokens(member);
 
-    internal static bool HasExecutableBody(ApiMember member) =>
-        IsMethodLike(member)
-            ? member.HasMethodBody == true
-            : HasAccessorTokens(member) && !member.IsAbstract;
+    internal static bool HasExecutableBody(
+        ApiMember member,
+        int? selectedBodyOrdinal = null)
+    {
+        if (IsMethodLike(member))
+            return member.HasMethodBody == true;
+
+        List<bool?> accessorBodies = [];
+        if (member.Kind == "property")
+        {
+            if (member.GetterToken is not null)
+                accessorBodies.Add(member.GetterHasMethodBody);
+            if (member.SetterToken is not null)
+                accessorBodies.Add(member.SetterHasMethodBody);
+        }
+        else if (member.Kind == "event")
+        {
+            if (member.AdderToken is not null)
+                accessorBodies.Add(member.AdderHasMethodBody);
+            if (member.RemoverToken is not null)
+                accessorBodies.Add(member.RemoverHasMethodBody);
+        }
+
+        int index = selectedBodyOrdinal.GetValueOrDefault(1) - 1;
+        return (uint)index < (uint)accessorBodies.Count
+            && accessorBodies[index] == true;
+    }
 
     /// <summary>
     /// True when a property/event member records at least one accessor method token
@@ -530,9 +553,11 @@ public static class ApiMemberSectionPipelines
 {
     public static SectionPipeline<ApiType> Create(ApiOptions options)
         => UsesDetailPipeline(options)
-            ? ApiMemberDetailSectionDescriptors.CreatePipeline()
+            ? ApiMemberDetailSectionDescriptors.CreatePipeline(
+                (options as MemberOptions)?.OverloadIndex)
             : UsesOverloadInventoryPipeline(options)
-                ? ApiMemberOverloadSectionDescriptors.CreatePipeline()
+                ? ApiMemberOverloadSectionDescriptors.CreatePipeline(
+                    (options as MemberOptions)?.OverloadIndex)
             : ApiMemberSectionDescriptors.CreatePipeline();
 
     public static bool UsesDetailPipeline(ApiOptions options)
@@ -564,8 +589,12 @@ public static class ApiMemberSectionPipelines
 /// </summary>
 public static class ApiMemberOverloadSectionDescriptors
 {
-    public static SectionPipeline<ApiType> CreatePipeline()
+    public static SectionPipeline<ApiType> CreatePipeline(
+        int? selectedBodyOrdinal = null)
     {
+        bool FindingCensusCanRender(ApiType model) =>
+            HasSingleExecutableBodyMember(model, selectedBodyOrdinal);
+
         return new SectionPipeline<ApiType>()
             .Add<ApiMemberSectionDescriptors.Values>()
             .Add<ApiMemberSectionDescriptors.TypeParameters>()
@@ -589,7 +618,9 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSourceDocument>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.FindingCensus>(HasSingleExecutableBodyMember)
+            .Add<ApiMemberDetailSectionDescriptors.FindingCensus>(
+                FindingCensusCanRender,
+                FindingCensusCanRender)
             .Add<ApiMemberSectionDescriptors.PdbSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
@@ -618,8 +649,14 @@ public static class ApiMemberOverloadSectionDescriptors
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
 
-    private static bool HasSingleExecutableBodyMember(ApiType model)
-        => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+    private static bool HasSingleExecutableBodyMember(
+        ApiType model,
+        int? selectedBodyOrdinal)
+        => model.Members.Count == 1
+           && model.Members.Any(member =>
+               ApiMemberSectionDescriptors.HasExecutableBody(
+                   member,
+                   selectedBodyOrdinal));
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
@@ -636,8 +673,16 @@ public static class ApiMemberOverloadSectionDescriptors
 /// </summary>
 public static class ApiMemberDetailSectionDescriptors
 {
-    public static SectionPipeline<ApiType> CreatePipeline()
+    public static SectionPipeline<ApiType> CreatePipeline(
+        int? selectedBodyOrdinal = null)
     {
+        bool FindingCensusCanRender(ApiType model) =>
+            model.Members.Count == 1
+            && model.Members.Any(member =>
+                ApiMemberSectionDescriptors.HasExecutableBody(
+                    member,
+                    selectedBodyOrdinal));
+
         return new SectionPipeline<ApiType>()
             .Add<Summary>()
             .Add<Signature>()
@@ -647,7 +692,9 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<AppliedTaste>()
             .Add<AnnotatedSource>()
             .Add<AnnotatedSourceDocument>()
-            .Add<FindingCensus>()
+            .Add<FindingCensus>(
+                FindingCensusCanRender,
+                FindingCensusCanRender)
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
             .Add<PdbSource>()
@@ -743,7 +790,8 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.HasExecutableBody);
+               && model.Members.Any(member =>
+                   ApiMemberSectionDescriptors.HasExecutableBody(member));
     }
 
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>

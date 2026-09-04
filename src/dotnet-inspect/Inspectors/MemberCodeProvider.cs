@@ -125,6 +125,8 @@ internal static class MemberCodeProvider
             bool methodHasBody = selection?.HasBody == true;
             bool requiresAsyncBodyModifier = selection is not null
                 && TypeShellProducer.RequiresAsyncBodyModifier(selection);
+            if (request.FindingCensus && !methodHasBody)
+                continue;
 
             // Decompiled source: raised C# only, without annotations or interleaved IL.
             Decompiler.DecompilerResult? decompiledResult = null;

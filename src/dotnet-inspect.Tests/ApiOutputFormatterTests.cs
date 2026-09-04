@@ -2642,6 +2642,55 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void ApiTypeJson_RoundTripsAccessorBodyAvailability()
+    {
+        var type = new ApiType
+        {
+            Name = "Accessors",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    GetterToken = 0x06000001,
+                    SetterToken = 0x06000002,
+                    GetterHasMethodBody = false,
+                    SetterHasMethodBody = true,
+                },
+                new ApiMember
+                {
+                    Name = "Changed",
+                    Kind = "event",
+                    AdderToken = 0x06000003,
+                    RemoverToken = 0x06000004,
+                    AdderHasMethodBody = true,
+                    RemoverHasMethodBody = false,
+                },
+            ],
+        };
+
+        string json = JsonSerializer.Serialize(
+            type,
+            ApiTypeJsonContext.Default.ApiType);
+        ApiType restored = JsonSerializer.Deserialize(
+            json,
+            ApiTypeJsonContext.Default.ApiType)!;
+
+        ApiMember property = Assert.Single(
+            restored.Members,
+            member => member.Kind == "property");
+        ApiMember @event = Assert.Single(
+            restored.Members,
+            member => member.Kind == "event");
+
+        Assert.False(property.GetterHasMethodBody);
+        Assert.True(property.SetterHasMethodBody);
+        Assert.True(@event.AdderHasMethodBody);
+        Assert.False(@event.RemoverHasMethodBody);
+    }
+
+    [Fact]
     public void ApiSurfaceJson_RoundTripsSurfaceScopedJsExportFailureEvidence()
     {
         var surface = new ApiSurface

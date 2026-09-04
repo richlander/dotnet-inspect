@@ -1486,15 +1486,23 @@ public static class ApiOutputFormatter
                 // A getter returns the property type and takes only the index parameters; a
                 // setter (and both event accessors) returns void and takes a trailing `value`.
                 if (member.GetterToken is { } getter)
-                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, "get", valueReturning: true);
+                    yield return Accessor(
+                        member, declaringType, $"get_{member.Name}", getter,
+                        member.GetterHasMethodBody, "get", valueReturning: true);
                 if (member.SetterToken is { } setter)
-                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, "set", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"set_{member.Name}", setter,
+                        member.SetterHasMethodBody, "set", valueReturning: false);
                 break;
             case "event":
                 if (member.AdderToken is { } adder)
-                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, "add", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"add_{member.Name}", adder,
+                        member.AdderHasMethodBody, "add", valueReturning: false);
                 if (member.RemoverToken is { } remover)
-                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, "remove", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"remove_{member.Name}", remover,
+                        member.RemoverHasMethodBody, "remove", valueReturning: false);
                 break;
         }
     }
@@ -1512,7 +1520,14 @@ public static class ApiOutputFormatter
     /// owner's when the accessor declares none — events carry no per-accessor entry and so
     /// inherit the event's accessibility.
     /// </summary>
-    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
+    static ApiMember Accessor(
+        ApiMember owner,
+        string declaringType,
+        string name,
+        int token,
+        bool? hasMethodBody,
+        string accessorKind,
+        bool valueReturning)
     {
         var ownerModel = owner.SignatureModel;
         var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
@@ -1556,6 +1571,7 @@ public static class ApiOutputFormatter
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
+            HasMethodBody = hasMethodBody,
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };
@@ -1622,6 +1638,8 @@ public static class ApiOutputFormatter
                     ? methods[overloadIndex.Value]
                     : null
             : null;
+        if (request.FindingCensus && singleMethod?.HasMethodBody != true)
+            singleMethod = null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
         // Code and caller sections address a single selected member. When an overload
         // (or property/event accessor, issue #3265) is selected, restrict them to that
