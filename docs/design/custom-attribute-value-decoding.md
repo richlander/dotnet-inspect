@@ -264,12 +264,13 @@ is guaranteed to stop the walk.
 
 Elements of an `SZARRAY` share one element type, so any work reachable from
 element-type parsing is multiplied by an attacker-chosen count unless it is
-resolved once for the array. Issue #5047 tracks the current replay gap.
+resolved once for the array. The owned decoder resolves that type into one
+`ArgumentType` before entering the value loop and carries it with the array
+container; this is the slice 2 repair for #5047.
 
-> **Standing rule.** Work introduced into element-type parsing is per-element
-> work. Before adding a resolution, materialization, or validation step
-> reachable from fixed-argument processing, establish that it is memoized or
-> that it is cheap enough to be paid an attacker-chosen number of times.
+> **Standing rule.** Resolve an `SZARRAY` element type once per array and carry
+> its descriptor through the value loop. Do not move resolution, validation, or
+> other work derived solely from that type into per-element value processing.
 
 ### D2 — Fail closed, visibly
 
@@ -439,22 +440,23 @@ may it be indistinguishable from a resolved width. **Slice 2 defines a
 per-argument defaulted-width signal on the decoded result**, carried
 *out-of-band* — alongside the returned value, not as a new field inside
 `CustomAttributeValue<string>` — which is what lets it coexist with #5288's
-hold on that output shape. Today no such signal exists —
-`EnumUnderlyingPrimitive` returns the
-defaulted `Int32` as an ordinary value — which is the gap
-[#5742](https://github.com/richlander/dotnet-inspect/issues/5742) tracks.
+hold on that output shape. `AttributeDecoder.TryDecodeDetailed` returns that
+signal alongside the ordinary value; the existing overloads preserve their
+value-only shape. Issue
+[#5742](https://github.com/richlander/dotnet-inspect/issues/5742) tracks this
+slice 2 repair.
 
 **This obligation names its own gate, because no existing one covers it.** The
 D2 differential is blind to the default (SRM guesses `Int32` identically) and
-D3 carves the unresolvable case out, so slice 2 could otherwise report green
-with the signal never implemented. Slice 2 therefore lands a test asserting the
-signal is **set** for an argument whose width was defaulted and **clear** for
-one whose width was resolved, on the same decode path. Until that test exists
-the signal is `unverified`, and the enforcement-gates table says so.
+D3 carves the unresolvable case out. Slice 2 therefore gates the signal as
+**set** for an argument whose width was defaulted and **clear** for one whose
+width was resolved, on the same decode path. The enforcement-gates table names
+the two exact tests.
 
 What survives intact regardless is [D1](#d1--bounded): the misread cannot become
 an unbounded or out-of-bounds operation. The failure mode is a confidently wrong
-rendering, bounded in cost, and reported as uncertain once slice 2 lands.
+rendering, bounded in cost, and reported as uncertain to callers that opt into
+the detailed result.
 
 Narrowing the carve-out is [#4741](https://github.com/richlander/dotnet-inspect/issues/4741)'s
 job: the more names product extraction plans into a frozen generation, the more
@@ -828,7 +830,7 @@ remain `unverified`.**
 
 | Invariant | Gate | State |
 | --- | --- | --- |
-| **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; six open defects violate it. |
+| **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
 | **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial in the slice 2 candidate; resource-exhaustion propagation remains unverified. |
 | **D3** | #5148 is re-targeted from offset agreement to value equality; stage 1 adds producer-truth widths where an SRM oracle would share the decoder's resolution path. | #5148 open; stage 1 not landed. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated in the slice 2 candidate. |
@@ -930,24 +932,13 @@ component's current behavior. They are listed rather than omitted, because a
 design document describing only intended behavior would misrepresent the
 component.
 
-| # | Gap | Invariant | Issue |
+| Legacy gap | Gap | Invariant | Issue |
 | --- | --- | --- | --- |
 | 1 | A failed resolution scans every type definition, so `P` distinct unresolvable arguments cost `Θ(P × T)`. Applies to **both** the handle path and the serialized-name path (`TryFindDefinition`). | D1 | #5091 |
-| 2 | `SZARRAY` element types are re-parsed once per element rather than once per array. | D1 | #5047 |
-| 3 | Every memo is a **single slot keyed on the previous input**, so alternating two values defeats all of them. | D1 | #5130 |
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
 | 7 | Building the type-definition index costs `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 | #5757 |
 | 8 | A definition scan performs `O(L)` work per row on a loop-invariant name, costing `Θ(T × L)`. | D1 | #5758 |
-
-Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
-the wrong cost model.** Under the paired-walker design, work the guard cached and
-SRM repeated made the guard look fast while the decode stayed quadratic, and work
-the guard repeated made the guard quadratic while the decode was fine. Neither
-side's profile revealed the other's, which is why these were found by reading
-rather than by measurement. With one walker there is one profile, and that is a
-real simplification — but the fixes are still owed, and a fix that makes a memo hit
-more often without making it hit on *every distinct input* has not resolved any of
-them. Prefer one coherent change over three local optimizations.
+| I2 → D1 | Each `VAR` fixed argument re-skips its generic context, so `P` arguments over a `G`-node context cost `Θ(P × G)`. | D1 | #5098 |
 
 Gap 4 is deliberately excluded from that grouping: it is cross-row, so no per-walk
 memo can address it.
@@ -957,7 +948,7 @@ costs `O(L)` in a name length that does not vary across the loop. The rule is
 **`O(1)` per row in any loop-invariant name length**. It applies to rendering,
 comparison, hashing, and any future operation with the same cost shape.
 
-### Gaps closed by the inversion
+### Gaps changed by the inversion
 
 Retained so that a reader who finds these issues, or a test named for one, can
 place it.
@@ -965,6 +956,8 @@ place it.
 | Former gap | Was | Disposition |
 | --- | --- | --- |
 | SRM re-derived each fixed argument's type from the generic context, costing `Θ(P × G)`; the guard memoized the offset and never experienced it. | I2 (#5098) | **Transferred to D1.** SRM no longer runs, but the owned decoder currently re-skips the generic context per `VAR` argument and retains the same cost shape. |
+| `SZARRAY` replay re-parsed one element type per value. | D1 gap 2 (#5047) | **Repaired.** The owned decoder resolves one `ArgumentType` before the array value loop and reuses it for every element. |
+| Four single-slot memos admitted alternating-input amplification. | D1 gap 3 (#5130) | **Repaired.** Those memos were deleted with the paired walker. The remaining generic-context re-skip is #5098 above. |
 | The resolver-less `IsSafeToDecode` overload resolves widths in a different order, so its `true` does not carry I1. | I1 scope (#5120) | **Moot.** There is no alignment claim to carry. |
 | The guard and `ArgTypeProvider` each apply their own `"System.Type"` comparison, so the predicate can diverge. | I1 (#5393) | **Moot.** One decoder, one predicate. Recorded as a fidelity caution under [Classification](#classification-is-a-display-name-comparison-not-an-identity-test). |
 | Whether the #4914 width-alignment collapse remains reachable on the blob-authored name path. | I1 (#4992) | **Moot as an alignment question.** The name path's own collapse risk is retained as a D3 concern under [The two resolution paths are not symmetric](#the-two-resolution-paths-are-not-symmetric). |
@@ -1004,12 +997,12 @@ slice 2. Both are now settled.
 | Issue | Concern |
 | --- | --- |
 | #5288 | This inversion. Slice 2 is the current decoder candidate; slice 3 (the D3 gate) and slice 4 (cleanup) are outstanding. |
-| #5047 | Per-element element-type replay; resolve once and loop. Gap 2. |
+| #5047 | Slice 2 resolves each array element type once; close after the candidate lands. |
 | #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
 | #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
 | #5085 | Slice 2 preserves observer-exception provenance; close after the candidate lands. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
-| #5130 | Every memo is a single slot, so alternating input defeats all of them. Gap 3. |
+| #5130 | Slice 2 deletes the paired walk's single-slot memos; close after the candidate lands. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | The differential generator, to be re-targeted from offset agreement to D3 value equality. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |

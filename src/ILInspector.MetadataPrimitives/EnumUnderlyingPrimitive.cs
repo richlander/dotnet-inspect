@@ -8,15 +8,15 @@ namespace ILInspector.Metadata;
 /// Single width oracle for enum-typed custom-attribute arguments.
 ///
 /// The owned decoder resolves a handle or serialized name to a local
-/// <see cref="TypeDefinition"/> before consuming the enum value bytes. A name
-/// that is not a TypeDef in the current image falls back to
-/// <see cref="PrimitiveTypeCode.Int32"/> so the width stays sound, unless a
-/// caller-supplied resolver found the defining image first. A local TypeDef
-/// still wins over that resolver. For a handle the decoder resolves the width
-/// directly from the definition; for a blob-authored SerString it strips the
-/// assembly qualification and restores reflection escapes before lookup. Both
-/// then <see cref="Normalize"/> the returned code so an assembly-qualified
-/// SerString or a non-fixed-width callback cannot select an unexpected width.
+/// <see cref="TypeDefinition"/> before consuming the enum value bytes. A local
+/// TypeDef wins over a caller-supplied resolver. If neither path resolves the
+/// width, the decoder uses <see cref="PrimitiveTypeCode.Int32"/> and its
+/// detailed result reports that fallback as defaulted. For a handle the decoder
+/// resolves the width directly from the definition; for a blob-authored
+/// SerString it strips the assembly qualification and restores reflection
+/// escapes before lookup. Both then <see cref="Normalize"/> the returned code
+/// so an assembly-qualified SerString or a non-fixed-width callback cannot
+/// select an unexpected width.
 /// <c>CustomAttributeValueGuardTests</c>'s
 /// <c>EscapedNamedEnum_MalformedAssemblySuffix_SeesOverlappingHostileCount</c>
 /// and <c>EscapedNamedEnum_OverBudgetAssemblySuffix_SeesOverlappingHostileCount</c>
@@ -143,11 +143,11 @@ static class EnumUnderlyingPrimitive
         or PrimitiveTypeCode.UInt64;
 
     /// <summary>
-    /// SRM casts the provider result to <c>SerializationTypeCode</c> and
-    /// consumes a SerString for <see cref="PrimitiveTypeCode.String"/>.
     /// Only fixed-width enum primitives stay; everything else, including
-    /// String, falls back to <see cref="PrimitiveTypeCode.Int32"/> so the
-    /// guard and decoder skip the same four bytes.
+    /// <see cref="PrimitiveTypeCode.String"/>, normalizes to
+    /// <see cref="PrimitiveTypeCode.Int32"/>. A caller-provided answer remains
+    /// resolved for defaulted-width reporting; normalization only constrains
+    /// the byte width.
     /// </summary>
     public static PrimitiveTypeCode Normalize(PrimitiveTypeCode code) => code switch
     {
