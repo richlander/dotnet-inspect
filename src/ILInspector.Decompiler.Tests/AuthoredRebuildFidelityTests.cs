@@ -762,6 +762,35 @@ public sealed class AuthoredRebuildFidelityTests
     }
 
     [Fact]
+    public void AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating()
+    {
+        var fixture = CompilePortablePdbFixture(deletePdb: false);
+        string outputPath =
+            Path.Combine(
+                fixture.Directory,
+                "harvest.jsonl");
+        try
+        {
+            CompileFixture(
+                "public sealed class Fixture { public int Value => 2; }",
+                fixture.Directory,
+                "Fixture");
+
+            int exitCode =
+                AuthoredSourceHarvest.Run(
+                    [fixture.AssemblyPath],
+                    outputPath,
+                    target: 1);
+            Assert.Equal(1, exitCode);
+            Assert.Equal(1, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure()
     {
         NuGetCache.Initialize("dotnet-inspect");

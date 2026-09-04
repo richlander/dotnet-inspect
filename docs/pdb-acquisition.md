@@ -392,6 +392,8 @@ standalone PDB when the assembly has no Portable CodeView identity, and project
 malformed embedded-PDB opening or a present unusable SourceLink map as typed
 failure after verified local and repository alternatives are exhausted.
 `SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` and
+`AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating`
+gate the failure boundary across the census and corpus-harvest consumers, and
 `SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate the PDB
 opening boundaries without changing the general-purpose `PdbContext` policy;
 `SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` gates the
