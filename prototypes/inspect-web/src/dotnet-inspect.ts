@@ -2877,6 +2877,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const focusedElement = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
+  contentFrameFocusOwner = null;
   const scopeBarOwnsFocus = focusedElement
     ?.closest("[data-scope-bar]") != null;
   const scopeBarFocus = focusedElement
@@ -5439,6 +5440,7 @@ function bindTypePanelEvents() {
       return true;
     },
     onMemberGroupOpen: memberKey => {
+      beginSpotlightNavigation();
       showContentDetailAfterRender();
       openMemberGroup(memberKey);
     },

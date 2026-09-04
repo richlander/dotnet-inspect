@@ -1645,8 +1645,13 @@ test("Workspace keeps the Default Workspace visible and menu fixed", async ({
 test("Workspace retains its full split height at constrained widths", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 600, height: 700 });
+  await page.setViewportSize({ width: 900, height: 700 });
   await page.goto("/browser/workspace-titlebar.html?workspace=1");
+
+  const intermediateNavigation = await box(page, ".workspace-nav");
+  expect(intermediateNavigation.width).toBeCloseTo(330, 0);
+
+  await page.setViewportSize({ width: 600, height: 700 });
 
   await expect(page.locator(".detail-pane"))
     .not.toHaveClass(/content-navigation-/);

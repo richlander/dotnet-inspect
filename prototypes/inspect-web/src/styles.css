@@ -655,7 +655,7 @@ body {
 .workspace {
   min-height: 0;
   display: grid;
-  grid-template-columns: 31% 69%;
+  grid-template-columns: minmax(280px, 31%) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
 }
 .workspace.content-frame {
@@ -1599,6 +1599,9 @@ kbd {
 .load-error pre, .load-error-detail { max-height: 50vh; overflow: auto; margin-top: 12px; color: var(--muted); font: 11px/1.6 var(--mono); white-space: pre-wrap; }
 
 @media (max-width: 1050px) {
+  .workspace:not(.content-frame) {
+    grid-template-columns: 330px minmax(0, 1fr);
+  }
   .type-metrics { display: none; }
   .type-heading p { grid-column: 2; }
 }

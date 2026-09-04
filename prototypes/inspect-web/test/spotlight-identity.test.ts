@@ -1547,7 +1547,7 @@ test("typed type panel owns its rendered control bindings", () => {
   }
   assert.match(
     binding,
-    /onMemberGroupOpen: memberKey => \{\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
+    /onMemberGroupOpen: memberKey => \{\s*beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
@@ -2748,7 +2748,16 @@ test("member entry controls choose the resulting content-frame pane", () => {
     /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";\s*action\(\);\s*afterCurrentNavigationFrame\(\(\) => \{\s*if \(canRestoreWorkbenchFocus\(focusGeneration\)\)\s*focusContentNavigation\(document\);\s*}\);/);
   assert.match(
     bindings,
-    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{\s*beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
+});
+
+test("render invalidates focus ownership before replacing content-frame DOM", () => {
+  const render = functionDeclaration("render");
+  const source = appSource.slice(render.start, render.end);
+
+  assert.match(
+    source,
+    /const focusedElement = document\.activeElement instanceof HTMLElement[\s\S]*contentFrameFocusOwner = null;[\s\S]*app\.innerHTML = `/);
 });
 
 test("workspace package selection resets type-specific member filters", () => {
