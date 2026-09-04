@@ -1,8 +1,10 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 using DotnetInspector.Artifacts;
 using ILInspector.Metadata;
 
@@ -78,6 +80,23 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void SelectFromPath_ReturnsDescriptorWithSelectedProvenance()
+    {
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Local("typed selection test");
+
+        var ready =
+            Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+                ResolvedAssemblyReference.SelectFromPath(
+                    SelfPath,
+                    provenance));
+
+        Assert.Equal(ReadIdentity(SelfBytes()), ready.Reference.Identity);
+        Assert.Equal(Path.GetFullPath(SelfPath), ready.Reference.Path);
+        Assert.Same(provenance, ready.Reference.Provenance);
+    }
+
+    [Fact]
     public void TryCreateFromPath_UnreadableOrInvalidImage_ReturnsFalse()
     {
         string missing = Path.Combine(
@@ -102,43 +121,21 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
-    public void PathFactories_BlankAssemblyName_ReturnNoDescriptor()
+    public void PathFactories_BlankAssemblyName_IsRejected()
     {
         string path = Path.GetTempFileName();
         try
         {
-            var metadata = new MetadataBuilder();
-            metadata.AddModule(
-                0,
-                metadata.GetOrAddString("BlankName.dll"),
-                metadata.GetOrAddGuid(Guid.NewGuid()),
-                default,
-                default);
-            metadata.AddAssembly(
-                metadata.GetOrAddString(" "),
-                new Version(1, 0, 0, 0),
-                default,
-                default,
-                default,
-                default);
-            metadata.AddTypeDefinition(
-                default,
-                default,
-                metadata.GetOrAddString("<Module>"),
-                default,
-                MetadataTokens.FieldDefinitionHandle(1),
-                MetadataTokens.MethodDefinitionHandle(1));
-            var pe = new ManagedPEBuilder(
-                PEHeaderBuilder.CreateLibraryHeader(),
-                new MetadataRootBuilder(
-                    metadata,
-                    suppressValidation: true),
-                new BlobBuilder(),
-                flags: CorFlags.ILOnly);
-            var image = new BlobBuilder();
-            pe.Serialize(image);
-            File.WriteAllBytes(path, image.ToArray());
+            File.WriteAllBytes(path, BuildBlankAssemblyName());
 
+            var rejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                rejected.Failure.Kind);
             Assert.Null(
                 ResolvedAssemblyReference.CreateFromPathIfManaged(
                     path,
@@ -169,6 +166,312 @@ public class InspectionAcquisitionPlanTests
         {
             File.Delete(invalid);
         }
+    }
+
+    [Fact]
+    public void DescriptorSelection_ClassifiesDescriptorlessImages()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            byte[] module = BuildModuleImage();
+            File.WriteAllBytes(path, module);
+            Assert.IsType<AssemblyDescriptorSelectionResult.Descriptorless>(
+                ResolvedAssemblyReference.SelectFromPath(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+
+            foreach (byte[] image in new[]
+                     {
+                         BuildNativePeImage(),
+                         BuildDosOnlyImage(),
+                         new byte[] { 0x01, 0x02, 0x03 },
+                     })
+            {
+                File.WriteAllBytes(path, image);
+                Assert.IsType<
+                    AssemblyDescriptorSelectionResult.Descriptorless>(
+                        ResolvedAssemblyReference.SelectFromPath(
+                            path,
+                            AssemblyResolutionProvenance.Local("test")));
+                Assert.Null(
+                    ResolvedAssemblyReference.CreateFromPathIfManaged(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+                Assert.IsType<
+                    AssemblyDescriptorSelectionResult.Descriptorless>(
+                        ResolvedAssemblyReference.SelectFromStream(
+                            () => new MemoryStream(image, writable: false),
+                            AssemblyResolutionProvenance.Local("test")));
+                Assert.Null(
+                    ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                        () => new MemoryStream(image, writable: false),
+                        AssemblyResolutionProvenance.Local("test")));
+            }
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DescriptorSelection_RejectsMalformedManagedMetadata()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            byte[] malformed = BuildTruncatedMetadataTableAssembly();
+            using (var peReader = new PEReader(
+                       new MemoryStream(malformed, writable: false)))
+            {
+                Assert.True(peReader.HasMetadata);
+            }
+            File.WriteAllBytes(path, malformed);
+
+            var rejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                rejected.Failure.Kind);
+            Assert.Throws<BadImageFormatException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DescriptorSelection_RejectsMalformedMetadataSection()
+    {
+        byte[] malformed = BuildMalformedMetadataSection();
+        using (var peReader = new PEReader(
+                   new MemoryStream(malformed, writable: false)))
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => _ = peReader.HasMetadata);
+        }
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, malformed);
+
+            var pathRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                pathRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+
+            var streamRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromStream(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false),
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                streamRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DescriptorSelection_RejectsUnmappableCorHeader()
+    {
+        byte[] malformed = BuildUnmappableCorHeader();
+        using (var peReader = new PEReader(
+                   new MemoryStream(malformed, writable: false)))
+        {
+            Assert.False(peReader.HasMetadata);
+            Assert.NotEqual(
+                0,
+                peReader.PEHeaders.PEHeader?
+                    .CorHeaderTableDirectory.RelativeVirtualAddress);
+        }
+
+        string path = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(path, malformed);
+
+            var pathRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                pathRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+
+            var streamRejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromStream(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false),
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                streamRejected.Failure.Kind);
+            Assert.Null(
+                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void DescriptorSelection_PreservesLegacyMetadataExceptionType()
+    {
+        string path = Path.GetTempFileName();
+        try
+        {
+            byte[] malformed = CorruptMetadataStreamCount(SelfBytes());
+            File.WriteAllBytes(path, malformed);
+
+            var rejected =
+                Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+                    ResolvedAssemblyReference.SelectFromPath(
+                        path,
+                        AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                CandidateOpenFailureKind.InvalidImage,
+                rejected.Failure.Kind);
+            Exception pathDecodeFailure = Assert.ThrowsAny<Exception>(
+                () => DecodeAssemblyIdentity(malformed));
+            Exception pathFactoryFailure = Assert.ThrowsAny<Exception>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
+                    path,
+                    AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                pathDecodeFailure.GetType(),
+                pathFactoryFailure.GetType());
+
+            Exception streamDecodeFailure = Assert.ThrowsAny<Exception>(
+                () => DecodeAssemblyIdentity(malformed));
+            Exception streamFactoryFailure = Assert.ThrowsAny<Exception>(
+                () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+            Assert.Equal(
+                streamDecodeFailure.GetType(),
+                streamFactoryFailure.GetType());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void SelectFromStream_UsesTheSameTypedClassification()
+    {
+        byte[] valid =
+            BuildSimpleAssembly("Selected", "Type", Guid.Empty);
+        byte[] module = BuildModuleImage();
+        byte[] malformed = BuildTruncatedMetadataTableAssembly();
+        byte[] blankName = BuildBlankAssemblyName();
+        AssemblyResolutionProvenance provenance =
+            AssemblyResolutionProvenance.Local("stream selection test");
+
+        var ready =
+            Assert.IsType<AssemblyDescriptorSelectionResult.Ready>(
+                ResolvedAssemblyReference.SelectFromStream(
+                    () => new MemoryStream(valid, writable: false),
+                    provenance));
+        Assert.Equal("Selected", ready.Reference.Identity.Name);
+        Assert.Null(ready.Reference.Registration.ModuleVersionId);
+        Assert.Same(provenance, ready.Reference.Provenance);
+        Assert.IsType<AssemblyDescriptorSelectionResult.Descriptorless>(
+            ResolvedAssemblyReference.SelectFromStream(
+                () => new MemoryStream(module, writable: false),
+                provenance));
+        Assert.Throws<BadImageFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(module, writable: false),
+                provenance));
+        Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+            ResolvedAssemblyReference.SelectFromStream(
+                () => new MemoryStream(malformed, writable: false),
+                provenance));
+        Assert.Throws<BadImageFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(malformed, writable: false),
+                provenance));
+        Assert.IsType<AssemblyDescriptorSelectionResult.Rejected>(
+            ResolvedAssemblyReference.SelectFromStream(
+                () => new MemoryStream(blankName, writable: false),
+                provenance));
+        Assert.Null(
+            ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new MemoryStream(blankName, writable: false),
+                provenance));
+    }
+
+    [Fact]
+    public void SelectFromPath_UnreadableInputRemainsVisible()
+    {
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            $"{Guid.NewGuid():N}.dll");
+
+        Assert.Throws<FileNotFoundException>(
+            () => ResolvedAssemblyReference.SelectFromPath(
+                missing,
+                AssemblyResolutionProvenance.Local("test")));
+    }
+
+    [Fact]
+    public void SelectFromStream_InvalidOpenerRemainsVisible()
+    {
+        var unreadable = new MemoryStream();
+        unreadable.Dispose();
+
+        Assert.Throws<IOException>(
+            () => ResolvedAssemblyReference.SelectFromStream(
+                () => unreadable,
+                AssemblyResolutionProvenance.Local("test")));
     }
 
     [Fact]
@@ -1744,6 +2047,150 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
+    static byte[] BuildBlankAssemblyName()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("BlankName.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(" "),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(metadata);
+    }
+
+    static byte[] CorruptMetadataStreamCount(byte[] bytes)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(bytes, writable: false));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int streamCountOffset =
+            metadataStart
+            + 16
+            + versionLength
+            + sizeof(ushort);
+        BinaryPrimitives.WriteUInt16LittleEndian(
+            bytes.AsSpan(streamCountOffset, sizeof(ushort)),
+            ushort.MaxValue);
+        return bytes;
+    }
+
+    static byte[] BuildMalformedMetadataSection()
+    {
+        byte[] bytes = SelfBytes();
+        int corHeaderStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            Assert.True(peReader.HasMetadata);
+            corHeaderStart = peReader.PEHeaders.CorHeaderStartOffset;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(corHeaderStart + 12, sizeof(int)),
+            0);
+        return bytes;
+    }
+
+    static byte[] BuildUnmappableCorHeader()
+    {
+        byte[] bytes = SelfBytes();
+        int directoryOffset;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            PEHeader peHeader = peReader.PEHeaders.PEHeader
+                ?? throw new InvalidOperationException(
+                    "The test assembly has no PE header.");
+            int dataDirectoriesOffset =
+                peHeader.Magic == PEMagic.PE32Plus ? 112 : 96;
+            directoryOffset =
+                peReader.PEHeaders.PEHeaderStartOffset
+                + dataDirectoriesOffset
+                + (14 * 8);
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(directoryOffset, sizeof(int)),
+            int.MaxValue);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            bytes.AsSpan(directoryOffset + sizeof(int), sizeof(int)),
+            0x48);
+        return bytes;
+    }
+
+    static AssemblyReferenceIdentity DecodeAssemblyIdentity(byte[] image)
+    {
+        using var peReader = new PEReader(
+            new MemoryStream(image, writable: false));
+        return AssemblyReferenceIdentity.FromAssemblyDefinition(
+            peReader.GetMetadataReader());
+    }
+
+    static byte[] BuildTruncatedMetadataTableAssembly()
+    {
+        byte[] bytes =
+            BuildSimpleAssembly(
+                "MalformedMetadata",
+                "Type",
+                Guid.NewGuid());
+        int metadataStart;
+        using (var peReader = new PEReader(
+                   new MemoryStream(bytes, writable: false)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            bytes.AsSpan(metadataStart + 12, sizeof(int)));
+        int cursor =
+            metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(
+            bytes.AsSpan(cursor + 2, sizeof(ushort)));
+        cursor += 4;
+        for (int index = 0; index < streamCount; index++)
+        {
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(
+                bytes,
+                nameStart,
+                nameEnd - nameStart);
+            if (name is "#~" or "#-")
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    bytes.AsSpan(sizeOffset, sizeof(int)),
+                    sizeof(int));
+                return bytes;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException(
+            "The generated assembly has no metadata table stream.");
+    }
+
+    static int AlignTo4(int value)
+        => (value + 3) & ~3;
+
     static byte[] BuildManyTypesAssembly(int typeCount)
     {
         var metadata = new MetadataBuilder();
@@ -1871,6 +2318,13 @@ public class InspectionAcquisitionPlanTests
         writer.Write((ushort)0);
         writer.Write(0x60000020u);
         image[0x200] = 0xC3;
+        return image;
+    }
+
+    static byte[] BuildDosOnlyImage()
+    {
+        var image = new byte[0x80];
+        BinaryPrimitives.WriteUInt16LittleEndian(image, 0x5A4D);
         return image;
     }
 

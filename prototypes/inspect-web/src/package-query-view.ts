@@ -294,6 +294,34 @@ function renderCompletionFooter(
     </div>`;
 }
 
+function renderProgress(
+  outcome: PackageQueryState["outcome"],
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (outcome.completion.kind !== "streaming" || outcome.progress.length === 0)
+    return "";
+
+  const checkpoints = outcome.progress.map(progress => {
+    const label = progress.phase === "search"
+      ? "Source search"
+      : progress.phase === "manifest"
+        ? "Manifests"
+        : "Package content";
+    const detail = progress.phase === "search"
+      ? progress.completed === progress.limit ? "ready" : "running"
+      : `${progress.completed.toLocaleString()} of up to ${progress.limit.toLocaleString()}`;
+    return `
+      <div class="query-progress-item">
+        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(detail)}</strong></div>
+        <progress value="${progress.completed}" max="${progress.limit}"></progress>
+      </div>`;
+  }).join("");
+  return `
+    <div class="query-progress" aria-label="Query progress">
+      ${checkpoints}
+    </div>`;
+}
+
 function renderEmptyState(
   state: PackageQueryState,
   escapeHtml: (value: unknown) => string,
@@ -382,9 +410,9 @@ export function renderPackageQueryView(
     .map(row => renderRow(row, escapeHtml))
     .join("");
   const results = rows
-    ? `<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
+    ? `${renderProgress(state.outcome, escapeHtml)}<div class="query-list">${rows}</div>${renderCompletionFooter(state.outcome, escapeHtml)}`
     : state.outcome.completion.kind === "streaming" && state.request
-      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderCompletionFooter(state.outcome, escapeHtml)}`
+      ? `<section class="query-empty query-running"><span class="loader" aria-hidden="true"></span><h2>Searching nuget.org</h2><p>Matches will appear as package candidates are evaluated.</p></section>${renderProgress(state.outcome, escapeHtml)}${renderCompletionFooter(state.outcome, escapeHtml)}`
       : renderEmptyState(state, escapeHtml);
 
   return `
@@ -404,8 +432,8 @@ export function renderPackageQueryView(
           <p>Find packages by product-owned source, manifest, and package-content facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
-          <label for="package-query-prefix">Package ID prefix</label>
-          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Microsoft.Extensions." required maxlength="100" />
+          <label for="package-query-prefix">Package ID prefix (<code>*</code> optional)</label>
+          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="System.*" required maxlength="100" />
           <button id="package-query-run" type="submit">Run query</button>
           ${state.outcome.completion.kind === "streaming" && state.request
             ? `<button type="button" class="query-bar-cancel" data-query-cancel="1">Cancel</button>`
