@@ -281,7 +281,6 @@ import {
   renderTypeNav,
   renderTypeSource,
   type MemberNavEntry,
-  typeHeading,
   typeMetadataSignature,
   typeSourceSignature,
 } from "./type-panel.ts";
@@ -2875,6 +2874,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     sourcePageKind !== null && sourcePageSource !== null;
   const apiWorkingSurface =
     activeScope === "type" && state.lens === "api";
+  const metadataWorkingSurface =
+    activeScope === "type" && state.lens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
   const memberOverloadPicker =
     currentMember !== undefined
@@ -2961,7 +2962,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
         ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -4409,17 +4410,6 @@ function renderPackageOverview() {
     </section>${documentsSection}`;
 }
 
-function typeHeadingHtml(item: AppTypeSurface) {
-  return typeHeading({
-    item,
-    packageContext: currentPackage(),
-    escapeHtml,
-    typeDisplayName,
-    kindIcon,
-    highlight,
-  });
-}
-
 function renderGraphMemberPendingHtml(
   item: AppTypeSurface,
   title: string,
@@ -4481,7 +4471,7 @@ function renderLens(item: AppTypeSurface | null | undefined) {
     case "source":
       return renderTypeSourceHtml(item);
     case "metadata":
-      return `${typeHeadingHtml(item)}${renderTypeMetadataHtml(item)}`;
+      return renderTypeMetadataHtml(item);
     case "api":
       return renderApiLens(item);
     default:
@@ -9799,8 +9789,10 @@ function closeGraphSource() {
 //
 // That sanitization claim is only as good as the DOMPurify build behind it, and a CDN URL had
 // no gate at all: the pinned version was never checked against any advisory feed. The gate is
-// now the lockfile pin plus CI's `npm audit --audit-level=info`, which fails the build when
-// any dependency in the lockfile has a known advisory at any severity.
+// now the lockfile pin plus Dependabot vulnerability alerts, which watch that lockfile against
+// the same advisory database and open a security update when one lands. That is monitoring
+// rather than a merge gate: an advisory is reported after the fact instead of failing a build,
+// because `npm audit` reaching the registry is not something a merge can depend on.
 async function markdownLibs() {
   markdownModule ??= Promise.all([
     import("marked"),
