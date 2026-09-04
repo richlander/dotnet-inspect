@@ -206,6 +206,13 @@ and validating the ordered committed sequence. Its
 separates persistence evidence from benchmark production, methodology,
 ratchet comparison, and history-card rendering.
 
+`SourceOracleCandidateLedger` is the focused harness owner for complete
+candidate-file accounting and deterministic next-enrollment ranking over one
+accepted source-oracle baseline. Its
+[candidate-ledger contract](design/source-oracle-candidate-ledger.md) consumes
+PDB mapping, acquisition, evaluation, syntax-inventory, and provenance evidence
+without taking ownership of those producers or of manifest enrollment.
+
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
 persistent filesystem-derived package projection may replace cold inspection;

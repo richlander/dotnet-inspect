@@ -141,7 +141,8 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Classic Async Request Adapter](design/classic-async-request-adapter.md) | Carries exact Metadata relationship evidence and owner failures into the Decompiler classic-inverse boundary. |
 | [Classic Async Inverse Core](design/classic-async-reconstruction.md) | Proof-carrying reconstruction of authenticated classic async requests. |
 | [Committed Authored-Corpus History](design/authored-corpus-history.md) | Admission, ordered observation addressing, sequence validity, provenance, compatibility, and consumer trust for the committed EVIL benchmark history. |
-| [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures. |
+| [Source-Oracle Candidate Ledger](design/source-oracle-candidate-ledger.md) | Denominator-complete candidate-file verdicts, accepted baseline evidence, deterministic next-enrollment ranking, provenance disclosure, and archive limits. |
+| [Decompiler Raise Discipline](decompiler-raise-discipline.md) | Rules for raising IL into decompiler structures.  |
 
 ### Contributor workflow and process docs
 
