@@ -3484,6 +3484,95 @@ test("operation response replay preserves FIFO across nested callbacks", async (
   await thirdHandle.quiesced;
 });
 
+for (const sourceFailure of [
+  {
+    name: "malformed current-source data",
+    kind: "protocol",
+    send: (worker: TestWorker) => {
+      worker.emitRaw({ malformed: true });
+    },
+  },
+  {
+    name: "worker error",
+    kind: "worker-message",
+    send: (worker: TestWorker) => {
+      worker.emitError("worker error");
+    },
+  },
+  {
+    name: "worker messageerror",
+    kind: "worker-message",
+    send: (worker: TestWorker) => {
+      worker.emitMessageError("worker messageerror");
+    },
+  },
+] as const) {
+  test(`${sourceFailure.name} follows an earlier reentrant progress callback through the source-event FIFO`, async () => {
+    const settlement = deferred<TestSettlement>();
+    const order: string[] = [];
+    let quiesced = false;
+    let harness: TestHarness;
+    harness = createHarness({
+      invoke: () => settlement.promise,
+      failure: failure => {
+        order.push(`runtime-failure:${failure.kind}`);
+      },
+    });
+    await startReady(harness);
+    const identity = captureIdentity();
+    const sink: OperationProducerSink<string, string, string> = {
+      reportProgress: () => {
+        order.push("progress-enter");
+        sourceFailure.send(harness.workers[0]!);
+        order.push("progress-exit");
+        return undefined;
+      },
+      reportDurable: () => undefined,
+      reportUnexpectedTerminal: () => undefined,
+      reportUnexpectedFailure: () => undefined,
+      ...terminalCallbacks<string, string>(outcome => {
+        assert.deepEqual(outcome, {
+          kind: "failed",
+          error: `boundary:${sourceFailure.kind}`,
+        });
+        order.push(`terminal:${sourceFailure.kind}`);
+        return undefined;
+      }),
+      reportQuiesced: () => {
+        quiesced = true;
+        return undefined;
+      },
+    };
+    preparedBinding(
+      harness.adapter.prepare(identity, "input", sink),
+    ).activate();
+    await harness.environment.flushAsync();
+
+    harness.workers[0]!.emitRaw(workerEnvelope(1, {
+      kind: "progress",
+      operation: {
+        operationId: identity.id,
+        operationSequence: identity.sequence,
+      },
+      payload: "progress",
+    }));
+
+    assert.deepEqual(order, [
+      "progress-enter",
+      "progress-exit",
+      `terminal:${sourceFailure.kind}`,
+      `runtime-failure:${sourceFailure.kind}`,
+    ]);
+
+    settlement.resolve({ kind: "succeeded", value: "physical" });
+    await harness.environment.flushAsync();
+    assert.equal(harness.host.snapshot().phase, "closed");
+    assert.equal(harness.workers[0]!.terminateCount, 1);
+    assert.deepEqual(harness.releasedEpochs, [1]);
+    assert.equal(quiesced, true);
+  });
+}
+
 test("deferred control coverage dispatches after an older probe retires", async () => {
   const settlement = deferred<TestSettlement>();
   let omitFirstProbe = true;

@@ -647,10 +647,13 @@ liveness evidence. The valid response still commits its physical meaning:
 acceptance records admission, rejection records never-admitted closure, and a
 cancellation acknowledgment records release progress. Those transitions
 permit later settlement or acknowledgment to drain naturally but do not renew
-task-loop evidence. The host dispatches every decoded Worker envelope through
-one epoch-local FIFO. An envelope received reentrantly during response,
-terminal, diagnostic, or quiescence callbacks joins the same queue behind every
-earlier arrival and cannot start a nested drain. This serialization preserves
+task-loop evidence. The host dispatches every Worker source event through one
+epoch-local FIFO, including decoded envelopes, structural decode failures, and
+browser `error` and `messageerror` events. An event received reentrantly during
+response, terminal, diagnostic, or quiescence callbacks joins the same queue
+behind every earlier arrival and cannot start a nested drain. Physical browser
+crash is the sole destruction override and does not wait behind the FIFO. This
+serialization preserves
 cross-operation multiplexing, prevents a same-record settlement or
 cancellation acknowledgment from being rejected against the record's
 pre-response phase, and prevents a later probe acknowledgment from overtaking
@@ -1164,8 +1167,10 @@ deterministic scheduling rather than a real browser worker. It includes:
   valid later response applying admission, rejection, or cancellation-release
   state after proving the missing acknowledgment so draining can complete,
   same-record physical evidence deferred until its triggering response commits,
-  nested cross-operation response replay preserving FIFO order, and a probe
-  acknowledgment unable to overtake an earlier acceptance;
+  nested cross-operation response replay preserving FIFO order, a probe
+  acknowledgment unable to overtake an earlier acceptance, and malformed data
+  plus browser `error` and `messageerror` events unable to overtake an earlier
+  reentrant progress callback;
 - probe-sequence monotonicity, matching, exhaustion, duplicate, future, and
   stale acknowledgment cases, including retirement of the maximum safe
   sequence entering `probe-exhaustion` draining rather than leaving a degraded

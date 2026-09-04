@@ -265,6 +265,21 @@ type OperationMessageReceiveResult =
       readonly failure: WorkerEnvelopeDecodeFailure;
     };
 
+type PendingWorkerSourceEvent =
+  | {
+      readonly kind: "envelope";
+      readonly envelope: RawWorkerToMainEnvelope;
+    }
+  | {
+      readonly kind: "decode-failure";
+      readonly data: unknown;
+      readonly failure: WorkerEnvelopeDecodeFailure;
+    }
+  | {
+      readonly kind: "worker-message";
+      readonly diagnostic: unknown;
+    };
+
 type WorkerPostResult =
   | { readonly kind: "sent" }
   | { readonly kind: "failed"; readonly error: unknown };
@@ -337,8 +352,8 @@ interface MainEpoch<TDiagnostic> {
     string,
     MainOperationRecord<TDiagnostic>
   >;
-  envelopeDispatchActive: boolean;
-  readonly pendingEnvelopes: RawWorkerToMainEnvelope[];
+  sourceEventDispatchActive: boolean;
+  readonly pendingSourceEvents: PendingWorkerSourceEvent[];
   readonly deferredPhysicalClosures: Set<MainOperationRecord<TDiagnostic>>;
   readonly held: MainOperationRecord<TDiagnostic>[];
   readonly commands: Map<string, DeferredCommand>;
@@ -863,8 +878,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       preparedOperations: new Map(),
       flushingPreparedOperations: false,
       operations: new Map(),
-      envelopeDispatchActive: false,
-      pendingEnvelopes: [],
+      sourceEventDispatchActive: false,
+      pendingSourceEvents: [],
       deferredPhysicalClosures: new Set(),
       held: [],
       commands: new Map(),
@@ -981,31 +996,57 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
 
     const decoded = decodeWorkerToMainEnvelope(data, epoch.token);
     if (decoded.kind === "failure") {
-      const preReady = epoch.phase === "starting";
-      if (preReady && hasMismatchedReadyEcho(
+      this.#enqueueSourceEvent(epoch, {
+        kind: "decode-failure",
         data,
+        failure: decoded.failure,
+      });
+      return;
+    }
+    this.#enqueueSourceEvent(epoch, {
+      kind: "envelope",
+      envelope: decoded.value,
+    });
+  }
+
+  #enqueueSourceEvent(
+    epoch: MainEpoch<TDiagnostic>,
+    event: PendingWorkerSourceEvent,
+  ): void {
+    epoch.pendingSourceEvents.push(event);
+    this.#drainSourceEvents(epoch);
+  }
+
+  #hasPendingSourceFailure(
+    epoch: MainEpoch<TDiagnostic>,
+  ): boolean {
+    return epoch.pendingSourceEvents.some(event => event.kind !== "envelope");
+  }
+
+  #dispatchSourceEvent(
+    epoch: MainEpoch<TDiagnostic>,
+    event: PendingWorkerSourceEvent,
+  ): void {
+    if (event.kind === "decode-failure") {
+      if (epoch.phase === "starting" && hasMismatchedReadyEcho(
+        event.data,
         epoch.token,
         this.#options.idleHeartbeatIntervalMilliseconds,
       )) {
-        this.#fail(
-          epoch,
-          "startup",
-          decoded.failure,
-          true,
-        );
-        return;
+        this.#fail(epoch, "startup", event.failure, true);
+      } else {
+        this.#protocolFailure(epoch, event.failure);
       }
-      this.#protocolFailure(epoch, decoded.failure);
       return;
     }
-    epoch.pendingEnvelopes.push(decoded.value);
-    this.#drainEnvelopes(epoch);
-  }
-
-  #dispatchDecodedEnvelope(
-    epoch: MainEpoch<TDiagnostic>,
-    envelope: RawWorkerToMainEnvelope,
-  ): void {
+    if (event.kind === "worker-message") {
+      if (epoch.phase !== "draining") {
+        const immediate = epoch.phase === "starting";
+        this.#fail(epoch, "worker-message", event.diagnostic, immediate);
+      }
+      return;
+    }
+    const envelope = event.envelope;
     if (epoch.phase === "starting") {
       this.#receiveStarting(epoch, envelope);
       return;
@@ -1020,21 +1061,21 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       this.#receiveDraining(epoch, envelope);
   }
 
-  #drainEnvelopes(
+  #drainSourceEvents(
     epoch: MainEpoch<TDiagnostic>,
   ): void {
-    if (epoch.envelopeDispatchActive) return;
-    epoch.envelopeDispatchActive = true;
+    if (epoch.sourceEventDispatchActive) return;
+    epoch.sourceEventDispatchActive = true;
     try {
-      while (epoch.pendingEnvelopes.length > 0
+      while (epoch.pendingSourceEvents.length > 0
         && epoch.phase !== "closed"
         && this.#current === epoch) {
-        const envelope = epoch.pendingEnvelopes.shift();
-        if (envelope !== undefined)
-          this.#dispatchDecodedEnvelope(epoch, envelope);
+        const event = epoch.pendingSourceEvents.shift();
+        if (event !== undefined)
+          this.#dispatchSourceEvent(epoch, event);
       }
     } finally {
-      epoch.envelopeDispatchActive = false;
+      epoch.sourceEventDispatchActive = false;
     }
   }
 
@@ -1677,11 +1718,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         return;
       }
       epoch.phase = "flushing";
-      while (epoch.held.length > 0 && epoch.phase === "flushing") {
+      while (epoch.held.length > 0
+        && epoch.phase === "flushing"
+        && !this.#hasPendingSourceFailure(epoch)) {
         const record = epoch.held.shift();
         if (record !== undefined) this.#postStart(epoch, record);
       }
-      if (epoch.phase !== "flushing") return;
+      if (epoch.phase !== "flushing"
+        || this.#hasPendingSourceFailure(epoch)) {
+        return;
+      }
       epoch.phase = "ready";
       epoch.lastTaskEvidenceOrigin = this.#options.clock.now();
       epoch.watchdogStageOrigin = null;
@@ -2248,11 +2294,10 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       || source !== epoch.source) {
       return;
     }
-    if (epoch.phase === "draining") {
-      return;
-    }
-    const immediate = epoch.phase === "starting";
-    this.#fail(epoch, "worker-message", diagnostic, immediate);
+    this.#enqueueSourceEvent(epoch, {
+      kind: "worker-message",
+      diagnostic,
+    });
   }
 
   #protocolFailure(
@@ -2454,7 +2499,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       epoch.phase = "closed";
       epoch.held.length = 0;
       epoch.commands.clear();
-      epoch.pendingEnvelopes.length = 0;
+      epoch.pendingSourceEvents.length = 0;
       epoch.probe = null;
       epoch.deferredControlProbe = false;
       epoch.epochWork.clear();
