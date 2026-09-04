@@ -6,6 +6,7 @@ import {
   type OperationFeatureEvent,
   type OperationHandle,
   type OperationIdentity,
+  type OperationOutcome,
   type OperationPreparation,
   type OperationProducerAdapter,
   type OperationProducerSink,
@@ -153,6 +154,20 @@ function stringDecoder(): BoundedPayloadDecoder<string> {
           reason: "invalid",
           message: "Expected a string.",
         },
+  };
+}
+
+function terminalCallbacks<TValue, TError>(
+  publish: (outcome: OperationOutcome<TValue, TError>) => undefined,
+): Pick<
+  OperationProducerSink<TValue, TError, never>,
+  "commitTerminal" | "reportTerminal"
+> {
+  return {
+    commitTerminal: outcome => ({
+      publish: () => publish(outcome),
+    }),
+    reportTerminal: publish,
   };
 }
 
@@ -667,10 +682,10 @@ test("preparation rejects synchronously without posting or retaining a sink", ()
       calls.push("progress");
       return undefined;
     },
-    reportTerminal: () => {
+    ...terminalCallbacks(() => {
       calls.push("terminal");
       return undefined;
-    },
+    }),
     reportUnexpectedTerminal: () => {
       calls.push("unexpected-terminal");
       return undefined;
@@ -699,10 +714,10 @@ test("abandonment is resource-free and activation installs before callout", asyn
   const calls: string[] = [];
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
-    reportTerminal: () => {
+    ...terminalCallbacks(() => {
       calls.push("terminal");
       return undefined;
-    },
+    }),
     reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => {
       calls.push("quiesced");
@@ -883,7 +898,7 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
         events.push(`unexpected:${String(diagnostic)}`);
         return undefined;
       },
-      reportTerminal: outcome => {
+      ...terminalCallbacks(outcome => {
         events.push(
           outcome.kind === "canceled"
             ? `terminal:${outcome.reason}`
@@ -892,7 +907,7 @@ test("closure before activation preserves planned and unexpected outcomes", asyn
               : `terminal:${outcome.value}`,
         );
         return undefined;
-      },
+      }),
       reportQuiesced: () => {
         events.push("quiesced");
         return undefined;
@@ -972,7 +987,7 @@ test("prepared abandonment completes deferred realm release", async () => {
   await startReady(harness);
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
-    reportTerminal: () => undefined,
+    ...terminalCallbacks(() => undefined),
     reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: () => undefined,
@@ -1453,7 +1468,7 @@ test("host operation high-water permits gaps, rejects replay after release, and 
     throw new Error("First operation identity was not published.");
   const sink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
-    reportTerminal: () => undefined,
+    ...terminalCallbacks(() => undefined),
     reportUnexpectedTerminal: () => undefined,
     reportQuiesced: () => undefined,
     reportUnexpectedFailure: () => undefined,
@@ -2073,14 +2088,14 @@ test("Settled maps unexpected diagnostic, terminal, then quiescence atomically",
       calls.push(`unexpected:${String(code)}`);
       return undefined;
     },
-    reportTerminal: outcome => {
+    ...terminalCallbacks(outcome => {
       calls.push(
         outcome.kind === "failed"
           ? `terminal:${outcome.error}`
           : `terminal:${outcome.kind}`,
       );
       return undefined;
-    },
+    }),
     reportQuiesced: () => {
       calls.push("quiesced");
       return undefined;
@@ -3078,21 +3093,21 @@ test("epoch closure seals every assigned record before sink callbacks run", asyn
     reportProgress: () => undefined,
     reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => undefined,
-    reportTerminal: outcome => {
+    ...terminalCallbacks(outcome => {
       terminals.push(outcome);
       secondBinding?.requestCancellation("user");
       return undefined;
-    },
+    }),
     reportQuiesced: () => undefined,
   };
   const secondSink: OperationProducerSink<string, string, string> = {
     reportProgress: () => undefined,
     reportUnexpectedTerminal: () => undefined,
     reportUnexpectedFailure: () => undefined,
-    reportTerminal: outcome => {
+    ...terminalCallbacks(outcome => {
       terminals.push(outcome);
       return undefined;
-    },
+    }),
     reportQuiesced: () => undefined,
   };
   const firstBinding = preparedBinding(
@@ -3117,15 +3132,20 @@ test("epoch closure seals every assigned record before sink callbacks run", asyn
   );
 });
 
-test("epoch failure callback observes every assigned outcome as final", async () => {
+test("epoch closure commits siblings before observer failure and publishes failure before release", async () => {
   const settlement = deferred<TestSettlement>();
+  const order: string[] = [];
   let secondHandle: OperationHandle<string, string> | null = null;
   let cancelResult: ReturnType<OperationHandle<string, string>["cancel"]>
     | null = null;
-  const harness = createHarness({
+  let harness: TestHarness;
+  harness = createHarness({
     invoke: () => settlement.promise,
-    failure: () => {
-      cancelResult = secondHandle?.cancel("user") ?? null;
+    failure: failure => {
+      order.push(`runtime-failure:${failure.kind}`);
+    },
+    realmReleased: epochToken => {
+      order.push(`realm-released:${epochToken}`);
     },
   });
   await startReady(harness);
@@ -3137,19 +3157,66 @@ test("epoch failure callback observes every assigned outcome as final", async ()
       })(),
     },
   });
-  const firstSession = session(harness.adapter, authority);
-  const secondSession = session(harness.adapter, authority);
+  const firstSession = authority.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind !== "terminal") return undefined;
+        order.push("first-terminal");
+        throw new Error("first terminal observer failed");
+      },
+    },
+    diagnostic: {
+      report: diagnostic => {
+        assert.equal(diagnostic.kind, "feature-observer");
+        order.push("feature-diagnostic");
+        cancelResult = secondHandle?.cancel("user") ?? null;
+        harness.host.restart();
+        assert.equal(harness.workers[0]!.terminated, true);
+        assert.deepEqual(harness.releasedEpochs, []);
+        return undefined;
+      },
+    },
+  });
+  const secondSession = authority.createSession<
+    string,
+    string,
+    string,
+    string,
+    WorkerRuntimePreparationError
+  >({
+    feature: {
+      publish: event => {
+        if (event.kind === "terminal") order.push("second-terminal");
+        return undefined;
+      },
+    },
+    diagnostic: { report: () => undefined },
+  });
   const firstHandle = started(
-    firstSession.session.start("first", harness.adapter),
+    firstSession.start("first", harness.adapter),
   );
   secondHandle = started(
-    secondSession.session.start("second", harness.adapter),
+    secondSession.start("second", harness.adapter),
   );
   await harness.environment.flushAsync();
 
   harness.workers[0]!.emitRaw({ malformed: true });
 
   assert.deepEqual(cancelResult, { kind: "no-op" });
+  assert.equal(harness.failures.length, 1);
+  assert.deepEqual(order, [
+    "first-terminal",
+    "feature-diagnostic",
+    "second-terminal",
+    "runtime-failure:protocol",
+    "realm-released:1",
+  ]);
   assert.deepEqual(await firstHandle.outcome, {
     kind: "failed",
     error: "boundary:protocol",
@@ -3158,6 +3225,7 @@ test("epoch failure callback observes every assigned outcome as final", async ()
     kind: "failed",
     error: "boundary:protocol",
   });
+  await Promise.all([firstHandle.quiesced, secondHandle.quiesced]);
 });
 
 test("synchronous fake admission cannot invoke after restart releases the realm", async () => {
@@ -3410,10 +3478,10 @@ test("callback errors remain failure-complete and realm release is reported once
       calls.push("unexpected");
       throw new Error("unexpected callback failed");
     },
-    reportTerminal: () => {
+    ...terminalCallbacks(() => {
       calls.push("terminal");
       throw new Error("terminal callback failed");
-    },
+    }),
     reportQuiesced: () => {
       calls.push("quiesced");
       throw new Error("quiescence callback failed");

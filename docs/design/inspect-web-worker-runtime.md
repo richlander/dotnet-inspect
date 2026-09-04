@@ -775,16 +775,18 @@ committed after matching readiness.
 Entering draining atomically refuses new assignments and fixes the exact
 closure kind and diagnostic identity.
 The host first seals that logical closure on every still-pending assigned
-record without invoking a producer sink. It then reports every producer
-terminal outcome before invoking the runtime failure observer, so no operation
-or runtime callback can replace a sibling's fixed outcome. Every still-pending
-assigned producer receives one physical closure:
+record without invoking a producer sink. It then uses operation authority's
+two-phase terminal publication contract: call `commitTerminal` for every
+sealed record, retain every returned publication capability, and only then
+exercise those capabilities. Observer failure or diagnostic reentrancy from
+one publication therefore sees every sibling outcome as final. Every
+still-pending assigned producer receives one physical closure:
 
 - planned restart reports `Canceled("worker-restarted")`; or
 - unexpected failure reports one boundary failure.
 
 The unexpected epoch diagnostic is reported once through the runtime failure
-observer after all assigned producer outcomes are final. Per-operation
+observer after all publication capabilities have been exercised. Per-operation
 unexpected-terminal diagnostics remain reserved for an operation's own
 unexpected `Settled` result; multiplying one realm failure across every
 operation diagnostic observer would reintroduce cross-operation authority and
@@ -822,9 +824,13 @@ Hard termination:
 
 If hard termination is requested reentrantly from a producer-sink callout,
 steps 1-3 remain immediate, but operation quiescence, record release, and realm
-release wait until the outermost epoch producer callout returns. The host
-counts that callback lifetime around every sink invocation, including terminal,
-diagnostic, progress, cancellation, and quiescence publication.
+release wait until the outermost epoch producer callout returns and the
+enclosing closure-publication transition completes. For unexpected closure,
+that transition includes publishing every committed operation outcome and the
+one runtime failure, so the old epoch's `realmReleased` callback cannot precede
+its runtime failure callback. The host counts producer callback lifetime around
+every sink invocation, including terminal, diagnostic, progress, cancellation,
+and quiescence publication.
 
 No worker message or managed callback can be delivered through this host after
 revocation. Realm release claims that worker code and operation-scoped
@@ -982,8 +988,12 @@ deterministic scheduling rather than a real browser worker. It includes:
 - current-source malformed or protocol-invalid messages before `Ready`
   immediately closing the partial realm with their specific failure kind,
   while the corresponding post-readiness faults use bounded draining,
-  operation closure delivery preceding the external runtime-failure observer
-  so reentrant cancellation cannot replace the committed boundary outcome;
+  closure sealing followed by commit-all and publish-all operation authority,
+  including a first terminal feature observer that throws and whose diagnostic
+  observer attempts to cancel a committed sibling and requests termination:
+  sibling cancellation is a no-op, both selected boundary outcomes remain
+  final, exactly one runtime failure publishes, and old-epoch `realmReleased`
+  follows that runtime failure;
 - strictly increasing operation sequences with legal gaps, high-water replay
   rejection after record release, a valid newer sequence for a fresh ID,
   active duplicate IDs consuming that sequence before failure, no silent

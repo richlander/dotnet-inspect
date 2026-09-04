@@ -4,6 +4,7 @@ import type {
   OperationPreparation,
   OperationProducerAdapter,
   OperationProducerSink,
+  OperationTerminalPublication,
   PreparedOperationProducer,
 } from "./operation-authority.ts";
 import {
@@ -299,7 +300,8 @@ interface MainOperationRecord<TDiagnostic> {
   readonly sealClosure: (
     closure: WorkerEpochClosure<TDiagnostic>,
   ) => void;
-  readonly deliverClosure: () => void;
+  readonly commitClosure: () => void;
+  readonly publishClosure: () => void;
   readonly reportCancellation: (reason: OperationCancelReason) => void;
   readonly reportQuiescence: () => void;
   readonly release: () => void;
@@ -339,6 +341,7 @@ interface MainEpoch<TDiagnostic> {
   suspended: boolean;
   preparedBindings: number;
   producerCallouts: number;
+  closurePublicationActive: boolean;
   terminationFinalizing: boolean;
   terminationFinalized: boolean;
   realmReleased: boolean;
@@ -806,6 +809,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       suspended: false,
       preparedBindings: 0,
       producerCallouts: 0,
+      closurePublicationActive: false,
       terminationFinalizing: false,
       terminationFinalized: false,
       realmReleased: false,
@@ -1118,18 +1122,20 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       TProgress
     > | null = sink;
     let sealedClosure: WorkerEpochClosure<TDiagnostic> | null = null;
-    const invoke = (
+    let closurePublication: OperationTerminalPublication | null = null;
+    const invoke = <TResult>(
       call: (
         current: OperationProducerSink<TValue, TError, TProgress>,
-      ) => void,
-    ): void => {
+      ) => TResult,
+    ): TResult | null => {
       const current = retainedSink;
-      if (current === null) return;
+      if (current === null) return null;
       epoch.producerCallouts++;
       try {
-        call(current);
+        return call(current);
       } catch (error: unknown) {
         this.#reportCallbackError(error);
+        return null;
       } finally {
         this.#releaseProducerCallout(epoch);
       }
@@ -1227,25 +1233,29 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
         record.logicalClosureReported = true;
         sealedClosure = closure;
       },
-      deliverClosure: () => {
+      commitClosure: () => {
         const closure = sealedClosure;
         if (closure === null) return;
         sealedClosure = null;
         if (closure.kind === "planned-restart") {
-          invoke(current => {
-            current.reportTerminal({
+          closurePublication = invoke(current =>
+            current.commitTerminal({
               kind: "canceled",
               reason: closure.reason,
-            });
-          });
+            }));
         } else {
-          invoke(current => {
-            current.reportTerminal({
+          closurePublication = invoke(current =>
+            current.commitTerminal({
               kind: "failed",
               error: registration.createBoundaryError(closure.failure),
-            });
-          });
+            }));
         }
+      },
+      publishClosure: () => {
+        const publication = closurePublication;
+        if (publication === null) return;
+        closurePublication = null;
+        invoke(() => publication.publish());
       },
       reportCancellation: reason => {
         if (record.logicalClosureReported) return;
@@ -1264,6 +1274,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
       release: () => {
         retainedSink = null;
         sealedClosure = null;
+        closurePublication = null;
         record.payload = undefined;
       },
     };
@@ -2068,18 +2079,26 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.phase = "draining";
     epoch.drainDeadline = this.#options.clock.now()
       + this.#options.drainBudgetMilliseconds;
-    for (const record of epoch.operations.values())
-      this.#sealOperationClosure(record, closure);
-    for (const record of epoch.operations.values())
-      this.#deliverOperationClosure(record);
-    if (closure.kind === "unexpected-failure")
-      this.#reportFailure(closure.failure);
+    epoch.closurePublicationActive = true;
+    try {
+      for (const record of epoch.operations.values())
+        this.#sealOperationClosure(record, closure);
+      for (const record of epoch.operations.values())
+        this.#commitOperationClosure(record);
+      for (const record of epoch.operations.values())
+        this.#publishOperationClosure(record);
+      if (closure.kind === "unexpected-failure")
+        this.#reportFailure(closure.failure);
 
-    if (immediate) {
-      this.#hardTerminate(epoch);
-      return;
+      if (immediate) {
+        this.#hardTerminate(epoch);
+        return;
+      }
+      this.#closeDrainedRealmIfReleased(epoch);
+    } finally {
+      epoch.closurePublicationActive = false;
+      this.#finalizeHardTerminationIfReady(epoch);
     }
-    this.#closeDrainedRealmIfReleased(epoch);
   }
 
   #reportOperationClosure(
@@ -2087,7 +2106,8 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     closure: WorkerEpochClosure<TDiagnostic>,
   ): void {
     this.#sealOperationClosure(record, closure);
-    this.#deliverOperationClosure(record);
+    this.#commitOperationClosure(record);
+    this.#publishOperationClosure(record);
   }
 
   #sealOperationClosure(
@@ -2097,10 +2117,16 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     record.sealClosure(closure);
   }
 
-  #deliverOperationClosure(
+  #commitOperationClosure(
     record: MainOperationRecord<TDiagnostic>,
   ): void {
-    record.deliverClosure();
+    record.commitClosure();
+  }
+
+  #publishOperationClosure(
+    record: MainOperationRecord<TDiagnostic>,
+  ): void {
+    record.publishClosure();
   }
 
   #reportCallbackError(error: unknown): void {
@@ -2189,6 +2215,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   #finalizeHardTerminationIfReady(epoch: MainEpoch<TDiagnostic>): void {
     if (epoch.phase !== "closed"
       || epoch.producerCallouts !== 0
+      || epoch.closurePublicationActive
       || epoch.terminationFinalizing
       || epoch.terminationFinalized) {
       return;
