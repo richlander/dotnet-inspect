@@ -98,7 +98,9 @@ some transforms repeat after another transform exposes new opportunities.
 Read the registry and its ordering comments before inserting a pass.
 
 [`PassContext`](../src/ILInspector.Decompiler/Pipeline/PassContext.cs) carries
-diagnostics, options, stepping, and explicit cross-method capabilities.
+stepping, an optional structuring stop-reason sink, sibling-body import, and
+type-disjointness evidence. General diagnostics travel with `IrFunction` and
+`DecompilerResult`; printer options are supplied to `CSharpPrinter`.
 Lambda, local-function, iterator, and async work may need synthesized sibling
 bodies; it is not always a single-body operation. Import and reconstruction
 remain bounded by the supplied capabilities and evidence. In particular, the
