@@ -287,7 +287,8 @@ snapshot satisfies the prerequisite. The duration context comes from
 
 [How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
 states the binding tier table and roster names. Pick the second seat from the
-prior round's clean count:
+prior round's clean count, using [Agent model mapping](agent-models.md) to
+resolve names to dispatch IDs:
 
 - **No prior round, or 0/2 clean:** prefer GPT-6 Astra again for the second
   seat.

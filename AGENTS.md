@@ -497,7 +497,8 @@ as a normal round), and **merge conflict requiring semantic resolution**
 
 When uncertain, use the standard round. Second-seat selection by prior clean
 count lives in
-[Reviewer roster](docs/round-orchestration.md#reviewer-roster). A MAI-Code
+[Reviewer roster](docs/round-orchestration.md#reviewer-roster); dispatch IDs live
+in [Agent model mapping](docs/agent-models.md). A MAI-Code
 quick read on unsettled work is neither tier: it gets no isolated worktree or
 fixed head and satisfies no review tier — label its findings as early
 feedback, since the settled PR still requires its full round.
