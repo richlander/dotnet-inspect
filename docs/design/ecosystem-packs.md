@@ -484,8 +484,9 @@ source order, limits, or existing Integration behavior.
 Aspire is the first intended new-pack candidate. A complete Aspire pack depends
 on separately approved owner work:
 
-1. package/API evidence defines a small stable Aspire Core package set;
-2. the application Package Set Registry authors Aspire Core membership beside
+1. package/API evidence defines a complete current `aspire`-co-owned Aspire API
+   package set;
+2. the application Package Set Registry authors Aspire membership beside
    the pack source under its separate static manifest; and
 3. Integrations defines and adopts the static scanner binding.
 
@@ -493,7 +494,7 @@ An Aspire pack may then expose:
 
 ```text
 ecosystem.aspire
-  package-set.aspire-core
+  package-set.aspire
   official  -> Aspire.
   community -> CommunityToolkit.Aspire.
   scanner   -> AspireIntegrationScanner.Scan
@@ -593,7 +594,7 @@ The owner tracks may advance independently:
    package membership or search behavior.
 5. Add each remaining action slot independently when its owner track lands; no
    later slot reopens already implemented action semantics.
-6. Measure Aspire Core and propose Aspire through its package-set, Integration,
+6. Measure Aspire APIs and propose Aspire through its package-set, Integration,
    and application-pack owner changes.
 7. Adopt CLI and browser actions through their separately owned slices.
 
