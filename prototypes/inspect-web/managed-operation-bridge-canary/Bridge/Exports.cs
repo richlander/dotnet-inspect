@@ -84,7 +84,7 @@ public static partial class Exports
         ControlledOperation> s_controllers = [];
     private static readonly Dictionary<
         BrowserManagedOperationId,
-        IBrowserManagedProgress<CanaryProgress>> s_retainedProgress = [];
+        IBrowserManagedOperationEvents<CanaryProgress>> s_retainedProgress = [];
     private static readonly Dictionary<OperationMode, int> s_modeStarts = [];
     private static int s_bodyStarts;
     private static int s_withoutProgressStarts;
@@ -120,7 +120,7 @@ public static partial class Exports
         }
         OperationMode parsedMode = ParseMode(mode);
         var controller = new ControlledOperation(parsedMode);
-        IBrowserManagedProgress<CanaryProgress>? retainedProgress = null;
+        IBrowserManagedOperationEvents<CanaryProgress>? retainedProgress = null;
 
         try
         {
@@ -173,7 +173,7 @@ public static partial class Exports
             string,
             CanaryProgress>(
                 BrowserManagedOperationId.From(operationId),
-                progressCallback: null,
+                eventCallback: null,
                 async (_, progress) =>
                 {
                     Interlocked.Increment(ref s_withoutProgressStarts);
@@ -243,7 +243,7 @@ public static partial class Exports
     {
         BrowserManagedOperationId id =
             BrowserManagedOperationId.From(operationId);
-        IBrowserManagedProgress<CanaryProgress> progress;
+        IBrowserManagedOperationEvents<CanaryProgress> progress;
         lock (s_sync)
         {
             if (!s_retainedProgress.Remove(id, out progress!))
@@ -452,7 +452,7 @@ public static partial class Exports
 
     private static void RetainProgress(
         BrowserManagedOperationId id,
-        IBrowserManagedProgress<CanaryProgress> progress)
+        IBrowserManagedOperationEvents<CanaryProgress> progress)
     {
         lock (s_sync)
         {
@@ -468,7 +468,7 @@ public static partial class Exports
     {
         if (failureKind == "duplicate-active-operation")
             Interlocked.Increment(ref s_duplicateBoundaryFailures);
-        else if (failureKind == "progress-callback")
+        else if (failureKind == "event-callback")
             Interlocked.Increment(ref s_progressBoundaryFailures);
         else
             Interlocked.Increment(ref s_otherBoundaryFailures);
@@ -492,7 +492,7 @@ public static partial class Exports
 
         internal async Task<BodyResult> RunAsync(
             CancellationToken token,
-            IBrowserManagedProgress<CanaryProgress> progress)
+            IBrowserManagedOperationEvents<CanaryProgress> progress)
         {
             progress.Report(new CanaryProgress(1, "started", false));
 
@@ -525,7 +525,7 @@ public static partial class Exports
         }
 
         private static BodyResult CompleteSuccessfully(
-            IBrowserManagedProgress<CanaryProgress> progress)
+            IBrowserManagedOperationEvents<CanaryProgress> progress)
         {
             progress.Report(new CanaryProgress(2, "completed", true));
             return new BodyResult.Succeeded("controlled-success");

@@ -752,7 +752,7 @@ TypeScript facade under both Mono and CoreCLR. It covers:
 - concrete succeeded, expected-failed, unexpected-failed, and canceled
   envelopes fulfilling the Promise, including exact safe error and diagnostic
   payload projection for both failure kinds;
-- duplicate-admission and progress-callback boundary failures rejecting the
+- duplicate-admission and event-callback boundary failures rejecting the
   Promise without inferring their kind from exception text;
 - callback closure after fulfilled, canceled, failed, and rejected settlement,
   witnessed by retained managed reporters that can no longer call JavaScript;

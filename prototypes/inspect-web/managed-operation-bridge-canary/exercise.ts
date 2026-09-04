@@ -105,11 +105,13 @@ function expectFailed(
   result: bridge.OperationResultEnvelope,
   failureKind: "Expected" | "Unexpected",
   error: string,
+  diagnostic: string,
   operation: string,
 ): void {
   expect(result.kind, "Failed", `${operation} result kind`);
   expect(result.failureKind, failureKind, `${operation} failure kind`);
   expect(result.error, error, `${operation} error`);
+  expect(result.diagnostic, diagnostic, `${operation} diagnostic`);
   expect(result.value, null, `${operation} failed value`);
   expect(result.cancelReason, null, `${operation} cancel reason`);
 }
@@ -303,6 +305,7 @@ async function exerciseFailures(
       await expected,
       "Expected",
       "expected-canary-failure",
+      "The controlled feature reported an expected failure.",
       "Expected failure",
     );
     const expectedCalls = expectedWitness.calls;
@@ -339,6 +342,7 @@ async function exerciseFailures(
     await unexpected,
     "Unexpected",
     "InvalidOperationException",
+    "The controlled feature failed unexpectedly.",
     "Unexpected failure",
   );
   expectProgress(
@@ -363,6 +367,7 @@ async function exerciseFailures(
     await foreignCancellation,
     "Unexpected",
     "OperationCanceledException",
+    "The controlled feature supplied no accepted reason.",
     "Foreign cancellation",
   );
   expectProgress(
