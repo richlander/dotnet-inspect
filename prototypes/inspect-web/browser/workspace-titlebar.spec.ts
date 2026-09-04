@@ -1614,6 +1614,21 @@ test("application scopes yield before inspection identity without dropping focus
   await expect(page.locator(".slide-strip-inspector")).toBeVisible();
 });
 
+test("a trailing application scope transfers focus before terminal clipping", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1");
+
+  const workspace = page.locator("[data-application-scope='workspace']");
+  await workspace.focus();
+  await page.setViewportSize({ width: 300, height: 900 });
+
+  await expect(page.locator(".brand")).toBeFocused();
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
+});
+
 test("application scope rerenders transfer focus before responsive yielding", async ({
   page,
 }) => {

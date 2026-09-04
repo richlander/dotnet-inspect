@@ -241,6 +241,7 @@ import {
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
+  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -893,6 +894,7 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
+let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -2778,6 +2780,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     ? captureScopeBarFocus(focusedElement)
     : null;
   scopeBarBinding?.disconnect();
+  packageQueryScopeBinding?.disconnect();
+  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -8110,7 +8114,8 @@ function renderPackageQueryPage() {
     workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  bindPackageQueryView(document, packageQueryActions);
+  packageQueryScopeBinding =
+    bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);

@@ -180,9 +180,14 @@ export function bindPackageQueryView(
   root: ParentNode,
   actions: PackageQueryBindingActions,
 ) {
-  bindApplicationScopeBar(root, actions);
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
+  const applicationBinding = bindApplicationScopeBar(root, {
+    onApplicationScopeSelect: actions.onApplicationScopeSelect,
+    onFocusedControlUnavailable: () => {
+      focusRenderedElement(prefixInput(), { preventScroll: true });
+    },
+  });
 
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
@@ -205,6 +210,7 @@ export function bindPackageQueryView(
       prefixInput()?.value ?? "")));
   root.querySelectorAll<HTMLElement>("[data-query-cancel]").forEach(button =>
     button.addEventListener("click", actions.onCancel));
+  return applicationBinding;
 }
 
 function renderRow(

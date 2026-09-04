@@ -51,6 +51,11 @@ export interface ScopeBarBindingActions {
 
 export interface ApplicationScopeBarBindingActions {
   onApplicationScopeSelect: (scope: ApplicationScope) => void;
+  onFocusedControlUnavailable?: () => void;
+}
+
+export interface ApplicationScopeBarBinding {
+  disconnect(): void;
 }
 
 export type ScopeBarFocusTarget =
@@ -90,11 +95,6 @@ function focusTransferIntent(
     ? { pendingFocusId: transfer.id }
     : {};
 }
-
-const EMPTY_BINDING: ScopeBarBinding = {
-  disconnect() {},
-  revealFocusTarget() {},
-};
 
 export function createScopeBarState(): ScopeBarState {
   return {
@@ -242,7 +242,13 @@ export function bindScopeBar(
   const controller = state
     ? ScopeBarController.create(root, state)
     : null;
-  bindApplicationScopeBar(root, actions);
+  const applicationBinding = bindApplicationScopeBar(root, {
+    onApplicationScopeSelect: actions.onApplicationScopeSelect,
+    onFocusedControlUnavailable: () => {
+      root.querySelector<HTMLElement>(".brand")
+        ?.focus({ preventScroll: true });
+    },
+  });
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>(
       "[data-subject-tab]"),
@@ -270,13 +276,21 @@ export function bindScopeBar(
       const section = button.dataset.memberSection;
       if (isMemberSection(section)) actions.onMemberSectionSelect(section);
     }));
-  return controller ?? EMPTY_BINDING;
+  return {
+    disconnect() {
+      applicationBinding.disconnect();
+      controller?.disconnect();
+    },
+    revealFocusTarget(target) {
+      controller?.revealFocusTarget(target);
+    },
+  };
 }
 
 export function bindApplicationScopeBar(
   root: ParentNode,
   actions: ApplicationScopeBarBindingActions,
-): void {
+): ApplicationScopeBarBinding {
   bindRovingTabs([
     ...root.querySelectorAll<HTMLButtonElement>(
       "[data-application-scope-tab]:not([disabled])"),
@@ -288,6 +302,41 @@ export function bindApplicationScopeBar(
         actions.onApplicationScopeSelect(applicationScope);
       }
     }));
+  const region = actions.onFocusedControlUnavailable
+    && typeof ResizeObserver !== "undefined"
+    ? root.querySelector<HTMLElement>(".application-scope-region")
+    : null;
+  const observer = region
+    ? new ResizeObserver(() => {
+        const focused = region.querySelector<HTMLElement>(
+          "[data-application-scope]:focus");
+        if (!focused || fullyRenderedWithin(focused, region)) return;
+        actions.onFocusedControlUnavailable?.();
+      })
+    : null;
+  if (region) observer?.observe(region);
+  return {
+    disconnect() {
+      observer?.disconnect();
+    },
+  };
+}
+
+function fullyRenderedWithin(
+  element: HTMLElement,
+  clippingRegion: HTMLElement,
+): boolean {
+  const elementBounds = element.getBoundingClientRect();
+  const regionBounds = clippingRegion.getBoundingClientRect();
+  const viewport = element.ownerDocument.documentElement;
+  return elementBounds.width > 0
+    && elementBounds.height > 0
+    && elementBounds.left >= Math.max(regionBounds.left, 0)
+    && elementBounds.right <= Math.min(regionBounds.right, viewport.clientWidth)
+    && elementBounds.top >= Math.max(regionBounds.top, 0)
+    && elementBounds.bottom <= Math.min(
+      regionBounds.bottom,
+      viewport.clientHeight);
 }
 
 function presentationHtml(
