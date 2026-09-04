@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <InternalsVisibleTo Include="DotnetInspector.Ecosystems.Tests" />
   </ItemGroup>
 

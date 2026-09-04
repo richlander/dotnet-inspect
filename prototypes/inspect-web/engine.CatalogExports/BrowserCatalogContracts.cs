@@ -230,7 +230,7 @@ public sealed record BrowserVocabularyDocument(
     BrowserVocabularySection[] Sections);
 
 /// <summary>
-/// One product home-demo catalog row from <c>ProductInspectionDemos.Entries</c>.
+/// One product home-demo catalog row from <c>EcosystemPackCatalog</c>.
 /// Browser-local so <c>ts-jsexport</c> emits a real TypeScript interface.
 /// </summary>
 public sealed record BrowserHomeDemoCatalogEntry(

@@ -1085,8 +1085,8 @@ Grouped and flat discovery expose only immutable metadata; selecting one exact
 scenario ID dispatches only that source, whose binding requires exactly one
 matching scenario record. Selection retains the catalog descriptor beside the
 resolved scenario, and hosts use that descriptor as product display metadata.
-The current `DotnetInspector.Queries.Definitions.ProductInspectionDemos`
-registry remains the donor until that transfer lands.
+registry has been removed; `DotnetInspector.Ecosystems` is the sole shipping
+application inventory.
 
 Home demos are closed presets over the open query/section product: each source
 fixes inputs and names **existing product section(s)**

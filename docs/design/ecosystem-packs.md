@@ -13,18 +13,15 @@ curated package set, recorded package-prefix queries, and an optional
 Integration scanner implementation, plus product demos that exercise ordinary
 shipping sections over exact pinned inputs.
 
-The Package Set Registry and its Microsoft.Extensions and ASP.NET Core
-inventories are implemented. The pack registry, demo contribution, and their
-novel registry and application-adoption gates remain unimplemented. The
-assembly-friend tests and solution dependency-policy rule already landed with
-the application shell and remain applicable. The inspect-web facade boundary
-gate still names the former host facade and inspects only declared references;
-application adoption must retarget its sole ecosystem-catalog exception to the
-catalog facade and add compiled-reference coverage.
-Existing product demos remain in the `DotnetInspector.Queries` donor registry
-until the transfer described here lands. Every asserted target property is
-unverified until its named Release gate lands; existing package membership,
-demo behavior, and search behavior remain unchanged.
+The Package Set Registry includes Microsoft.Extensions, ASP.NET Core, and the
+audited 82-package Aspire inventory. The static pack registry, four-pack
+manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
+handoff, inspect-web facade handoff, and the corresponding active Release gates
+named below are implemented. The assembly-friend tests, solution
+dependency-policy rule, and strengthened inspect-web facade boundary gate are
+active. Prefix and scanner slots and their future gates remain absent until
+their owners issue the required currencies; existing search and Integration
+behavior is unchanged.
 
 Participating normative owner:
 
@@ -780,18 +777,16 @@ ordinary non-friend consumer.
 | --- | --- |
 | `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder` | Static discovery returns a literal expected synthetic descriptor and action sequence in unique explicit order. |
 | `EcosystemPackRegistryTests.ExactLookupUsesOnlyTypedIdentity` | Exact ID lookup returns the enumerated registration view; labels, prefix text, package-set IDs, case variants, and unknown IDs do not alias a pack. |
-| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Malformed or duplicate IDs, duplicate pack order, out-of-order pack sequences, duplicate prefix-entry IDs/order, out-of-order prefix sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
+| `EcosystemPackRegistryTests.InvalidStaticRegistrationsFailBeforePublication` | Duplicate pack IDs/order, out-of-order pack sequences, and empty registrations reject the complete static manifest before publishing any view rather than publishing a shortened view. |
 | `EcosystemPackRegistryTests.InvalidDemoRegistrationsFailBeforePublication` | Duplicate global scenario IDs/order, empty display metadata, and non-ascending pack-local demo order reject the complete manifest without invoking a demo source. |
-| `EcosystemPackRegistryTests.CatalogMaterializationPerformsNoObservableWork` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, demo-source invocation, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. |
-| `EcosystemPackRegistryTests.DiscoveryDoesNotResolveOrExecuteCapabilities` | Pack, grouped-demo, and flat-demo discovery perform no package-set membership resolution, package-source work, demo resolution, artifact/workspace work, or scanner invocation. |
+| `EcosystemPackRegistryTests.DiscoveryAndMaterializationDoNotInvokeDemoSources` | Materializing and discovering a synthetic manifest perform no package-set resolution, package-source or workspace work, demo-source invocation, scanner invocation, or pack/scanner instance construction; initialization timing itself is not asserted. Pack, grouped-demo, and flat-demo discovery do not resolve or execute capabilities. |
 | `EcosystemPackRegistryTests.FlattenedDemoDiscoveryPreservesGlobalProductOrder` | A synthetic interleaved manifest returns one descriptor per registration in unique global demo order while retaining literal pack identity; grouped and flattened views contain the same descriptor instances. |
-| `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSource` | Exact scenario-ID selection dispatches only that binding and returns its catalog descriptor beside the Workspace-Definitions-owned resolved scenario; neighboring sources and capabilities remain untouched. |
+| `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata` | Exact scenario-ID selection dispatches only that binding and returns its unchanged catalog descriptor beside the Workspace-Definitions-owned resolved scenario; neighboring sources and capabilities remain untouched, and catalog metadata may differ from portable scenario metadata. |
 | `EcosystemPackRegistryTests.DemoSelectionPreservesOwnerFailures` | Unknown IDs produce typed unknown without invoking a source, while a selected source's absent, duplicate, or mismatched scenario record, invalid record graph, or unsupported section remains an owner-domain failure rather than an empty or default demo. |
-| `EcosystemPackRegistryTests.DemoSelectionRetainsCatalogMetadata` | A synthetic descriptor whose title and summary differ from its portable scenario metadata is returned unchanged beside the resolved scenario. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
 | `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | After the prefix owner issues its currency, selecting a prefix returns that typed request unchanged and does not expand, combine, count, or execute it. |
 | `EcosystemPackRegistryTests.PackageSetSelectionPreservesExactTypedIdentity` | Selecting a curated set returns only its `PackageSetId` and does not copy membership or activate another pack capability. |
-| `EcosystemPackConsumerTests.PublicSurfaceSupportsStaticDiscoveryAndSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |
 | `EcosystemPackAssemblyBoundaryTests.FriendsOnlyDedicatedTests` | `DotnetInspector.Ecosystems.Tests` is the assembly's only `InternalsVisibleTo`; the CLI, inspect-web facade, non-friend canary, and all other assemblies are absent. |
 | `EcosystemPackAssemblyBoundaryTests.OwnerContractsRequireNoFriendAccess` | Repository-owned lower assemblies derived from the ecosystem assembly's compiled references omit `DotnetInspector.Ecosystems` from `InternalsVisibleTo`; compiling the ecosystem assembly therefore exercises only public owner contracts. |
 | `eng/dependency-policy.json` rule `ecosystem-catalog-stays-in-approved-hosts` | Within `dotnet-inspect.slnx`, project and compiled assembly graphs reject every production dependency on `DotnetInspector.Ecosystems` except direct use by `dotnet-inspect`; existing IL rules independently reject the reusable IL-library edges they select. |
@@ -814,9 +809,9 @@ with the locked donor fixtures.
 `ProductEcosystemPackTests.AspireDemoSourcesMatchLiteralPinsAndAnchors` gates
 the two exact package IDs, versions, TFMs, types, member anchors, and Call Graph
 bindings.
-`DemoCommandTests.ExecuteAspireScenarios_ReturnsCallGraphSection` gates
+`DemoCommandTests.Cli_EveryCallGraphDemo_Table_EmitsNonEmptyRows` gates
 nonempty ordinary CLI Call Graph execution through the existing section
-pipeline.
+pipeline, including both Aspire scenarios.
 `DemoCommandTests.ListUsesCatalogDescriptorMetadata` and
 `BrowserProductHomeDemosTests.CatalogProjectionUsesEcosystemDescriptorMetadata`
 prove both hosts use application-catalog title and summary even when the
