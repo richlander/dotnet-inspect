@@ -175,6 +175,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { renderMemberContractSections } from "./member-overview.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -5178,27 +5179,18 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
           </section>
         </section>
-        ${parameters.length ? `<section class="learn-section">
-          <h2>Parameters</h2>
-          <dl class="parameter-docs">${parameters.map(parameter => `
-            <div>
-              <dt><code>${escapeHtml(parameter.name)}</code></dt>
-              <dd><a>${escapeHtml([parameter.modifier, parameter.type].filter(Boolean).join(" "))}</a>${parameter.hasDefault ? `<span>Default: <code>${escapeHtml(parameter.defaultValue ?? "default")}</code></span>` : ""}<p>${escapeHtml(documentationLoading ? "Loading documentation…" : parameter.description || "No parameter documentation was found in the package XML documentation.")}</p></dd>
-            </div>`).join("")}</dl>
-        </section>` : ""}
-        ${overload.returns ? `<section class="learn-section"><h2>Returns</h2><p class="api-summary">${escapeHtml(overload.returns)}</p></section>` : ""}
-        <section class="learn-section">
-          <h2>Exceptions</h2>
-          ${documentationLoading
-            ? '<p class="docs-loading">Loading documented exceptions…</p>'
-            : (overload.exceptions ?? []).length
-            ? `<dl class="exception-docs">${overload.exceptions.map(exception => `<div><dt>${escapeHtml(exception.type)}</dt><dd>${escapeHtml(exception.description)}</dd></div>`).join("")}</dl>`
-            : '<p class="docs-unavailable">No exceptions are documented for this overload.</p>'}
-        </section>
-        <section class="learn-section applies-to">
-          <h2>Applies to</h2>
-          <span>${escapeHtml(pkg.activeFramework)}</span>
-        </section>
+        ${renderMemberContractSections({
+          parameters,
+          returnType: overload.returnType,
+          returns: overload.returns,
+          exceptions: overload.exceptions,
+          activeFramework: pkg.activeFramework,
+          documentationStatus: documentationLoading
+            ? "loading"
+            : documentationError
+              ? "error"
+              : "loaded",
+        })}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {

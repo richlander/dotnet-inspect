@@ -281,6 +281,18 @@ package documentation, loading, failure, or absence
 
 Identity
 stable selector, digest, canonical signature
+
+Parameters                                      count
+name
+modifier + type · default                       documentation
+
+Returns
+return type                                     documentation
+
+Exceptions                                      documented count
+exception type                                  condition
+
+Applies to  target framework
 ```
 
 The declaration and identity use the working surface's available width while
@@ -289,6 +301,23 @@ retain their established readable measure rather than expanding with the
 declaration and identity. At constrained widths the declaration scrolls
 horizontally without separating its Copy action, and identity labels stack
 above their values rather than forcing page-level horizontal overflow.
+
+The member contract below identity uses compact structured sections rather than
+restarting a documentation-page hierarchy. Parameters keep name, modifier,
+type, and default together as row identity while documentation occupies a
+separate readable column. Documented Returns uses the same
+identity-and-documentation alignment, and Exceptions pairs each exception type
+with its documented condition. Loading, failure, and absence remain distinct
+for parameter and exception documentation; a failed query does not become a
+claim that documentation is absent. Returns remains absent when no returns
+documentation was supplied because the current typed surface does not identify
+whether that absence describes a void member or missing package documentation.
+
+Contract rows stack identity above documentation according to the detail pane's
+width. Long parameter names, generic types, defaults, and namespace-qualified
+exception types remain contained within their row. Applicability closes the
+overview as compact terminal metadata rather than another full-weight article
+section.
 
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.
