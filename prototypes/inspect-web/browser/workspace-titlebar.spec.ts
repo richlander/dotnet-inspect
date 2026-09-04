@@ -466,7 +466,7 @@ test("packages without an embedded icon use NuGet's package fallback", async ({
   await expect(page.locator(".subject-icon")).not.toContainText("⬡");
 });
 
-test("row-one Search yields before Subject and Inspector navigation", async ({
+test("row-one controls yield in order before Subject and Inspector navigation", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -512,6 +512,8 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   await expect(page.locator(".title-search-label-compact"))
     .toHaveText("Search");
   await expect(page.locator(".title-search-label-compact")).toBeVisible();
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeVisible();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
   await expect(inspectorStrip).toHaveAttribute("data-mode", "label");
   await expect(
@@ -566,13 +568,13 @@ test("row-one Search yields before Subject and Inspector navigation", async ({
   await expect(page.locator("#open-search")).toBeHidden();
   expect(await page.evaluate(() => window.focusWorkbenchSearchProbe()))
     .toBe(false);
+  await expect(page.locator(".titlebar > .application-scope-region"))
+    .toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeVisible();
   await expect(subjectTabs).toHaveCount(3);
   await expect(
     inspectorStrip.locator("[data-inspector-tab]:not([hidden])"),
   ).toHaveCount(5);
-  await expect(page.locator(".titlebar > .application-scope-region"))
-    .toBeHidden();
   const yieldedSubjectWidth = (await box(
     page,
     ".subject-inspector-region",

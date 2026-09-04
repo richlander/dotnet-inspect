@@ -104,11 +104,11 @@ Navigation Presentation-owned application-scope strip precedes the
 subject/inspector region, which receives the primary flexible allocation. The
 Shell Interaction-owned history and Search cluster follows it. Search
 progresses from its full label to its compact label and then disappears;
-history disappears after Search. The application-scope strip then yields
-before the Slideable Subject Strip starts reducing active Subject or Inspector
-identity. Once those controls have yielded, the SlideStrip resolves its own
-normal, control-free, and terminal-deficit states inside the remaining page
-boundary.
+the application-scope strip yields next, while history remains available until
+a narrower width. History then disappears before the Slideable Subject Strip
+starts reducing active Subject or Inspector identity. Once those controls have
+yielded, the SlideStrip resolves its own normal, control-free, and
+terminal-deficit states inside the remaining page boundary.
 
 The application-scope strip uses a distinct quiet treatment and may be removed
 at constrained widths only after focus has left it. Query remains reachable
