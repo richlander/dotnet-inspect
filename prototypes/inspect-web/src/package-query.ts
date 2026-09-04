@@ -24,7 +24,7 @@ export interface QueryFacetTerm {
 const DEFAULT_QUERY_CANDIDATE_LIMIT = 200;
 const PACKAGE_CONTENT_QUERY_CANDIDATE_LIMIT = 20;
 export const PACKAGE_QUERY_INITIAL_MATCH_CREDIT = 20;
-export const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
+const PACKAGE_QUERY_MATCH_CREDIT_BATCH = 10;
 const PACKAGE_QUERY_MATCH_CREDIT_THRESHOLD = 5;
 
 /** One rerunnable in-memory request. Never encodes a resolved outcome. */
