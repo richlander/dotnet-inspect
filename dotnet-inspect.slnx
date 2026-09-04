@@ -56,6 +56,7 @@
     <Project Path="fixtures/shared/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures/DotnetInspector.SourceLinkMalformedFixtures.csproj" />
     <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures/DotnetInspector.SourceLinkNormalizedFixtures.csproj" />
+    <Project Path="fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures/DotnetInspector.SourceLinkPartiallyMalformedFixtures.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/dotnet-inspect.Tests/dotnet-inspect.Tests.csproj" />
