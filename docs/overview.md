@@ -62,7 +62,11 @@ substrates, and inspection producers that will extend that space.
   L1 query family. It composes switch metadata with AppContext IL evidence,
   compares already-acquired Analysis body indexes, and compares retained
   implementation assembly content, returning typed results without pulling
-  Research into the core query assembly.
+  Research into the core query assembly. Its target
+  [workspace Research target composition](design/research-workspace-target-composition.md)
+  joins a facade's Metadata forwarding outcome through the sealed
+  Queries-to-Research population receipt to one already admitted terminal
+  Research attempt.
 - `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
@@ -83,13 +87,17 @@ substrates, and inspection producers that will extend that space.
 - `src/ILInspector.Text/` provides the reusable `TextFindings` API for exact, ordered line inspection and generic text comparison on the shared Finding spine.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
-  resolution. The
-  [Package Set Registry](design/package-set-registry.md) reuses this package
-  owner's coordinate currency and validation while stable set identity, the
-  private shipped inventory, discovery, and lookup live in the front-end-only
-  `DotnetInspector.Ecosystems` application assembly. The CLI consumes that
-  application catalog and passes only package IDs into reusable scope
   resolution.
+- `src/DotnetInspector.Ecosystems/` is the static front-end application
+  catalog. The [Package Set Registry](design/package-set-registry.md) reuses
+  Packages-owned coordinate currency and validation while stable set identity,
+  private shipped inventory, discovery, and lookup live here. The
+  [Ecosystem Pack](design/ecosystem-packs.md) pattern supplies shipped pack
+  metadata and product-demo source content from this assembly while Workspace
+  Definitions retains demo records, resolution, run plans, and execution. Only
+  the CLI and the managed inspect-web facade may consume this application
+  assembly; reusable Queries, Packages, Services, Metadata, and browser Core do
+  not reference it.
 - `src/DotnetInspector.PackageQueries/` is the optional package-aware query
   companion. It consumes package realization proofs and package-neutral core
   queries without adding package identity or acquisition policy to those core
@@ -136,6 +144,16 @@ substrates, and inspection producers that will extend that space.
   owner-issued artifact, fragment, and correspondence evidence;
   `ILInspector.CSharp`, `ILInspector.Decompiler`, and `ILInspector.ILDiff`
   retain ownership of producing that evidence.
+- [Committed authored-corpus history](design/authored-corpus-history.md) owns
+  admission of one complete EVIL benchmark artifact as a durable observation
+  and validity of the ordered committed observation sequence. Benchmark
+  production, methodology, ratchet comparison, and history-card rendering
+  remain separate concerns.
+- [Source-oracle candidate ledger](design/source-oracle-candidate-ledger.md)
+  owns whether one candidate-discovery run can publish denominator-complete
+  file verdicts and a deterministic next-enrollment ranking against one
+  accepted baseline. PDB mapping, source acquisition, oracle evaluation,
+  enrollment policy, and presentation remain separate concerns.
 - [Repository xUnit test host](design/xunit-test-host.md) owns the repository's
   use of Microsoft Testing Platform for aggregate non-vacuity of xUnit test
   execution. MTP and xUnit retain runner semantics; suite owners retain

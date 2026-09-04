@@ -17,7 +17,10 @@ public record SourceDocument(
     byte[]? Checksum = null,
     string? ChecksumAlgorithm = null,
     int DocumentRowId = 0,
-    string? CanonicalPath = null);
+    string? CanonicalPath = null)
+{
+    public SourceDocumentResolutionStatus ResolutionStatus { get; init; }
+}
 
 /// <summary>Pre-allocation limits for reading an embedded PDB and its SourceLink map.</summary>
 public sealed class SourceLinkReadLimits
@@ -456,7 +459,10 @@ public sealed class SourceLinkService : IDisposable
                     document.Checksum,
                     document.ChecksumAlgorithm,
                     document.DocumentRowId,
-                    resolution.CanonicalPath);
+                    resolution.CanonicalPath)
+                {
+                    ResolutionStatus = resolution.Status,
+                };
             }),
         ];
         return _trackedFiles;

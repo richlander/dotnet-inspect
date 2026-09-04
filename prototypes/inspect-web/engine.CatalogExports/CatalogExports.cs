@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
@@ -40,7 +41,7 @@ public static partial class CatalogExports
     [JSExport]
     public static string ListHomeDemos() =>
         JsonSerializer.Serialize(
-            BrowserProductHomeDemos.ToCatalog(ProductInspectionDemos.Entries),
+            BrowserProductHomeDemos.ToCatalog(EcosystemPackCatalog.DiscoverDemos()),
             BrowserCatalogJsonContext.Default.BrowserHomeDemoCatalog);
 
     /// <summary>
@@ -49,15 +50,28 @@ public static partial class CatalogExports
     [JSExport]
     public static string ResolveHomeDemo(string scenarioId)
     {
-        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        if (string.IsNullOrWhiteSpace(scenarioId))
         {
             return JsonSerializer.Serialize(
                 new BrowserHomeDemoResolveResult(false, null),
                 BrowserCatalogJsonContext.Default.BrowserHomeDemoResolveResult);
         }
 
+        EcosystemDemoSelectionResult selectionResult =
+            EcosystemPackCatalog.SelectDemo(scenarioId);
+        if (selectionResult is EcosystemDemoSelectionResult.Unknown)
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoResolveResult(false, null),
+                BrowserCatalogJsonContext.Default.BrowserHomeDemoResolveResult);
+        }
+
+        EcosystemDemoSelection selection =
+            ((EcosystemDemoSelectionResult.Known)selectionResult).Selection;
         return JsonSerializer.Serialize(
-            new BrowserHomeDemoResolveResult(true, BrowserProductHomeDemos.ToResolved(resolved)),
+            new BrowserHomeDemoResolveResult(
+                true,
+                BrowserProductHomeDemos.ToResolved(selection)),
             BrowserCatalogJsonContext.Default.BrowserHomeDemoResolveResult);
     }
 
@@ -70,13 +84,24 @@ public static partial class CatalogExports
     [JSExport]
     public static async Task<string> RunHomeDemo(string scenarioId)
     {
-        if (!ProductInspectionDemos.TryResolveHomeScenario(scenarioId, out var resolved))
+        if (string.IsNullOrWhiteSpace(scenarioId))
         {
             return JsonSerializer.Serialize(
                 new BrowserHomeDemoRunResult(false, [], null, null),
                 BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
         }
 
+        EcosystemDemoSelectionResult selectionResult =
+            EcosystemPackCatalog.SelectDemo(scenarioId);
+        if (selectionResult is EcosystemDemoSelectionResult.Unknown)
+        {
+            return JsonSerializer.Serialize(
+                new BrowserHomeDemoRunResult(false, [], null, null),
+                BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult);
+        }
+
+        ResolvedScenario resolved =
+            ((EcosystemDemoSelectionResult.Known)selectionResult).Selection.Scenario;
         BrowserHomeDemoRunPlan plan =
             BrowserProductHomeDemos.ToRunPlan(resolved);
         BrowserScopeResolution resolution =

@@ -2274,6 +2274,47 @@ callers. CLI and browser/Wasm adoption are separate slices in
 [#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
 adds no host retention, cache, eviction, or presentation behavior.
 
+The first CLI adoption is the remote `package --all-libraries` grouped
+Integrations path when the command resolves one default target framework and
+the binding's frozen surface role exactly covers the command's visible library
+selection.
+After the existing desktop extraction resolves the exact package and version,
+the CLI reacquires that immutable payload through the authorized
+`FileSystemPackageStore`, creates its `PackageRootBinding`, and realizes the
+binding in an asynchronous `InspectionWorkspace`. The host maps the existing
+surface-library selection to its exact body-bearing implementation participant
+when correspondence exists. The selected surface descriptor remains the input
+to ordinary library inspection while only the Integration query runs against
+the implementation participant; this prevents implementation-only metadata
+from being presented as part of the compile surface. The host consumes those
+typed Integration results through the existing library section pipeline and
+preserves the selected extraction file's timestamp for ordinary presentation;
+that timestamp remains a host presentation fact rather than artifact identity.
+The host awaits workspace close so artifact cleanup follows exact group
+settlement. It does not mint an artifact registration or infer correspondence
+from assembly display text.
+
+`ArtifactBackedCreate_RetainsArtifactUntilActiveQueryCompletes` gates
+distinct surface and implementation descriptors at the CLI adapter,
+implementation-query lifetime across a racing close, and rejection of access
+after terminal settlement.
+`ArtifactBackedImplementationRejection_PreservesSurfaceWithoutPathFallback`
+gates a valid selected surface beside a malformed implementation carrier:
+ordinary inspection still receives the surface while the typed implementation
+failure remains visible. Existing package command gates continue to own Markout
+output compatibility.
+
+Local archives and explicit `--tfm` selection remain on the legacy grouped
+workspace. Those modes can select tools or multiple package layout roles that
+are not one compile-role projection; silently narrowing their visible library
+set would not be a behavior-preserving adoption. A default selection also
+retains the legacy workspace when it includes nested or implementation-only
+libraries, resolves an explicit empty compile group, or cannot form exact
+surface/implementation assembly-identity correspondence. These are ordinary
+package shapes but not valid inputs to the shared compile-role realization;
+falling back preserves the command's existing visible library set and output.
+Browser/Wasm adoption remains the separate #5576 slice.
+
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed
 operations must report the retained compile-library outcome as unavailable or
@@ -2890,10 +2931,14 @@ The target Release gates are:
 Every target is **unverified** until its named Release gate exists. Before
 implementation, a focused model under
 `docs/design/models/artifact-root-publication/` must check receipt states,
-validation and cancellation precedence, participant refusal, old-or-new
-visibility, retirement, lease drainage, and eventual settlement under a finite
-deadline. #5701's scope-revision model should instantiate this owner-issued
-publication transition rather than copying it.
+plan/receipt authority association, validation and cancellation precedence,
+participant refusal, old-or-new visibility, and eventual settlement under a
+finite deadline. Retirement query-entry rejection and old-generation lease
+drainage remain owned by the existing generation-access contract and the
+`ArtifactRootPublication_RetirementStopsNewEntryAndDrainsLeases` implementation
+gate; they do not enter this focused publication model. #5701's scope-revision
+model should instantiate this owner-issued publication transition rather than
+copying it.
 
 This focused addition does not define source resolution, logical Root
 membership or order, expansion policy, closure, Navigation focus, browser

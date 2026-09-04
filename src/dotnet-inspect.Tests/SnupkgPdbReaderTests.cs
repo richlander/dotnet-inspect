@@ -21,6 +21,8 @@ public class SnupkgPdbReaderTests
 
         Assert.NotNull(result.PdbBytes);
         Assert.False(result.WindowsPdbDetected);
+        Assert.False(result.InvalidPdbDetected);
+        Assert.False(result.MismatchedPortablePdbDetected);
         Assert.Equal(pdbBytes, result.PdbBytes);
     }
 
@@ -36,6 +38,8 @@ public class SnupkgPdbReaderTests
 
         Assert.Null(result.PdbBytes);
         Assert.False(result.WindowsPdbDetected);
+        Assert.False(result.InvalidPdbDetected);
+        Assert.True(result.MismatchedPortablePdbDetected);
     }
 
     [Fact]
@@ -62,6 +66,8 @@ public class SnupkgPdbReaderTests
 
         Assert.Null(result.PdbBytes);
         Assert.False(result.WindowsPdbDetected);
+        Assert.False(result.InvalidPdbDetected);
+        Assert.True(result.MismatchedPortablePdbDetected);
     }
 
     [Fact]
@@ -75,6 +81,8 @@ public class SnupkgPdbReaderTests
 
         Assert.Null(result.PdbBytes);
         Assert.True(result.WindowsPdbDetected);
+        Assert.False(result.InvalidPdbDetected);
+        Assert.False(result.MismatchedPortablePdbDetected);
     }
 
     [Fact]
@@ -88,6 +96,8 @@ public class SnupkgPdbReaderTests
         var result = SnupkgPdbReader.ExtractPortablePdb(stream, "Foo", guid);
 
         Assert.Null(result.PdbBytes);
+        Assert.False(result.InvalidPdbDetected);
+        Assert.False(result.MismatchedPortablePdbDetected);
     }
 
     [Fact]
