@@ -403,6 +403,11 @@ body {
 .workspace-empty { margin: 12px 8px; color: var(--dim); font-size: 11px; line-height: 1.5; }
 .workspace-overview { max-width: 900px; margin-top: 28px; }
 .workspace-overview p { color: var(--muted); line-height: 1.6; }
+.workspace-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .workspace-section { margin-top: 14px; }
 .workspace-detail-list { list-style: none; margin: 0; padding: 0; }
 .workspace-detail-list li {
@@ -421,7 +426,8 @@ body {
 .workspace-detail-list.loaded li.active > strong { color: var(--accent); }
 .workspace-detail-list.loaded button { padding: 3px 7px; }
 .workspace-detail-list.loaded li.workspace-occurrence-row {
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
 }
 .workspace-demo-list { list-style: none; margin: 0; padding: 0; }
 .workspace-demo-row {
@@ -1747,6 +1753,10 @@ kbd {
   .type-heading { grid-template-columns: 35px minmax(0, 1fr); }
   .type-badge { width: 35px; height: 35px; }
   .type-heading p { grid-column: 1 / -1; }
+  .workspace-editor-actions {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+  }
   .workspace-detail-list li,
   .workspace-detail-list.loaded li {
     grid-template-columns: minmax(0, 1fr) auto;

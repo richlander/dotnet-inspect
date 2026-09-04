@@ -57,6 +57,16 @@ test("package query history scopes predecessor identity to one entry", () => {
     predecessorEntryId: "workspace-1",
     returnFocus: "application-query",
   });
+  assert.deepEqual(readPackageQueryHistory(packageQueryHistoryState(
+    null,
+    "query-3",
+    {
+      predecessorEntryId: "workspace-1",
+      returnFocus: "workspace-add",
+    })), {
+    predecessorEntryId: "workspace-1",
+    returnFocus: "workspace-add",
+  });
 });
 
 test("package query history rejects incomplete or unknown entry state", () => {

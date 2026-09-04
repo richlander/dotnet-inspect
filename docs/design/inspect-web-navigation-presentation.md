@@ -447,40 +447,59 @@ matching coordinates. Categories, filtering, and separate Aspire or
 performance-demo entry points are residual; the first adoption lists every
 current demo.
 
-The same content pane separately lists the runtime Workspace's loaded
-coordinates with:
+The explicitly approved first editor adoption in
+[#5808](https://github.com/richlander/dotnet-inspect/issues/5808) is a
+transitional Browser-owned exact-package consumer, not completion of the
+product descriptor or navigation-result migrations. The same content pane
+renders Browser-retained package coordinates independently of asynchronous
+product occurrence discovery, so package membership and its management
+controls remain visible while activation actions load or fail. Each exact
+package row contains:
 
-- coordinate identity and acquisition kind;
-- optional owner-issued current-subject context;
-- loading, ready, or failed state; and
-- an explicit Close action.
+- its Browser-retained package ID, version, and target framework;
+- **Inspect**, enabled only while the matching product-issued occurrence action
+  is current; and
+- **Remove**, bound to the retained exact-package occurrence rather than
+  reconstructed from display text.
 
-Opening a demo or closing a coordinate submits its owner-issued identity and
-renders the returned workspace outcome. The UI does not choose a subject, lens,
-successor, or fallback for the product.
+The heading exposes **Add package** and **Clear**. Add opens Search in package
+scope and preserves existing exact packages when the selected acquisition
+succeeds. Ordinary package selection from Search and Package Query is Open:
+success replaces the current Workspace with that exact package. Failed Open or
+Add acquisition leaves the prior Workspace intact. Remove is not exposed for
+the Platform pseudo-package; Clear removes all Browser-resident coordinates,
+including Platform. The current 12-package bound is unchanged; Add refuses a
+new coordinate visibly rather than evicting an existing package.
 
-Closing an inactive coordinate preserves the active coordinate's inspection
-state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. The `/demos` entry route is an
-in-session catalog view: it preserves currently loaded coordinates while open,
-but a direct visit or refresh starts with an empty Workspace. After an Open demo
-or coordinate action returns to a canonical Workspace URL, Share and refresh
-preserve the Workspace subject, its application-scope presentation, and its
-retained coordinates. The home-demo packet inventory is session-scoped until
-scenario identity is part of the share format; after refresh, the generic
-current Workspace remains viewable without reconstructing a demo identity from
-matching coordinates.
+Remove keeps the Workspace surface selected. The next removable row at the
+same position receives focus, then the preceding row, then Add package. Clear
+uses the existing `/demos` package-less Workspace surface rather than creating
+a second empty-state application or live Workspace. That surface keeps Add
+package and demo definitions available and disables Clear. The `/demos` entry
+route remains an in-session catalog view: it preserves currently loaded
+coordinates while open, but a direct visit or refresh starts with an empty
+Workspace. After an Open demo or coordinate action returns to a canonical
+Workspace URL, Share and refresh preserve the Workspace subject, its
+application-scope presentation, and its retained coordinates. The home-demo
+packet inventory is session-scoped until scenario identity is part of the share
+format; after refresh, the generic current Workspace remains viewable without
+reconstructing a demo identity from matching coordinates.
 
-Workspace renders stable focus targets for its heading, every demo entry, and
-every coordinate action. Post-result focus and failure
-handling are owned by
+Workspace renders stable focus targets for its heading, Add, Clear, every demo
+entry, and every Remove action. Post-result focus and failure handling are owned
+by
 [Inspect Web Navigation Consumer](inspect-web-navigation-consumer.md#workspace-result-focus).
 Its content panel is labelled by the active Workspace application-scope
 control, including when a cold catalog has no inspection-subject entries.
 
-Workspace also exposes the same Search and Open actions as the shell. It does
-not infer source identity, package equivalence, local-file correspondence, or
-a composite workspace name from display labels.
+This Browser-owned adoption is explicitly limited to Inspect Web under #5808.
+It does not claim the product-issued Workspace descriptors tracked by
+[#5510](https://github.com/richlander/dotnet-inspect/issues/5510), the
+product-issued navigation outcomes tracked by
+[#5511](https://github.com/richlander/dotnet-inspect/issues/5511), dependency
+expansion, package sets, relationships, or persistence. It does not infer
+source identity, package equivalence, local-file correspondence, or a composite
+workspace name from display labels.
 
 ### Lens navigation semantics
 
@@ -965,12 +984,18 @@ are proved by the gates in
 
 ### Workspace composition
 
-1. Supply two open-coordinate descriptors with different optional subject
-   context and status.
-2. Confirm that Workspace renders those descriptors without deriving identity
-   from their labels.
-3. Activate and close entries and confirm that each action submits the opaque
-   coordinate identity once and renders the returned workspace outcome.
+1. Retain two exact package coordinates and confirm both rows remain visible
+   while product occurrence discovery is loading or failed.
+2. Confirm that Inspect uses the matching opaque product occurrence action,
+   while Remove uses the Browser-retained exact-package occurrence without
+   deriving identity from display text.
+3. Open Add package, select an exact package, and confirm the existing
+   coordinates remain. Repeat through ordinary Search and Package Query and
+   confirm Open replaces them only after acquisition succeeds.
+4. Remove the first and last exact packages and confirm focus uses the
+   next/previous/Add fallback order while Workspace remains selected.
+5. Clear a Workspace that also contains Platform and confirm `/demos` renders
+   the package-less Workspace with Add enabled and Clear disabled.
 
 Post-result focus and failure acceptance are specified by
 [Workspace focus acceptance](inspect-web-navigation-consumer.md#workspace-focus-acceptance).

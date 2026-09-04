@@ -9,12 +9,16 @@ import {
   type ScopeBarBinding,
 } from "../src/scope-bar.ts";
 import { renderAnnotatedSourcePageActions } from "../src/annotated-source.ts";
-import type {
-  MemberSection,
-  PackageLens,
-  TypeLens,
-  WorkspaceScope,
+import {
+  packageIdentityKey,
+  type MemberSection,
+  type PackageLens,
+  type TypeLens,
+  type WorkspaceScope,
 } from "../src/data.ts";
+import type {
+  PackageControlPackage,
+} from "../src/package-controls.ts";
 import {
   applicationMenuOwnsFocus,
   bindWorkbenchShell,
@@ -42,9 +46,10 @@ import {
 } from "../src/type-panel.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspace,
   renderWorkspaceSubject,
   renderWorkspaceView,
+  restoreWorkspaceFocus,
+  type WorkspaceFocusTarget,
 } from "../src/workspace-subject.ts";
 import {
   bindContentFrame,
@@ -147,7 +152,7 @@ const subjectPath = workspaceMode
           },
         ];
 const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
-const coordinates = [
+let coordinates: PackageControlPackage[] = [
   {
     id: "System.Text.Json",
     version: "10.0.0",
@@ -705,7 +710,9 @@ function bindHarnessScopeBar() {
   }, scopeBarState);
 }
 
-function renderHarnessWorkspace() {
+function renderHarnessWorkspace(
+  focusTarget: WorkspaceFocusTarget = { kind: "workspace" },
+) {
   const navigation =
     document.querySelector<HTMLElement>(".workspace-nav");
   const detail =
@@ -724,7 +731,7 @@ function renderHarnessWorkspace() {
   pathSegment.textContent = title;
   bindHarnessWorkspace();
   requestAnimationFrame(() =>
-    focusWorkspace(document));
+    restoreWorkspaceFocus(document, focusTarget));
 }
 
 function enterEmptyMemberNavigation() {
@@ -753,11 +760,29 @@ function enterEmptyMemberNavigation() {
 function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
-    onSelect: renderHarnessWorkspace,
+    onSelect: () => renderHarnessWorkspace(),
     onActivate: action => {
       const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
       document.body.dataset.workspaceExecutionCount = String(count + 1);
       document.body.dataset.workspaceExecution = action;
+    },
+    onAdd: () => {
+      document.body.dataset.workspaceAddScope = "packages";
+    },
+    onRemove: packageKey => {
+      const position = coordinates
+        .filter(item => !item.isRuntimePack)
+        .findIndex(item => packageIdentityKey(item) === packageKey);
+      coordinates = coordinates.filter(item =>
+        packageIdentityKey(item) !== packageKey);
+      renderHarnessWorkspace({
+        kind: "remove",
+        position: Math.max(position, 0),
+      });
+    },
+    onClear: () => {
+      coordinates = [];
+      renderHarnessWorkspace({ kind: "add" });
     },
     onDemo: () => {},
     onRetry: () => {},

@@ -484,7 +484,11 @@ export interface PackageAcquisitionDependencies {
   ): Promise<string>;
   parseRuntimeSurface(json: string): InspectedPackageSurface;
   runtimePackage(): AppPackage | null;
-  retainPackage(packageModel: AppPackage, replacedPackage?: AppPackage | null): void;
+  retainPackage(
+    packageModel: AppPackage,
+    replacedPackage?: AppPackage | null,
+    allowWorkspaceEviction?: boolean,
+  ): void;
   recordRecentPackage(id: string, version: string, framework: string): void;
   refreshPackageStats(): void;
   beginRuntimeLoad(): void;
@@ -497,6 +501,7 @@ export interface NuGetPackageRequest {
   version: string;
   framework: string;
   replacePackage?: AppPackage | null;
+  allowWorkspaceEviction?: boolean;
   isCurrent?: () => boolean;
 }
 
@@ -574,7 +579,10 @@ export function createPackageAcquisition(
       if (request.isCurrent && !request.isCurrent()) return null;
       dependencies.refreshPackageStats();
       const packageModel = createNuGetPackageModel(result);
-      dependencies.retainPackage(packageModel, request.replacePackage);
+      dependencies.retainPackage(
+        packageModel,
+        request.replacePackage,
+        request.allowWorkspaceEviction);
       dependencies.recordRecentPackage(
         packageModel.id,
         packageModel.version,

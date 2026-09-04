@@ -726,8 +726,9 @@ test("package acquisition publishes only current results", async () => {
     version: "1.0.0",
   }));
   const acquisition = createPackageAcquisition(acquisitionDependencies({
-    retainPackage: (packageModel, replaced) =>
-      events.push(`retain:${packageModel.id}/${replaced?.id ?? "none"}`),
+    retainPackage: (packageModel, replaced, allowWorkspaceEviction) =>
+      events.push(
+        `retain:${packageModel.id}/${replaced?.id ?? "none"}/${allowWorkspaceEviction ?? "default"}`),
     recordRecentPackage: (id, version, framework) =>
       events.push(`recent:${id}@${version}/${framework}`),
     refreshPackageStats: () => events.push("stats"),
@@ -747,11 +748,12 @@ test("package acquisition publishes only current results", async () => {
     version: "1.2.3",
     framework: "net10.0",
     replacePackage: replacedPackage,
+    allowWorkspaceEviction: false,
   });
   assert.equal(current?.id, "Example.Package");
   assert.deepEqual(events, [
     "stats",
-    "retain:Example.Package/Example.Old",
+    "retain:Example.Package/Example.Old/false",
     "recent:Example.Package@1.2.3/net10.0",
   ]);
 });

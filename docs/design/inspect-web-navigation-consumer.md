@@ -426,6 +426,28 @@ replaces that renderer, the ordinary authority-validated replacement and
 fallback rules in [Shell and menu focus resolution](#shell-and-menu-focus-resolution)
 apply instead; focus never returns to an outgoing-renderer element.
 
+The explicitly approved Browser-owned adoption in
+[#5808](https://github.com/richlander/dotnet-inspect/issues/5808) applies these
+rules before the complete product-issued transition contract is available.
+Package selection from ordinary Search and Package Query is Open: acquisition
+must succeed before the consumer discards every other Browser-retained
+coordinate. Workspace Add uses the same acquisition path with a retain
+disposition. Either failure preserves the complete prior Workspace and its
+address-bar projection. Selecting an already retained package applies the same
+Open-or-Add disposition without reacquisition.
+
+Add opens Search in package scope. Dismissing Search returns focus to Add.
+If the package-scoped Search opens Query, Back returns focus to Add through
+that query entry's session-history focus target.
+Remove releases the selected Browser package's dependent caches, keeps
+Workspace selected, and focuses the next removable row at that position, then
+the preceding row, then Add. Clear invalidates pending package work, releases
+all Browser-resident package caches, navigates to the existing `/demos`
+package-less Workspace surface, and focuses Add. Asynchronous occurrence
+discovery may enable Inspect or surface its own retry, but it does not own
+membership rendering and must preserve focus on Add, Clear, or Remove across
+its rerender.
+
 Opening a demo from the Workspace is an explicit replacement action. The
 consumer retains the source history entry while acquisition and destination
 rendering are in flight, pushes the canonical Workspace destination only after
@@ -466,12 +488,14 @@ the complete in-memory surface, and exposes the projection failure. Refreshing
 that degraded successor restores only its represented active package; Back
 still returns to the unchanged query entry.
 
-`Open in workspace` commits its result through the same typed transition
-lifecycle as any other product-issued outcome: success leaves `/query`, pushes
-the returned Workspace location, and focuses the inspection destination;
-failure keeps the query route, rows, and request intact and returns focus to
-the invoking row action. The request's package-ID/version submission and
-failure semantics are owned by
+The row action is `Open in workspace` for an ordinary Query entry and
+`Add to workspace` when Workspace Add opened Query. Both use the same contained
+handoff: success leaves `/query`, pushes the resulting Workspace location, and
+focuses the inspection destination; failure keeps the query route, rows,
+request, and action disposition intact and returns focus to the invoking row
+action. Open replaces prior exact packages only after acquisition succeeds;
+Add preserves them. The request's package-ID/version submission and failure
+semantics are owned by
 [Package Query Experience](package-query-experience.md#layout).
 
 ## Non-claims
