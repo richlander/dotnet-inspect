@@ -58,6 +58,24 @@ internal static class MemberSourceComparisonTestData
             .Presentation;
     }
 
+    internal static AssemblyMemberSourceComparisonEntry.Available
+        CreateWithUnavailableDecompiler(
+            ApiType type,
+            ApiMember member,
+            string pdbText,
+            MemberBodyProductionStatus status)
+    {
+        AssemblyMemberSourceComparisonEntry.Available comparison =
+            Create(type, member, pdbText, "    void M() { }");
+        return comparison with
+        {
+            Decompiled =
+                new AssemblyMemberDecompiledSourceAttempt.Unavailable(
+                    status,
+                    "Synthetic decompilation failure."),
+        };
+    }
+
     static AssemblyMemberSourceComparisonEntry.Available Create(
         AssemblyMemberSourceRequest request,
         string pdbText,

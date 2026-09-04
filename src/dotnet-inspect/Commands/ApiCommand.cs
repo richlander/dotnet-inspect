@@ -2328,19 +2328,34 @@ public class ApiCommand
             return 0;
         }
 
+        if (options is MemberOptions
+            {
+                MemberSourceComparison: { } comparison,
+                MemberSourceDiffPresentation: null
+            } sourceOptions
+            && GetRequestedMemberSections(type, sourceOptions)
+                .Contains(SectionNames.SourceDiff))
+        {
+            options = sourceOptions with
+            {
+                MemberSourceDiffPresentation =
+                    MemberSourceDiffPresentationAdapter.Create(comparison),
+            };
+        }
+
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
-        bool sourceSectionExplicitlySelected =
-            options.ExactIncludeSections?
-                .Overlaps([SectionNames.PdbSource, SectionNames.SourceDiff]) == true;
+        string? exactSourceFailure =
+            options is MemberOptions exactSourceOptions
+                ? ExactSourceFailure(exactSourceOptions)
+                : null;
         if (options is MemberOptions memberOptions
             && !memberOptions.MemberHasNoBody
             && (memberOptions.MemberSourceTooComplex
                 || memberOptions.MemberSourceCoordinatesInvalid
-                || (sourceSectionExplicitlySelected
-                    && !memberOptions.MemberHasNoPdbDeclaration
-                    && memberOptions.PdbSourceUnavailableReason is { Length: > 0 }))
+                || (!memberOptions.MemberHasNoPdbDeclaration
+                    && exactSourceFailure is { Length: > 0 }))
             && !IsProjectionRequested(options)
             && !barePayloadRenderer
             && (options.Count
@@ -2367,7 +2382,7 @@ public class ApiCommand
                 : memberOptions.MemberSourceCoordinatesInvalid
                     ? "PDB source extraction stopped because the portable-PDB sequence-point "
                         + "coordinates cannot address the verified source."
-                    : memberOptions.PdbSourceUnavailableReason!;
+                    : exactSourceFailure!;
             CommandError.Write(
                 failure + $" {format} cannot represent this code-section "
                 + "failure. " + guidance);
@@ -2578,6 +2593,7 @@ public class ApiCommand
                 options is MemberOptions { MemberSourceTooComplex: true },
                 options is MemberOptions { MemberSourceCoordinatesInvalid: true },
                 (options as MemberOptions)?.MemberSourceComparison,
+                (options as MemberOptions)?.MemberSourceDiffPresentation,
                 options.UserVerbosity >= Verbosity.Detailed);
 
         }
@@ -3413,6 +3429,7 @@ public class ApiCommand
                     memberOptions.MemberSourceTooComplex,
                     memberOptions.MemberSourceCoordinatesInvalid,
                     memberOptions.MemberSourceComparison,
+                    memberOptions.MemberSourceDiffPresentation,
                     memberOptions.UserVerbosity >= Verbosity.Detailed);
             }
 
@@ -3523,6 +3540,12 @@ public class ApiCommand
     internal const string BodylessMemberNote =
         "// This member has no IL body, so it has no PDB source to show.";
 
+    internal const string NoPdbDeclarationReason =
+        "This member's PDB source range does not identify one declaration that can be shown.";
+
+    internal const string NoPdbDeclarationDetail =
+        "Generated members and ambiguous or structurally unknown source ranges can have this shape.";
+
     /// <summary>
     /// Stands in for PDB Source when the selected member has an IL body but its source range
     /// does not identify one declaration that can be shown. Generated members may map to
@@ -3531,15 +3554,21 @@ public class ApiCommand
     /// to a second cause).
     /// </summary>
     internal const string NoPdbDeclarationNote =
-        "// This member's PDB source range does not identify one declaration that can be shown.\n"
-        + "// Generated members and ambiguous or structurally unknown source ranges can have this shape.";
+        "// " + NoPdbDeclarationReason + "\n"
+        + "// " + NoPdbDeclarationDetail;
+
+    internal const string SourceTooComplexReason =
+        "PDB source extraction stopped because the source exceeds the lexical complexity limit.";
 
     internal const string SourceTooComplexNote =
-        "// PDB source extraction stopped because the source exceeds the lexical complexity limit.";
+        "// " + SourceTooComplexReason;
+
+    internal const string SourceCoordinatesInvalidReason =
+        "PDB source extraction stopped because the portable-PDB sequence-point coordinates "
+        + "cannot address the verified source.";
 
     internal const string SourceCoordinatesInvalidNote =
-        "// PDB source extraction stopped because the portable-PDB sequence-point coordinates "
-        + "cannot address the verified source.";
+        "// " + SourceCoordinatesInvalidReason;
 
     internal const string NoPortablePdbReason =
         "No portable PDB is available for the selected member.";
@@ -3581,8 +3610,10 @@ public class ApiCommand
             return;
         }
 
-        string? note = options.MemberSourceComparison is { } comparison
-            ? $"// {PdbSourceUnavailableReason(comparison)}"
+        string? note = options.MemberHasNoBody
+            ? BodylessMemberNote
+            : options.MemberSourceComparison is { } comparison
+                ? $"// {PdbSourceUnavailableReason(comparison)}"
             : options.MethodSource is { } resolvedSource
                 ? null
                 : PdbSourceUnavailableNote(options);
@@ -3608,6 +3639,7 @@ public class ApiCommand
         bool sourceTooComplex,
         bool sourceCoordinatesInvalid,
         AssemblyMemberSourceComparisonEntry? comparison,
+        MemberSourceDiffPresentationResult? presentationResult,
         bool detailed)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
@@ -3637,7 +3669,8 @@ public class ApiCommand
         }
 
         MemberSourceDiffPresentationResult result =
-            MemberSourceDiffPresentationAdapter.Create(comparison);
+            presentationResult
+            ?? MemberSourceDiffPresentationAdapter.Create(comparison);
         SourceDiffOutput diff = result switch
         {
             MemberSourceDiffPresentationResult.Available available =>
@@ -3697,7 +3730,7 @@ public class ApiCommand
             _ => null,
         };
 
-    private static string SourceDiffUnavailableReason(
+    internal static string SourceDiffUnavailableReason(
         AssemblyMemberSourceComparisonEntry comparison)
         => comparison switch
         {
@@ -3705,14 +3738,14 @@ public class ApiCommand
                 available.Pdb
                     is AssemblyMemberPdbSourceAttempt.Unavailable
                     ? $"Source diff unavailable: PDB comparison unavailable: "
-                        + $"{PdbAttemptReason(available.Pdb)}."
+                        + $"{StatusReason(PdbAttemptReason(available.Pdb))}."
                     : $"Source diff unavailable: Decompiled comparison unavailable: "
-                        + $"{DecompilerAttemptReason(available.Decompiled)}.",
+                        + $"{StatusReason(DecompilerAttemptReason(available.Decompiled))}.",
             AssemblyMemberSourceComparisonEntry.Unavailable unavailable =>
                 $"Source diff unavailable: PDB comparison unavailable: "
-                + $"{PdbAttemptReason(unavailable.Pdb)}; "
+                + $"{StatusReason(PdbAttemptReason(unavailable.Pdb))}; "
                 + "Decompiled comparison unavailable: "
-                + $"{DecompilerAttemptReason(unavailable.Decompiled)}.",
+                + $"{StatusReason(DecompilerAttemptReason(unavailable.Decompiled))}.",
             AssemblyMemberSourceComparisonEntry.NotFound notFound =>
                 $"Source diff unavailable: {notFound.Failure.Detail}",
             AssemblyMemberSourceComparisonEntry.Failed failed =>
@@ -3722,6 +3755,45 @@ public class ApiCommand
             _ => throw new InvalidOperationException(
                 "Unknown member source comparison result."),
         };
+
+    private static string? ExactSourceFailure(
+        MemberOptions options)
+    {
+        if (options.ExactIncludeSections?
+                .Contains(SectionNames.SourceDiff) == true)
+        {
+            return options.MemberSourceDiffPresentation switch
+            {
+                MemberSourceDiffPresentationResult.Available => null,
+                MemberSourceDiffPresentationResult.Failed failed =>
+                    $"Source diff projection failed: {failed.Failure.Detail}",
+                MemberSourceDiffPresentationResult.Unavailable unavailable =>
+                    SourceDiffUnavailableReason(unavailable.Comparison),
+                null => options.PdbSourceUnavailableReason,
+                _ => throw new InvalidOperationException(
+                    "Unknown member source diff presentation result."),
+            };
+        }
+
+        return options.ExactIncludeSections?
+                .Contains(SectionNames.PdbSource) == true
+            ? options.PdbSourceUnavailableReason
+            : null;
+    }
+
+    private static string StatusReason(string reason)
+    {
+        string[] lines = reason
+            .ReplaceLineEndings("\n")
+            .Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries
+                    | StringSplitOptions.TrimEntries);
+        return string.Join(
+                " ",
+                lines.Select(line => line.TrimStart('/', ' ')))
+            .TrimEnd('.');
+    }
 
     internal static string PdbSourceUnavailableReason(
         AssemblyMemberSourceComparisonEntry comparison)
@@ -3764,11 +3836,12 @@ public class ApiCommand
                     PdbMemberSourceOutcome.SourceMappingUnavailable =>
                         NoPdbSourceMappingReason,
                     PdbMemberSourceOutcome.NoVouchedDeclaration =>
-                        NoPdbDeclarationNote.TrimStart('/', ' '),
+                        NoPdbDeclarationReason + " "
+                            + NoPdbDeclarationDetail,
                     PdbMemberSourceOutcome.SourceTooComplex =>
-                        SourceTooComplexNote.TrimStart('/', ' '),
+                        SourceTooComplexReason,
                     PdbMemberSourceOutcome.InvalidSequencePointCoordinates =>
-                        SourceCoordinatesInvalidNote.TrimStart('/', ' '),
+                        SourceCoordinatesInvalidReason,
                     PdbMemberSourceOutcome.SourceExtractionFailed
                         or PdbMemberSourceOutcome.InspectionFailed =>
                         PdbSourceInspectionFailedReason,

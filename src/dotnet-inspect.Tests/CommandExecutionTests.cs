@@ -11028,6 +11028,21 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_PdbSourceAndSourceDiff_BodylessMemberKeepsBodylessPdbNote()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "PDB Source,Source Diff", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## PDB Source", output);
+        Assert.Contains(ApiCommand.BodylessMemberNote, output);
+        Assert.Contains("## Source Diff", output);
+        Assert.DoesNotContain("..", output);
+    }
+
+    [Fact]
     public void MemberBodyState_CrossImageOverloadOrderMismatch_IsUnknown()
     {
         var fixtureDir = Path.Combine(
@@ -11136,6 +11151,102 @@ public partial class CommandExecutionTests
         Assert.Contains("set_MaxDepth", output);
         Assert.Contains("VerifyMutable();", output);
         Assert.Contains("_maxDepth = value;", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_ProjectedExtensionUsesPhysicalMethod()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", nameof(BodyShapeFixture),
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation) + ":1",
+            "--library", typeof(BodyShapeFixture).Assembly.Location,
+            "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("--- PDB comparison", output);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains(
+            nameof(BodyShapeFixtureExtensions.ProjectedCreation),
+            output);
+        Assert.DoesNotContain(
+            "Decompiled comparison unavailable",
+            output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiffDecompilerFailureUnderDocumentJsonOrCountFailsVisibly()
+    {
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            MetadataToken = MetadataTokens.GetToken(
+                MetadataTokens.MethodDefinitionHandle(1)),
+        };
+        var type = new ApiType
+        {
+            Namespace = "Example",
+            Name = "C",
+            MetadataName = "C",
+            DefinitionName =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Example",
+                        ["C"]))
+                .Name,
+            Kind = "class",
+            Members = [member],
+        };
+        AssemblyMemberSourceComparisonEntry.Available comparison =
+            MemberSourceComparisonTestData
+                .CreateWithUnavailableDecompiler(
+                    type,
+                    member,
+                    "void M() { }",
+                    ILInspector.Decompiler
+                        .MemberBodyProductionStatus.Failed);
+        var cases = new[]
+        {
+            new MemberOptions { JsonOutput = true },
+            new MemberOptions { Count = true },
+        };
+
+        foreach (MemberOptions candidate in cases)
+        {
+            var options = candidate with
+            {
+                IncludeSections =
+                    new HashSet<string>(
+                        [SectionNames.SourceDiff],
+                        StringComparer.OrdinalIgnoreCase),
+                ExactIncludeSectionsOverride =
+                    new HashSet<string>(
+                        [SectionNames.SourceDiff],
+                        StringComparer.OrdinalIgnoreCase),
+                MemberSourceComparison = comparison,
+            };
+
+            var (exit, output, error) =
+                await ConsoleCapture.RunAsync(
+                    () => ApiCommand.WriteTypeOutputAsync(
+                        type,
+                        foundIn: null,
+                        packageName: null,
+                        packageVersion: null,
+                        apiSource: null,
+                        selectedTfm: null,
+                        options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                "Decompiled comparison unavailable",
+                error);
+            Assert.Contains(
+                "cannot represent this code-section failure",
+                error);
+        }
     }
 
     [Fact]

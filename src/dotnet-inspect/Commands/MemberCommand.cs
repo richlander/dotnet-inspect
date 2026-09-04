@@ -568,32 +568,10 @@ public static class MemberCommand
                         };
                     PdbMemberSourceOutcome? pdbOutcome =
                         unavailablePdb?.Inspection.Outcome;
-                    bool memberHasNoBody =
-                        selectedMemberHasBody == false
-                        || comparison switch
-                        {
-                            AssemblyMemberSourceComparisonEntry.Available
-                            {
-                                Decompiled:
-                                    AssemblyMemberDecompiledSourceAttempt.Unavailable
-                                    {
-                                        Status:
-                                            ILInspector.Decompiler
-                                                .MemberBodyProductionStatus.Absent
-                                    }
-                            } => true,
-                            AssemblyMemberSourceComparisonEntry.Unavailable
-                            {
-                                Decompiled.Status:
-                                    ILInspector.Decompiler
-                                        .MemberBodyProductionStatus.Absent
-                            } => true,
-                            _ => false,
-                        };
                     effectiveOptions = effectiveOptions with
                     {
                         MemberSourceComparison = comparison,
-                        MemberHasNoBody = memberHasNoBody,
+                        MemberHasNoBody = selectedMemberHasBody == false,
                         MemberHasNoPdbDeclaration =
                             pdbOutcome
                             == PdbMemberSourceOutcome.NoVouchedDeclaration,

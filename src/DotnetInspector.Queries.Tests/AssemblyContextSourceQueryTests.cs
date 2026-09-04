@@ -394,6 +394,59 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     [Fact]
+    public async Task MemberComparison_ResolvesProjectedExtensionMethod()
+    {
+        TestAssembly assembly = TestAssembly.Create();
+        (ApiType type, ApiMember projected) =
+            assembly.MemberTarget(
+                nameof(SourceProjectionExtensions.ProjectedIncrement),
+                nameof(SourceProjectionTarget));
+        Assert.Equal("extension-method", projected.Kind);
+        AssemblyMemberSourceRequest request =
+            AssemblyMemberSourceRequest.From(type, projected);
+        Assert.Equal(
+            projected.DeclaringTypeDefinitionName,
+            request.Type);
+        Assert.Equal(
+            projected.DeclaringTypeCanonicalName,
+            request.Member.TypeFullName);
+        Assert.StartsWith(
+            projected.Name + "~",
+            request.Member.StableSelector,
+            StringComparison.Ordinal);
+        using var host = QueryHost.WithPdb(
+            assembly.PdbPath,
+            SourceFileBytes());
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [assembly.Participant]);
+
+        AssemblyMemberSourceComparisonEntry result =
+            await AssemblyContextSourceComparisonQuery.ExecuteAsync(
+                group,
+                assembly.Participant,
+                request,
+                host.Context,
+                TestContext.Current.CancellationToken);
+
+        var available =
+            Assert.IsType<
+                AssemblyMemberSourceComparisonEntry.Available>(
+                    result);
+        Assert.IsType<AssemblyMemberPdbSourceAttempt.Available>(
+            available.Pdb);
+        var decompiled =
+            Assert.IsType<
+                AssemblyMemberDecompiledSourceAttempt.Available>(
+                    available.Decompiled);
+        Assert.Contains(
+            nameof(SourceProjectionExtensions.ProjectedIncrement),
+            decompiled.Result.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task MemberComparison_PdbFailureDoesNotSuppressDecompilation()
     {
         TestAssembly assembly = TestAssembly.Create();
@@ -4304,4 +4357,14 @@ public sealed class AssemblyContextSourceQueryTests
     }
 
     public delegate int SourceDelegate(int value);
+}
+
+public sealed class SourceProjectionTarget;
+
+public static class SourceProjectionExtensions
+{
+    public static int ProjectedIncrement(
+        this SourceProjectionTarget target,
+        int value) =>
+        value + 1;
 }

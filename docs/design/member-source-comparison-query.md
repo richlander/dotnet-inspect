@@ -67,6 +67,13 @@ source property or event declaration while decompiled evidence contains the
 selected physical accessor; the query does not promote any other owner row or
 guess an accessor from its display name.
 
+An extension method projected onto its receiver type remains a request for the
+physical method on its exact declaring TypeDef. The projected API row supplies
+that retained declaring-type identity, MethodDef token, and canonical member
+identity; request construction retargets those facts to the physical method
+shape before query resolution. The query does not pass a receiver-projected
+`extension-method` row to the whole-member producer.
+
 ## Result
 
 The result is presentation-neutral and has five top-level outcomes:
@@ -215,6 +222,8 @@ Release query tests prove:
 - both attempts refer to the same resolved MethodDef and retained participant;
 - a physical property or event accessor resolves through the shared metadata
   projection while retaining its exact token and anchor;
+- a receiver-projected extension method resolves through its retained physical
+  declaring type while preserving its exact MethodDef identity;
 - adjacent portable PDBs are considered only when the host explicitly enables
   that path-backed capability, while the default remains pathless;
 - cancellation during either attempt does not publish a partial success;

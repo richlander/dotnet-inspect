@@ -357,6 +357,8 @@ Release presentation tests prove:
 Release CLI tests prove:
 
 - the production Source Diff path calls the shared adapter;
+- a receiver-projected extension method compares the physical declaration and
+  render instead of treating the projected API row as a bodyless member;
 - normal and detailed verbosity preserve their disclosure boundary;
 - checksum provenance and unavailable outcomes remain visible;
 - a PDB-available member whose decompilation fails produces an explicit

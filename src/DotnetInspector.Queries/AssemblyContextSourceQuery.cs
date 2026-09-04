@@ -177,9 +177,33 @@ public sealed record AssemblyMemberSourceRequest
                 nameof(member));
         }
 
+        MetadataTypeDefinitionName requestType =
+            AssemblyTypeSourceRequest.GetDefinitionName(type);
+        MemberAnchor requestMember =
+            ApiMemberIdentity.GetMemberAnchor(type, member);
+        if (member.Kind == "extension-method")
+        {
+            if (member.DeclaringTypeDefinitionName is not { } declaringType
+                || string.IsNullOrWhiteSpace(
+                    member.DeclaringTypeCanonicalName))
+            {
+                throw new ArgumentException(
+                    "A projected extension method must retain its exact declaring type identity.",
+                    nameof(member));
+            }
+
+            requestType = declaringType;
+            requestMember = requestMember with
+            {
+                StableSelector =
+                    $"{member.Name}~{requestMember.Fingerprint}",
+                TypeFullName = member.DeclaringTypeCanonicalName,
+            };
+        }
+
         return new AssemblyMemberSourceRequest(
-            AssemblyTypeSourceRequest.GetDefinitionName(type),
-            ApiMemberIdentity.GetMemberAnchor(type, member),
+            requestType,
+            requestMember,
             metadataToken,
             printerOptions);
     }
