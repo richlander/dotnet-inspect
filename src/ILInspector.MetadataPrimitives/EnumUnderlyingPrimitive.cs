@@ -7,12 +7,9 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// Single width oracle for enum-typed custom-attribute arguments.
 ///
-/// SRM asks <c>ICustomAttributeTypeProvider.GetUnderlyingEnumType</c> for a
-/// name and then consumes that many value bytes. The pre-decode guard has to
-/// skip the same number of bytes or every later declared count is read from
-/// the wrong offset. Both callers therefore resolve a handle or serialized
-/// name to a local <see cref="TypeDefinition"/> the same way. A name that is
-/// not a TypeDef in the current image falls back to
+/// The owned decoder resolves a handle or serialized name to a local
+/// <see cref="TypeDefinition"/> before consuming the enum value bytes. A name
+/// that is not a TypeDef in the current image falls back to
 /// <see cref="PrimitiveTypeCode.Int32"/> so the width stays sound, unless a
 /// caller-supplied resolver found the defining image first. A local TypeDef
 /// still wins over that resolver. For a handle the decoder resolves the width

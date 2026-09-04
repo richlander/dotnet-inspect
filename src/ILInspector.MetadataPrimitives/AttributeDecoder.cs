@@ -193,11 +193,11 @@ public static class AttributeDecoder
     /// <summary>
     /// Decodes an attribute, consulting <paramref name="enumUnderlyingType"/>
     /// for serialized enum names that are not TypeDefs in
-    /// <paramref name="reader"/>. The resolver receives the exact metadata
-    /// name SRM's provider derives from the blob: the assembly suffix removed,
+    /// <paramref name="reader"/>. The resolver receives the decoder's exact
+    /// metadata-name projection from the blob: the assembly suffix removed,
     /// reflection escapes restored, and nested segments joined with <c>.</c>.
-    /// The pre-decode guard asks with that same projection, so a guard skip
-    /// and this decode never select different widths.
+    /// The owned decoder uses that projection when it selects the width during
+    /// its single walk.
     /// </summary>
     public static CustomAttributeValue<string>? TryDecode(
         MetadataReader reader,

@@ -66,14 +66,13 @@ The implementation lives in `src/ILInspector.MetadataPrimitives/`:
   D2 only.
 - Not a change to the decoder's **output shape**, and not a redesign of its
   public surface. It produces the same `CustomAttributeValue<string>` it
-  produces today, and every existing overload keeps its **signature** and its
-  **successful-result shape**. Three deliberate behavior corrections are carved
-  out and are not compatibility violations: observer exceptions must stop
-  propagating through the malformed-metadata catch (#5085),
-  `OutOfMemoryException` must stop being swallowed (#5397), and a caller
-  resolver's own `BadImageFormatException` must stop being reported as a
-  malformed blob (#5759). All three are defects this contract names, so
-  preserving them is not an option. Separately, the
+  produced before slice 2, and every existing overload keeps its **signature**
+  and its **successful-result shape**. Three deliberate behavior corrections
+  are carved out and are not compatibility violations: slice 2 kept observer
+  exceptions out of malformed-metadata handling (#5085), stopped swallowing
+  `OutOfMemoryException` (#5397), and kept a caller resolver's own
+  `BadImageFormatException` out of malformed-metadata handling (#5759).
+  Separately, the
   defaulted-width signal D2 requires is **additive** surface — a new overload or
   a richer observer — because the current observer is `Action<int>` and cannot
   carry it. A caller that wants the signal must opt in.
@@ -312,8 +311,9 @@ observer and resolver instances.
 
 Resource exhaustion is a separate class. An `OutOfMemoryException` raised
 inside materialization crosses no caller boundary, so callback provenance
-cannot protect it. It propagates because it is not a malformed-input outcome;
-issue #5397 records the current divergence.
+cannot protect it. It propagates because it is not a malformed-input outcome.
+Slice 2 removed the catch that converted it to `null`; issue #5397 records that
+repair, while a dedicated internal-resource-exhaustion gate remains missing.
 
 **D2 is outcome-shaped, and only that.** Its whole content is which of three
 outcomes a caller can observe: a complete value, `null`, or a propagated
@@ -936,11 +936,8 @@ component.
 | 2 | `SZARRAY` element types are re-parsed once per element rather than once per array. | D1 | #5047 |
 | 3 | Every memo is a **single slot keyed on the previous input**, so alternating two values defeats all of them. | D1 | #5130 |
 | 4 | `A` attribute rows sharing one `B`-byte blob are decoded independently, costing `Θ(A × B)` from `Θ(A + B)` metadata. | D1 | #5132 |
-| 5 | An observer exception can be mistaken for malformed metadata and a one-shot budget refusal can become a value. | D2 | #5085 |
-| 6 | Internal `OutOfMemoryException` is converted to `null`. | D2 | #5397 |
 | 7 | Building the type-definition index costs `Θ(P × L)` for `P` definitions sharing an `L`-character namespace. | D1 | #5757 |
 | 8 | A definition scan performs `O(L)` work per row on a loop-invariant name, costing `Θ(T × L)`. | D1 | #5758 |
-| 9 | A caller resolver's exception can be mistaken for malformed metadata. | D2 | #5759 |
 
 Gaps 1, 2, and 3 share a root cause worth naming: **memoization was tuned against
 the wrong cost model.** Under the paired-walker design, work the guard cached and
@@ -959,15 +956,6 @@ Gaps 7 and 8 are a second class: a per-row operation on the resolution path
 costs `O(L)` in a name length that does not vary across the loop. The rule is
 **`O(1)` per row in any loop-invariant name length**. It applies to rendering,
 comparison, hashing, and any future operation with the same cost shape.
-
-Gaps 5 and 9 are a third class: caller provenance is discarded before
-malformed-input handling. D2 divides exceptions by origin, so **every caller
-boundary must preserve where an exception was raised**.
-
-Gap 6 is deliberately excluded from that class. An `OutOfMemoryException`
-raised inside materialization crosses no caller boundary; preserving callback
-origin cannot satisfy the separate requirement that internal resource
-exhaustion propagate.
 
 ### Gaps closed by the inversion
 
@@ -1015,23 +1003,23 @@ slice 2. Both are now settled.
 
 | Issue | Concern |
 | --- | --- |
-| #5288 | This inversion. Slice 2 (the decoder), slice 3 (the D3 gate), and slice 4 (cleanup) are outstanding. |
+| #5288 | This inversion. Slice 2 is the current decoder candidate; slice 3 (the D3 gate) and slice 4 (cleanup) are outstanding. |
 | #5047 | Per-element element-type replay; resolve once and loop. Gap 2. |
 | #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
 | #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
-| #5085 | An observer exception mistaken for malformed metadata. Gap 5. |
+| #5085 | Slice 2 preserves observer-exception provenance; close after the candidate lands. |
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
 | #5130 | Every memo is a single slot, so alternating input defeats all of them. Gap 3. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
 | #5148 | The differential generator, to be re-targeted from offset agreement to D3 value equality. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
-| #5397 | `TryDecode` swallows `OutOfMemoryException` through a bare catch. Gap 6, D2. Retained rather than closed; see [D2](#d2--fail-closed-visibly). |
+| #5397 | Slice 2 no longer catches internal `OutOfMemoryException`; dedicated propagation evidence remains absent, so D2 stays partially unverified. |
 | #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |
-| #5742 | The defaulted `Int32` enum width is indistinguishable from a resolved one. The mitigation for D3's row-three carve-out. |
+| #5742 | Slice 2 adds the defaulted-width signal that mitigates D3's row-three carve-out; close after the candidate lands. |
 | #5755 | Retained-name evidence and the representation-bound revisit point if the output-shape hold is lifted. |
 | #5757 | Type-definition index construction costs `Θ(P × L)`. Gap 7. |
 | #5758 | Definition scanning costs `Θ(T × L)` on a loop-invariant name. Gap 8. |
-| #5759 | A caller resolver exception is mistaken for malformed metadata. Gap 9, D2. |
+| #5759 | Slice 2 preserves resolver-exception provenance; close after the candidate lands. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
