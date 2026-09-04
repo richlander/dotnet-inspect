@@ -47,10 +47,14 @@ import {
 } from "../src/workspace-subject.ts";
 import {
   bindContentFrame,
+  CONTENT_FRAME_NARROW_QUERY,
+  decideContentFrameResize,
   focusContentNavigation,
   focusContentNavigationToggle,
   renderContentNavigationBar,
   renderContentNavigationCloseButton,
+  type ContentFrameFocusOwner,
+  type ContentFrameFocusTarget,
   type ContentFramePane,
 } from "../src/content-frame.ts";
 
@@ -197,6 +201,8 @@ let activeTypeLens: TypeLens = sourceMode
     : "api";
 let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
 let contentFramePane: ContentFramePane = "detail";
+let contentFrameFocusOwner: ContentFrameFocusOwner = null;
+const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 const source = {
   provider: limitationMode ? "decompiled" : "pdb",
   provenance: limitationMode
@@ -720,6 +726,38 @@ bindContentFrame(document, {
       ?.setAttribute("data-content-pane", contentFramePane);
     requestAnimationFrame(() => focusContentNavigation(document));
   },
+});
+function focusContentFrameTarget(target: ContentFrameFocusTarget) {
+  if (target === "navigation")
+    focusContentNavigation(document);
+  else if (target === "navigation-toggle")
+    focusContentNavigationToggle(document);
+}
+document.addEventListener("focusin", event => {
+  const focused = event.target instanceof HTMLElement ? event.target : null;
+  if (!focused || focused === document.body) return;
+  if (focused.id === "content-navigation-toggle")
+    contentFrameFocusOwner = "navigation-toggle";
+  else if (focused.id === "content-navigation-close")
+    contentFrameFocusOwner = "detail-toggle";
+  else if (focused.closest("#content-navigation-pane"))
+    contentFrameFocusOwner = "navigation";
+  else if (focused.closest(".detail-pane"))
+    contentFrameFocusOwner = "detail";
+  else
+    contentFrameFocusOwner = null;
+});
+contentFrameMedia.addEventListener("change", event => {
+  if (workspaceMode) return;
+  const decision = decideContentFrameResize(
+    contentFramePane,
+    event.matches,
+    contentFrameFocusOwner);
+  contentFramePane = decision.pane;
+  document.querySelector<HTMLElement>(".content-frame")
+    ?.setAttribute("data-content-pane", contentFramePane);
+  if (decision.focus)
+    requestAnimationFrame(() => focusContentFrameTarget(decision.focus));
 });
 document.querySelectorAll<HTMLElement>("[data-harness-navigation-row]")
   .forEach(row => row.addEventListener("click", () => {

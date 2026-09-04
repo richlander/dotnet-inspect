@@ -1,6 +1,7 @@
 export type ContentFramePane = "navigation" | "detail";
 export type ContentFrameFocusOwner =
   | ContentFramePane
+  | "detail-toggle"
   | "navigation-toggle"
   | null;
 export type ContentFrameFocusTarget =
@@ -25,11 +26,15 @@ export function decideContentFrameResize(
     return {
       pane,
       render: false,
-      focus: focusOwner === "navigation-toggle" ? "navigation" : null,
+      focus: focusOwner === "navigation-toggle"
+        || focusOwner === "detail-toggle"
+        ? "navigation"
+        : null,
     };
   }
 
   const nextPane = focusOwner === "navigation"
+    || focusOwner === "detail-toggle"
     ? "navigation"
     : focusOwner === "detail" || focusOwner === "navigation-toggle"
       ? "detail"

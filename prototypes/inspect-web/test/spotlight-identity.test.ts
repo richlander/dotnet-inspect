@@ -1526,7 +1526,7 @@ test("typed type panel owns its rendered control bindings", () => {
     /document\.querySelector\("#(?:member-back|copy-signature|copy-source|copy-type-source)"\)/);
   assert.match(
     binding,
-    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*contentFramePane = "navigation";[\s\S]*action\(\);[\s\S]*focusContentNavigation\(document\)/);
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{[\s\S]*beginSpotlightNavigation\(\);[\s\S]*contentFramePane = "navigation";[\s\S]*action\(\);[\s\S]*restoreContentNavigationFocus\(focusGeneration\)/);
   const callbackSource = (name: string) =>
     binding.match(
       new RegExp(`    ${name}: [\\s\\S]*?(?=\\n    on[A-Z])`))?.[0]
@@ -1547,7 +1547,7 @@ test("typed type panel owns its rendered control bindings", () => {
   }
   assert.match(
     binding,
-    /onMemberGroupOpen: memberKey => \{\s*beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
+    /onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);\s*if \(!contentFrameMedia\.matches\)\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     binding,
     /onMemberBack: drillOut[\s\S]*onMemberOverloadOpen: openOverload/);
@@ -2745,10 +2745,10 @@ test("member entry controls choose the resulting content-frame pane", () => {
     ?? "";
   assert.match(
     bindings,
-    /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";\s*action\(\);\s*afterCurrentNavigationFrame\(\(\) => \{\s*if \(canRestoreWorkbenchFocus\(focusGeneration\)\)\s*focusContentNavigation\(document\);\s*}\);/);
+    /const enterMemberNavigation = \(action: \(\) => void\) => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";\s*action\(\);\s*restoreContentNavigationFocus\(focusGeneration\);/);
   assert.match(
     bindings,
-    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{\s*beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);/);
+    /onMemberCompositionAccessibilitySelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*enterMemberScope\(\);[\s\S]*onMemberCompositionKindSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberCompositionTraitSelect: value => \{[\s\S]*enterMemberNavigation\(\(\) => \{[\s\S]*onMemberGroupOpen: memberKey => \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*showContentDetailAfterRender\(\);\s*openMemberGroup\(memberKey\);[\s\S]*restoreContentNavigationFocus\(focusGeneration\);/);
 });
 
 test("render invalidates focus ownership before replacing content-frame DOM", () => {

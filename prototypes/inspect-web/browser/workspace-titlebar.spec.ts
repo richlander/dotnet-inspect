@@ -152,6 +152,13 @@ test("the content frame clamps wide inventory and pushes at constrained widths",
   await expect(page.locator(".detail-pane")).toBeVisible();
   expect(page.url()).toBe(href);
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+  await toggle.click();
+  await page.getByRole("button", { name: "Show details" }).focus();
+  await page.setViewportSize({ width: 900, height: 700 });
+  await expect(page.locator("#type-list")).toBeFocused();
+  await expect(page.locator("#content-navigation-pane")).toBeVisible();
+  await expect(page.locator(".detail-pane")).toBeVisible();
 });
 
 test("the narrow return control integrates with Metadata and Source frames", async ({

@@ -95,4 +95,7 @@ test("content frame resize follows focus and replaces a removed toggle", () => {
   assert.deepEqual(
     decideContentFrameResize("detail", false, "navigation-toggle"),
     { pane: "detail", render: false, focus: "navigation" });
+  assert.deepEqual(
+    decideContentFrameResize("navigation", false, "detail-toggle"),
+    { pane: "navigation", render: false, focus: "navigation" });
 });

@@ -480,9 +480,9 @@ switches to inventory, then opens and focuses the applicable filter.
 When crossing into the narrow layout, focus inside Type or Member navigation
 keeps inventory visible; focus inside detail keeps detail visible. Otherwise
 the retained presentation-local pane remains visible. Widening reveals both
-panes without moving focus, except that focus owned by the removed narrow
-return button moves to the equivalent visible navigation list. A viewport
-change never moves focus out of another open modal.
+panes without moving focus, except that focus owned by either removed
+narrow-only pane-switch control moves to the equivalent visible navigation
+list. A viewport change never moves focus out of another open modal.
 
 Density comes from removing duplication and conditionally presenting
 navigation, not from making text or controls too small to use.

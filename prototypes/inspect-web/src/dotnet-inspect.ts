@@ -1608,6 +1608,10 @@ const spotlight = createSpotlight({
   render,
   focusAfterDismiss: () =>
     restoreContentFrameFocusAfterDismiss(spotlightFocusGeneration),
+  captureFocusAfterDismiss: () => {
+    const generation = spotlightFocusGeneration;
+    return () => restoreContentFrameFocusAfterDismiss(generation);
+  },
 });
 
 function beginSpotlightNavigation() {
@@ -1644,6 +1648,14 @@ function focusTypeList(generation = spotlightFocusGeneration) {
       return;
     }
     focusContentNavigation(document);
+  });
+}
+
+function restoreContentNavigationFocus(generation: number) {
+  if (!canRestoreWorkbenchFocus(generation)) return;
+  afterCurrentNavigationFrame(() => {
+    if (canRestoreWorkbenchFocus(generation))
+      focusContentNavigation(document);
   });
 }
 
@@ -1702,6 +1714,8 @@ function trackContentFrameFocus(event: FocusEvent) {
   if (!focused || focused === document.body) return;
   if (focused.id === "content-navigation-toggle")
     contentFrameFocusOwner = "navigation-toggle";
+  else if (focused.id === "content-navigation-close")
+    contentFrameFocusOwner = "detail-toggle";
   else if (focused.closest("#content-navigation-pane"))
     contentFrameFocusOwner = "navigation";
   else if (focused.closest(".detail-pane"))
@@ -5329,10 +5343,7 @@ function bindTypePanelEvents() {
     const focusGeneration = beginSpotlightNavigation();
     contentFramePane = "navigation";
     action();
-    afterCurrentNavigationFrame(() => {
-      if (canRestoreWorkbenchFocus(focusGeneration))
-        focusContentNavigation(document);
-    });
+    restoreContentNavigationFocus(focusGeneration);
   };
   bindTypePanel(document, {
     onClearFilters: () => {
@@ -5440,9 +5451,11 @@ function bindTypePanelEvents() {
       return true;
     },
     onMemberGroupOpen: memberKey => {
-      beginSpotlightNavigation();
+      const focusGeneration = beginSpotlightNavigation();
       showContentDetailAfterRender();
       openMemberGroup(memberKey);
+      if (!contentFrameMedia.matches)
+        restoreContentNavigationFocus(focusGeneration);
     },
     onMemberKindFilterSelect: value => {
       state.memberKindFilter = value ?? "all";
