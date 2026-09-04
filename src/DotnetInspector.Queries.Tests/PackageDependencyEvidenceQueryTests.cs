@@ -910,6 +910,49 @@ public sealed class PackageDependencyEvidenceQueryTests
     }
 
     [Fact]
+    public void Execute_PackagePrefixAdapterPreservesContractFailureSource()
+    {
+        using IPackageSourceClient queriedSource =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        using IPackageSourceClient failedCandidateSource =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        var failure = new PackageProfileFailure(
+            "Disputed.Package",
+            "1.0.0",
+            failedCandidateSource.Source,
+            PackageProfileFailureKind.SearchContract,
+            "The package source returned inconsistent provenance.");
+        var summary = new PackageProfileSummary(
+            "Disputed.",
+            queriedSource.Source,
+            Candidates: 1,
+            Matches: 0,
+            Failures: 1,
+            PackageSearchTruncationReason.None);
+
+        PackageDependencyEvidenceOutcome outcome =
+            PackageDependencyEvidenceQuery.Execute(
+                PackageDependencyEvidenceQuery.CreatePackagePrefixRequest(
+                    [],
+                    [failure],
+                    summary));
+        var normalizedFailure =
+            Assert.IsType<
+                PackageDependencyEvidenceRootFailure.PackageProfile>(
+                Assert.Single(outcome.FailedRoots));
+
+        Assert.Same(failedCandidateSource.Source, normalizedFailure.Source);
+        Assert.Same(
+            queriedSource.Source,
+            outcome.RootSet.PackagePrefixCompletion!.Source);
+        Assert.Equal(
+            PackageDependencyEvidenceRootSetCompletion.Incomplete,
+            outcome.RootSet.Completion);
+    }
+
+    [Fact]
     public void Execute_RejectsSelectedIndexOnANonSelectedPackageOutcome()
     {
         PackageManifestFacts facts = Facts(

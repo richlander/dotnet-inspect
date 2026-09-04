@@ -671,8 +671,7 @@ public static class PackageDependencyEvidenceQuery
         failures = failures.IsDefault ? [] : failures;
         if (summary.Matches != matches.Length
             || summary.Failures != failures.Length
-            || matches.Any(match => match.Source != summary.Source)
-            || failures.Any(failure => failure.Source != summary.Source))
+            || matches.Any(match => match.Source != summary.Source))
         {
             throw new ArgumentException(
                 "Package-profile events must agree with their terminal summary.",
