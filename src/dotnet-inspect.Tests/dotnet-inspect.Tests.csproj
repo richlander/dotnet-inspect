@@ -38,8 +38,8 @@
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <ProjectReference Include="..\DotnetInspector.Artifacts\DotnetInspector.Artifacts.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DotnetInspector.SourceLinkMalformedFixtures\DotnetInspector.SourceLinkMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\DotnetInspector.SourceLinkNormalizedFixtures\DotnetInspector.SourceLinkNormalizedFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkMalformedFixtures\DotnetInspector.SourceLinkMalformedFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\sourcelink\DotnetInspector.SourceLinkNormalizedFixtures\DotnetInspector.SourceLinkNormalizedFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Analysis.CallerGraphTargetV2\ILInspector.Analysis.CallerGraphTargetV2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.InstallScriptFixture\DotnetInspector.InstallScriptFixture.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\DiffFixtures.V2\DiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
