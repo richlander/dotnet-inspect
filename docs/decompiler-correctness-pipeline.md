@@ -210,7 +210,7 @@ Notes:
   prove the slow suite is green; run the full suite locally before review.
 - The IL round-trip oracle follows the same shape: PR CI runs
   `dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release --
-  -trait- "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
+  --filter-not-trait "Speed=Slow"` when IL round-trip inputs change, while the unfiltered
   `DotnetInspector.ILRoundtrip.Tests` command keeps the assembly-wide sweep in
   Deep Inspect / full local coverage. Mark new broad/corpus-style
   round-trip checks `[Trait("Speed", "Slow")]`.
