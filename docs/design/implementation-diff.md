@@ -70,6 +70,52 @@ and maps matches plus `NoCounterpart` nodes into the existing selected-node
 comparison. The explicit-input overload is an internal construction seam for
 focused presentation tests; it is not a portable input contract.
 
+`CSharpBodyDiff.CompareMemberEndpoints` is the total endpoint-topology entry
+point for rendered-line and semantic body comparison. Its caller supplies a
+`CSharpMemberDiffEndpoint.Present` with an exact method definition or an
+explicit `CSharpMemberDiffEndpoint.SubjectAbsent`; the adapter performs no
+selector resolution or cross-version correspondence. Each present endpoint
+becomes a `Complete`, `NoApplicableInput`, or `Failed` Finding inspection. The
+resulting `CSharpMemberEndpointComparison` always retains both Finding subjects
+and the exact `FindingComparison<CSharpCanonicalLine>`. It contains a
+`CSharpBodyDiffResult` only for `Complete`/`Complete`, which is the only
+topology that invokes the pair-dependent semantic body differ.
+
+This path does not infer absence from a null source, handle, or body. RVA-zero
+methods are present but `NoApplicableInput`; only the explicit endpoint arm is
+`SubjectAbsent`. The producer gates are
+`CompareMemberEndpoints_BodyfulPair_RetainsFindingAndNativeResults`,
+`CompareMemberEndpoints_BodylessAndBodyful_UsesNoApplicableInputWithoutBodyDiff`,
+`CompareMemberEndpoints_BodyfulAndSubjectAbsent_RetainsExplicitAbsenceWithoutBodyDiff`,
+`CompareMemberEndpoints_SubjectAbsentAndBodyful_RetainsAddedCSharpFindingsWithoutBodyDiff`,
+`CompareMemberEndpoints_BothSubjectAbsent_IsExactWithoutBodyDiff`,
+`CompareMemberEndpoints_FailedInspection_RetainsFailureWithoutBodyDiff`, and
+`PresentEndpoint_RejectsNullAndNilEvidence` in
+`CSharpMemberEndpointComparisonTests`. The one-sided addition gate proves the
+product value of the explicit absent arm: Decompiler emits every canonical C#
+line from the present method as an added Finding while the pair-dependent
+`CSharpBodyDiffResult` remains absent.
+
+This adapter is the C# native-producer prerequisite consumed by the Research
+producer session under
+[#5441](https://github.com/richlander/dotnet-inspect/issues/5441) in the
+user-approved focused decomposition tracked by
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706). It is one
+producer-owned adapter, not a shared substrate. Its endpoint sum type is the
+simplest contract that preserves explicit presence and absence while preventing
+the pair-dependent body algorithm from running outside `Complete`/`Complete`.
+It adds no CLI, browser, presentation, or rendered-output surface, so host
+enablement and rendering strategy are not applicable to this slice; later
+Research and Queries consumers own those boundaries. The
+`decompiler-dependencies` dependency-policy rule provides full project- and
+assembly-graph coverage for the claim that this API remains below Research and
+accepts no Research dependency.
+
+The older assembly-wide and `CompareMembers` paths retain their current
+missing-body compatibility behavior while existing consumers migrate. That
+behavior is not emitted by `CompareMemberEndpoints`, where endpoint topology
+owns the state.
+
 The result is one `CSharpStructuralComparison` with explicit `Added`, `Removed`,
 `Changed`, and `Moved` outcomes. Movement is orthogonal, so a node may be both
 changed and moved. After provenance establishes identity, the issuer classifies
@@ -222,10 +268,10 @@ the retained producer-facing endpoint evidence under
 [Complete census and correspondence](#complete-census-and-correspondence), are
 implemented and verified by their named gates in
 [Target-resolution migration and gates](#target-resolution-migration-and-gates)
-and the owning sections. Producer-specific adapters and inspection-topology
-classification remain future independently owned work. The Research local
-producer-session and completion boundary is specified below but remains
-unimplemented.
+and the owning sections. The native C# and IL producer adapters and their
+inspection-topology classification are implemented and verified by their
+owning sections. The Research local producer-session and completion boundary
+is specified below but remains unimplemented.
 
 This design proposes one place to answer the target question before comparison
 work begins: which member, if any, did each side select; can those targets
@@ -695,9 +741,9 @@ the transition as a Research-owned body verdict.
 `CounterpartUnavailable` and `DomainUnavailable` never manufacture a completed
 producer endpoint set. The later session keeps the Research unavailability
 visible and does not turn it into absence, inapplicability, or producer failure.
-The shared Finding topology is implemented and verified by its owning
-document. The adjacent producer obligations remain unimplemented and
-unverified; each native producer migration supplies its own gates.
+The shared Finding topology and both native producer adapters are implemented
+and verified by their owning documents and named gates. The Research session
+that will compose those typed results remains unimplemented and unverified.
 
 ### Resolution result and failure boundary
 
@@ -770,13 +816,13 @@ Migration preserves owner and dependency direction:
    remains on its compatibility path until Queries prerequisite #4777 supplies
    exact Metadata target evidence; Research does not compensate for that
    missing input.
-5. After the Findings topology and focused native-producer migrations land,
-   rank 4 under
+5. The Findings topology and focused native-producer migrations have landed.
+   Rank 4 under
    [#5441](https://github.com/richlander/dotnet-inspect/issues/5441)
    consumes complete correspondence outcomes to create work items. Its target
-   design is specified below; implementation waits on the producer migrations.
-   Producer adapters classify endpoint topology and retain their native typed
-   results; Research adds no generic body disposition.
+   design is specified below, but its Research implementation remains
+   unimplemented. Producer adapters classify endpoint topology and retain their
+   native typed results; Research adds no generic body disposition.
 6. Rank 6 later migrates the implementation-comparison public path from string
    target identities and publishes the outer result. Body-signal migration
    follows #4777 independently.
@@ -873,11 +919,13 @@ type implements this contract, and every named gate below is **unverified**.
 The ILDiff owner now supplies its focused typed-inspection adapter through
 `IlAssemblyDiff.CompareMemberEndpoints`, gated by the owner-specific tests named
 in [IL diff canonicalization boundary](il-diff-canonicalization.md). The C#
-owner must still supply its focused adapter under
+owner now supplies `CSharpBodyDiff.CompareMemberEndpoints`, gated by the
+owner-specific tests named in
+[Structural body comparison](#structural-body-comparison). Their shared
+adoption contract remains
 [Finding producer guidance](finding-producers.md#admit-body-topology-before-native-comparison).
-The remaining prerequisite is
-[#5443](https://github.com/richlander/dotnet-inspect/issues/5443); the delivered
-ILDiff prerequisite was tracked by
+The delivered prerequisites were tracked by
+[#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
 [#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
 
 This boundary is owned by `ILInspector.Research`. It turns one complete target
@@ -1143,10 +1191,9 @@ is required for this design.
 
 Implementation proceeds in focused owner order:
 
-1. ILDiff has adopted the shared Findings endpoint topology and exposed its
-   typed adapter and native result under
-   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444). C# must
-   adopt the same owner-specific obligations under
+1. ILDiff and C# have adopted the shared Findings endpoint topology and exposed
+   their typed adapters and native results under
+   [#5444](https://github.com/richlander/dotnet-inspect/issues/5444) and
    [#5443](https://github.com/richlander/dotnet-inspect/issues/5443).
 2. Research implements its catalog, exact work derivation, sequential session,
    input access, cleanup, and completion validator.
