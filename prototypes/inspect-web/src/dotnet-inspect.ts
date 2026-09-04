@@ -1496,7 +1496,7 @@ let documentFocusGeneration = 0;
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 interface ContentFrameReplacementAuthority {
-  owner: Exclude<ContentFrameFocusOwner, null>;
+  owner: ContentFrameFocusOwner;
   focusGeneration: number;
 }
 let contentFrameReplacementAuthority: ContentFrameReplacementAuthority | null =
@@ -7083,28 +7083,29 @@ function focusFilter(
 const memberFocusRestorer = createMemberFocusRestorer();
 
 function captureContentFrameReplacementAuthority():
-ContentFrameReplacementAuthority | null {
+ContentFrameReplacementAuthority {
   const focused = document.activeElement instanceof HTMLElement
     ? document.activeElement
     : null;
-  const owner = contentFrameFocusOwnerFor(focused);
-  return owner === null
-    ? null
-    : { owner, focusGeneration: documentFocusGeneration };
+  return {
+    owner: contentFrameFocusOwnerFor(focused),
+    focusGeneration: documentFocusGeneration,
+  };
 }
 
 function scheduleMemberFocusAfterRender(
   preserved: MemberFocusSnapshot,
-  replacementAuthority: ContentFrameReplacementAuthority | null,
+  replacementAuthority: ContentFrameReplacementAuthority,
 ) {
-  if (replacementAuthority
+  if (replacementAuthority.owner !== null
     && replacementAuthority.focusGeneration === documentFocusGeneration)
     contentFrameReplacementAuthority = replacementAuthority;
   memberFocusRestorer.schedule(
     document,
     preserved,
-    requestAnimationFrame);
-  if (replacementAuthority) requestAnimationFrame(() => {
+    requestAnimationFrame,
+    () => replacementAuthority.focusGeneration === documentFocusGeneration);
+  requestAnimationFrame(() => {
     if (contentFrameReplacementAuthority === replacementAuthority)
       contentFrameReplacementAuthority = null;
   });

@@ -214,6 +214,7 @@ let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocus: MemberFocusSnapshot | null = null;
+let contentFrameReplacementFocusGeneration: number | null = null;
 let documentFocusGeneration = 0;
 const contentFrameMedia = window.matchMedia(CONTENT_FRAME_NARROW_QUERY);
 const source = {
@@ -853,6 +854,7 @@ window.beginContentFrameReplacementProbe = () => {
   const replacementFocusOwner = contentFrameFocusOwnerFor(focused);
   const focusGeneration = documentFocusGeneration;
   contentFrameReplacementFocus = captureMemberFocus(document);
+  contentFrameReplacementFocusGeneration = focusGeneration;
   contentFrameFocusOwner = null;
   contentFrameReplacementFocusOwner = null;
   const frame = document.querySelector<HTMLElement>(".content-frame");
@@ -867,12 +869,14 @@ window.beginContentFrameReplacementProbe = () => {
 };
 window.flushContentFrameReplacementProbe = () => {
   const preserved = contentFrameReplacementFocus;
+  const focusGeneration = contentFrameReplacementFocusGeneration;
   contentFrameReplacementFocus = null;
+  contentFrameReplacementFocusGeneration = null;
   if (preserved) {
     restoreMemberFocus(document, preserved, callback => {
       callback(performance.now());
       return 0;
-    });
+    }, () => focusGeneration === documentFocusGeneration);
   }
   contentFrameReplacementFocusOwner = null;
 };

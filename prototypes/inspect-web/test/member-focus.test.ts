@@ -63,9 +63,15 @@ function createMemberFocusRestorer() {
       document: MockDocument,
       snapshot: MemberFocusSnapshot,
       requestFrame: (callback: FrameRequestCallback) => number,
+      isCurrent?: () => boolean,
     ) {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      restorer.schedule(document as unknown as Document, snapshot, requestFrame);
+      const domDocument = document as unknown as Document;
+      restorer.schedule(
+        domDocument,
+        snapshot,
+        requestFrame,
+        isCurrent);
     },
   };
 }
@@ -502,6 +508,35 @@ test("deferred restoration does not steal intentionally moved focus", () => {
   callbacks.shift()!(0);
 
   assert.equal(document.activeElement, unrelated);
+});
+
+test("external focus authority invalidates a queued restoration", () => {
+  const { document, element } = createDocument();
+  const initial = element("#initial", { id: "initial" });
+  const replacement = element("#type-list", { id: "type-list" });
+  document.activeElement = initial;
+  const snapshot = {
+    ...captureMemberFocus(document),
+    selector: "#type-list",
+  };
+  const callbacks: FrameRequestCallback[] = [];
+  let current = true;
+  const restorer = createMemberFocusRestorer();
+
+  restorer.schedule(
+    document,
+    snapshot,
+    callback => {
+      callbacks.push(callback);
+      return callbacks.length;
+    },
+    () => current);
+  document.activeElement = document.body;
+  current = false;
+  callbacks.shift()!(0);
+
+  assert.notEqual(document.activeElement, replacement);
+  assert.equal(document.activeElement, document.body);
 });
 
 test("newer caret restoration invalidates older queued callbacks", () => {

@@ -2824,13 +2824,13 @@ test("focus-preserving renders retain pane authority until restoration", () => {
     /const resizeFocusOwner = contentFrameResizeFocusOwner\(\s*focused,\s*contentFrameFocusOwner,\s*replacementFocusOwner\);[\s\S]*contentFrameReplacementAuthority = null;[\s\S]*decideContentFrameResize\([\s\S]*resizeFocusOwner\)/);
   assert.match(
     captureSource,
-    /const owner = contentFrameFocusOwnerFor\(focused\);[\s\S]*owner, focusGeneration: documentFocusGeneration/);
+    /owner: contentFrameFocusOwnerFor\(focused\),\s*focusGeneration: documentFocusGeneration/);
   assert.match(
     scheduleSource,
-    /replacementAuthority\.focusGeneration === documentFocusGeneration[\s\S]*contentFrameReplacementAuthority = replacementAuthority/);
+    /replacementAuthority\.owner !== null[\s\S]*replacementAuthority\.focusGeneration === documentFocusGeneration[\s\S]*contentFrameReplacementAuthority = replacementAuthority/);
   assert.match(
     scheduleSource,
-    /memberFocusRestorer\.schedule\([\s\S]*requestAnimationFrame\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameReplacementAuthority === replacementAuthority[\s\S]*contentFrameReplacementAuthority = null/);
+    /memberFocusRestorer\.schedule\([\s\S]*requestAnimationFrame,\s*\(\) => replacementAuthority\.focusGeneration === documentFocusGeneration\);[\s\S]*requestAnimationFrame\(\(\) => \{[\s\S]*contentFrameReplacementAuthority === replacementAuthority[\s\S]*contentFrameReplacementAuthority = null/);
   assert.match(
     appSource,
     /function selectMemberNavEntry\([\s\S]*captureContentFrameReplacementAuthority\(\)[\s\S]*scheduleMemberFocusAfterRender\(preservedFocus, replacementAuthority\)/);

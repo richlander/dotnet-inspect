@@ -25,6 +25,7 @@ export interface MemberFocusRestorer {
     document: Document,
     snapshot: MemberFocusSnapshot,
     requestFrame: (callback: FrameRequestCallback) => number,
+    isCurrent?: () => boolean,
   ): void;
 }
 
@@ -240,14 +241,14 @@ export function createMemberFocusRestorer(): MemberFocusRestorer {
       const orderedFallback = fallback === null ? null : (latest ?? fallback);
       return resolveMemberFocusSnapshot(current, orderedFallback);
     },
-    schedule(document, snapshot, requestFrame) {
+    schedule(document, snapshot, requestFrame, isCurrent = () => true) {
       latest = snapshot;
       const scheduledGeneration = ++generation;
       restoreMemberFocus(
         document,
         snapshot,
         requestFrame,
-        () => scheduledGeneration === generation,
+        () => scheduledGeneration === generation && isCurrent(),
       );
     },
   };
