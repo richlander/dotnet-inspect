@@ -578,7 +578,7 @@ internal static class BrowserPackageWorkspace
         RetainPackageKeys(packageKeys);
 
         while (Scopes.TryGetValue(key, out ScopeEntry? closing) && closing.Closing)
-            await AwaitScopeClosureAsync(key).ConfigureAwait(false);
+            await AwaitClosingSlotAsync(key).ConfigureAwait(false);
 
         if (Scopes.TryGetValue(key, out ScopeEntry? retained))
         {
@@ -619,7 +619,7 @@ internal static class BrowserPackageWorkspace
                 .FirstOrDefault();
             if (settling is not null)
             {
-                await AwaitScopeClosureAsync(settling).ConfigureAwait(false);
+                await AwaitClosingSlotAsync(settling).ConfigureAwait(false);
                 continue;
             }
 
@@ -1439,7 +1439,7 @@ internal static class BrowserPackageWorkspace
                 break;
             if (dependent.Value.Closing)
             {
-                await AwaitScopeClosureAsync(dependent.Key).ConfigureAwait(false);
+                await AwaitClosingSlotAsync(dependent.Key).ConfigureAwait(false);
                 continue;
             }
             if (dependent.Value.ActiveLeases != 0)
@@ -1530,6 +1530,16 @@ internal static class BrowserPackageWorkspace
         PendingScopeClosures.TryGetValue(scopeKey, out Task? pending)
             ? pending
             : Task.CompletedTask;
+
+    /// <summary>
+    /// Joins the closure a slot marked closing must have. A closing slot without an observable
+    /// closure would leave a waiter spinning, so it fails visibly instead.
+    /// </summary>
+    static Task AwaitClosingSlotAsync(string scopeKey) =>
+        PendingScopeClosures.TryGetValue(scopeKey, out Task? pending)
+            ? pending
+            : throw new InvalidOperationException(
+                "The browser scope registry slot is closing without an observable closure.");
 
     static KeyValuePair<string, ScopeEntry> FindOpenScope(IAsyncDisposable scope) =>
         Scopes.SingleOrDefault(candidate =>
