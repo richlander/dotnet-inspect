@@ -170,22 +170,14 @@ public static class TypeCommand
             {
                 // No type specified - list all types
                 var loaded = loadedSurface
-                    ?? (CanUsePlatformSummary(
+                    ?? ApiServices.LoadTypeApi(
+                        source,
+                        options,
+                        summaryOnly: CanUsePlatformSummary(
                             options,
                             searchPath,
                             runtimeAssemblyPath,
-                            platformFramework)
-                        ? ApiServices.LoadPlatformApiSummary(
-                            searchPath,
-                            runtimeAssemblyPath!,
-                            apiSource,
-                            apiVersion,
-                            selectedTfm,
-                            logger)
-                        : ApiServices.LoadFullApi(
-                            searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                            apiSource, apiVersion, selectedTfm, logger, options,
-                            source.PackageExtractPath));
+                            platformFramework));
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -255,10 +247,7 @@ public static class TypeCommand
             else
             {
                 var loaded = loadedSurface
-                    ?? ApiServices.LoadFullApi(
-                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options,
-                        source.PackageExtractPath);
+                    ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -852,7 +841,7 @@ public static class TypeCommand
 
         foreach (var ((framework, assembly, _), fullNames) in resultNamesByAssembly)
         {
-            var (assemblyPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                 assembly,
                 context.HttpClient,
                 logger.Log,
@@ -864,19 +853,25 @@ public static class TypeCommand
                 continue;
             }
 
-            var api = AssemblySetSurfaceBuilder.Build(
-                [assemblyPath],
-                options.IncludeAll);
-            if (api == null)
-                continue;
-
-            ApiServices.ResolveForwardedTypes(
-                api,
+            var loaded = ApiServices.LoadFullApi(
                 assemblyPath,
+                runtimeAssemblyPath: null,
+                packagePath: null,
+                packageName: null,
+                SourceKind.Platform,
+                version,
+                selectedTfm: null,
                 logger,
-                options.IncludeAll,
-                isPlatformAssembly: true,
-                options);
+                options,
+                useTypedSelection: true,
+                platformFramework: resolvedFramework);
+            if (loaded is null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not extract API from platform library '{assemblyPath}'.");
+            }
+
+            var api = loaded.Api;
 
             List<ApiType> selectedTypes =
             [

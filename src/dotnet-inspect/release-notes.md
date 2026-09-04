@@ -4,6 +4,11 @@
 
 ### Inspection and matching
 
+- Type API inspection now rejects unusable managed assembly identities with a
+  path-attributed error instead of falling back to path-only extraction.
+  Listing, compact platform summaries, and deferred type routing preserve the
+  selected API assembly's provenance; managed netmodules retain their existing
+  inspection behavior (#5853).
 - Adds the `match` command for identity-agnostic structural comparison of two
   selected methods in one retained assembly. It preserves exact, near,
   different, unsupported, failed, limit-reached, and
