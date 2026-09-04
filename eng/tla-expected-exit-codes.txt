@@ -27,6 +27,7 @@ docs/design/models/research-workspace-target-composition/ExactAddressRejected.cf
 docs/design/models/research-workspace-target-composition/ForeignPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ForwardedCompletion.cfg=0
 docs/design/models/research-workspace-target-composition/ImageOpenFailureUnavailable.cfg=0
+docs/design/models/research-workspace-target-composition/MissingNonTerminalPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/MissingTerminalPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionCiLiveness.cfg=0
 docs/design/models/research-workspace-target-composition/ResearchWorkspaceTargetCompositionCiSafety.cfg=0

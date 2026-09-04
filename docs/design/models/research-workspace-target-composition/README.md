@@ -19,6 +19,9 @@ binding-policy-version replacement. The composition adds:
 - two comparison sides with distinct group and receipt identities;
 - independent admitted and sealed-terminal facts for the selected and opposite
   sides;
+- one configuration-selected non-terminal group-participant omission witness,
+  representing a selected-side peer absent from the sealed, receipt, and
+  complete Research populations without expanding unrelated state spaces;
 - selected-side duplicate-occurrence and foreign-input facts that distinguish
   an exact population from repeated or broader sealed populations;
 - independent active receipt and complete Research domains, plus active attempt
@@ -102,10 +105,11 @@ detects binding-version drift as a contract fault.
 
 ## Checked properties
 
-The safety configuration checks that:
+The safety and exact scenario configurations check that:
 
-- a missing, duplicated, foreign, or broader Research population rejects
-  before forwarding resolution;
+- a missing terminal or non-terminal group participant, duplicated occurrence,
+  foreign input, or broader Research population rejects before forwarding
+  resolution;
 - an unsupported exact-address request rejects before forwarding or binding
   advances;
 - a query-level image-open failure becomes unavailable before forwarding or
@@ -148,7 +152,8 @@ accepting any converged phase:
 | `BlockedTerminalCensusUnavailable.cfg` | An owner-valid failed terminal attempt and blocked census remain unavailable. | 147,541 / 17 | 6 |
 | `ImageOpenFailureUnavailable.cfg` | Query-level participant image rejection becomes unavailable before either imported owner advances. | 147,458 / 4 | 2 |
 | `ExactAddressRejected.cfg` | An exact-address request rejects before either imported owner advances. | 147,600 / 288 | 2 |
-| `MissingTerminalPopulationRejected.cfg` | A group participant missing from the sealed population is rejected before resolution. | 148,032 / 1,152 | 2 |
+| `MissingTerminalPopulationRejected.cfg` | The terminal group participant missing from the sealed population is rejected before resolution. | 148,032 / 1,152 | 2 |
+| `MissingNonTerminalPopulationRejected.cfg` | An admitted non-terminal selected-side participant omitted from the sealed, receipt, and Research populations is rejected before resolution. | 147,458 / 4 | 2 |
 | `DuplicatePopulationRejected.cfg` | A duplicated sealed occurrence for one group participant is rejected before resolution. | 148,032 / 1,152 | 2 |
 | `ForeignPopulationRejected.cfg` | An extra sealed input outside the group is rejected before resolution. | 148,032 / 1,152 | 2 |
 | `BroaderResearchPopulationRejected.cfg` | A valid root-only receipt paired with a Research result containing an additional terminal input is rejected before resolution. | 147,744 / 576 | 2 |
@@ -175,16 +180,24 @@ Three assemblies admit direct resolution, one- and two-hop forwarding,
 alternative terminal ownership, and a repeated-candidate cycle in the imported
 model. Two sides are the minimum needed to expose cross-side substitution. The
 selected side is fixed to Before without loss of symmetry; the mutation uses
-After. Boolean admission and sealing facts distinguish a usable terminal,
-an admitted but unsealed input, and an out-of-group target without enumerating
-irrelevant participant subsets. Separate Booleans represent a repeated sealed
-occurrence, an extra selected-side input outside the group, and a selected
-terminal receipt member and complete Research member, making multiplicity,
-group membership, receipt-domain equality, and Research-domain equality
-independently checkable. The immutable terminal candidate represents the
-already populated participant whose owner-issued maps may satisfy the route;
-nondeterministically choosing `Target` or `Other` covers both possible
-terminal identities without deriving a map from the later forwarding result.
+After. Boolean admission and sealing facts distinguish a usable terminal, an
+admitted but unsealed terminal, and an out-of-group target without enumerating
+irrelevant participant subsets. A configuration-selected omission witness
+represents an admitted non-terminal selected-side peer absent from the sealed,
+receipt, and complete Research populations without doubling every unrelated
+state space. The exact scenario mechanizes only the omission guard and
+rejection before owner invocation; it does not construct the peer's downstream
+Research input, attempt, or domain. The represented product boundary case is a
+peer sharing the terminal Research domain: the reduced population could expose
+a healthy resolved terminal, while the complete group population would be
+domain-blocked. Further Booleans represent a repeated sealed occurrence, an
+extra selected-side input outside the group, and a selected terminal receipt
+member and complete Research member, making multiplicity, group membership,
+receipt-domain equality, and Research-domain equality independently checkable.
+The immutable terminal candidate represents the already populated participant
+whose owner-issued maps may satisfy the route; nondeterministically choosing
+`Target` or `Other` covers both possible terminal identities without deriving
+a map from the later forwarding result.
 
 Census health derives from the represented attempt kind. A failed terminal
 attempt therefore has an owner-valid blocked census and remains unavailable. A
@@ -216,7 +229,10 @@ Those remain owned by their product contracts and named Release gates. In
 particular, the product design requires
 `WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities` to walk the
 closed composition-result type graph; TLC intentionally does not substitute
-for that structural implementation gate.
+for that structural implementation gate. It likewise does not prove
+field-level fidelity of the capability-free projection; the product design
+assigns that claim to
+`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`.
 
 ## Running TLC
 
@@ -226,12 +242,12 @@ runs every configuration in a selected model directory. Entries in
 `eng/tla-expected-exit-codes.txt` additionally require the listed
 configurations to produce their exact semantic verdict.
 
-All 24 configurations are exact-outcome gates. The exhaustive safety and
+All 25 configurations are exact-outcome gates. The exhaustive safety and
 liveness configurations retain the complete input cross-product and fit the
 shared runner's 600-second per-configuration budget. The `CiSafety` and
 `CiLiveness` configurations retain a fast successful-owner-input check, while
-the nine exact scenarios force promised terminal classifications and the
-eleven focused mutations force their intended safety violations.
+the ten exact scenarios force promised terminal classifications and the eleven
+focused mutations force their intended safety violations.
 
 ## Recorded result
 
@@ -259,7 +275,11 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Broken non-resolved attempt | 147,612 / 34 | 7 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
 | Broken forwarding evidence | 147,612 / 34 | 7 | A forwarded endpoint completed with an empty retained path. |
 | Broken binding drift | 147,618 / 37 | 7 | Composition published after the owner-issued binding version advanced. |
-| Broken unavailable invocation | 147,616 / 124 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
+| Broken unavailable invocation | 147,704 / 184 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
+
+Mutation counts record one run and may vary because TLC stops after the first
+scheduled counterexample; the exact exit status and violated invariant are the
+gate.
 
 The runs used TLC build `2026.09.01.002747`, revision `95b800c`, from the
 repository-pinned TLA+ v1.8.0 `tla2tools.jar`. The checked jar SHA-256 was

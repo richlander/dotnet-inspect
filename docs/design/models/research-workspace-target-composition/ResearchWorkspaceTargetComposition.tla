@@ -105,7 +105,7 @@ ASSUME
         {"Policy", "UseFacade", "CrossSide", "ReconstructReceipt",
          "RelabelRoot", "SelectNonResolvedAttempt", "SubstituteCensus",
          "SubstituteParticipant", "DropPath", "IgnoreBindingDrift",
-         "InvokeUnavailable", "CrossScope"}
+         "InvokeUnavailable", "CrossScope", "OmitNonTerminalParticipant"}
 
 VARIABLES
     resolutionPhase,
@@ -584,11 +584,15 @@ AttemptReady ==
        /\ ChosenCensus.health = "Healthy"
        /\ ChosenResearchAttempt.kind = "Resolved"
 
+OmittedNonTerminalParticipantSelected ==
+    CompositionMutationMode = "OmitNonTerminalParticipant"
+
 PopulationReady ==
     /\ rootSealed
     /\ terminalAdmittedSelected = terminalSealedSelected
     /\ receiptMap.active = SealedQueryIds
     /\ ActiveResearchQueryIds = receiptMap.active
+    /\ ~OmittedNonTerminalParticipantSelected
     /\ ~duplicateSealedSelected
     /\ ~foreignSealedSelected
 
@@ -1153,6 +1157,24 @@ BroaderResearchPopulationInputConstraint ==
     /\ queryImageReady
     /\ liveBinding = InitialBinding
 
+MissingNonTerminalPopulationInputConstraint ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ terminalAdmittedOpposite
+    /\ terminalSealedOpposite
+    /\ terminalReceiptMappedSelected
+    /\ terminalResearchActiveSelected
+    /\ OmittedNonTerminalParticipantSelected
+    /\ ~duplicateSealedSelected
+    /\ ~foreignSealedSelected
+    /\ terminalCandidate = Target
+    /\ rootAttemptKind = "DeclaringTypeForwarded"
+    /\ terminalAttemptKind = "Resolved"
+    /\ requestKind = "Carried"
+    /\ queryImageReady
+    /\ liveBinding = InitialBinding
+
 ImageOpenFailureInputConstraint ==
     StableScenarioInputs(
         "Resolved",
@@ -1176,6 +1198,9 @@ ExactAddressBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 MissingTerminalPopulationBecomesRejected ==
+    <> (compositionPhase = "Rejected")
+
+MissingNonTerminalPopulationBecomesRejected ==
     <> (compositionPhase = "Rejected")
 
 ForeignPopulationBecomesRejected ==

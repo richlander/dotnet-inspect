@@ -182,6 +182,28 @@ root and effective Research attempts. That projection is a closed union:
   `CandidateOpenFailureKind`, and inert failure detail when
   `AssemblyContextTypeResolutionQuery` cannot retain one participant image.
 
+The `Available` projection preserves this closed set of Metadata arms:
+
+| Metadata arm | Required capability-free evidence |
+| --- | --- |
+| `Resolved` | `Resolved` classification, terminal acquisition registration, durable assembly/module/type-definition identity and address, and every ordered forwarding hop. |
+| `NotFound` | `NotFound` classification, the last readable participant's registration and durable assembly identity, and every ordered forwarding hop. |
+| `UnboundBinding` | `UnboundBinding` classification plus materialized binding, target, origin, and resolution-scope evidence, and every ordered forwarding hop. |
+| `Unavailable` | `Unavailable` classification plus the same binding evidence and materialized binding-failure kind/detail, and every ordered forwarding hop. |
+| `Ambiguous` | `Ambiguous` classification, ambiguity kind, and the complete materialized candidate or declaration evidence supplied by that arm, and every ordered forwarding hop. |
+| `Rejected` | `Rejected` classification, failure kind, and every materialized typed field supplied by that failure arm, and every ordered forwarding hop. |
+
+`WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`
+discovers every concrete `TypeResolutionOutcome` arm, requires the discovered
+set to equal the projection's handled source-arm set, and exercises one
+product-query result for each arm. For every case it compares the source
+outcome with the projected classification, ordered hop sequence, and the
+arm-specific evidence above while the group is live. Adding a Metadata arm
+therefore fails the gate until Queries defines and tests its inert projection;
+an implementation cannot satisfy the gate by mapping several arms to one
+generic unavailable value. `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
+separately compares every field of the outer `QueryRejected` projection.
+
 Neither arm retains the `TypeResolutionOutcome`, `TypeForwardingHop`,
 `ResolvedAssemblyCandidate`, or `ResolvedAssemblyReference` objects, because
 those object graphs can expose an image-opening callback or retain snapshot
@@ -202,21 +224,26 @@ The walk includes base and derived arms and decomposes arrays, nullable values,
 and generic arguments. It fails if that closure reaches:
 
 - `AssemblyContextTypeResolutionResult`, `TypeResolutionOutcome`,
-  `TypeForwardingHop`,
-  `ResolvedAssemblyCandidate`, or `ResolvedAssemblyReference`;
+  `TypeForwardingHop`, `ResolvedTypeDefinition`,
+  `ResolvedAssemblyCandidate`, `ResolvedAssemblyReference`,
+  `CandidateOpenFailure`, `AssemblyImageSnapshotResult`, or
+  `AssemblyImageSnapshot`;
 - `AssemblyContextGroup`, `AssemblyContextParticipant`,
   `TypeResolutionContext`, `TypeResolutionCatalog`, or
-  `IAssemblyReferenceResolver`; or
+  `IAssemblyReferenceResolver`;
+- `MetadataReader`, `PEReader`, or any array, memory, sequence, or collection
+  signature whose recursively decomposed element type is `byte`; or
 - any type assignable to `Stream`, `Delegate`, `Exception`, `IDisposable`, or
   `IAsyncDisposable`.
 
 The gate is non-vacuous: it separately proves that the closure reaches the
 composition receipt and both `Available` and `QueryRejected` evidence arms,
-then demonstrates that the same walk detects a test-only prohibited exposure.
-A new composition-result or evidence arm must enter the closed-union walk
-without an allow-list edit. This gate covers retained object-graph authority;
-the behavioral gates below separately prove projection fidelity and
-failure-atomic publication.
+then demonstrates that the same walk detects test-only prohibited exposures
+for both `AssemblyImageSnapshot` and `MetadataReader`, not only disposable or
+callback types. A new composition-result or evidence arm must enter the
+closed-union walk without an allow-list edit. This gate covers retained
+object-graph authority; the behavioral gates below separately prove projection
+fidelity and failure-atomic publication.
 
 ## Validation order
 
@@ -396,8 +423,8 @@ to an effective attempt.
 
 The model rechecks the imported forwarding safety properties and checks that:
 
-- a missing or extra sealed input rejects the population before Metadata
-  resolution begins;
+- a missing terminal or non-terminal group participant, or an extra sealed
+  input, rejects the population before Metadata resolution begins;
 - a valid receipt paired with a broader Research result rejects before
   Metadata resolution begins;
 - a query-level participant image-open rejection becomes unavailable before
@@ -419,15 +446,21 @@ The model rechecks the imported forwarding safety properties and checks that:
 Exact-outcome configurations require direct and forwarded completion, blocked
 census unavailability from one owner-valid failed terminal attempt, query-level
 image-open unavailability, exact-address rejection before owner resolution,
-and rejection of a missing group participant input, a duplicated participant
-occurrence, an extra foreign input, and a Research result broader than the
-otherwise valid sealed receipt. The forwarded-completion scenario retains the
-facade's blocked census while selecting the distinct healthy terminal census.
-The model does not construct the impossible state in which one same-side
-terminal-domain attempt is resolved while a peer in that domain fails:
-Research classifies multiple same-side domain inputs as `DomainAmbiguous`
-before either can resolve. The two-sided divergent-domain handoff remains
-outside this side-local model and unverified.
+and separate rejection scenarios for a missing terminal participant and an
+omitted non-terminal peer, plus a duplicated participant occurrence, an extra
+foreign input, and a Research result broader than the otherwise valid sealed
+receipt. The model abstracts the omitted peer's downstream Research identity
+and domain; it checks only that the omission is rejected before either owner
+advances. The motivating product instance is a peer sharing the terminal
+Research domain, where the reduced population could appear healthy although
+the complete group population would be domain-blocked. The
+forwarded-completion scenario retains the facade's blocked census while
+selecting the distinct healthy terminal census. The model does not construct
+the impossible state in which one same-side terminal-domain attempt is
+resolved while a peer in that domain fails: Research classifies multiple
+same-side domain inputs as `DomainAmbiguous` before either can resolve. The
+two-sided divergent-domain handoff remains outside this side-local model and
+unverified.
 
 Focused mutations substitute the facade, cross the comparison side, reconstruct
 the Research input without the receipt, substitute another selection scope,
@@ -504,8 +537,9 @@ The implementation is not complete until these Release gates exist:
 - `WorkspaceResearchTarget_MultiHopRetainsCompleteMetadataPath`
 - `WorkspaceResearchTarget_UnboundTerminalIsUnavailable`
 - `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
+- `WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`
 - `WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities`
-- `WorkspaceResearchTarget_MissingTerminalPopulationMemberIsRejected`
+- `WorkspaceResearchTarget_MissingAnyGroupParticipantIsRejected`
 - `WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected`
 - `WorkspaceResearchTarget_UnrelatedSameNameParticipantCannotSatisfyRoute`
 - `WorkspaceResearchTarget_ReferenceOnlyTerminalIsUnavailable`
