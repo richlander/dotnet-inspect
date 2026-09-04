@@ -981,6 +981,11 @@ public sealed class TypeScriptFacadeEmitterTests
             Name = "JsExportRuntime",
             Kind = "class",
         };
+        var runtimeApiType = new ApiType
+        {
+            Name = "RuntimeAPI",
+            Kind = "class",
+        };
         var surface =
             new global::ILInspector.JsExportSurface.JsExportSurface
             {
@@ -989,7 +994,7 @@ public sealed class TypeScriptFacadeEmitterTests
                     new Version(1, 0, 0, 0),
                     culture: null,
                     publicKeyToken: null),
-                Records = [promiseType, runtimeType],
+                Records = [promiseType, runtimeType, runtimeApiType],
                 Functions =
                 [
                     Function(
@@ -1010,7 +1015,7 @@ public sealed class TypeScriptFacadeEmitterTests
             RuntimeModule);
 
         Assert.Equal(
-            2,
+            3,
             source.Split(
                 "export interface type_",
                 StringSplitOptions.None).Length - 1);

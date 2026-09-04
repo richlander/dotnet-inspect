@@ -12,6 +12,7 @@ internal static class TypeScriptFacadeEmitter
     private static readonly string[] InfrastructureBindings =
     [
         "dotnet",
+        "RuntimeAPI",
         "JsExportRuntime",
         "then",
         "undefined",
