@@ -301,8 +301,9 @@ product-issued opaque facet IDs and do not reconstruct those predicates:
 - **`nuspec` tier.** Available over the bounded package profile produced from
   source metadata and exact manifests. `PackageQuery.Facets` is the finite,
   ordered vocabulary. `PackageQuery.Plan` validates selected IDs and
-  compatibility, and `PackageQuery.ExecuteAsync` ANDs the selected definitions
-  before applying the semantic match limit. A facet's tier names the
+  compatibility. `PackageQuery.ExecuteAsync` ANDs independent facets and ORs
+  selected combining members of one product-issued selection group before
+  applying the semantic match limit. A facet's tier names the
   production envelope in which it is available, not the narrowest individual
   field its predicate reads; the common nuspec result row still carries exact
   manifest facts.
@@ -311,7 +312,9 @@ product-issued opaque facet IDs and do not reconstruct those predicates:
   `PackageQuery` still applies manifest predicates first, so a tool-format
   facet does not acquire non-tool packages. The current archive-derived
   facets inspect `DotnetToolSettings.xml` for tool v1/v2 and package paths for
-  `skills/SKILL.md` or `skills/**/SKILL.md`.
+  `skills/SKILL.md` or `skills/**/SKILL.md`. Tool v1 and v2 are combining
+  members, so selecting both returns either format with evidence identifying
+  the matched version; the manifest-only any-tool facet remains exclusive.
 - **Future promoted IL tier.** Requires opening IL for a bounded set of
   candidates — never for the whole corpus. It must be capability-gated the
   same way the repository already gates other exhaustive/expensive work
