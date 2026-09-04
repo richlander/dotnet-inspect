@@ -661,6 +661,7 @@ const initialState = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   statusBarExpanded: false,
   memberFiltersExpanded: false,
+  typeFiltersExpanded: false,
   packages: [],
   package: null,
   home: false,
@@ -2109,6 +2110,23 @@ function accessibilityControl() {
   </div>`;
 }
 
+function typeFilterSummary() {
+  const buckets = accessibilityBuckets();
+  const activeAccessibility =
+    buckets.filter(bucket => state.accessibilityFilter.has(bucket.id));
+  const accessibilitySummary = activeAccessibility.length === buckets.length
+    ? ""
+    : activeAccessibility
+      .map(bucket => bucket.label.toLowerCase())
+      .join(", ");
+  return [
+    state.typeFilter,
+    state.namespaceFilter,
+    state.kindFilter,
+    accessibilitySummary,
+  ].filter(Boolean).join(" · ") || "All types";
+}
+
 // Options for the namespace picker dropdown: every namespace in the active
 // package (honoring the library + accessibility filters), sorted, with its type
 // count.
@@ -2263,7 +2281,7 @@ function renderMemberFilterControls(type: AppTypeSurface) {
     activeTrait ?? "",
   ].filter(Boolean).join(" · ") || "All members";
   return `
-    <details class="member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
+    <details class="filter-disclosure member-filter-disclosure" data-member-filter-disclosure${state.memberFiltersExpanded ? " open" : ""}>
       <summary><span aria-hidden="true">›</span><strong>Filters</strong><small>${escapeHtml(filterSummary)}</small></summary>
       <div class="type-search member-search">
         <span aria-hidden="true">/</span>
@@ -3193,6 +3211,8 @@ function renderTypeNavPane(
     kindFilters: typeKinds(),
     accessibilityControlHtml: accessibilityControl(),
     libraryControlHtml: libraryControl(),
+    filtersExpanded: state.typeFiltersExpanded,
+    filterSummary: typeFilterSummary(),
     escapeHtml,
     typeDisplayName,
     kindIcon,
@@ -5218,10 +5238,8 @@ function bindTypePanelEvents() {
       state.typeFilter = "";
       state.namespaceFilter = "";
       state.kindFilter = "";
-      state.libraryScope = null;
       state.accessibilityFilter = defaultAccessibilityFilter(state.package);
       render();
-      focusFilter({ immediate: true });
     },
     onCopyAnchor: anchor => {
       const type = selectedType();
@@ -5364,6 +5382,9 @@ function bindTypePanelEvents() {
       resetMemberFilters();
       render();
       focusFilter({ immediate: true });
+    },
+    onTypeFilterDisclosureToggle: expanded => {
+      state.typeFiltersExpanded = expanded;
     },
     onTypeFilterEscape: () => {
       state.typeFilter = "";
@@ -6827,10 +6848,16 @@ function focusFilter(
     const input = document.querySelector<HTMLInputElement>(
       "#member-filter, #type-filter");
     if (!input) return;
-    const disclosure = input.closest<HTMLDetailsElement>(
+    const memberDisclosure = input.closest<HTMLDetailsElement>(
       "[data-member-filter-disclosure]");
+    const typeDisclosure = input.closest<HTMLDetailsElement>(
+      "[data-type-filter-disclosure]");
+    const disclosure = memberDisclosure ?? typeDisclosure;
     if (disclosure && !disclosure.open) {
-      state.memberFiltersExpanded = true;
+      if (memberDisclosure)
+        state.memberFiltersExpanded = true;
+      else
+        state.typeFiltersExpanded = true;
       disclosure.open = true;
     }
     input.focus();
