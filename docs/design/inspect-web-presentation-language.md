@@ -20,9 +20,9 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API and Metadata lenses: API renders a
-  compact exact-target heading, while Metadata retains its detailed type-level
-  context; and
+- the shared heading rules across the API and Metadata lenses: both use quiet
+  local headings while Metadata retains its detailed type-level context in its
+  projection and exact-target context row; and
 - the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
@@ -205,11 +205,14 @@ competing with the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
-Metadata retains its detailed type heading.
+Metadata instead uses a quiet local `Metadata` heading while retaining its
+detailed type-level context in the primary projection and compact bottom
+context row.
 
-At narrow widths, API header identity and status may elide visually as complete
-strings. Responsive styling does not selectively remove the overload total or
-ordinal from the rendered or accessible status.
+At narrow widths, API header identity and status plus Metadata header status and
+context values may elide visually as complete strings. Responsive styling does
+not selectively remove the overload total or ordinal from the rendered or
+accessible status.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -248,15 +251,17 @@ and increases the amount visible without scrolling.
 
 ### Metadata lens
 
-The Metadata lens retains the detailed type heading. It is the type-level view
-for kind, namespace, declaration shape, target framework, library, package, and
-version context.
+The Metadata lens uses a quiet `Metadata` heading with kind and accessibility
+status. Its full-area projection remains the type-level view for kind,
+namespace, declaration shape, target framework, library, package, and version
+context. Type shape rows begin at the top of the scroll region; the exact type
+identity and package coordinate remain in the compact bottom context row.
 
 The exact-target identity remains the common orientation point between API,
-Metadata, and Source. API and Metadata repeat that identity in their local
-headings; Source relies on the persistent subject zone rather than duplicating
-it inside the full-area working surface. Switching lenses does not change the
-selected subject or its display identity.
+Metadata, and Source. API uses its local member heading, Metadata preserves the
+type identity in its context row, and Source relies on the persistent subject
+zone rather than duplicating it inside the full-area working surface. Switching
+lenses does not change the selected subject or its display identity.
 
 ## Source provenance
 
