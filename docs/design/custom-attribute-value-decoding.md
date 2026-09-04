@@ -124,8 +124,10 @@ fix, not a behavior to document.
 >
 > **D3 — Fidelity.** On output from compilers in the certified range, decoded
 > values equal the values the producing compiler encoded. SRM arbitrates
-> wherever it can; where it cannot — notably an enum width that both decoders
-> default to `Int32` — the certified corpus supplies producer truth directly.
+> wherever its resolution path is independent of ours; where it is not, the
+> certified corpus supplies producer truth directly. A width that **no** path
+> can resolve, because the defining image is absent, is carved out of D3
+> entirely — see [D3](#d3--fidelity).
 
 D1 is about cost. D2 is about what happens when the input wins. D3 is about
 being right on input that is not an attack.
@@ -302,7 +304,9 @@ Two consequences must be recorded rather than assumed away:
   sides guess identically. Establishing this belongs to D3's certified corpus,
   where the real width is known from the producing compiler, not to a
   differential test. That obligation is stated as a gate requirement under
-  [D3](#d3--fidelity).
+  [D3](#d3--fidelity) for widths that *can* be resolved; where none can, the case
+  is carved out of D3 and the residual is tracked as
+  [#5742](https://github.com/richlander/dotnet-inspect/issues/5742).
 
 **Slice 2 owes a comment fix here.** `EnumUnderlyingPrimitive.cs:16` currently
 justifies the `Int32` default as being chosen "so the skip stays aligned" — a
@@ -360,12 +364,39 @@ image is absent, the underlying type is not recoverable from anything the decode
 can see, so no gate can require the produced value — demanding it would state a
 contract the component cannot satisfy at any level of effort. The decoder
 defaults to `Int32` under the [named exception](#the-int32-enum-width-default-is-a-named-exception-to-refuse-do-not-defer)
-to "refuse; do not defer", and the gate's assertion is that documented behavior:
-`Int32` is chosen, the choice is reachable by a caller that wants to know, and the
-resulting misread is not laundered into a success-shaped value for the *rest* of
-the blob. A real `Int64` enum in this position still yields a wrong value and
-still drifts the cursor; that consequence is owned by D2's refusal machinery,
-which sees the drift, not by a fidelity claim that cannot be met.
+to "refuse; do not defer".
+
+**What the carve-out costs is a success-shaped wrong value, and D2 is not a
+backstop for it.** A real `Int64` enum read as `Int32` under-consumes four bytes
+and relocates the cursor, and the remaining bytes can parse as a complete,
+structurally valid attribute. This twelve-byte blob, which its producer wrote as
+prolog + one `Int64` + zero named arguments, decodes under the fallback into one
+`Int32` argument and one fabricated named argument, consuming the blob *exactly*:
+
+```text
+blob     01 00 07 00 00 00 01 00 53 02 00 00
+producer fixed=[Int64 0x0253000000000007]  named=[]
+fallback fixed=[Int32 7]  named=[Field name='' value=False]
+```
+
+No refusal fires, and an end-offset check cannot detect it either, because
+consumption is exact. D2's refusal machinery sees width drift only when the
+misalignment *happens* to produce a structural failure; it does not see this.
+
+This is the single place where D2's "never a plausible-looking guess" does not
+hold end to end, and it is why the guess is a **named** exception rather than a
+general licence. What survives intact is D1: the misread cannot become an
+unbounded or out-of-bounds operation. The failure mode is a confidently wrong
+rendering, bounded in cost — the honest characterization, and the reason
+[Non-claims](#non-claims) states that values are not promised correct.
+
+A caller cannot currently tell the two apart: `EnumUnderlyingPrimitive` returns
+the defaulted `Int32` as an ordinary value, indistinguishable from a resolved
+one. Making the default *distinguishable*, so a caller that cares can know a
+width was guessed, is the one available mitigation that does not require
+refusing real attributes. It is open work on
+[#5742](https://github.com/richlander/dotnet-inspect/issues/5742), not a claim
+this document makes today.
 
 Narrowing the carve-out is [#4741](https://github.com/richlander/dotnet-inspect/issues/4741)'s
 job: the more names product extraction plans into a frozen generation, the more
@@ -849,8 +880,10 @@ range actually emit, and everything outside it drops from *decode correctly* to
 SDKs in the certified range and asserts zero refusals and value equality with SRM,
 reusing the baseline machinery under `tools/DecompilerHarness/corpus/`. It must
 additionally carry the **producer-truth width cases** described under
-[D3](#d3--fidelity) — cross-assembly non-`Int32` enums decoded without their
-defining reference — because SRM equality is vacuous there. **Stage 2**
+[D3](#d3--fidelity) — cross-assembly non-`Int32` enums whose defining image the
+workspace has retained — because SRM equality is degenerate there, the oracle
+having consulted the same adapter. Widths no path can resolve are carved out of
+D3 and are not stage-1 obligations. **Stage 2**
 (#5304) is the exhaustive per-position enumeration with `MustApprove` /
 `MustRefuse` / `KnownGap` dispositions; after the inversion its obligation outside
 the certified set is D1 and D2 only.
@@ -921,6 +954,7 @@ place it.
 | #5304 | Stage 2 exhaustive per-position enumeration. |
 | #5397 | `TryDecode` swallows `OutOfMemoryException` through a bare catch. Gap 6, D2. Retained rather than closed; see [D2](#d2--fail-closed-visibly). |
 | #5733 | The D1 generative bounded-cost gate. Filed from review of this slice, because D1 previously named #5065, which does not measure cost. |
+| #5742 | The defaulted `Int32` enum width is indistinguishable from a resolved one, so a caller cannot tell a guessed width from a known one. Filed from review of this slice. The mitigation for D3's row-three carve-out. |
 | #4879 | Enum constants whose signature does not match `value__`. Fidelity. |
 | #5062 | Signature decode laundering internal errors into `SignatureRejected`. |
 | #4741 | Product extraction does not yet plan custom-attribute enum names into a frozen type-resolution generation. |
