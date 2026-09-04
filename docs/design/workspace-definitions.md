@@ -1983,8 +1983,11 @@ Definition records and product demos (this slice):
 - `InspectionDefinitionTests.JsonRoundTrip_PreservesEveryRecordKind` and
   `InspectionDefinitionTests.Parse_RejectsCrossKindRecordAndCoordinateFields`
   gate portable round-trip and record-kind separation.
-  `ProductDemoSourceBindingTests` gates source shape, selected-only dispatch,
-  exact scenario resolution, section admission, and visible failures.
+  `ProductDemoSourceBindingTests` gates source shape, exactly-once source
+  invocation per resolve, exact scenario resolution, section admission, and
+  visible failures.
+  `EcosystemPackRegistryTests.DemoSelectionInvokesOnlyTheSelectedSourceAndRetainsCatalogMetadata`
+  gates selected-only catalog dispatch and neighboring-source isolation.
   `ProductEcosystemPackTests.ExistingDemoSourcesPreserveDonorRecordsAndRunPlans`
   and `ProductEcosystemPackTests.EveryShippedDemoBindsAKnownProductSection`
   gate donor parity and shipped section binding; `DemoCommandTests` gates CLI
