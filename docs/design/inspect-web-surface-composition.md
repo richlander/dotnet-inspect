@@ -314,9 +314,10 @@ documentation was supplied because the current typed surface does not identify
 whether that absence describes a void member or missing package documentation.
 
 Contract rows stack identity above documentation according to the detail pane's
-width. Long generic types, defaults, and namespace-qualified exception types
-remain contained within their row. Applicability closes the overview as compact
-terminal metadata rather than another full-weight article section.
+width. Long parameter names, generic types, defaults, and namespace-qualified
+exception types remain contained within their row. Applicability closes the
+overview as compact terminal metadata rather than another full-weight article
+section.
 
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.

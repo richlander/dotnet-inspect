@@ -551,7 +551,22 @@ test("Member Overview responds to constrained pane widths", async ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
   }));
+  const longParameterRow = await page.locator(
+    ".member-parameters .member-contract-list > div:first-child")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+  const memberScroller = await page.locator(".member-surface-scroll")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
   expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
+  expect(longParameterRow.scrollWidth)
+    .toBeLessThanOrEqual(longParameterRow.clientWidth);
+  expect(memberScroller.scrollWidth)
+    .toBeLessThanOrEqual(memberScroller.clientWidth);
   expect(copy.x + copy.width)
     .toBeLessThanOrEqual(declaration.x + declaration.width);
   expect(copy.y).toBeGreaterThanOrEqual(declarationHeader.y);

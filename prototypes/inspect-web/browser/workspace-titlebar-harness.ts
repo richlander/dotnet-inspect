@@ -388,7 +388,9 @@ function detailHtml() {
     const memberContract = renderMemberContractSections({
       parameters: [
         {
-          name: "utf8Json",
+          name: longSignatureMode
+            ? "utf8JsonPayloadParameterNameWithAnIntentionallyLongUnbrokenIdentifierForContainmentEvidence"
+            : "utf8Json",
           type: "ReadOnlySpan<byte>",
           modifier: null,
           hasDefault: false,

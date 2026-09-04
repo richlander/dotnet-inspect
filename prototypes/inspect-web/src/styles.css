@@ -1205,7 +1205,7 @@ kbd {
 .member-contract-list > div { display: grid; grid-template-columns: minmax(190px, 32%) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
 .member-contract-list dt { min-width: 0; display: grid; align-content: start; gap: 4px; padding: 11px 10px; }
 .member-contract-list dd { min-width: 0; margin: 0; padding: 11px 10px; }
-.member-contract-name { color: var(--text); font: 600 13px/1.45 var(--mono); }
+.member-contract-name { color: var(--text); font: 600 13px/1.45 var(--mono); overflow-wrap: anywhere; }
 .member-contract-type { color: var(--blue); font: 12px/1.45 var(--mono); overflow-wrap: anywhere; }
 .member-contract-identity-unavailable { color: var(--dim); font: 11px/1.45 var(--mono); }
 .member-contract-default { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: baseline; color: var(--dim); font: 10px/1.45 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
