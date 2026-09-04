@@ -100,7 +100,7 @@ does not add:
 - an extensible plugin vocabulary for expansion policy; or
 - a universal source-realization protocol.
 
-The first complex proof is the 16-package `Microsoft.Extensions` set from the
+The first complex proof is the 44-package `Microsoft.Extensions` set from the
 [Package Set Registry](package-set-registry.md). The scope owner therefore
 needs atomic multi-Root edits, visible failures, and a capacity above the
 current 12-package Browser limit. It does not need a multi-Workspace manager.
@@ -142,7 +142,7 @@ Workspace. The Workspace editor uses **Add** for explicit accumulation. Opening
 an exact Root that is already present returns that existing occurrence without
 reacquisition.
 
-The neighboring package-set case prepares all 16
+The neighboring package-set case prepares all 44
 `package-set.microsoft-extensions` coordinates and commits one revision. A
 failure in any required package leaves the prior revision current and reports
 the exact package failure; it never evicts older Roots or publishes a shortened
@@ -180,10 +180,13 @@ owners.
 
 ## One live Workspace
 
-Inspect Web holds exactly one live runtime Workspace. Loading a demo, share
+Inspect Web holds exactly one live runtime Workspace. Activating a demo, share
 packet, imported definition, saved definition, or ordinary **Open** request
-replaces the scope in that Workspace; none creates a second live Workspace
-object.
+means replacing the scope in that Workspace; none creates a second live
+Workspace object. An ordinary scope-only **Open** can perform that replacement
+now. An input that also restores canonical Navigation, view, query, or history
+state remains blocked on the focused complete-restoration participant described
+below.
 
 This component exposes no Workspace collection, switcher, name, or
 cross-Workspace operation. Each runtime Workspace has one current scope
@@ -544,16 +547,16 @@ The profile contains at least:
 - maximum external candidates in one expansion operation; and
 - maximum expansion depth.
 
-The v1 product profile permits **32 committed Root occurrences**. This is the
-smallest power-of-two ceiling that admits the current 16-package
-`Microsoft.Extensions` set and leaves room for one equally sized explicit Add.
-It replaces silent least-recent eviction; an explicit Add or Replace that would
-exceed the ceiling returns a typed rejection and preserves the current
-revision.
+The v1 product profile permits **64 committed Root occurrences**. This is the
+smallest power-of-two ceiling that admits the current audited 44-package
+`Microsoft.Extensions` set while leaving capacity for neighboring explicit
+Roots. It replaces silent least-recent eviction; an explicit Add or Replace
+that would exceed the ceiling returns a typed rejection and preserves the
+current revision.
 
-Thirty-two is only the logical Root ceiling. Artifact Acquisition continues to
+Sixty-four is only the logical Root ceiling. Artifact Acquisition continues to
 enforce retained bytes, acquisition bytes, participant counts, network work,
-execution work, and concurrent-generation budgets. A 16-package edit succeeds
+execution work, and concurrent-generation budgets. A 44-package edit succeeds
 only when both owners admit the complete candidate.
 
 The other dimensions are explicit finite inputs because their correct values
@@ -588,7 +591,7 @@ capacity with the Browser's reachable scope remains a separately owned
 [#5525](https://github.com/richlander/dotnet-inspect/issues/5525) residual.
 This owner defines neither packet capacity nor projection failure semantics.
 
-The 32-Root logical limit does not raise Artifact Acquisition's retained-byte
+The 64-Root logical limit does not raise Artifact Acquisition's retained-byte
 or participant budgets. Before the Browser offers the complete registered
 `Microsoft.Extensions` set, the artifact-backed Browser adoption in
 [#5576](https://github.com/richlander/dotnet-inspect/issues/5576) must prove
@@ -813,8 +816,8 @@ occurrences in request order.
   operation returns `Committed`, including when the same batch also contained
   already-present Roots.
 
-This behavior makes **Add package set** predictable. It never leaves seven of
-sixteen packages installed after the eighth fails.
+This behavior makes **Add package set** predictable. It never leaves an
+arbitrary successful prefix installed after a later required package fails.
 
 ### Remove Root occurrence
 
@@ -1093,16 +1096,27 @@ focus command. Navigation owns subject recommendation, reconciliation,
 retained intent, and active-snapshot publication.
 
 [Workspace Definitions](workspace-definitions.md) owns portable schema,
-projection, and complete restoration. A restoration lowers its complete
-resource-free definition to one ordinary `ReplaceScope`; this owner exposes no
-general restoration transaction participant beyond the sealed Artifact
-publication participant used internally for that operation. Workspace
-Definitions and the Browser owners coordinate Navigation, view, query, and
-history effects without transferring those semantics into Scope.
+projection, and complete restoration. An ordinary `ReplaceScope` publishes
+Scope state and therefore cannot act as the uncommitted Scope fragment required
+by that owner's prepare-and-commit protocol. This design does not yet expose a
+complete-restoration participant. [#5525](https://github.com/richlander/dotnet-inspect/issues/5525)
+must return to this owner for a focused design that lets Navigation prepare
+against candidate occurrence identities and lets Scope join the one complete
+restoration commit without separately publishing. Until that prerequisite
+lands, canonical demo, share, import, saved-definition, and history restoration
+is unsupported; those inputs cannot be approximated by invoking
+`ReplaceScope` before or after the other participants.
 
-Browser Back/Forward may restore prior committed data into a new current
-revision. It does not reactivate the old runtime revision identity or make
-several Workspaces live simultaneously.
+An ordinary **Open** that intentionally replaces only Scope and resets rather
+than restores Navigation, view, query, and history state may use
+`ReplaceScope`. Workspace Definitions and the Browser owners retain the
+portable and presentation semantics; the future Scope participant must not
+transfer those semantics here or become a generalized transaction framework.
+
+After the complete-restoration participant lands, Browser Back/Forward may
+restore prior committed data into a new current revision. It does not
+reactivate the old runtime revision identity or make several Workspaces live
+simultaneously.
 
 ## Concurrency model
 
@@ -1150,9 +1164,9 @@ The implementation must demonstrate:
 
 | Case | Required result |
 | --- | --- |
-| Add the resolved current Microsoft.Extensions package set to an empty Workspace | One complete revision containing every current set member under the 32-Root logical profile and one atomically published parent preparation set |
+| Add the resolved current Microsoft.Extensions package set to an empty Workspace | One complete revision containing every current set member under the 64-Root logical profile and one atomically published parent preparation set |
 | Render the committed package and platform inventory after preparation resources release | Each occurrence retains a resource-free typed Root descriptor with its Package/non-package kind and exact owner-issued coordinate facts |
-| The eighth package in that set fails realization | No new revision; the prior scope remains current with the exact package failure |
+| One required package in that set fails realization | No new revision; the prior scope remains current with the exact package failure |
 | Add a pinned exact package already present | No acquisition; `NoEffect` returns the existing exact occurrence |
 | Add a floating request that resolves to a package already present | Realization runs, exact correspondence returns `NoEffect`, and redundant provisional resources release |
 | Add two equal exact requests in one batch | The first request determines order; one occurrence is appended and no duplicate preparation runs |
@@ -1179,7 +1193,7 @@ The implementation must demonstrate:
 | Remove a package-prefix scope after prior expansion | Future matching stops; admitted Roots remain |
 | Register an expansion scope already present | `NoEffect` preserves the current closure observation |
 | Remove an expansion-scope value that is absent | `NoEffect` preserves the current revision and closure observation |
-| Reach 32 Roots and attempt one more Add | Typed capacity rejection; no eviction or membership change |
+| Reach 64 Roots and attempt one more Add | Typed capacity rejection; no eviction or membership change |
 | Remove the active occurrence | Scope commits removal; Navigation independently selects Workspace unless it has exact authorized retained state |
 | Artifact Acquisition retires a retained occurrence before replacement settles | `Pending` or `Failed` keeps logical identity but projects no current realization reference and invalidates prior closure evidence |
 | Artifact runtime closes while Add is preparing | Parent publication refuses and releases preparation; Scope returns `Unavailable` with at most the last resource-free snapshot as historical evidence |
@@ -1240,8 +1254,8 @@ or artifact evidence later claimed by those owners.
 | `ExpansionProducerBounds_RemainTypedEvidence` | Valid candidate- and depth-bound markers remain durable `Incomplete` evidence in selectively open scope, remain typed `ClosedBoundary` evidence in closed scope, and never authorize work for omitted candidates. |
 | `ProducerEvidenceIdentity_BindsIssuanceButNotFreshness` | Producer identity prevents cross-batch mixing but is not consumed replay authority; revision, closure, and exact Root-generation coverage establish freshness. |
 | `ExpansionRetry_IsStateIdempotent` | A retry after committed closure movement is stale, while an unchanged current batch after `NoEffect` may repeat only the same state-based `NoEffect`. |
-| `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The resolved current package-set membership fits the 32-Root profile and no existing Root is evicted. |
-| `RootCapacity_RejectionPreservesCurrentRevision` | A thirty-third distinct Root fails visibly without truncation or replacement. |
+| `ProductProfile_AdmitsRegisteredMicrosoftExtensionsWithoutEviction` | The resolved current package-set membership fits the 64-Root profile and no existing Root is evicted. |
+| `RootCapacity_RejectionPreservesCurrentRevision` | A sixty-fifth distinct Root fails visibly without truncation or replacement. |
 | `RuntimeClose_RejectsNewScopeOperations` | Scope authority cannot outlive the artifact owner's runtime Workspace lifetime. |
 | `RuntimeUnavailable_DoesNotFabricateCurrentScope` | Absent, closing, or closed Artifact runtime state rejects current refresh or mutation and never becomes an empty or success-shaped Workspace result. |
 | `ScopePublication_UsesArtifactRootPublicationPlan` | Every membership, policy, closure, or refresh publication supplies one complete parent-owned physical plan and sealed Scope participant carrying exact current and fresh candidate Scope bases; the parent gate changes both current states or neither. |
@@ -1289,7 +1303,7 @@ action, and receipt identities.
 7. Complete #5720's Package Set Registry/ecosystem-pack composition and #5602's
    typed source-intent adoption, then lower selected package-set actions to
    exact `ReplaceScope` or `AddRoots` requests. Prove the current complete
-   `Microsoft.Extensions` membership under the 32-Root logical profile. Browser
+   `Microsoft.Extensions` membership under the 64-Root logical profile. Browser
    adoption #5576 separately owns the physical budget needed to realize that
    complete set.
 8. Implement the three typed expansion scopes and bounded dependency-evidence
