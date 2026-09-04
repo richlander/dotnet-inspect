@@ -8409,7 +8409,7 @@ function openProductDemos(): void {
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
-// `resolveHomeDemo` (`ProductInspectionDemos` / CLI `demo <id>`). Type views
+// `resolveHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Type views
 // restore via share deep links built from the resolved projection;
 // member-bound Call Graph demos execute through one generated engine operation
 // over the product-resolved workspace and view.
