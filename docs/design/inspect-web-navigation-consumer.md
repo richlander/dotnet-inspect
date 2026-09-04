@@ -426,6 +426,20 @@ replaces that renderer, the ordinary authority-validated replacement and
 fallback rules in [Shell and menu focus resolution](#shell-and-menu-focus-resolution)
 apply instead; focus never returns to an outgoing-renderer element.
 
+Opening a demo from the Workspace is an explicit replacement action. The
+consumer retains the source history entry while acquisition and destination
+rendering are in flight, pushes the canonical Workspace destination only after
+replacement succeeds, and leaves the source entry unchanged on failure.
+Any ordinary inspection action that leaves the demo catalog, including scope,
+Search, and loaded-package occurrence activation, follows the same push
+classification so Back returns to the catalog. If a catalog-origin NuGet
+package or Platform-library acquisition fails, the consumer restores the prior
+Workspace and catalog, restarts derived Workspace occurrence discovery,
+surfaces retry there, and returns focus to the stable Search control when it is
+rendered or otherwise to the retained surface's level-one heading, without
+committing a destination. The restarted occurrence discovery preserves that
+focus when its result replaces the catalog DOM.
+
 ### Package query entry and return
 
 Package query's `/query` route is a full-bleed routed surface under

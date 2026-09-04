@@ -2,15 +2,9 @@ import {
   parsePackageQuery,
   type ParsedPackageQuery,
 } from "./package-controls.ts";
-import {
-  isProductHomeDemoId,
-  type ProductHomeDemoId,
-} from "./product-home-demos.ts";
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
 
-/** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
-export type HomeDemo = ProductHomeDemoId;
 export type ApplicationAction = "share" | "settings" | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
@@ -29,8 +23,8 @@ export interface WorkbenchShellBinding {
 }
 
 export interface HomeShellBindingActions {
-  onDemo: (demo: HomeDemo) => void;
   onDismissNotice: () => void;
+  onOpenDemos: () => void;
   onOpenCredits: () => void;
   onToggleTheme: () => void;
 }
@@ -504,13 +498,8 @@ export function bindHomeShell(
       event.preventDefault();
       actions.onOpenCredits();
     });
-  root.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => {
-      const demo = button.dataset.homeDemo;
-      if (isProductHomeDemoId(demo)) {
-        actions.onDemo(demo);
-      }
-    }));
+  root.querySelector("#home-demos")
+    ?.addEventListener("click", actions.onOpenDemos);
 }
 
 export function bindLoadErrorShell(
