@@ -1573,6 +1573,69 @@ test("matching Ready ends the startup deadline before held-start flush", async (
   await handle.quiesced;
 });
 
+for (const scenario of [
+  { name: "expired grace", elapsed: 5, accepted: false, probe: true },
+  { name: "unexpired grace", elapsed: 4, accepted: false, probe: false },
+  { name: "retired response", elapsed: 5, accepted: true, probe: false },
+] as const) {
+  test(`readiness flush evaluates ${scenario.name} without aging the watchdog`, async () => {
+    const bootstrap = deferred<void>();
+    const settlement = deferred<TestSettlement>();
+    const harness = createHarness({
+      bootstrap: () => bootstrap.promise,
+      invoke: () => settlement.promise,
+      controlResponseGraceMilliseconds: 5,
+      synchronousStartActiveAdvanceMilliseconds: scenario.elapsed,
+      synchronousAccepted: scenario.accepted,
+      omitResponse: kind => kind === "accepted"
+        || kind === "probe-acknowledged",
+    });
+    assert.equal(harness.host.start("bootstrap").kind, "started");
+    harness.environment.flushTasks();
+    const operationSession = session(harness.adapter);
+    const handle = started(
+      operationSession.session.start("input", harness.adapter),
+    );
+
+    bootstrap.resolve(undefined);
+    await harness.environment.flushAsync();
+
+    assert.deepEqual(operationMessages(harness.workers[0]!), scenario.probe
+      ? ["initialize", "start", "probe"]
+      : ["initialize", "start"]);
+    assert.equal(harness.host.snapshot().phase, "ready");
+    assert.equal(harness.host.snapshot().lastTaskEvidenceOrigin, scenario.elapsed);
+    assert.equal(harness.host.snapshot().outstandingProbeSequence,
+      scenario.probe ? 1 : null);
+    assert.equal(harness.failures.length, 0);
+
+    if (scenario.accepted) {
+      settlement.resolve({ kind: "succeeded", value: "output" });
+      await harness.environment.flushAsync();
+      assert.deepEqual(await handle.outcome, {
+        kind: "succeeded",
+        value: "output",
+      });
+    } else {
+      if (!scenario.probe) {
+        harness.environment.advanceActive(1);
+        await harness.environment.flushAsync();
+        assert.equal(harness.host.snapshot().outstandingProbeSequence, 1);
+      }
+      harness.workers[0]!.emitRaw(workerEnvelope(1, {
+        kind: "probe-acknowledged",
+        probeSequence: 1,
+      }));
+      assert.deepEqual(await handle.outcome, {
+        kind: "failed",
+        error: "boundary:control-response",
+      });
+      harness.host.restart();
+    }
+    await handle.quiesced;
+  });
+}
+
 test("a warm activation cannot overtake a start activated during readiness flush", async () => {
   const bootstrap = deferred<void>();
   const settlement = deferred<TestSettlement>();

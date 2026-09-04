@@ -628,6 +628,12 @@ covered required response is still absent when the matching
 `ProbeAcknowledged` arrives, the handler completed without its contractually
 required response; the epoch enters bounded unexpected draining.
 
+Completing the readiness flush evaluates response obligations already due at
+that transition, including grace that elapsed while a held `Start` was posted
+synchronously. A response dispatched during the flush retires its obligation
+normally. This evaluation preserves the fresh post-readiness watchdog origin;
+startup and flush time do not age that watchdog.
+
 A covered response that arrives before the probe acknowledgment retires its
 obligation normally. The acknowledgment still retires the probe and does not
 fail the epoch merely because its original snapshot is now empty. Requests
@@ -1122,7 +1128,9 @@ deterministic scheduling rather than a real browser worker. It includes:
   flush without warm-start overtaking, synchronous `Accepted` delivery from an
   emitted held start during that flush, repeated response-driven yields
   resuming every remaining held start in sequence, startup-budget completion at
-  matching readiness before synchronous flush work, held cancellation,
+  matching readiness before synchronous flush work, overdue response grace
+  evaluated at flush completion without aging the watchdog or probing a
+  not-yet-due or already-retired response, held cancellation,
   `StartupFailed`-driven startup closure, and activation after a committed
   close preserving planned-restart cancellation versus unexpected boundary
   failure without posting `Start`, including cross-session preparation

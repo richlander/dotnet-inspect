@@ -1769,6 +1769,7 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
     epoch.lastTaskEvidenceOrigin = this.#options.clock.now();
     epoch.watchdogStageOrigin = null;
     epoch.hadUnboundedAllowance = this.#currentAllowance(epoch) === null;
+    this.#evaluateTime();
   }
 
   #receiveReady(
