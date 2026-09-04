@@ -215,16 +215,16 @@ Every mutation exited with TLC status 12 on its intended invariant:
 
 | Configuration | Generated / distinct | Maximum depth | Counterexample |
 | --- | ---: | ---: | --- |
-| Broken facade endpoint | 715,071 / 580,858 | 6 | A forwarding chain reached another assembly, but composition selected the facade. |
-| Broken cross-side endpoint | 970,467 / 767,366 | 6 | A forwarded endpoint used the opposite side's group and input identities. |
-| Broken Research receipt | 150,827 / 148,704 | 3 | The endpoint attempt carried a reconstructed Research input with a foreign receipt token. |
-| Broken terminal correspondence | 886,318 / 704,698 | 6 | Another terminal assembly reused the admitted candidate's collapsed query id. |
-| Broken census substitution | 150,172 / 148,182 | 3 | A healthy census from another domain and attempt set replaced the exact terminal census. |
-| Broken root relabel | 868,775 / 693,743 | 6 | A forwarded root attempt was retained as resolved instead of `DeclaringTypeForwarded`. |
-| Broken non-resolved attempt | 811,064 / 651,065 | 6 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
-| Broken forwarding evidence | 868,501 / 693,535 | 6 | A forwarded endpoint completed with an empty retained path. |
-| Broken binding drift | 282,163 / 233,546 | 4 | Composition published after the owner-issued binding version advanced. |
-| Broken unavailable invocation | 261,146 / 232,346 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
+| Broken facade endpoint | 715,117 / 580,899 | 6 | A forwarding chain reached another assembly, but composition selected the facade. |
+| Broken cross-side endpoint | 970,228 / 767,188 | 6 | A forwarded endpoint used the opposite side's group and input identities. |
+| Broken Research receipt | 150,817 / 148,694 | 3 | The endpoint attempt carried a reconstructed Research input with a foreign receipt token. |
+| Broken terminal correspondence | 871,125 / 693,632 | 6 | Another terminal assembly reused the admitted candidate's collapsed query id. |
+| Broken census substitution | 150,161 / 148,178 | 3 | A healthy census from another domain and attempt set replaced the exact terminal census. |
+| Broken root relabel | 875,367 / 698,579 | 6 | A forwarded root attempt was retained as resolved instead of `DeclaringTypeForwarded`. |
+| Broken non-resolved attempt | 810,348 / 650,543 | 6 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
+| Broken forwarding evidence | 868,336 / 693,412 | 6 | A forwarded endpoint completed with an empty retained path. |
+| Broken binding drift | 282,225 / 233,577 | 4 | Composition published after the owner-issued binding version advanced. |
+| Broken unavailable invocation | 261,145 / 232,345 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
 
 The runs used TLC build `2026.09.01.002747`, revision `95b800c`, from the
 repository-pinned TLA+ v1.8.0 `tla2tools.jar`. The checked jar SHA-256 was
