@@ -272,10 +272,12 @@ import {
 } from "./graph-source.ts";
 import {
   annotatedFocusSelector,
+  captureAnnotatedSourceScroll,
   renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
+  restoreAnnotatedSourceScroll,
   type AnnotatedSourceAction,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
@@ -6081,21 +6083,27 @@ function bindDocViewerEvents() {
 function scheduleAnnotatedFocus(
   target: AnnotatedFocusTarget | string,
   surface: "embedded" | "modal" = "modal",
+  preventScroll = false,
 ) {
   const selector = typeof target === "string"
     ? target
     : annotatedFocusSelector(target, surface);
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(selector)?.focus();
+    const element = document.querySelector<HTMLElement>(selector);
+    if (preventScroll) element?.focus({ preventScroll: true });
+    else element?.focus();
   });
 }
 
 function renderAndFocusAnnotated(
   target: AnnotatedFocusTarget | string,
   surface: "embedded" | "modal" = "modal",
+  preventScroll = false,
 ) {
+  const scroll = captureAnnotatedSourceScroll(document);
   render();
-  scheduleAnnotatedFocus(target, surface);
+  restoreAnnotatedSourceScroll(document, scroll);
+  scheduleAnnotatedFocus(target, surface, preventScroll);
 }
 
 function openAnnotatedSourceModal() {
@@ -6167,14 +6175,14 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
     }
     case "annotation-open":
       setSession(selectFinding(session, action.opener));
-      renderAndFocusAnnotated("#annotated-detail-title", surface);
+      renderAndFocusAnnotated("#annotated-detail-title", surface, true);
       return;
     case "inspector-open":
       setSession(selectFinding(session, {
         kind: "inspector",
         factId: action.factId,
       }));
-      renderAndFocusAnnotated("#annotated-detail-title");
+      renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
     case "annotation-set": {
       const transition = action.value === "Default"
