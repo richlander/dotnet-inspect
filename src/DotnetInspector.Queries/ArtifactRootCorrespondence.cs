@@ -69,13 +69,17 @@ internal readonly record struct PackageArtifactRootRequest(
             NormalizeRuntime(selectionRuntimeIdentifier));
     }
 
-    static string? NormalizeFramework(string? framework) =>
-        framework is not null
-        && NuGetTargetFrameworkIdentity.TryNormalize(
+    static string? NormalizeFramework(string? framework)
+    {
+        if (string.IsNullOrWhiteSpace(framework))
+            return null;
+
+        return NuGetTargetFrameworkIdentity.TryNormalize(
             framework,
             out string canonical)
-            ? canonical
-            : framework;
+                ? canonical
+                : framework;
+    }
 
     static string? NormalizeRuntime(string? runtimeIdentifier) =>
         RealizedMemberCoordinate.IsCanonicalRuntimeIdentifier(

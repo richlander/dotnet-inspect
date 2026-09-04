@@ -49,6 +49,16 @@ public sealed class ArtifactRootCorrespondenceTests
                 "Stable.Correspondence",
                 producer: "tests",
                 targetFramework: "net10.0");
+        PackageRootBinding omittedTarget =
+            Binding(
+                "Stable.Correspondence",
+                producer: "tests",
+                targetFramework: null);
+        PackageRootBinding blankTarget =
+            Binding(
+                "Stable.Correspondence",
+                producer: "tests",
+                targetFramework: " ");
         PackageRootBinding equivalentTargetSpelling =
             Binding(
                 "Stable.Correspondence",
@@ -80,6 +90,15 @@ public sealed class ArtifactRootCorrespondenceTests
             firstCorrespondence,
             workspace.CreatePackageArtifactRootCorrespondence(
                 equivalentTargetSpelling));
+        Assert.Equal(
+            workspace.CreatePackageArtifactRootCorrespondence(
+                omittedTarget),
+            workspace.CreatePackageArtifactRootCorrespondence(
+                blankTarget));
+        Assert.NotEqual(
+            firstCorrespondence,
+            workspace.CreatePackageArtifactRootCorrespondence(
+                omittedTarget));
         Assert.NotEqual(
             firstCorrespondence,
             workspace.CreatePackageArtifactRootCorrespondence(
@@ -111,9 +130,9 @@ public sealed class ArtifactRootCorrespondenceTests
                     "exact.match",
                     "1.0.0",
                     "tests",
-                    Framework,
+                    framework: null,
                     runtimeIdentifier: null),
-                Framework,
+                selectionTargetFramework: " ",
                 selectionRuntimeIdentifier: null);
         var content = new CountingPackageContent(
             new InMemoryPackageContent(
@@ -134,7 +153,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     content,
                     "tests",
                     PackagePayloadOrigin.Download),
-                Framework);
+                selectionTargetFramework: null);
         content.ResetAccessCount();
         using var workspace = new InspectionWorkspace();
 
@@ -172,7 +191,7 @@ public sealed class ArtifactRootCorrespondenceTests
     static PackageRootBinding Binding(
         string packageId,
         string producer,
-        string targetFramework,
+        string? targetFramework,
         string? runtimeIdentifier = null)
     {
         var content = new InMemoryPackageContent(
