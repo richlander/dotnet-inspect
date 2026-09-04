@@ -17,6 +17,11 @@
   (#4421).
 - Adds `demo` for listing and running closed product-home scenarios backed by
   real section output rather than separate demonstration logic (#4463).
+- **Breaking:** Removes the hidden deprecated `api` command and the direct
+  `ApiCommand.ExecuteAsync(ApiOptions)` compatibility entry point. Use `type`
+  to discover or inspect types and `member` to inspect members. The removed
+  `api` command token remains reserved so it cannot silently become an
+  implicit package lookup.
 - Fixes canonical metadata generic-arity handling across API identity,
   relationship traversal, type forwarding, PDB/source mapping, decompilation,
   and selector spelling. Nested and foreign generic types now retain their

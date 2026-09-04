@@ -160,16 +160,18 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
-    public void ParseHistory_DefaultsMethodologyToV1WhenAbsentAndReadsExplicitVersion()
+    public void ParseHistory_DefaultsMethodologyToV1WhenAbsentOrNullAndReadsExplicitVersion()
     {
         var runs = AuthoredCorpusHistoryCard.ParseHistory(
         [
             """{"date":"2026-08-01","validPct":57.0,"correct":1610,"invalid":5170,"invalidBreakdown":null}""",
-            """{"date":"2026-08-02","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":82},"methodologyVersion":2}""",
+            """{"date":"2026-08-02","validPct":57.0,"correct":1610,"invalid":5170,"invalidBreakdown":null,"methodologyVersion":null}""",
+            """{"date":"2026-08-03","validPct":57.1,"correct":1620,"invalid":5160,"invalidBreakdown":{"productBodyDefect":471,"harnessShellReconstruction":4664,"unclassified":82},"methodologyVersion":2}""",
         ]);
 
         Assert.Equal(1, runs[0].Methodology);
-        Assert.Equal(2, runs[1].Methodology);
+        Assert.Equal(1, runs[1].Methodology);
+        Assert.Equal(2, runs[2].Methodology);
     }
 
     [Fact]
