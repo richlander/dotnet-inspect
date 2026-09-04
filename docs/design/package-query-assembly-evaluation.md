@@ -544,22 +544,40 @@ An unexpected exception from a prefilter or semantic binding follows the same
 cleanup rule. Candidate cleanup runs in `finally`; a cleanup failure is
 attached as secondary evidence and cannot replace the original exception.
 
-`InspectionWorkspace.CloseAsync()` may complete normally while returning
-`ArtifactSessionCleanupFailures`. The evaluator always inspects that report:
+`InspectionWorkspace.CloseAsync()` may complete normally while reporting
+direct-group release failure in `Groups` or artifact-session release failure in
+`ArtifactSessionCleanupFailures`. The evaluator owns a fresh workspace with
+exactly the one direct group returned by the sparse projection, so a successful
+close report must contain exactly one
+`InspectionWorkspaceDirectGroupCloseResult` with `Succeeded == true` and no
+artifact-session cleanup failures. A missing, additional, coordinated, or
+otherwise unexpected group result is a close-report contract failure rather
+than a result the evaluator tries to reinterpret.
 
-- after a would-be `Matched` or `NoMatch`, any reported cleanup failure replaces
-  the success with `Failure(CandidateCleanup)`;
+The evaluator applies one precedence rule to the whole report:
+
+- after a would-be `Matched` or `NoMatch`, any failed or unexpected group result
+  or artifact-session cleanup failure replaces the success with
+  `Failure(CandidateCleanup)`;
 - after a typed evaluation failure, cleanup evidence is appended as secondary
   evidence without replacing the primary failure stage; and
 - during cancellation or unexpected exception propagation, cleanup exceptions
   are attached as secondary evidence to the primary condition.
 
 Candidate-cleanup evidence is resource-free and product-authored. It contains a
-stable cleanup-stage code and failure count, not exception instances, messages,
-paths, or stack traces. A thrown workspace group-close failure remains an
-unexpected exception; after all possible artifact-session releases have been
-attempted by the workspace owner, it propagates under the same
-primary-condition rule.
+bounded sequence of distinct cleanup stages and counts:
+
+- **GroupRelease** for an unsuccessful direct-group result;
+- **ArtifactSessionRelease** for reported artifact-session cleanup failures; and
+- **CloseReportContract** for a missing, additional, coordinated, or unknown
+  group result in this one-direct-group workspace.
+
+It carries no exception instances, messages, paths, or stack traces.
+Report-valued direct-group failure is not described as a thrown exception.
+`CloseAsync()` faults only when group-close orchestration itself faults; after
+the workspace owner attempts all possible artifact-session releases, that
+close exception propagates as the primary condition or attaches secondarily to
+an already-propagating cancellation or exception.
 
 The operation deadline is implemented by cancelling that same operation token.
 Deadline expiry is therefore cancellation, not a separate candidate failure.
@@ -605,8 +623,8 @@ context plus one stage-specific resource-free payload:
   typed failure;
 - semantic work limit carries the producer-owned budget kind, admitted limit,
   and charged work when available; and
-- candidate cleanup carries the stable close stage and reported cleanup-failure
-  count.
+- candidate cleanup carries the bounded sequence of close stages and reported
+  counts.
 
 A bounded product-authored presentation diagnostic may accompany a failure,
 but it is derived from the typed payload and is never the only durable cause.
@@ -710,7 +728,7 @@ The implementation must preserve focused fixtures for:
 11. semantic work reaching its exact limit and exceeding it;
 12. cancellation during sparse projection and semantic traversal; and
 13. a successful or throwing prefilter or producer whose candidate close also
-    reports a cleanup failure.
+    reports direct-group or artifact-session cleanup failure.
 
 The package-ID/default-asset and byte-prefilter cases are contract-defining and
 must run in the ordinary Release suite. Performance and peak-memory corpus
@@ -739,7 +757,7 @@ gates where a Metadata or Analysis binding is adopted.
 | `PackageAssemblyEvaluation_PreservesExactCorrespondence` | Execution consumes #5798's exact selected-asset projection for the coordinate, content generation, selection, and canonical asset; the resource-free receipt preserves both process-local correspondence identities with the package/asset context, sibling count, pattern, and producer evidence. |
 | `PackageAssemblyEvaluation_FailureCarriesTypedContext` | Preselection failure carries exact selection context without an invented asset; every post-selection failure carries the complete selected-asset context and its declared owner-typed stage payload rather than relying on presentation text. |
 | `PackageAssemblyEvaluation_ReleasesResourcesOnEveryOutcome` | Preprojection outcomes create no candidate resources; every resource-bearing match, non-match, failure, work-limit, cancellation, and unexpected binding-exception path enters `finally`, closes its query and workspace, and attempts participant and artifact release. Throwing prefilter and producer fixtures prove preservation of the primary exception when close also fails. |
-| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | A successful producer plus `ArtifactSessionCleanupFailures` becomes `Failure(CandidateCleanup)`; an existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
+| `PackageAssemblyEvaluation_CloseReportCannotReturnSuccess` | The fresh candidate close report must contain exactly one successful direct-group result and no artifact-session cleanup failures. Successful producer fixtures independently cover direct-group failure, artifact-session failure, and unexpected group-result shape; each becomes `Failure(CandidateCleanup)` with distinct stage evidence. An existing typed failure retains its primary stage with bounded secondary cleanup evidence; cancellation and unexpected exceptions retain their primary propagated condition. |
 | `PackageAssemblyEvaluation_FailuresRemainVisibleAndInert` | Malformed, unsupported, oversized, and disappearing selected entries produce typed inert failures rather than empty success or package-authored diagnostics. |
 | `PackageAssemblyEvaluation_ResultClosureIsResourceFree` | The full gate reflects the public transitive closure of every request and outcome and rejects prohibited resource or authority types. |
 | `PackageAssemblyEvaluation_OneRequestProducesOneOutcome` | Normal completion returns exactly one outcome and cancellation or unexpected failure cannot also publish one. |
