@@ -11427,7 +11427,7 @@ public partial class CommandExecutionTests
         // a discovery request there would have been rejected with a misleading column message.
         // Discovery must be dispatched before the projection guard, matching the main listing path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.*", "--library", TestAssemblyPath,
+            "type", "DotnetInspector.Tests.Sample*", "--library", TestAssemblyPath,
             "-D", "Classes", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
@@ -11439,6 +11439,30 @@ public partial class CommandExecutionTests
             row => Assert.Equal(
                 ["name"],
                 row.EnumerateObject().Select(property => property.Name)));
+    }
+
+    [Fact]
+    public async Task GlobListing_Discovery_UsesMatchedTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.Sample*Constraint*", "--library", TestAssemblyPath,
+            "-D", "Enums", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'Enums' not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GlobListing_Discovery_RejectsUnmatchedGlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Zqqxnomatch.*", "--library", TestAssemblyPath,
+            "-D", "Classes", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'Zqqxnomatch.*' not found", error, StringComparison.Ordinal);
     }
 
     [Fact]
