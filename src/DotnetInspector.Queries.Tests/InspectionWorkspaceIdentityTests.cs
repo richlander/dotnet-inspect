@@ -137,4 +137,121 @@ public sealed class InspectionWorkspaceIdentityTests
             () => workspace.IssueNonPackageRootOccurrence());
         await close;
     }
+
+    [Fact]
+    public void PackageOccurrenceView_PreservesOrderAndBindingFacts()
+    {
+        PackageRootBinding first =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "First.View");
+        PackageRootBinding second =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Second.View");
+        using var workspace = new InspectionWorkspace();
+
+        InspectionWorkspacePackageOccurrenceView view =
+            workspace.CreatePackageOccurrenceView([second, first]);
+
+        Assert.Same(workspace.Identity, view.Workspace);
+        Assert.Collection(
+            view.Occurrences,
+            descriptor =>
+            {
+                Assert.Equal("second.view", descriptor.PackageId);
+                Assert.Same(second, descriptor.Occurrence.RootBinding);
+                Assert.Same(
+                    workspace.Identity,
+                    descriptor.Occurrence.WorkspaceIdentity);
+            },
+            descriptor =>
+            {
+                Assert.Equal("first.view", descriptor.PackageId);
+                Assert.Same(first, descriptor.Occurrence.RootBinding);
+                Assert.Same(
+                    workspace.Identity,
+                    descriptor.Occurrence.WorkspaceIdentity);
+            });
+    }
+
+    [Fact]
+    public void PackageOccurrenceView_EmptyInputProducesTypedEmptyView()
+    {
+        using var workspace = new InspectionWorkspace();
+
+        InspectionWorkspacePackageOccurrenceView view =
+            workspace.CreatePackageOccurrenceView([]);
+
+        Assert.Same(workspace.Identity, view.Workspace);
+        Assert.Empty(view.Occurrences);
+    }
+
+    [Fact]
+    public void PackageOccurrenceView_RepeatedBindingIssuesDistinctOccurrences()
+    {
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Repeated.View");
+        using var workspace = new InspectionWorkspace();
+
+        InspectionWorkspacePackageOccurrenceView view =
+            workspace.CreatePackageOccurrenceView([binding, binding]);
+
+        Assert.Equal(2, view.Occurrences.Length);
+        Assert.NotSame(
+            view.Occurrences[0].Occurrence,
+            view.Occurrences[1].Occurrence);
+        Assert.Same(
+            binding,
+            view.Occurrences[0].Occurrence.RootBinding);
+        Assert.Same(
+            binding,
+            view.Occurrences[1].Occurrence.RootBinding);
+    }
+
+    [Fact]
+    public void PackageOccurrenceView_ActivationResolvesOnlyItsOwnAction()
+    {
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Activation.View");
+        using var workspace = new InspectionWorkspace();
+        InspectionWorkspacePackageOccurrenceView first =
+            workspace.CreatePackageOccurrenceView([binding]);
+        InspectionWorkspacePackageOccurrenceView second =
+            workspace.CreatePackageOccurrenceView([binding]);
+
+        var activated = Assert.IsType<
+            InspectionWorkspacePackageOccurrenceActivation.Activated>(
+                first.Activate(first.Occurrences[0].Action));
+        var rejected = Assert.IsType<
+            InspectionWorkspacePackageOccurrenceActivation.Rejected>(
+                first.Activate(second.Occurrences[0].Action));
+
+        Assert.Same(first.Occurrences[0].Occurrence, activated.Occurrence);
+        Assert.Equal(
+            InspectionWorkspacePackageOccurrenceActivationRejection
+                .ViewMismatch,
+            rejected.Reason);
+    }
+
+    [Fact]
+    public void PackageOccurrenceView_ActivationRejectsClosedWorkspace()
+    {
+        PackageRootBinding binding =
+            PackageAssemblyContextCompletionTests.SharedBinding(
+                "Closed.View");
+        var workspace = new InspectionWorkspace();
+        InspectionWorkspacePackageOccurrenceView view =
+            workspace.CreatePackageOccurrenceView([binding]);
+
+        workspace.Dispose();
+
+        var rejected = Assert.IsType<
+            InspectionWorkspacePackageOccurrenceActivation.Rejected>(
+                view.Activate(view.Occurrences[0].Action));
+        Assert.Equal(
+            InspectionWorkspacePackageOccurrenceActivationRejection
+                .WorkspaceClosed,
+            rejected.Reason);
+    }
 }

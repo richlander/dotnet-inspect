@@ -12,6 +12,7 @@ import {
 } from "../src/package-query-view.ts";
 import {
   appendFailure,
+  appendProgress,
   appendRows,
   createQueryRequest,
   emptyOutcome,
@@ -133,6 +134,43 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /data-query-cancel="1"/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
+});
+
+test("streaming progress renders with and without matching rows", () => {
+  const progress = appendProgress(
+    appendProgress(emptyOutcome(), {
+      phase: "search",
+      completed: 1,
+      limit: 1,
+    }),
+    {
+      phase: "manifest",
+      completed: 14,
+      limit: 20,
+    });
+  const withoutRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: progress,
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+  const withRows = renderPackageQueryView({
+    state: {
+      request: createQueryRequest("System.*"),
+      outcome: appendRows(progress, [row("System.Text.Json")]),
+    },
+    availableFacets: FACETS,
+    escapeHtml,
+  });
+
+  assert.match(withoutRows, /Source search/);
+  assert.match(withoutRows, /Manifests/);
+  assert.match(withoutRows, /14 of up to 20/);
+  assert.match(withoutRows, /<progress value="14" max="20">/);
+  assert.match(withRows, /System\.Text\.Json/);
+  assert.match(withRows, /14 of up to 20/);
 });
 
 test("result rows render typed producer identity instead of a source literal", () => {

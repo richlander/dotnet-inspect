@@ -29,7 +29,6 @@ import {
   type WorkbenchShellBindingActions,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import type { BrowserHomeDemoResolved } from "../src/inspect-web-engine.d.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
 import {
   bindSettingsPanel,
@@ -41,10 +40,9 @@ import {
 } from "../src/type-panel.ts";
 import {
   bindWorkspaceSubject,
-  focusWorkspacePacket,
-  renderWorkspacePacketView,
+  focusWorkspace,
   renderWorkspaceSubject,
-  retainWorkspacePacket,
+  renderWorkspaceView,
 } from "../src/workspace-subject.ts";
 
 declare global {
@@ -149,97 +147,28 @@ const coordinates = [
     isRuntimePack: false,
   },
 ];
-const packetDefinitions: readonly BrowserHomeDemoResolved[] = [
-  {
-    id: "stj-serializer",
-    title: "System.Text.Json",
-    summary: "Browse a real package API",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: null,
-      memberKey: null,
-      section: "Methods",
-    },
-  },
-  {
-    id: "stj-serialize-callgraph",
-    title: "Serialize call graph",
-    summary: "Dense package-local STJ graph",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonSerializer",
-      memberAnchor: "1dc14dd1fb",
-      memberKey: "method:Serialize",
-      section: "Call Graph",
-    },
-  },
-  {
-    id: "stj-getdecimal-callgraph",
-    title: "JsonElement.GetDecimal",
-    summary: "STJ number parse path",
-    workspaceMembers: [{
-      kind: "package",
-      id: "System.Text.Json",
-      version: "10.0.0",
-      framework: "net10.0",
-      assembly: null,
-    }],
-    tabs: [],
-    focusTabIndex: 0,
-    view: {
-      library: null,
-      type: "System.Text.Json.JsonElement",
-      memberAnchor: "cfd9980a6c",
-      memberKey: "method:GetDecimal",
-      section: "Call Graph",
-    },
-  },
-];
-let workspacePackets: BrowserHomeDemoResolved[] = [];
-for (const packet of packetDefinitions)
-  workspacePackets = retainWorkspacePacket(workspacePackets, packet);
-let selectedWorkspacePacketId = workspacePackets[0]?.id ?? "";
-
-function selectedWorkspacePacket(): BrowserHomeDemoResolved | null {
-  return workspacePackets.find(
-    packet => packet.id === selectedWorkspacePacketId) ?? null;
-}
-
 function workspaceNavigationHtml(): string {
   return renderWorkspaceSubject({
-    packets: workspacePackets,
-    selectedPacketId: selectedWorkspacePacketId,
+    packageCount: coordinates.length,
+    selected: true,
     escapeHtml,
   });
 }
 
 function workspaceDetailHtml(): string {
-  return renderWorkspacePacketView({
-    packet: selectedWorkspacePacket(),
-    packages: coordinates.slice(0, 1),
-    activePackage: coordinates[0] ?? null,
+  return renderWorkspaceView({
+    occurrences: coordinates
+      .filter(item => !item.isRuntimePack)
+      .map((item, index) => ({
+        action: `occurrence-${index}`,
+        package: item.id,
+        version: item.version,
+        framework: item.activeFramework,
+      })),
+    packages: coordinates,
+    loading: false,
+    error: "",
     escapeHtml,
-    packageIdentityKey: item =>
-      `${item.id}@${item.version}::${item.activeFramework}`,
   });
 }
 
@@ -471,7 +400,6 @@ app.innerHTML = `
             <span class="title-search-glyph" aria-hidden="true">⌕</span>
             <span class="title-search-label title-search-label-full">Search types, members, packages</span>
             <span class="title-search-label title-search-label-compact">Search</span>
-            <kbd>Ctrl P</kbd>
           </button>
         </nav>`,
     })}
@@ -675,9 +603,7 @@ function bindHarnessScopeBar() {
   }, scopeBarState);
 }
 
-function renderHarnessWorkspace(packetId: string) {
-  if (!workspacePackets.some(packet => packet.id === packetId)) return;
-  selectedWorkspacePacketId = packetId;
+function renderHarnessWorkspace() {
   const navigation =
     document.querySelector<HTMLElement>(".workspace-nav");
   const detail =
@@ -690,27 +616,25 @@ function renderHarnessWorkspace(packetId: string) {
     throw new Error("The workspace packet harness is incomplete.");
   navigation.outerHTML = workspaceNavigationHtml();
   detail.innerHTML = workspaceDetailHtml();
-  const title = selectedWorkspacePacket()?.title ?? "Current workspace";
+  const title = "Default Workspace";
   path.setAttribute("aria-label", title);
   path.title = title;
   pathSegment.textContent = title;
   bindHarnessWorkspace();
   requestAnimationFrame(() =>
-    focusWorkspacePacket(document, packetId));
+    focusWorkspace(document));
 }
 
 function bindHarnessWorkspace() {
   if (!workspaceMode) return;
   bindWorkspaceSubject(document, {
     onSelect: renderHarnessWorkspace,
-    onOpen: packetId => {
+    onActivate: action => {
       const count = Number(document.body.dataset.workspaceExecutionCount ?? "0");
       document.body.dataset.workspaceExecutionCount = String(count + 1);
-      document.body.dataset.workspaceExecution = packetId;
+      document.body.dataset.workspaceExecution = action;
     },
-    onClose: packageKey => {
-      document.body.dataset.workspaceClose = packageKey;
-    },
+    onRetry: () => {},
   });
 }
 

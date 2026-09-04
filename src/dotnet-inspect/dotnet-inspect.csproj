@@ -20,7 +20,7 @@
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
-    <VersionPrefix>0.23.0</VersionPrefix>
+    <VersionPrefix>0.24.0</VersionPrefix>
     <PackageId>dotnet-inspect</PackageId>
     <Description>A CLI tool for inspecting .NET assemblies and NuGet packages</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -95,11 +95,13 @@
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
     <ProjectReference Include="..\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Presentation\DotnetInspector.Presentation.csproj" />
     <ProjectReference Include="..\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
     <ProjectReference Include="..\DotnetInspector.ResearchQueries\DotnetInspector.ResearchQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
     <ProjectReference Include="..\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Sections\DotnetInspector.Sections.csproj" />
     <ProjectReference Include="..\InertText\InertText.csproj" />
   </ItemGroup>
 

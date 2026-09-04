@@ -375,10 +375,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
             failure => failure
                 is CatalogMethodDefinitionCorrespondenceFailure
                     .ImageOwnerMismatch
-                {
-                    Side:
+            {
+                Side:
                         CatalogMethodDefinitionCorrespondenceSide.Source,
-                });
+            });
     }
 
     [Fact]
@@ -407,10 +407,10 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
             failure => failure
                 is CatalogMethodDefinitionCorrespondenceFailure
                     .InvalidMethodToken
-                {
-                    Side:
+            {
+                Side:
                         CatalogMethodDefinitionCorrespondenceSide.Source,
-                });
+            });
     }
 
     [Fact]
@@ -478,11 +478,11 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
             failure => failure
                 is CatalogMethodDefinitionCorrespondenceFailure
                     .ResourceLimitExceeded
-                {
-                    Limit:
+            {
+                Limit:
                         CatalogMethodDefinitionCorrespondenceLimit
                             .SameNameCandidates,
-                });
+            });
     }
 
     [Fact]
@@ -690,13 +690,20 @@ public sealed class CatalogMethodDefinitionCorrespondencePlanTests
     {
         public AssemblyBindingPolicyVersion Version { get; } = new();
 
-        public AssemblyBindingSelection Select(
-            AssemblyBindingRequest request) =>
-            request.Target
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request)
+        {
+            return new AssemblyBindingSelectionSnapshot(
+                Version,
+                SelectCore());
+
+            AssemblyBindingSelection SelectCore() =>
+                request.Target
                 is AssemblyBindingTarget.AssemblyReference reference
                 && target.Identity.IsEquivalentTo(reference.Identity)
-                    ? AssemblyBindingSelection.Found(target)
-                    : fallback.Select(request);
+                ? AssemblyBindingSelection.Found(target)
+                : fallback.Select(request).Selection;
+        }
     }
 
 }

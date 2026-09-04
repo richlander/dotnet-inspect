@@ -18,6 +18,12 @@ public class PackageVersionVectorTests
         "2.0.0",
     ];
 
+    public static TheoryData<string> NonHttpSources() => new()
+    {
+        Path.Combine(Path.GetTempPath(), "packages"),
+        new Uri(Path.Combine(Path.GetTempPath(), "packages")).AbsoluteUri,
+    };
+
     [Fact]
     public void Create_ResolvesAnInclusiveVectorInCallerDirection()
     {
@@ -173,8 +179,7 @@ public class PackageVersionVectorTests
     }
 
     [Theory]
-    [InlineData("/tmp/packages")]
-    [InlineData("file:///tmp/packages")]
+    [MemberData(nameof(NonHttpSources))]
     public async Task ResolveAsync_SkipsNonHttpSource(
         string localSource)
     {

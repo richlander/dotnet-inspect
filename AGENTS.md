@@ -78,26 +78,32 @@ development model and rationale. The binding summary:
 > [`docs/markout-co-development.md`](docs/markout-co-development.md) before
 > touching either repository.
 
-## Session resume
+## Session theme and resume
 
-The transcript survives a resumed session; repository and PR state may not.
-Follow [Resume a session](docs/agent-session-state.md#resume-a-session) to
-confirm the worktree and PR, refresh the effective base, restore window
-identity, and classify the session. Handle conflicts, failed gates, or moved
-bases first, and do not revisit decisions already settled in the transcript.
+Every session has a theme: use one supplied by the user or infer a concise
+purpose from the work. State it at the start and after every resume, and carry
+it in session-status templates. After a PR merges, restate the theme in one or
+two sentences and propose the next work within it; if none remains, say so and
+ask whether to find a new theme or take on ad-hoc work. Follow
+[Agent session state](docs/agent-session-state.md) for the full lifecycle.
 
 ## Making your work findable
 
 This section is tmux-specific and applies only inside a tmux pane — check
 `[ -n "$TMUX" ]` first; outside tmux there is no window to name or option to
-attach state to, so skip it entirely. Each window must identify its PR,
-current state, and any decision it needs. Full tmux mechanics and rationale
-live in [Agent session state](docs/agent-session-state.md); this section
-states the binding rules.
+attach state to, so skip it entirely. Each window must identify its theme, PR,
+current state, and any decision it needs; its pane title reports current
+activity. Full mechanics live in
+[Agent session state](docs/agent-session-state.md).
 
 - **Rename the window** to `pr<number>` (or `i<number>` before a PR exists),
   always targeting `"${TMUX_PANE:?}"`, and keep it stable except for a
   `-blocked` or `-conflict` suffix.
+- **Update the pane title** with concise current activity, always targeting
+  `"${TMUX_PANE:?}"`. Accept Copilot's startup title only as the initial
+  fallback; replace it at the start of work, after every resume, and at
+  meaningful phase changes with
+  `tmux select-pane -t "${TMUX_PANE:?}" -T "<theme>: <current activity>"`.
 - **Announce PR identity** — the literal token `PR #<number>` or `PR <number>`,
   plus branch or expected head — at the start of work, after every resume, and
   at every round start. Round completions use the
@@ -108,11 +114,11 @@ states the binding rules.
   answer labels — never the report, checkpoint, or evidence itself.
 - **Publish `@agent` and `@agent_state`** after every state change, each as its
   own single command (never inside `if`/`&&`/a loop). `@agent_state` carries
-  `head` and `pr`/`issue`, plus `round`, `reviews`, `blocked`, `waiting`, and
-  `rec` (`continue`, `wait`, `merge`, `split`, `approve`, `stop`); clear both
-  when the window no longer owns the work. `blocked` names an issue/PR a
-  person can act on; `waiting` names tool-evaluable predicates (`check:<name>`,
-  `checks`, `merge`, `review`).
+  `theme`, `head`, and `pr`/`issue`, plus `round`, `reviews`, `blocked`,
+  `waiting`, and `rec` (`continue`, `wait`, `merge`, `split`, `approve`,
+  `stop`); clear both when the window no longer owns the work. `blocked` names
+  an issue/PR a person can act on; `waiting` names tool-evaluable predicates
+  (`check:<name>`, `checks`, `merge`, `review`).
 - **Signal `HELP`** with a persistent state plus one best-effort
   `tmux display-message` nudge when blocked on a human decision; clear it once
   the decision arrives.
@@ -263,6 +269,9 @@ over-broad-design recovery procedure live in
 - Treat identifiers, provenance, local evidence, correspondence, and
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
+- Put independently compiled inspected test inputs under `fixtures/<owner>/`;
+  keep test infrastructure under `tests/` and production code under `src/`.
+  Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
 - Use inclusive terminology: "allow list"/"deny list", never
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").
@@ -526,22 +535,10 @@ checkpoint and split mechanics:
 
 ## Lead with the demo
 
-Validation proves correctness; a demo shows value. Post the intended demo early
-enough to change the implementation.
-
-For a network-accessible inspect-web demo, follow
-[`docs/runbooks/inspect-web-demo-hosting.md`](docs/runbooks/inspect-web-demo-hosting.md).
-A local HTTP listener or successful `curl` is not a user-visible demo.
-
-A useful demo:
-
-- shows a real canonical invocation and its real output;
-- includes before and after for a fix;
-- says what to notice; and
-- still works for a neighboring scenario, proving the implementation was not
-  fitted to the sample.
-
-Put it under `## Demo` above validation in the PR body.
+Put `## Demo` above validation in every PR body. Show the real scenario and
+output, before and after for a fix, and a neighboring case; use a mockup for
+documentation-only work. [Development Practices](docs/development-practices.md#lead-with-the-demo)
+owns the full contract and the inspect-web hosting pointer.
 
 ## PR and CI discipline
 
@@ -584,7 +581,8 @@ that race in the same files. `docs/stacked-prs.md` owns the mechanics.
   its parent; only the bottom open slice uses `main`. During a GitHub outage,
   branch from the recorded last-known base or parent, then update and
   validate bottom-up on recovery before pushing.
-- Merge bottom-up and confirm each retargeted diff still shows only its slice.
+- Merge bottom-up. After each merge, complete the theme handoff; if another
+  slice remains, propose confirming its retargeted diff as the next task.
 - Restacking your own slices is the exception to the no-force-push rule. Use
   `--force-with-lease` and post a `range-diff` proving only the base changed.
 - Apply review depth and the canonical eligibility table per slice and
