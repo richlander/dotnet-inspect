@@ -91,10 +91,12 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
                 function.UsesUpdatedMemorySafetyRules)
             || UnsafeAwaitOperand.RequiresUnsafeContext(
                 awaited,
-                function.UsesUpdatedMemorySafetyRules)
+                function.UsesUpdatedMemorySafetyRules,
+                function.SkipLocalsInit)
             || UnsafeAwaitOperand.RequiresUnsafeContext(
                 ContainingStatement(getResult),
-                function.UsesUpdatedMemorySafetyRules)
+                function.UsesUpdatedMemorySafetyRules,
+                function.SkipLocalsInit)
             || !HasExclusiveControlFlow(function, branch, helperBlock.StartOffset, merge.StartOffset)
             || awaitableStore is not null
                 && !LocalDefinitionRangeOwned(

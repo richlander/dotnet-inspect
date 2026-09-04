@@ -372,6 +372,188 @@ public class CompilerFeatureOptionsTests
         }
     }
 
+    [Fact]
+    public void RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                public static unsafe int* Get() => null;
+
+                public static async Task<int> M(Task<int> task)
+                {
+                    bool same;
+                    unsafe
+                    {
+                        int* pointer = Get();
+                        same = pointer == null;
+                    }
+                    return (same ? 1 : 0) + await task;
+                }
+            }
+            """,
+            options,
+            assemblyName: "RuntimeAsyncUnsafeSpill");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"runtime-async-unsafe-spill-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+            Assert.DoesNotContain(
+                "await",
+                FirstUnsafeBlockBody(output));
+            Assert.DoesNotContain("S_256_1", output);
+
+            var validity = ValidityCheck.Evaluate(
+                    path,
+                    importSiblingBodies: true,
+                    sequential: true)
+                .Single(result =>
+                    result.TypeName == "C"
+                    && result.MethodName == "M");
+            Assert.True(validity.SemanticChecked);
+            Assert.Empty(validity.MalformedDiagnostics);
+            Assert.Empty(validity.SemanticDiagnostics);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ClassicAsyncUnsafeStackallocAwait_DeclinesVisibly()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "off"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System;
+            using System.Runtime.CompilerServices;
+            using System.Threading.Tasks;
+
+            [module: SkipLocalsInit]
+
+            public static class C
+            {
+                static Task<int> Read(Span<int> value)
+                    => Task.FromResult(value.Length);
+
+                public static async Task<int> M(int length)
+                    => await Read(unsafe(stackalloc int[length]));
+            }
+            """,
+            options,
+            assemblyName: "ClassicAsyncUnsafeStackalloc");
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "classic-async-unsafe-stackalloc.dll",
+            ImmutableArray.Create(compiled.Image));
+        var function = IrImporter.Import(source, "C", "M");
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "classic async"
+                && node.Reason.Contains(
+                    "await operand requires unsafe context",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ClassicAsyncInitializedStackallocAwait_RemainsReconstructable()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "off"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System;
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                static Task<int> Read(Span<int> value)
+                    => Task.FromResult(value.Length);
+
+                public static async Task<int> M(int length)
+                    => await Read(stackalloc int[length]);
+            }
+            """,
+            options,
+            assemblyName: "ClassicAsyncInitializedStackalloc");
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "classic-async-initialized-stackalloc.dll",
+            ImmutableArray.Create(compiled.Image));
+        var function = IrImporter.Import(source, "C", "M");
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.DoesNotContain(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "classic async");
+        Assert.Contains(
+            "await Read(stackalloc int[length])",
+            result.Output);
+    }
+
     [Theory]
     [InlineData("on")]
     [InlineData("off")]
@@ -929,6 +1111,24 @@ public class CompilerFeatureOptionsTests
             stream,
             new PEReader(stream, PEStreamOptions.LeaveOpen),
             diagnostics);
+    }
+
+    static string FirstUnsafeBlockBody(string output)
+    {
+        int keyword = output.IndexOf("unsafe", StringComparison.Ordinal);
+        Assert.True(keyword >= 0, "no unsafe block in output:\n" + output);
+        int open = output.IndexOf('{', keyword);
+        Assert.True(open >= 0);
+        int depth = 0;
+        for (int i = open; i < output.Length; i++)
+        {
+            if (output[i] == '{')
+                depth++;
+            else if (output[i] == '}' && --depth == 0)
+                return output[(open + 1)..i];
+        }
+        throw new Xunit.Sdk.XunitException(
+            "unbalanced unsafe block:\n" + output);
     }
 
     static byte[] WithMemorySafetyRulesVersion(byte[] image, int version)

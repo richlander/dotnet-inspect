@@ -12,18 +12,27 @@ internal static class UnsafeAwaitOperand
 
     public static bool WouldPlaceAwaitInUnsafeContext(
         IrNode root,
-        bool usesUpdatedMemorySafetyRules)
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit = false)
         => ContainsAwait(root)
-            && RequiresUnsafeContext(root, usesUpdatedMemorySafetyRules);
+            && RequiresUnsafeContext(
+                root,
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit);
 
     public static bool RequiresUnsafeContext(
         IrNode root,
-        bool usesUpdatedMemorySafetyRules)
-        => ContainsUnsafeOperation(root, usesUpdatedMemorySafetyRules);
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit = false)
+        => ContainsUnsafeOperation(
+            root,
+            usesUpdatedMemorySafetyRules,
+            skipLocalsInit);
 
     static bool ContainsUnsafeOperation(
         IrNode root,
-        bool usesUpdatedMemorySafetyRules)
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit)
     {
         var evidence = new List<ConsumedMemberEvidence>();
         foreach (var node in root.Descendants.Prepend(root))
@@ -31,6 +40,9 @@ internal static class UnsafeAwaitOperand
             if (node is CallIndirect
                 or StackAllocate
                 or FixedBufferElementAddress
+                || node is StackAllocArray stackAlloc
+                    && (skipLocalsInit
+                        || stackAlloc.ResultType?.Kind == TypeRefKind.Pointer)
                 || node is LoadIndirect load && RendersAsPointerDereference(load.Address)
                 || node is StoreIndirect store && RendersAsPointerDereference(store.Address)
                 || node is InitObject init && RendersAsPointerDereference(init.Address)

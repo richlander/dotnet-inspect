@@ -30,10 +30,12 @@ public sealed class AwaitRecoveryPass : IIrPass
             IrNode statement = ContainingStatement(call);
             if (UnsafeAwaitOperand.RequiresUnsafeContext(
                     call.Arguments[0],
-                    function.UsesUpdatedMemorySafetyRules)
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit)
                 || UnsafeAwaitOperand.RequiresUnsafeContext(
                     statement,
-                    function.UsesUpdatedMemorySafetyRules))
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit))
             {
                 MarkDeclined(function, call, statement, context);
                 continue;

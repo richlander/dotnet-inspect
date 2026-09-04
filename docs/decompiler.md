@@ -120,7 +120,18 @@ Taking an address (`&x`), declaring pointer locals, pointer arithmetic and
 comparison (`p++`, `p + 1`, `p < q`), the `fixed` statement, and `sizeof` are
 safe under the new rules and stay outside the blocks. When the unsafe operation
 initializes a local used later, the declaration is hoisted above the block so
-the variable stays in scope.
+the variable stays in scope. An unsafe run never extends across a later
+statement containing recovered await syntax; evaluation-stack spills are
+declared outside the block so the unsafe assignment and the await remain
+separate. `CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
+gates that compiler-produced boundary.
+
+A raised stack allocation uses the same classifier as its lowered `localloc`
+form. In a `[SkipLocalsInit]` body, classic async reconstruction therefore
+declines an awaited `stackalloc` operand visibly rather than emitting `await`
+inside an unsafe block.
+`CompilerFeatureOptionsTests.ClassicAsyncUnsafeStackallocAwait_DeclinesVisibly`
+gates the compiler-produced case.
 
 The callee's module and member metadata classify its contract independently of
 the caller. In particular, a V2 callee without `RequiresUnsafeAttribute` has no

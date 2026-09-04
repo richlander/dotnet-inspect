@@ -266,14 +266,16 @@ public sealed class ExpressionInliningPass : IIrPass
                 : ((StoreStackSlot)store).Value;
             if (UnsafeAwaitOperand.RequiresUnsafeContext(
                     storedValue,
-                    function.UsesUpdatedMemorySafetyRules)
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit)
                 && (UnsafeAwaitOperand.ContainsAwait(next)
                     || functionContainsAwait && IsUnstructuredBranch(next)))
                 continue;
             if (UnsafeAwaitOperand.ContainsAwait(storedValue)
                 && UnsafeAwaitOperand.RequiresUnsafeContext(
                     next,
-                    function.UsesUpdatedMemorySafetyRules))
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit))
                 continue;
 
             var value = (IrExpression)store.DetachChildren()[0];
@@ -400,7 +402,8 @@ public sealed class ExpressionInliningPass : IIrPass
                     continue;
                 if (UnsafeAwaitOperand.RequiresUnsafeContext(
                         value,
-                        function.UsesUpdatedMemorySafetyRules)
+                        function.UsesUpdatedMemorySafetyRules,
+                        function.SkipLocalsInit)
                     && (UnsafeAwaitOperand.ContainsAwait(useStatement)
                         || functionContainsAwait
                             && IsUnstructuredBranch(useStatement)))
@@ -408,7 +411,8 @@ public sealed class ExpressionInliningPass : IIrPass
                 if (UnsafeAwaitOperand.ContainsAwait(value)
                     && UnsafeAwaitOperand.RequiresUnsafeContext(
                         useStatement,
-                        function.UsesUpdatedMemorySafetyRules))
+                        function.UsesUpdatedMemorySafetyRules,
+                        function.SkipLocalsInit))
                     continue;
 
                 var inlined = (IrExpression)block.Children[si].DetachChildren()[0];

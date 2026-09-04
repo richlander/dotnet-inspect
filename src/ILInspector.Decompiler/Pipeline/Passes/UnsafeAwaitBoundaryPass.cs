@@ -21,7 +21,8 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
                 || !UnsafeAwaitOperand.ContainsAwait(statement)
                 || !RequiresUnsafeContext(
                     statement,
-                    function.UsesUpdatedMemorySafetyRules))
+                    function.UsesUpdatedMemorySafetyRules,
+                    function.SkipLocalsInit))
             {
                 continue;
             }
@@ -46,62 +47,77 @@ public sealed class UnsafeAwaitBoundaryPass : IIrPass
 
     internal static bool RequiresUnsafeContext(
         IrNode statement,
-        bool usesUpdatedMemorySafetyRules)
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit = false)
         => statement switch
         {
             ForLoop loop =>
-                RequiresUnsafe(loop.Initializer, usesUpdatedMemorySafetyRules)
-                || RequiresUnsafe(loop.Condition, usesUpdatedMemorySafetyRules)
-                || RequiresUnsafe(loop.Increment, usesUpdatedMemorySafetyRules),
+                RequiresUnsafe(loop.Initializer, usesUpdatedMemorySafetyRules, skipLocalsInit)
+                || RequiresUnsafe(loop.Condition, usesUpdatedMemorySafetyRules, skipLocalsInit)
+                || RequiresUnsafe(loop.Increment, usesUpdatedMemorySafetyRules, skipLocalsInit),
             WhileLoop loop => RequiresUnsafe(
                 loop.Condition,
-                usesUpdatedMemorySafetyRules),
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
             DoWhileLoop loop => RequiresUnsafe(
                 loop.Condition,
-                usesUpdatedMemorySafetyRules),
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
             IfStatement conditional => RequiresUnsafe(
                 conditional.Condition,
-                usesUpdatedMemorySafetyRules),
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
             Switch @switch => RequiresUnsafe(
                 @switch.Value,
-                usesUpdatedMemorySafetyRules),
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
             Lock @lock => RequiresUnsafe(
                 @lock.LockObject,
-                usesUpdatedMemorySafetyRules),
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
             Fixed fixedStatement =>
                 fixedStatement.RequiresUnsafeContext
                 || RequiresUnsafe(
                     fixedStatement.PinSource,
-                    usesUpdatedMemorySafetyRules),
+                    usesUpdatedMemorySafetyRules,
+                    skipLocalsInit),
             UsingStatement usingStatement =>
                 RequiresUnsafe(
                     usingStatement.Resource,
-                    usesUpdatedMemorySafetyRules)
+                    usesUpdatedMemorySafetyRules,
+                    skipLocalsInit)
                 || MethodsRequireUnsafe(
                     usingStatement.ConsumedMemberRefs,
                     usesUpdatedMemorySafetyRules),
             ForeachStatement foreachStatement =>
                 RequiresUnsafe(
                     foreachStatement.Collection,
-                    usesUpdatedMemorySafetyRules)
+                    usesUpdatedMemorySafetyRules,
+                    skipLocalsInit)
                 || MethodsRequireUnsafe(
                     foreachStatement.ConsumedMemberRefs,
                     usesUpdatedMemorySafetyRules),
             TryCatch tryCatch => tryCatch.Clauses.Any(
                 clause => RequiresUnsafe(
                     clause.Filter,
-                    usesUpdatedMemorySafetyRules)),
+                    usesUpdatedMemorySafetyRules,
+                    skipLocalsInit)),
             LocalFunctionStatement or TryFinally => false,
-            _ => RequiresUnsafe(statement, usesUpdatedMemorySafetyRules),
+            _ => RequiresUnsafe(
+                statement,
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit),
         };
 
     static bool RequiresUnsafe(
         IrNode? node,
-        bool usesUpdatedMemorySafetyRules)
+        bool usesUpdatedMemorySafetyRules,
+        bool skipLocalsInit)
         => node is not null
             && UnsafeAwaitOperand.RequiresUnsafeContext(
                 node,
-                usesUpdatedMemorySafetyRules);
+                usesUpdatedMemorySafetyRules,
+                skipLocalsInit);
 
     static bool MethodsRequireUnsafe(
         IEnumerable<MethodRef> methods,

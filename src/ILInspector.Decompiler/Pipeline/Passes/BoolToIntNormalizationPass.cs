@@ -33,8 +33,23 @@ public sealed class BoolToIntNormalizationPass : IIrPass
             .ToList();
 
         var intType = TypeRef.CoreLib("System", "Int32");
+        var retypedSlots = new HashSet<(IrNode Scope, int Slot)>();
         foreach (var comparison in matches)
         {
+            StoreStackSlot? stackStore =
+                comparison.Parent is StoreStackSlot store
+                    && ReferenceEquals(store.Value, comparison)
+                        ? store
+                        : null;
+            IrNode? stackSlotScope = stackStore is null
+                ? null
+                : StackSlotScope(stackStore, function);
+            bool retypeLoads = stackStore is not null
+                && stackSlotScope is not null
+                && !retypedSlots.Contains((stackSlotScope, stackStore.Slot))
+                && CanRetypeStackSlotLoads(
+                    stackSlotScope,
+                    stackStore.Slot);
             var operand = (IrExpression)comparison.DetachChildren()[0];
             var conditional = new Conditional(
                 operand,
@@ -42,7 +57,53 @@ public sealed class BoolToIntNormalizationPass : IIrPass
                 new Constant(0, intType));
             context.Stepper.StepOver("raise bool→int normalization to conditional", comparison);
             comparison.ReplaceWith(conditional);
+
+            if (!retypeLoads)
+                continue;
+
+            retypedSlots.Add((stackSlotScope!, stackStore!.Slot));
+            foreach (var load in stackSlotScope!.DescendantsOutsideNestedFunctions
+                .OfType<LoadStackSlot>()
+                .Where(load => load.Slot == stackStore!.Slot)
+                .ToList())
+            {
+                var replacement = new LoadStackSlot(
+                    stackStore!.Slot,
+                    intType);
+                replacement.SetSourceOffset(load.SourceOffset);
+                load.ReplaceWith(replacement);
+            }
         }
+    }
+
+    static IrNode StackSlotScope(
+        StoreStackSlot store,
+        IrFunction function)
+    {
+        for (IrNode? current = store.Parent;
+            current is not null;
+            current = current.Parent)
+        {
+            if (current is Lambda lambda)
+                return lambda.Body;
+            if (current is LocalFunctionStatement localFunction)
+                return localFunction.Body;
+        }
+        return function.Body;
+    }
+
+    static bool CanRetypeStackSlotLoads(
+        IrNode scope,
+        int slot)
+    {
+        var stores = scope.DescendantsOutsideNestedFunctions
+            .OfType<StoreStackSlot>()
+            .Where(store => store.Slot == slot)
+            .ToList();
+        return stores.Count > 0
+            && stores.All(store =>
+                store.Value is Comparison comparison
+                && IsBoolToIntNormalization(comparison));
     }
 
     /// <summary>An unsigned <c>cgt.un(boolExpr, 0/false)</c> — the bool→int normalization idiom.</summary>

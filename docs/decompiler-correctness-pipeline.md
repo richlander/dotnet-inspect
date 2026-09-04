@@ -46,6 +46,13 @@ observation layer. It must not use that parse to construct or rewrite the C#
 artifact it later compiles as evidence. C# spelling, declaration shape, body
 layout, and artifact replacement remain product responsibilities.
 
+Syntax and semantic validity bind the same first product projection. The
+harness may sample that immutable rendered artifact for the semantic lane, but
+must not invoke a mutating raising pipeline again and accidentally compile a
+different second projection.
+`CompilerFeatureOptionsTests.RuntimeAsyncUnsafeSpillBeforeAwait_ClosesUnsafeRunAndBindsFirstProjection`
+gates this ownership boundary with compiler-produced runtime-async IL.
+
 ReturnToSender authored-body controls therefore create a separate
 comparison-only `RoundTripRequest` with the independently acquired body as its
 typed replacement. After

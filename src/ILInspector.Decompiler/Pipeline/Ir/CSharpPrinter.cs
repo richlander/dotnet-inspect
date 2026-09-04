@@ -1531,7 +1531,9 @@ public sealed partial class CSharpPrinter
             }
             foreach (var store in _declaringStores.OfType<StoreStackSlot>().ToList())
             {
-                if (!HasUnsafeOperation(store.Value) || StackSlotReferencesStayInBlockAfterStore(function, store))
+                if (!HasUnsafeOperation(store.Value)
+                    || StackSlotReferencesStayInBlockAfterStore(function, store)
+                        && !StackSlotUnsafeRunContainsAwait(store))
                     continue;
                 _declaringStores.Remove(store);
             }
@@ -1686,6 +1688,24 @@ public sealed partial class CSharpPrinter
             }
         }
         return sawLoad;
+    }
+
+    bool StackSlotUnsafeRunContainsAwait(StoreStackSlot store)
+    {
+        if (store.Parent is not Block block || store.ChildIndex < 0)
+            return false;
+
+        int lastReference = store.ChildIndex;
+        for (int i = store.ChildIndex + 1; i < block.Children.Count; i++)
+        {
+            if (ReferencesStackSlot(block.Children[i], store.Slot))
+                lastReference = i;
+        }
+
+        return block.Children
+            .Skip(store.ChildIndex)
+            .Take(lastReference - store.ChildIndex + 1)
+            .Any(UnsafeAwaitOperand.ContainsAwait);
     }
 
     static bool StoreValueReferencesLocal(StoreLocal store)
