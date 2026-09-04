@@ -90,7 +90,41 @@ The normalized root always carries the exact admitted coordinate. Version
 resolution is upstream acquisition, not dependency normalization. The CLI
 classifies a target with the shared package-target grammar rather than a
 second local parser, so admissibility and acquisition cannot disagree about
-what a target names.
+what a target names. That shared grammar splits `ID` from `ID@VERSION` and
+nothing more: `PackageCoordinateResolver.Validate` owns what a package id and
+an exact version may be, and the CLI adds no second grammar of its own.
+
+Every named root is one explicit gesture, so one unusable gesture is one typed
+failed root: it never ends the request before its siblings are acquired, and it
+is never silently rebound to a different input. A blank or grammar-rejected
+package id, and the empty or whitespace version an `ID@` target names, are
+therefore `ProducerContract` failures for that root, decided before any source
+policy or version resolution is consulted. An empty version is a malformed
+exact pin, not an omitted one; reading it as floating latest would answer for a
+coordinate the caller did not name.
+
+Floating `ID` resolution uses the shared resolver's strict stable contract. The
+resolver's default stable-preferred behavior falls back to a prerelease when a
+feed publishes nothing else, which would make an unqualified target mean what
+this command documents `--preview` as required for, so that answer is refused
+instead. The same strict path refuses an incomplete authorized-source listing:
+a candidate set missing one authorized source cannot prove which version is
+latest, and this command publishes the floating selection as the root's exact
+coordinate. `--preview` widens the same path to a prerelease head. An exact pin
+never reaches it, so a pinned prerelease stays exact without `--preview`.
+
+One kind of missing answer is this command's own to refuse, because the shared
+listing path never reports it. That path can only query an absolute
+`http`/`https` source; a local folder, a `file://` URL, or any other spelling
+is skipped there, which is right for a caller that wants the best answer the
+readable sources can give and wrong for this command, which states the floating
+selection as an exact coordinate said to be latest across every authorized
+producer. So `dependency-evidence` refuses a floating coordinate before shared
+resolution when any authorized source cannot be listed, and the root reports
+the conservative `AcquisitionFailed`. This is a command-level refusal only:
+shared workspace and legacy resolution behavior is unchanged. An exact pin —
+including a pinned prerelease — asks no latest-version question and still
+acquires from that same source.
 
 NuGet source options apply only when at least one remote package target is
 present. An exact or latest remote package may use the normal `--source`,
@@ -122,7 +156,24 @@ safety or root-uniqueness.
 A remote package coordinate may be authorized against several sources under the
 normal `--source`, `--add-source`, and `--nugetconfig` policy; a local folder
 is an ordinary source in that list and is served by the local-folder client
-rather than refused. The CLI tries the authorized sources in order and admits
+rather than refused, once the coordinate is exact. Authorization is asked once per package id through the
+shared `IPackageSourceAuthorization` seam, so a package source mapping that
+authorizes no producer for that id is that root's typed `SourceUnavailable`
+failure rather than an exception that ends the request. The denial's own
+message is not carried into the sink, because it quotes the configuration the
+caller selected. A `--nugetconfig` file that cannot be read is not this
+command's concern: the shared parse-time validator rejects it uniformly for
+every command before any root is acquired.
+
+An unavailable resolution is inconclusive, not absence. It is reported for a
+source that could not answer, a listing no authorized source completed, a
+package whose only listed versions the stable contract refuses, and a floating
+coordinate this command refused because an authorized source cannot be listed,
+so the root reports the conservative `AcquisitionFailed`. Only the source loop
+below states absence, and only when every attempted source answered with a
+typed `NotFound`.
+
+The CLI tries the authorized sources in order and admits
 the first manifest that both arrives and establishes package facts: a source
 failure, a missing coordinate, or a manifest the facts query rejects moves to
 the next authorized source rather than terminating the root. When no source
@@ -142,7 +193,9 @@ framework groups, or version constraints itself.
 
 The admitted root uses `DirectNuspec` provenance. A missing, unreadable,
 oversized, or invalid nuspec remains a typed failed root rather than becoming
-an empty package.
+an empty package. A blank or whitespace path names nothing, so it is a
+`ProducerContract` failure for that root rather than an accidental
+current-directory binding.
 
 ### Restored-project binding
 
@@ -159,7 +212,10 @@ restores or builds.
 One unusable root path is one failed root. Expected path and enumeration
 failures raised while the locator resolves a root are wrapped as a typed
 acquisition failure for that root, and the remaining roots keep producing
-evidence. Cancellation is never converted into such a failure: it is the
+evidence. A blank or whitespace path is refused before the locator is asked:
+the locator reads it as the current directory, so it would answer for a project
+the caller never named, and the root reports `ProducerContract` instead.
+Cancellation is never converted into such a failure: it is the
 caller's decision, so it propagates instead of becoming a diagnosed error with
 an exit status.
 
@@ -420,11 +476,27 @@ The adoption requires Release gates for:
 - input-family validation and package-prefix exclusivity, including an empty
   `--package-prefix` gesture alone and combined with another root;
 - package, direct nuspec, project locator, direct assets, and prefix adapters;
+- blank and grammar-rejected explicit root gestures — a blank package target, an
+  `ID@` empty or malformed version, and a blank nuspec or project path — as
+  typed producer-contract failures whose sibling roots still render;
+- per-root source-authorization denial, where package source mapping that
+  authorizes no producer for one package id fails only that root and does not
+  reproduce the selected configuration;
+- the strict stable floating contract: a prerelease-only package refused
+  without `--preview`, admitted with it, an exact prerelease pin admitted
+  without it, and an incomplete authorized-source listing refused;
+- the command's own floating refusal when an authorized source cannot be listed
+  over HTTP — a local-folder or `file://` source makes a floating target
+  `Unavailable` and its root `AcquisitionFailed`, while an exact prerelease pin
+  against the same source set still resolves without `--preview`;
+- inconclusive coordinate resolution classified as `AcquisitionFailed` rather
+  than absence;
 - remote source fallback, where an invalid manifest from one authorized source
   does not prevent a later source from being admitted;
 - terminal source classification: every attempted source reporting typed
-  absence, and a mixed set whose inconclusive attempt keeps the generic
-  acquisition failure;
+  absence, a mixed set whose inconclusive attempt keeps the generic
+  acquisition failure, and an authorized source with no client in this build
+  keeping that generic failure rather than claiming absence;
 - an exact package served from a local folder source;
 - equivalent declared rows across package, nuspec, project locator, and direct
   assets;

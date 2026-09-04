@@ -1488,6 +1488,48 @@ public sealed class DependencyEvidenceCommandTests
     }
 
     /// <summary>
+    /// An authorized source this build has no client for was never heard from, so a later
+    /// source's typed absence claim does not speak for the whole set: the terminal reason is
+    /// the generic acquisition failure rather than <c>NotFound</c>.
+    /// </summary>
+    [Fact]
+    public async Task RemoteSources_ReportAcquisitionFailedWhenASourceHasNoClient()
+    {
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create("Contoso.Fallback", "1.0.0");
+        var roots = ImmutableArray.CreateBuilder<PackageDependencyEvidenceInput>();
+        var failures =
+            ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>();
+        using IPackageSourceClient missing = MissingSource();
+
+        await DependencyEvidenceAcquisition.AcquireSourceManifestAsync(
+            coordinate,
+            [
+                new PackageSource(
+                    "unavailable",
+                    "https://unavailable.invalid/v3/index.json"),
+                new PackageSource(
+                    "missing",
+                    "https://missing.invalid/v3/index.json"),
+            ],
+            source => source.Name == "missing" ? missing : null,
+            targetFramework: null,
+            new InertString(TextPolicy.Field, "Contoso.Fallback@1.0.0"),
+            operationContext: null,
+            roots,
+            failures,
+            TestContext.Current.CancellationToken);
+
+        Assert.Empty(roots);
+        PackageDependencyEvidenceRootFailure.Acquisition failure =
+            Assert.IsType<PackageDependencyEvidenceRootFailure.Acquisition>(
+                Assert.Single(failures));
+        Assert.Equal(
+            PackageDependencyEvidenceAcquisitionFailureReason.AcquisitionFailed,
+            failure.Reason);
+    }
+
+    /// <summary>
     /// One source that could not answer makes the set non-authoritative: the coordinate may
     /// exist there, so the generic acquisition failure is retained rather than claiming absence.
     /// </summary>
@@ -1865,7 +1907,492 @@ public sealed class DependencyEvidenceCommandTests
                 cancellation.Token));
     }
 
+    // ---- explicit root gestures ---------------------------------------------
+
+    /// <summary>
+    /// A named root that names nothing is one typed failed root. It neither ends the request
+    /// before its siblings are acquired nor reaches source resolution, which rejects a blank
+    /// package id by throwing.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task BlankPackageTarget_IsATypedFailedRootAndKeepsItsSibling(
+        string package)
+    {
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [package],
+                Nuspecs = [NuspecFixture],
+            });
+
+        Assert.Single(projection.Roots);
+        Assert.NotEmpty(projection.Dependencies);
+        Assert.Equal(1, projection.Summary.FailedRootCount);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal(
+            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            failure.SourceKind);
+        Assert.Equal("ProducerContract", failure.Reason);
+    }
+
+    /// <summary>
+    /// <c>ID@</c> is an explicit exact-version gesture whose version is empty. Normalizing that
+    /// spelling away would silently rebind the target to floating latest, so it is refused by
+    /// the coordinate grammar before any source or version resolution is reached.
+    /// </summary>
+    [Theory]
+    [InlineData("Contoso.Pinned@")]
+    [InlineData("Contoso.Pinned@ ")]
+    [InlineData("Contoso.Pinned@1.0.*")]
+    public async Task ExplicitEmptyOrMalformedVersion_IsAProducerContractFailure(
+        string package)
+    {
+        var authorization = new RecordingPackageSourceAuthorization(
+            PackageSourceAuthorization.Authorize([StubFeed]));
+        bool resolved = false;
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [package],
+                Nuspecs = [NuspecFixture],
+            },
+            authorization,
+            resolveCoordinate: (_, _, _, _) =>
+            {
+                resolved = true;
+                return Task.FromResult<PackageCoordinateResolution>(
+                    new PackageCoordinateResolution.Unavailable("unused"));
+            });
+
+        // The grammar decides admissibility first, so a refused target asks no host for a
+        // source policy and never reaches version resolution.
+        Assert.Empty(authorization.PackageIds);
+        Assert.False(resolved, "A malformed target must not reach version resolution.");
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal("ProducerContract", failure.Reason);
+    }
+
+    /// <summary>
+    /// An admissible target asks the host's source policy exactly once, under the canonical
+    /// lowercase identity, so every spelling of one package id gets that host's single answer
+    /// — and the authorized producers, not a widened set, are what version resolution sees.
+    /// </summary>
+    [Theory]
+    [InlineData("Contoso.Pinned@1.0.0")]
+    [InlineData("CONTOSO.PINNED@1.0.0")]
+    [InlineData("contoso.pinned@1.0.0")]
+    public async Task ValidPackageTarget_AuthorizesTheCanonicalIdentityOnce(
+        string package)
+    {
+        var authorization = new RecordingPackageSourceAuthorization(
+            PackageSourceAuthorization.Authorize([StubFeed]));
+        List<IReadOnlyList<PackageSource>> resolvedAgainst = [];
+
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [package],
+                Nuspecs = [NuspecFixture],
+            },
+            authorization,
+            resolveCoordinate: (_, sources, _, _) =>
+            {
+                resolvedAgainst.Add(sources);
+                return Task.FromResult<PackageCoordinateResolution>(
+                    new PackageCoordinateResolution.Unavailable(
+                        "the stub feed answered nothing"));
+            });
+
+        Assert.Equal(["contoso.pinned"], authorization.PackageIds);
+        Assert.Equal(
+            [StubFeed.Name],
+            Assert.Single(resolvedAgainst).Select(source => source.Name));
+
+        // The unanswered package root is inconclusive, and its nuspec sibling still reports
+        // the evidence it declares.
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal("AcquisitionFailed", failure.Reason);
+        Assert.Single(projection.Roots);
+        Assert.NotEmpty(projection.Dependencies);
+    }
+
+    /// <summary>
+    /// A blank explicit path gesture binds to nothing. The project locator would read it as the
+    /// current directory and answer about a project the caller never named, so it is a typed
+    /// producer-contract failure for that root instead.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task BlankPathRoots_AreProducerContractFailuresRatherThanCurrentDirectory(
+        string path)
+    {
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Nuspecs = [path],
+                Projects = [path, AssetsFixture],
+            });
+
+        Assert.Single(projection.Roots);
+        Assert.NotEmpty(projection.Dependencies);
+        Assert.Equal(2, projection.Summary.FailedRootCount);
+        Assert.Equal(
+            ["ProducerContract", "ProducerContract"],
+            projection.Failures.Select(failure => failure.Reason));
+        Assert.Equal(
+            [
+                PackageDependencyEvidenceSourceKind.DirectNuspec,
+                PackageDependencyEvidenceSourceKind.ProjectLocator,
+            ],
+            projection.Failures.Select(failure => failure.SourceKind).Order());
+    }
+
+    /// <summary>
+    /// Package source mapping that authorizes no producer for one package id is that root's
+    /// typed failure, decided through the shared authorization seam. It neither ends the
+    /// request nor carries the selected configuration's text into a message sink.
+    /// </summary>
+    [Fact]
+    public async Task SourcePolicyDenial_FailsOnlyThePackageRoot()
+    {
+        string config = WriteMappedConfig("Other.*");
+
+        // The same policy the command builds from '--nugetconfig', asked the same canonical
+        // question, states this denial. Its text quotes the selected configuration, so it is
+        // what must not reach either sink.
+        PackageSourceAuthorization denial =
+            new SourcePolicyPackageSourceAuthorization(
+                new NuGetSourceOptions { ConfigFile = config })
+                .AuthorizeSourcesFor("contoso.denied");
+        Assert.Empty(denial.Sources);
+        Assert.NotNull(denial.DenialReason);
+
+        (int exitCode, string output, string error) = await RunCapturedAsync(
+        [
+            DependencyEvidenceCommand.Name,
+            "--package",
+            "Contoso.Denied@1.0.0",
+            "--nuspec",
+            NuspecFixture,
+            "--nugetconfig",
+            config,
+            "-S",
+            "Dependencies,Failures",
+        ]);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("| Failed Roots | 1 |", output, StringComparison.Ordinal);
+        Assert.Contains("SourceUnavailable", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(config, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(config, error, StringComparison.Ordinal);
+        Assert.DoesNotContain(denial.DenialReason, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(denial.DenialReason, error, StringComparison.Ordinal);
+
+        // The nuspec sibling still renders its declared evidence.
+        Assert.Contains("## Dependencies", output, StringComparison.Ordinal);
+        Assert.Contains("NuGet.Packaging", output, StringComparison.Ordinal);
+    }
+
+    // ---- floating resolution contract ---------------------------------------
+
+    /// <summary>
+    /// An unqualified <c>ID</c> target is documented as latest stable, so a package publishing
+    /// only prereleases is refused rather than quietly resolved to a prerelease head. The
+    /// refusal is inconclusive, not an absence claim, so the root reports the conservative
+    /// acquisition failure.
+    /// </summary>
+    [Fact]
+    public async Task FloatingPackage_WithoutPreview_RefusesAPrereleaseOnlyPackageAsInconclusive()
+    {
+        using var client = new HttpClient(new StubFeedHandler());
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [StubFeedHandler.PackageId],
+                Nuspecs = [NuspecFixture],
+            },
+            authorization: new UniformPackageSourceAuthorization([StubFeed]),
+            httpClient: client);
+
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal(
+            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            failure.SourceKind);
+        Assert.Equal("AcquisitionFailed", failure.Reason);
+    }
+
+    /// <summary>
+    /// <c>--preview</c> is what widens the same floating path to a prerelease head, and an
+    /// exact prerelease pin never reaches that path at all, so it stays exact without it.
+    /// </summary>
+    [Theory]
+    [InlineData(null, true, "1.0.0-beta.1", true)]
+    [InlineData(null, false, null, false)]
+    [InlineData("1.0.0-beta.1", false, "1.0.0-beta.1", false)]
+    public async Task CoordinateResolution_AppliesTheStableFloatingContract(
+        string? version,
+        bool includePrerelease,
+        string? expectedVersion,
+        bool expectedFloating)
+    {
+        using var client = new HttpClient(new StubFeedHandler());
+
+        PackageCoordinateResolution resolution =
+            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
+                client,
+                new PackageCoordinate(StubFeedHandler.PackageId, version),
+                [StubFeed],
+                log: null,
+                includePrerelease,
+                TestContext.Current.CancellationToken);
+
+        if (expectedVersion is null)
+        {
+            PackageCoordinateResolution.Unavailable unavailable =
+                Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+            Assert.Contains(
+                "stable listed version",
+                unavailable.Message,
+                StringComparison.Ordinal);
+            return;
+        }
+
+        PackageCoordinateResolution.Resolved resolved =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
+        Assert.Equal(expectedVersion, resolved.Coordinate.Version);
+        Assert.Equal(expectedFloating, resolved.Coordinate.WasFloating);
+    }
+
+    /// <summary>
+    /// A candidate set missing one authorized source cannot prove which version is latest, and
+    /// this command publishes the floating answer as the root's exact coordinate. The strict
+    /// path therefore refuses an incomplete listing rather than selecting from a partial set.
+    /// </summary>
+    [Fact]
+    public async Task FloatingPackage_RefusesAnIncompleteAuthorizedSourceListing()
+    {
+        using var client = new HttpClient(new StubFeedHandler());
+
+        PackageCoordinateResolution resolution =
+            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
+                client,
+                new PackageCoordinate(StubFeedHandler.PackageId),
+                [StubFeedHandler.OfflineSource, StubFeed],
+                log: null,
+                includePrerelease: true,
+                TestContext.Current.CancellationToken);
+
+        PackageCoordinateResolution.Unavailable unavailable =
+            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
+        Assert.Contains(
+            "complete version set",
+            unavailable.Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A floating target becomes the root's exact coordinate, stated as the latest version
+    /// across every authorized producer. A source the shared HTTP listing path cannot query at
+    /// all — a local folder, a <c>file://</c> URL — never says what it publishes, so this
+    /// command refuses the floating question instead of answering it from the sources it can
+    /// read. Refusing is this command's own contract: the shared listing path skips such a
+    /// source, and the same source still serves an exact pin here.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FloatingPackage_RefusesASourceTheListingPathCannotQuery(
+        bool fileUrl)
+    {
+        using var client = new HttpClient(new StubFeedHandler());
+        string directory = CreateTemporaryDirectory();
+        var local = new PackageSource(
+            "local",
+            fileUrl ? new Uri(directory).AbsoluteUri : directory);
+
+        // Prereleases are admitted throughout, so the stable-floating rule refuses nothing
+        // here and every difference below is the unlistable source alone.
+        Assert.IsType<PackageCoordinateResolution.Resolved>(
+            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
+                client,
+                new PackageCoordinate(StubFeedHandler.PackageId),
+                [StubFeed],
+                log: null,
+                includePrerelease: true,
+                TestContext.Current.CancellationToken));
+
+        Assert.IsType<PackageCoordinateResolution.Unavailable>(
+            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
+                client,
+                new PackageCoordinate(StubFeedHandler.PackageId),
+                [local, StubFeed],
+                log: null,
+                includePrerelease: true,
+                TestContext.Current.CancellationToken));
+
+        // An exact pin asks no latest-version question, so it resolves against the same set
+        // without --preview even though the pinned version is a prerelease.
+        PackageCoordinateResolution.Resolved pinned =
+            Assert.IsType<PackageCoordinateResolution.Resolved>(
+                await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
+                    client,
+                    new PackageCoordinate(
+                        StubFeedHandler.PackageId,
+                        StubFeedHandler.PrereleaseVersion),
+                    [local, StubFeed],
+                    log: null,
+                    includePrerelease: false,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(StubFeedHandler.PrereleaseVersion, pinned.Coordinate.Version);
+        Assert.False(pinned.Coordinate.WasFloating);
+        Assert.Contains(local, pinned.Coordinate.Sources);
+
+        // The refusal is inconclusive rather than absence, so the root reports the
+        // conservative acquisition failure and its sibling still renders.
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [StubFeedHandler.PackageId],
+                Nuspecs = [NuspecFixture],
+                IncludePrerelease = true,
+            },
+            authorization: new UniformPackageSourceAuthorization([local, StubFeed]),
+            httpClient: client);
+
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal(
+            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            failure.SourceKind);
+        Assert.Equal("AcquisitionFailed", failure.Reason);
+    }
+
+    /// <summary>
+    /// The resolver's typed outcomes keep their classification: a rejected coordinate is a
+    /// producer-contract failure, and an unavailable one is never reported as absence, because
+    /// this resolver proves no authoritative all-source absence.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "ProducerContract")]
+    [InlineData(false, "AcquisitionFailed")]
+    public async Task ResolutionOutcome_IsClassifiedWithoutClaimingAbsence(
+        bool invalid,
+        string expectedReason)
+    {
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = ["Contoso.Unresolved"],
+                Nuspecs = [NuspecFixture],
+            },
+            authorization: new UniformPackageSourceAuthorization([StubFeed]),
+            resolveCoordinate: (_, _, _, _) => Task.FromResult(
+                invalid
+                    ? new PackageCoordinateResolution.Invalid("rejected")
+                    : (PackageCoordinateResolution)
+                        new PackageCoordinateResolution.Unavailable("inconclusive")));
+
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal(expectedReason, failure.Reason);
+        Assert.NotEqual("NotFound", failure.Reason);
+    }
+
     // ---- helpers ------------------------------------------------------------
+
+    private static readonly PackageSource StubFeed =
+        new("stub", StubFeedHandler.ServiceIndexUrl);
+
+    /// <summary>
+    /// Records every package id one request authorizes and answers each with the supplied
+    /// authorization, so a regression can state which identity a host was asked about, and how
+    /// often, without depending on any real source policy.
+    /// </summary>
+    private sealed class RecordingPackageSourceAuthorization(
+        PackageSourceAuthorization authorization) : IPackageSourceAuthorization
+    {
+        private readonly List<string> _packageIds = [];
+
+        internal IReadOnlyList<string> PackageIds => _packageIds;
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(string packageId)
+        {
+            _packageIds.Add(packageId);
+            return authorization;
+        }
+    }
+
+    /// <summary>
+    /// Writes a <c>nuget.config</c> whose package source mapping authorizes exactly one
+    /// pattern, so any other package id is denied by the product's own mapping policy.
+    /// </summary>
+    private static string WriteMappedConfig(string pattern)
+    {
+        string path = Path.Combine(CreateTemporaryDirectory(), "nuget.config");
+        File.WriteAllText(
+            path,
+            $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="mapped" value="https://mapped.test/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="mapped">
+                  <package pattern="{pattern}" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """);
+        return path;
+    }
+
+    /// <summary>
+    /// Serves one V3 feed that publishes a single prerelease version, plus one authorized
+    /// source that cannot answer at all. Every other request is a 404, so nothing here reaches
+    /// a real network.
+    /// </summary>
+    private sealed class StubFeedHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "contoso.preview";
+        internal const string PrereleaseVersion = "1.0.0-beta.1";
+        internal const string ServiceIndexUrl = "https://stub.test/v3/index.json";
+
+        internal static readonly PackageSource OfflineSource =
+            new("offline", "https://offline.test/v3/index.json");
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            return url switch
+            {
+                ServiceIndexUrl => Json(
+                    """{"resources":[{"@id":"https://stub.test/flat","@type":"PackageBaseAddress/3.0.0"}]}"""),
+                $"https://stub.test/flat/{PackageId}/index.json" => Json(
+                    $$"""{"versions":["{{PrereleaseVersion}}"]}"""),
+                "https://offline.test/v3/index.json" => Task.FromResult(
+                    new HttpResponseMessage(
+                        System.Net.HttpStatusCode.ServiceUnavailable)),
+                _ => Task.FromResult(
+                    new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)),
+            };
+
+            static Task<HttpResponseMessage> Json(string body) =>
+                Task.FromResult(
+                    new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(body),
+                    });
+        }
+    }
 
     /// <summary>Counts the data rows one rendered Markdown section table carries.</summary>
     private static int MarkdownDataRows(string markdown, string heading)
@@ -1900,17 +2427,39 @@ public sealed class DependencyEvidenceCommandTests
     ];
 
     private static async Task<DependencyEvidenceProjection> ProjectAsync(
-        DependencyEvidenceOptions options)
+        DependencyEvidenceOptions options) =>
+        await ProjectAsync(options, authorization: null);
+
+    /// <summary>
+    /// Projects one explicit-root request, optionally through narrow authorization,
+    /// coordinate-resolution, and transport seams so a regression can state what a source
+    /// policy or resolver answered without depending on live NuGet state.
+    /// </summary>
+    private static async Task<DependencyEvidenceProjection> ProjectAsync(
+        DependencyEvidenceOptions options,
+        IPackageSourceAuthorization? authorization,
+        DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
+        HttpClient? httpClient = null)
     {
-        using var client = new HttpClient();
-        PackageDependencyEvidenceRequest request =
-            await DependencyEvidenceAcquisition.AcquireExplicitRootsAsync(
-                options,
-                client,
-                log: null,
-                TestContext.Current.CancellationToken);
-        return DependencyEvidenceProjection.Create(
-            PackageDependencyEvidenceQuery.Execute(request));
+        HttpClient client = httpClient ?? new HttpClient();
+        try
+        {
+            PackageDependencyEvidenceRequest request =
+                await DependencyEvidenceAcquisition.AcquireExplicitRootsAsync(
+                    options,
+                    client,
+                    log: null,
+                    TestContext.Current.CancellationToken,
+                    authorization,
+                    resolveCoordinate);
+            return DependencyEvidenceProjection.Create(
+                PackageDependencyEvidenceQuery.Execute(request));
+        }
+        finally
+        {
+            if (httpClient is null)
+                client.Dispose();
+        }
     }
 
     private static bool ValidateTabularCaptured(
