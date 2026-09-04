@@ -155,9 +155,9 @@ explicit-occurrence lowerer therefore owns repeated-gesture failure. The
 adapter preserves parser errors and structured row-arity failures but does not
 yet select or render the one diagnostic when both exist.
 
-This adapter is not installed in the current command path. Existing
-rendered-line compatibility behavior, explicit commands, and implicit routing
-remain unchanged.
+This adapter is installed only for the plural package-version lenses. Existing
+rendered-line compatibility behavior for other command surfaces and the
+general implicit-routing envelope remain unchanged.
 
 ## Convention and deliberate divergence
 
