@@ -105,7 +105,8 @@ ASSUME
         {"Policy", "UseFacade", "CrossSide", "ReconstructReceipt",
          "RelabelRoot", "SelectNonResolvedAttempt", "SubstituteCensus",
          "SubstituteParticipant", "DropPath", "IgnoreBindingDrift",
-         "InvokeUnavailable", "CrossScope", "OmitNonTerminalParticipant"}
+         "IgnoreQueryImageBindingDrift", "InvokeUnavailable", "CrossScope",
+         "OmitNonTerminalParticipant"}
 
 VARIABLES
     resolutionPhase,
@@ -601,6 +602,10 @@ OwnerInvocationReady ==
     /\ RequestReady
     /\ queryImageReady
 
+QueryAdmissionReady ==
+    /\ PopulationReady
+    /\ RequestReady
+
 CiInputConstraint ==
     /\ rootSealed
     /\ terminalAdmittedSelected
@@ -654,7 +659,7 @@ ResolveStep ==
 
 BindingAdvanceStep ==
     /\ compositionPhase = "Resolving"
-    /\ OwnerInvocationReady
+    /\ QueryAdmissionReady
     /\ BindingLifecycle!Advance
     /\ UNCHANGED <<resolutionVars, inputVars, outputVars>>
 
@@ -681,10 +686,19 @@ RejectUnsupportedRequest ==
 
 PublishQueryUnavailable ==
     /\ compositionPhase = "Resolving"
-    /\ PopulationReady
-    /\ RequestReady
+    /\ QueryAdmissionReady
     /\ ~queryImageReady
+    /\ \/ liveBinding = capturedBinding
+       \/ CompositionMutationMode = "IgnoreQueryImageBindingDrift"
     /\ PublishNonSuccess("Unavailable")
+
+DetectQueryBindingFault ==
+    /\ compositionPhase = "Resolving"
+    /\ QueryAdmissionReady
+    /\ ~queryImageReady
+    /\ liveBinding # capturedBinding
+    /\ CompositionMutationMode # "IgnoreQueryImageBindingDrift"
+    /\ PublishNonSuccess("ContractFault")
 
 DetectBindingFault ==
     /\ compositionPhase = "Resolving"
@@ -770,6 +784,7 @@ Next ==
     \/ RejectPopulation
     \/ RejectUnsupportedRequest
     \/ PublishQueryUnavailable
+    \/ DetectQueryBindingFault
     \/ ResolveStep
     \/ BindingAdvanceStep
     \/ DetectBindingFault
@@ -875,15 +890,14 @@ UnsupportedRequestIsRejectedBeforeResolution ==
        /\ ~bindingAdvanced
        /\ compositionPhase \in {"Resolving", "Rejected"}
 
-ImageOpenFailureIsUnavailableBeforeOwners ==
+ImageOpenFailureNeverAdvancesForwarding ==
     /\ PopulationReady
     /\ RequestReady
     /\ ~queryImageReady
     => /\ resolutionPhase = "Probing"
        /\ Len(hops) = 0
-       /\ liveBinding = InitialBinding
-       /\ ~bindingAdvanced
-       /\ compositionPhase \in {"Resolving", "Unavailable"}
+       /\ compositionPhase \in
+            {"Resolving", "Unavailable", "ContractFault"}
 
 SelectedEndpointBelongsToRequestedSide ==
     effectiveQueryInput # NoOutcome =>
@@ -953,6 +967,11 @@ BindingVersionIsPreserved ==
     effectiveResearchAttempt # NoOutcome =>
         /\ retainedBinding = capturedBinding
         /\ retainedBinding = liveBinding
+
+QueryImageFailureBindingIsPreserved ==
+    /\ compositionPhase = "Unavailable"
+    /\ ~queryImageReady
+    => liveBinding = capturedBinding
 
 DirectResolutionUsesRoot ==
     /\ effectiveResearchAttempt # NoOutcome
@@ -1181,6 +1200,22 @@ ImageOpenFailureInputConstraint ==
         "Resolved",
         "Carried",
         FALSE)
+
+ImageOpenFailureBindingDriftInputConstraint ==
+    /\ rootSealed
+    /\ terminalAdmittedSelected
+    /\ terminalSealedSelected
+    /\ terminalAdmittedOpposite
+    /\ terminalSealedOpposite
+    /\ terminalReceiptMappedSelected
+    /\ terminalResearchActiveSelected
+    /\ ~duplicateSealedSelected
+    /\ ~foreignSealedSelected
+    /\ terminalCandidate = Target
+    /\ rootAttemptKind = "Resolved"
+    /\ terminalAttemptKind = "Resolved"
+    /\ requestKind = "Carried"
+    /\ ~queryImageReady
 
 DirectScenarioCompletesWithRoot ==
     <>(/\ compositionPhase = "Complete"

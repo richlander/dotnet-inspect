@@ -17,6 +17,7 @@ docs/design/models/research-workspace-target-composition/BrokenCrossSideEndpoint
 docs/design/models/research-workspace-target-composition/BrokenFacadeEndpoint.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenForwardingEvidence.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenNonResolvedAttempt.cfg=12
+docs/design/models/research-workspace-target-composition/BrokenQueryImageBindingDrift.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenResearchReceipt.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenRootRelabel.cfg=12
 docs/design/models/research-workspace-target-composition/BrokenTerminalCorrespondence.cfg=12

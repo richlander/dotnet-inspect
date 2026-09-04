@@ -94,20 +94,23 @@ owner is invoked, so it does not claim temporal refinement for those inputs.
 `AssemblyBindingPolicyVersionLifecycle`. The safety configuration rechecks
 fresh replacement and `BindingBehaviorRefinesOwner`.
 
-For a valid population, carried request, and successfully retained participant
-set, the composition calls `Forwarding!Advance` and
-`BindingLifecycle!Advance`; it does not copy either owner's transitions. An
-invalid population or unsupported exact-address request rejects before those
-actions. A query-level participant image-open rejection becomes unavailable
-without invoking either imported owner. Once forwarding reaches `Terminal`,
-Queries either selects the pre-existing attempt, reports typed non-success, or
-detects binding-version drift as a contract fault.
+For a valid population and carried request, binding lifecycle advancement may
+occur after query admission whether or not participant image retention
+succeeds. Forwarding advances only for a successfully retained participant
+set. An invalid population or unsupported exact-address request rejects before
+either imported owner advances. A query-level participant image-open rejection
+becomes unavailable only while the captured binding remains current; drift
+before that publication becomes a contract fault. Once forwarding reaches
+`Terminal`, Queries either selects the pre-existing attempt, reports typed
+non-success, or detects binding-version drift as a contract fault.
 
-`BindingAdvanceStep` remains enabled through the resolving phase, and every
-resolving-phase publication transition requires `BindingReady` in the same
-transition that publishes success or typed non-success. The model therefore
-places the final version check at the publication linearization point rather
-than only after Metadata resolution. The product gate
+`BindingAdvanceStep` remains enabled after valid query admission through the
+resolving phase. Every post-admission publication transition requires the
+captured binding in the same transition that publishes success or typed
+non-success; the two binding-drift mutations deliberately remove that
+requirement for endpoint and query-image-rejection publication. The model
+therefore places the final version check at the publication linearization point
+rather than only after Metadata resolution. The product gate
 `WorkspaceResearchTarget_PrePublicationBindingPolicyVersionDriftThrows`
 exercises the corresponding post-resolution, pre-publication window across
 success, Metadata non-success, outer query rejection, and association or
@@ -131,8 +134,9 @@ The safety and exact scenario configurations check that:
   resolution;
 - an unsupported exact-address request rejects before forwarding or binding
   advances;
-- a query-level image-open failure becomes unavailable before forwarding or
-  binding advances;
+- a query-level image-open failure becomes unavailable while binding remains
+  current, and binding drift before that publication becomes a contract fault;
+  forwarding does not advance;
 - a selected endpoint belongs to the requested side and its admitted group;
 - a selected endpoint is the exact terminal assembly from Metadata;
 - the exact Research attempt comes from the Queries-to-Research projection;
@@ -169,7 +173,7 @@ accepting any converged phase:
 | `DirectCompletion.cfg` | A valid direct definition completes with the facade root. | 147,478 / 8 | 4 |
 | `ForwardedCompletion.cfg` | A valid one-hop route with a blocked facade census completes from the healthy terminal census. | 147,544 / 20 | 7 |
 | `BlockedTerminalCensusUnavailable.cfg` | An owner-valid failed terminal attempt and blocked census remain unavailable. | 147,541 / 17 | 6 |
-| `ImageOpenFailureUnavailable.cfg` | Query-level participant image rejection becomes unavailable before either imported owner advances. | 147,458 / 4 | 2 |
+| `ImageOpenFailureUnavailable.cfg` | Query-level participant image rejection becomes unavailable while binding remains current and forwarding does not advance. | 147,460 / 4 | 2 |
 | `ExactAddressRejected.cfg` | An exact-address request rejects before either imported owner advances. | 147,600 / 288 | 2 |
 | `MissingTerminalPopulationRejected.cfg` | The terminal group participant missing from the sealed population is rejected before resolution. | 148,032 / 1,152 | 2 |
 | `MissingNonTerminalPopulationRejected.cfg` | An admitted non-terminal selected-side participant omitted from the sealed, receipt, and Research populations is rejected before resolution. | 147,458 / 4 | 2 |
@@ -191,6 +195,7 @@ accepting any converged phase:
 | `BrokenNonResolvedAttempt.cfg` | Selects a pre-existing non-resolved terminal attempt. | Violates `SelectedAttemptIsResolved`. |
 | `BrokenForwardingEvidence.cfg` | Drops the Metadata forwarding path. | Violates `ForwardingEvidenceIsPreserved`. |
 | `BrokenBindingDrift.cfg` | Ignores an owner-issued binding-version replacement. | Violates `BindingVersionIsPreserved`. |
+| `BrokenQueryImageBindingDrift.cfg` | Publishes query-image unavailability after an owner-issued binding-version replacement. | Violates `QueryImageFailureBindingIsPreserved`. |
 | `BrokenUnavailableInvocation.cfg` | Completes after typed endpoint unavailability. | Violates `ResearchCompletionHasSelectedEndpoint`. |
 
 ## Bounds and non-claims
@@ -262,11 +267,11 @@ runs every configuration in a selected model directory. Entries in
 `eng/tla-expected-exit-codes.txt` additionally require the listed
 configurations to produce their exact semantic verdict.
 
-All 25 configurations are exact-outcome gates. The exhaustive safety and
+All 26 configurations are exact-outcome gates. The exhaustive safety and
 liveness configurations retain the complete input cross-product and fit the
 shared runner's 600-second per-configuration budget. The `CiSafety` and
 `CiLiveness` configurations retain a fast successful-owner-input check, while
-the ten exact scenarios force promised terminal classifications and the eleven
+the ten exact scenarios force promised terminal classifications and the twelve
 focused mutations force their intended safety violations.
 
 ## Recorded result
@@ -276,8 +281,8 @@ scenario configurations:
 
 | Configuration | Generated states | Distinct states | Maximum depth | Result |
 | --- | ---: | ---: | ---: | --- |
-| Exhaustive safety | 609,080 | 533,048 | 10 | All composition invariants passed over valid, missing, duplicated, extra, broader, unsupported-request, and query-image-rejection inputs. |
-| Exhaustive liveness | 609,080 | 533,048 | 10 | `CompositionConverges` passed. |
+| Exhaustive safety | 610,232 | 534,200 | 10 | All composition invariants passed over valid, missing, duplicated, extra, broader, unsupported-request, and query-image-rejection inputs, including current-binding unavailability and drift faulting. |
+| Exhaustive liveness | 610,232 | 534,200 | 10 | `CompositionConverges` passed. |
 | CI safety | 151,842 | 3,338 | 10 | Exact-population carried inputs with retained images passed all safety checks and both behavior refinements. |
 | CI liveness | 151,842 | 3,338 | 10 | `CompositionConverges` passed over exact-population carried inputs with retained images. |
 
@@ -295,7 +300,8 @@ Every mutation exited with TLC status 12 on its intended invariant:
 | Broken non-resolved attempt | 147,612 / 34 | 7 | A pre-existing unavailable, missing, not-requested, or failed attempt became effective. |
 | Broken forwarding evidence | 147,612 / 34 | 7 | A forwarded endpoint completed with an empty retained path. |
 | Broken binding drift | 147,618 / 37 | 7 | Composition published after the owner-issued binding version advanced. |
-| Broken unavailable invocation | 147,704 / 184 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
+| Broken query-image binding drift | 147,464 / 8 | 3 | Query-level image rejection published unavailable after the binding-policy version changed. |
+| Broken unavailable invocation | 147,622 / 130 | 4 | Composition completed after a terminal resolution supplied no endpoint. |
 
 Mutation counts record one run and may vary because TLC stops after the first
 scheduled counterexample; the exact exit status and violated invariant are the

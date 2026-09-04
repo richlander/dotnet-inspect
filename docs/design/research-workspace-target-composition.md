@@ -72,7 +72,7 @@ selection scope.
 | The root defines the declaring type and its Research attempt is `Resolved`. | The root attempt remains the effective endpoint. Metadata forwarding hops are empty. |
 | The root forwards the declaring type, Metadata reaches a terminal definition in an already admitted participant, and that participant's exact Research attempt is `Resolved`. | The terminal attempt becomes the effective endpoint. The root's `Unavailable/DeclaringTypeForwarded` attempt and the complete ordered forwarding path remain visible evidence. |
 | Metadata cannot reach a terminal definition. | Composition is typed unavailable and retains a capability-free projection of the exact Metadata outcome. No effective endpoint is published. |
-| `AssemblyContextTypeResolutionQuery` cannot retain one participant image and returns query-level `Rejected`. | Composition is typed unavailable and retains the failing participant's sealed Queries input id plus a capability-free projection of `CandidateOpenFailure`. Metadata forwarding and endpoint selection do not begin. |
+| `AssemblyContextTypeResolutionQuery` cannot retain one participant image and returns query-level `Rejected`. | Composition prepares typed unavailability with the failing participant's sealed Queries input id plus a capability-free projection of `CandidateOpenFailure`. Metadata forwarding and endpoint selection do not begin; binding drift before publication supersedes the pending result with `InvalidOperationException`. |
 | Metadata reaches a definition whose acquisition registration is not one sealed input in this group and side. | Composition is rejected as a correspondence failure. A same-named participant cannot substitute. |
 | The terminal participant is admitted only as reference evidence, or its Research attempt is not `Resolved`. | Composition is typed unavailable and retains that exact attempt. |
 | The terminal attempt's Research domain-side census is blocked. | Composition is typed unavailable. Queries consumes Research's owner-derived attempt and census together; it does not synthesize a resolved attempt inside a blocked same-side census. |
@@ -234,15 +234,18 @@ one of:
   occurrence site;
 - converted into a named capability-free field or operation-scoped opaque id
   with an exact source/projected comparator;
+- reduced by one design-named containment transform to a fixed-size typed
+  summary whose comparator recomputes that summary from the source;
 - proved equal as a deterministic derivation from retained fields; or
 - excluded by one exact structural deny rule named by this design.
 
 The only excluded public source property is
 `ResolvedAssemblyReference.OpenRead`, whose declared delegate type is
 prohibited by the structural gate. The manifest names that property and deny
-rule exactly. No other property may be ignored, converted only to display text,
+rule exactly. No other property may be ignored, converted only to display text, summarized,
 or absorbed into a generic unavailable value. Collection cardinality and order
-are part of field fidelity. The discovered source-type, public-property,
+are part of projection fidelity except at the one bounded containment transform
+below. The discovered source-type, public-property, transformed-property,
 excluded-property, union, arm, and occurrence-site sets must exactly equal the
 manifest sets, so any addition fails the gate until Queries defines and tests
 its inert projection.
@@ -279,9 +282,13 @@ The current materializers have these binding rules:
   to an operation-scoped Queries catalog id. These ids preserve equality and
   inequality only within the composition operation and cannot recover the
   owner object.
-- `ModuleFileReference.Hash` becomes canonical inert hexadecimal text; the
-  gate decodes it and requires exact byte-for-byte equality. The raw byte
-  collection never enters the result type graph.
+- `ModuleFileReference.Hash` is the sole containment transform. ECMA-335
+  permits an arbitrary-length blob rather than a fixed hash shape, so the
+  projection publishes only the source byte length and a SHA-256 digest as
+  fixed-size inert hexadecimal text. The gate recomputes both values from an
+  owner-produced source and never publishes the original bytes or a reversible
+  encoding. This summary is typed containment evidence, not a claim to preserve
+  the source blob.
 - Every other reached Metadata source type uses the reflected exact-property
   rule above; a manifest entry cannot designate the whole type as
   "capability-bearing", "identity-bearing", or "provenance-bearing" to bypass
@@ -376,10 +383,14 @@ not only disposable or callback types. The projection gate supplies a
 `ResolvedAssemblyReference` whose `OpenRead` throws a sentinel exception and
 proves that projection never invokes it. It also rejects a test-only
 destination schema with an unclaimed `InertString` field containing encoded
-sentinel image bytes. A new composition-result or evidence arm must enter the
-closed-union walk without an allow-list edit. These gates cover retained and
-laundered object-graph authority; the behavioral gates below separately prove
-field fidelity and failure-atomic publication.
+sentinel image bytes. An owner-produced module reference carries a
+distinguishable PE-sized hash blob; the gate requires only its exact length and
+SHA-256 summary and proves that neither the bytes nor their hexadecimal or
+base64 encodings occur in any claimed destination field. A new
+composition-result or evidence arm must enter the closed-union walk without an
+allow-list edit. These gates cover retained and laundered object-graph
+authority; the behavioral gates below separately prove projection fidelity and
+failure-atomic publication.
 
 ## Validation order
 
@@ -591,8 +602,9 @@ The model rechecks the imported forwarding safety properties and checks that:
   input, rejects the population before Metadata resolution begins;
 - a valid receipt paired with a broader Research result rejects before
   Metadata resolution begins;
-- a query-level participant image-open rejection becomes unavailable before
-  forwarding or binding advances;
+- a query-level participant image-open rejection becomes unavailable when the
+  captured binding remains current, while binding advancement before its
+  publication becomes a contract fault; forwarding never advances;
 - a selected endpoint belongs to the requested side and admitted group;
 - terminal ownership is preserved rather than reset to the facade;
 - pre-existing Research attempts, domain health, and Queries-to-Research
@@ -626,11 +638,12 @@ same-side domain inputs as `DomainAmbiguous` before either can resolve. The
 two-sided divergent-domain handoff remains outside this side-local model and
 unverified.
 
-Focused mutations substitute the facade, cross the comparison side, reconstruct
-the Research input without the receipt, substitute another selection scope,
-relabel the root attempt, select a non-resolved attempt, substitute another
-terminal participant behind a collapsed query id, substitute another domain's
-healthy census, drop the forwarding path, ignore binding-version drift, or
+Focused mutations substitute the facade, cross the comparison side,
+reconstruct the Research input without the receipt, substitute another
+selection scope, relabel the root attempt, select a non-resolved attempt,
+substitute another terminal participant behind a collapsed query id,
+substitute another domain's healthy census, drop the forwarding path, ignore
+binding-version drift during endpoint or query-image-rejection publication, or
 invoke Research without an endpoint. The model abstracts image bytes and
 detailed failure payloads, detailed attempt payloads, acquisition, concurrency,
 and presentation. TLC evidence applies to the model; the implementation gates
@@ -703,6 +716,12 @@ fidelity for every concrete arm. Its fixture matrix cannot count a top-level
 `Rejected` or `Ambiguous` value as coverage for all nested failure or ambiguity
 arms.
 
+`WorkspaceResearchTarget_ModuleHashPublishesOnlyLengthAndSha256` uses an
+owner-produced `ModuleFileReference` with a distinguishable PE-sized hash blob.
+It compares the exact source length and recomputed SHA-256 digest, then proves
+that no result field or serialized result contains the original bytes or their
+hexadecimal or base64 encoding.
+
 `WorkspaceResearchTarget_RootBindingPolicyVersionDriftThrows` and
 `WorkspaceResearchTarget_NonRootBindingPolicyVersionDriftThrows` each exercise
 the pre-query check 6 and immediate post-query check 8. Every observed mismatch
@@ -740,6 +759,7 @@ materialized inert locals.
 - `WorkspaceResearchTarget_UnboundTerminalIsUnavailable`
 - `WorkspaceResearchTarget_ImageOpenFailureIsUnavailable`
 - `WorkspaceResearchTarget_AvailableProjectionPreservesEveryMetadataOutcome`
+- `WorkspaceResearchTarget_ModuleHashPublishesOnlyLengthAndSha256`
 - `WorkspaceResearchTarget_ResultSurfaceRetainsNoCapabilities`
 - `WorkspaceResearchTarget_MissingAnyGroupParticipantIsRejected`
 - `WorkspaceResearchTarget_DuplicatePopulationMemberIsRejected`
