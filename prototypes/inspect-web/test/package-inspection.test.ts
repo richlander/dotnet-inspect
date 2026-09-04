@@ -902,6 +902,38 @@ test("invalidation retires pending workspace dependency authority", async () => 
     true);
 });
 
+test("invalidated workspace dependency failures cannot overwrite re-added results", async () => {
+  const packageItem = packageModel();
+  const firstRequest = deferred<BrowserPackageDependencies>();
+  let queries = 0;
+  const state = inspectionState({ packages: [packageItem] });
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => {
+        queries++;
+        return queries === 1
+          ? firstRequest.promise
+          : dependencyResult();
+      },
+    }));
+
+  const staleLoad = coordinator.ensureWorkspaceDependencies();
+  state.packages = [];
+  coordinator.invalidatePackageResults();
+  state.packages = [packageItem];
+
+  await coordinator.ensureWorkspaceDependencies();
+  firstRequest.reject(new Error("stale failure"));
+  await staleLoad;
+
+  const key = workspaceDependencyKey(packageItem);
+  const current = state.workspaceDependencies[key];
+  assert.ok(current);
+  assert.equal(queries, 2);
+  assert.equal(current.dependencyGroups?.length, 1);
+  assert.equal(state.workspaceDependencyErrors[key], undefined);
+});
+
 test("workspace dependency loading records failures and ignores runtime packs", async () => {
   const good = packageModel({ id: "Example.Good" });
   const partial = packageModel({ id: "Example.Partial" });

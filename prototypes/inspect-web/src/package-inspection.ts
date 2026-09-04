@@ -236,6 +236,7 @@ export function createPackageInspectionCoordinator(
           delete state.workspaceDependencyErrors[key];
         }
       } catch (error) {
+        if (generation !== workspaceDependencyGeneration) continue;
         if (!packageIsResident(state.packages, packageModel)) continue;
         state.workspaceDependencies[key] = {
           dependencyGroups: [],
