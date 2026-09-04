@@ -250,11 +250,9 @@ internal sealed class ChangeRoutingPolicy
         // This list mirrors the JavaScript extractor's own default inclusion
         // set rather than the file types this repository happens to contain,
         // because the extractor indexes considerably more than JavaScript.
-        // Three review rounds each found a different family missing from a
-        // hand-picked list, so the published set is the stable contract. See
-        // AutoBuild.java in github/codeql, "The default inclusion patterns
-        // cause the following files to be included". Families this repository
-        // does not currently use cost nothing: they simply never match.
+        // Follow FileExtractor.FileType and AutoBuild's defaultExtract loop
+        // in github/codeql; AutoBuild's prose extension list can lag the code.
+        // Families this repository does not use simply never match.
         //
         // The one documented inclusion deliberately not routed is "all
         // extension-less files". Routing it would select this lane for
@@ -280,6 +278,9 @@ internal sealed class ChangeRoutingPolicy
             "*.xhtm",
             "*.xhtml",
             "*.vue",
+            "*.hbs",
+            "*.ejs",
+            "*.njk",
             "*.html.erb",
             "*.html.dot",
             "*.jsp",

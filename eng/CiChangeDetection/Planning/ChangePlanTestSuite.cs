@@ -222,6 +222,12 @@ internal static class ChangePlanTestSuite
             // currently contain. They cost nothing and stop the routing list
             // from drifting away from the published inclusion set.
             ("misc/probe.vue", "codeqljavascript"),
+            ("misc/probe.hbs", "codeqljavascript"),
+            ("misc/probe.ejs", "codeqljavascript"),
+            ("misc/probe.njk", "codeqljavascript"),
+            ("misc/probe.HBS", "codeqljavascript"),
+            ("misc/probe.EJS", "codeqljavascript"),
+            ("misc/probe.NJK", "codeqljavascript"),
             ("misc/probe.jsp", "codeqljavascript"),
             ("misc/probe.raml", "codeqljavascript"),
             ("misc/manifest.json", "codeqljavascript"),
