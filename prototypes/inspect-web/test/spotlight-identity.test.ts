@@ -2782,6 +2782,9 @@ test("workspace package selection resets type-specific member filters", () => {
   assert.match(
     selection,
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+  assert.match(
+    selection,
+    /const commitProductDemosExit =\s*!stayInWorkspace && isProductHomeDemosPath\(location\.pathname\);[\s\S]*if \(commitProductDemosExit\) \{\s*workspaceLocation\.push\(buildStateUrl\(\)\.toString\(\)\);\s*\}\s*render\(\)/);
 });
 
 test("loaded-package Spotlight selection resets type-specific member filters", () => {
@@ -2857,7 +2860,7 @@ test("home demos restore the complete parsed location", () => {
     /failCanonicalWorkspaceRestore\([\s\S]*canonicalSnapshot,\s*retryRestore\)/);
   assert.match(
     restoreWorkspace,
-    /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*navigationSeq,\s*canonicalSnapshot,\s*focusResult,\s*failureHandler\)/);
+    /applyPlatformLibraryScope\([\s\S]*\(\) => restoreWorkspaceFromLocation\(\s*loc,\s*deep,\s*undefined,\s*canonicalSnapshot,\s*focusResult,\s*failureHandler\)/);
   assert.match(
     restoreWorkspace,
     /const loaded = await loadPackage\([\s\S]*if \(loaded && focusResult && navigationSequence\.isCurrent\(navigationSeq\)\) \{[\s\S]*focusInspectionResult\(navigationSeq\);[\s\S]*state\.retryAction = retryRestore/);

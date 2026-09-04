@@ -1991,6 +1991,8 @@ function selectWorkspacePackage(
   pkg: PackageControlPackage | null,
   { stayInWorkspace = false }: { stayInWorkspace?: boolean } = {},
 ) {
+  const commitProductDemosExit =
+    !stayInWorkspace && isProductHomeDemosPath(location.pathname);
   const packageModel = pkg
     ? state.packages.find(item => packageIdentityKey(item) === packageIdentityKey(pkg))
     : null;
@@ -2010,6 +2012,9 @@ function selectWorkspacePackage(
   resetMemberFilters();
   resetMemberSectionState();
   state.workspaceSubjectOpen = stayInWorkspace;
+  if (commitProductDemosExit) {
+    workspaceLocation.push(buildStateUrl().toString());
+  }
   render();
 }
 
@@ -11059,7 +11064,7 @@ async function restoreWorkspaceFromLocation(
         () => restoreWorkspaceFromLocation(
           loc,
           deep,
-          navigationSeq,
+          undefined,
           canonicalSnapshot,
           focusResult,
           failureHandler));
