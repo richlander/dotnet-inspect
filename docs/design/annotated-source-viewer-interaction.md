@@ -296,6 +296,10 @@ transient detail and restores focus to the exact opener if it still exists:
 - if that exact chip disappeared, focus returns to the Finding's persistent
   inspector action, even if a same- or different-medium sibling chip remains.
 
+Detail-close and source-selection focus may scroll the focus target's own
+container only as needed to reveal that target. The opening-detail scroll
+preservation rule does not apply to those reveal transitions.
+
 Removing the primary annotation closes detail indirectly and leaves focus on
 the annotation toggle that performed the removal. **Default** and **Clear**
 leave focus on their own controls. The persistent-inspector fallback applies
@@ -489,6 +493,8 @@ Conformance requires:
   without revalidation, and focused at the embedded rejection after dismissal;
 - real-browser tests proving embedded and modal Finding annotation chips open
   focused detail without changing the current source scroll position;
+- real-browser tests proving source-node selection and detail-close focus
+  reveal their exact targets within the relevant source or inspector viewport;
 - a style gate rejecting persistent source-text underlines; and
 - a CI-integrated real-browser gate for pointer hit testing, focus, Escape,
   modal trapping, backdrop dismissal, and drag selection.
