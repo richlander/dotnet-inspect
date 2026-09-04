@@ -364,6 +364,7 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
         Type[] fixtureTypes =
         [
             typeof(IBodyShapeValue),
+            typeof(IBodyShapePrefixMethods),
             typeof(BodyShapeFixture),
             typeof(BodyShapeFixtureExtensions),
             typeof(GenericBodyShapeFixture<>),
@@ -395,8 +396,17 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                 "event:Changed,property:Value",
                 "method:add_Changed,method:remove_Changed,property:Value"),
             new(
+                nameof(IBodyShapePrefixMethods),
+                "method:get_Count,method:set_Count",
+                "method:get_Count,method:set_Count",
+                "method:get_Count,method:set_Count"),
+            new(
                 nameof(BodyShapeFixture),
                 "constructor:.ctor,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.IBodyShapePrefixMethods.get_Count,"
+                    + "explicit-interface-implementation:"
+                    + "DotnetInspector.Fixtures.IBodyShapePrefixMethods.set_Count,"
                     + "explicit-interface-implementation:"
                     + "DotnetInspector.Fixtures.IBodyShapeValue.add_Changed,"
                     + "explicit-interface-implementation:"
@@ -409,6 +419,8 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
                     + "method:ReadableLocal",
                 "extension-method:ProjectedCreation,method:.ctor,method:Branch,"
                     + "method:Classify,"
+                    + "method:DotnetInspector.Fixtures.IBodyShapePrefixMethods.get_Count,"
+                    + "method:DotnetInspector.Fixtures.IBodyShapePrefixMethods.set_Count,"
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.add_Changed,"
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.get_Value,"
                     + "method:DotnetInspector.Fixtures.IBodyShapeValue.remove_Changed,"
