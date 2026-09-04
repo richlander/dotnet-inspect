@@ -8,6 +8,7 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
+using ILInspector.SourceLink;
 
 namespace DotnetInspector.Commands;
 
@@ -543,9 +544,65 @@ public static class MemberCommand
                                 sourceMember,
                                 effectiveOptions.RenderOptions),
                             queryContext);
+                    AssemblyMemberPdbSourceAttempt.Unavailable? unavailablePdb =
+                        comparison switch
+                        {
+                            AssemblyMemberSourceComparisonEntry.Available
+                            {
+                                Pdb: AssemblyMemberPdbSourceAttempt.Unavailable
+                                    unavailable
+                            } => unavailable,
+                            AssemblyMemberSourceComparisonEntry.Unavailable
+                                unavailable => unavailable.Pdb,
+                            _ => null,
+                        };
+                    PdbMemberSourceOutcome? pdbOutcome =
+                        unavailablePdb?.Inspection.Outcome;
+                    bool memberHasNoBody =
+                        comparison switch
+                        {
+                            AssemblyMemberSourceComparisonEntry.Available
+                            {
+                                Decompiled:
+                                    AssemblyMemberDecompiledSourceAttempt.Unavailable
+                                    {
+                                        Status:
+                                            ILInspector.Decompiler
+                                                .MemberBodyProductionStatus.Absent
+                                    }
+                            } => true,
+                            AssemblyMemberSourceComparisonEntry.Unavailable
+                            {
+                                Decompiled.Status:
+                                    ILInspector.Decompiler
+                                        .MemberBodyProductionStatus.Absent
+                            } => true,
+                            _ => false,
+                        };
                     effectiveOptions = effectiveOptions with
                     {
-                        MemberSourceComparison = comparison
+                        MemberSourceComparison = comparison,
+                        MemberHasNoBody = memberHasNoBody,
+                        MemberHasNoPdbDeclaration =
+                            pdbOutcome
+                            == PdbMemberSourceOutcome.NoVouchedDeclaration,
+                        MemberSourceTooComplex =
+                            pdbOutcome
+                            == PdbMemberSourceOutcome.SourceTooComplex,
+                        MemberSourceCoordinatesInvalid =
+                            pdbOutcome
+                            == PdbMemberSourceOutcome
+                                .InvalidSequencePointCoordinates,
+                        PdbSourceUnavailableReason =
+                            comparison
+                                is AssemblyMemberSourceComparisonEntry.Available
+                                {
+                                    Pdb:
+                                        AssemblyMemberPdbSourceAttempt.Available
+                                }
+                                ? null
+                                : ApiCommand.PdbSourceUnavailableReason(
+                                    comparison),
                     };
                 }
                 else

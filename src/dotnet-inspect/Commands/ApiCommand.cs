@@ -2823,10 +2823,10 @@ public class ApiCommand
 
         var documents = section switch
         {
-            SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.PdbSourceCode.Content),
+            SectionNames.PdbSource => CodeSectionDocument(section, SectionNames.PdbSource, MemberSourceUrl(options as MemberOptions), view.MemberCode?.PdbSourceCode.Content),
             SectionNames.DecompiledSource => CodeSectionDocument(section, "Decompiled Source", null, view.MemberCode?.DecompiledSourceCode.Content),
             SectionNames.AnnotatedSource => CodeSectionDocument(section, "Annotated Source", null, view.MemberCode?.AnnotatedSourceCode.Content),
-            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", (options as MemberOptions)?.MethodSource?.SourceUrl, view.MemberCode?.SourceDiffCode?.Content),
+            SectionNames.SourceDiff => CodeSectionDocument(section, "Source Diff", MemberSourceUrl(options as MemberOptions), view.MemberCode?.SourceDiffCode?.Content),
             SectionNames.IL => CodeSectionDocument(section, "IL", null, view.MemberCode?.ILCode.Content),
             _ => []
         };
@@ -3723,7 +3723,7 @@ public class ApiCommand
                 "Unknown member source comparison result."),
         };
 
-    private static string PdbSourceUnavailableReason(
+    internal static string PdbSourceUnavailableReason(
         AssemblyMemberSourceComparisonEntry comparison)
         => PdbAttempt(comparison) is { } attempt
             ? PdbAttemptReason(attempt)
@@ -3737,6 +3737,16 @@ public class ApiCommand
                     "The selected assembly image was rejected.",
                 _ => "PDB source is unavailable.",
             };
+
+    private static string? MemberSourceUrl(MemberOptions? options)
+        => PdbAttempt(options?.MemberSourceComparison) switch
+        {
+            AssemblyMemberPdbSourceAttempt.Available
+            {
+                Inspection.Document: { } document
+            } => document.ResolvedUrl ?? document.OriginalPath,
+            _ => options?.MethodSource?.SourceUrl,
+        };
 
     private static string PdbAttemptReason(
         AssemblyMemberPdbSourceAttempt attempt)

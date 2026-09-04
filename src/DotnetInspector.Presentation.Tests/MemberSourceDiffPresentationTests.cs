@@ -18,7 +18,7 @@ public class MemberSourceDiffPresentationTests
     {
         const string before =
             """
-              [Source] public extension(
+              [Source] extension(
                   int value)
               {
             #if TRACE
@@ -35,7 +35,7 @@ public class MemberSourceDiffPresentationTests
         const string after =
             """
                 [Metadata]
-                public extension(
+                extension(
                     int value)
                 {
                     if (value > 0)

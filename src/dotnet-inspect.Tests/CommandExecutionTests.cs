@@ -10699,6 +10699,7 @@ public partial class CommandExecutionTests
     [InlineData("*", false)]
     [InlineData("PDB Source", true)]
     [InlineData("Source Diff", true)]
+    [InlineData("PDB Source,Source Diff", true)]
     [InlineData("Original Source", true)]
     public async Task Member_PdbSourceFailureUnderDocumentJsonHonorsExactSelection(
         string selector,
@@ -10709,9 +10710,7 @@ public partial class CommandExecutionTests
             "--library", FixtureCatalog.DiffPair.OldAssemblyPath(), "--all",
             "-S", selector, "--json", "--tips", "q");
 
-        bool codeSectionFailure =
-            exact && selector != SectionNames.SourceDiff;
-        if (codeSectionFailure)
+        if (exact)
         {
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -11135,6 +11134,25 @@ public partial class CommandExecutionTests
         Assert.Contains("+++ Decompiled comparison", output);
         // The decompiled side is the accessor's own body, spelled with its metadata name.
         Assert.Contains("set_MaxDepth", output);
+        Assert.Contains("VerifyMutable();", output);
+        Assert.Contains("_maxDepth = value;", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_PrintJson_RetainsTypedPdbSourceUrl()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:2", "-S", "Source Diff", "--print", "--json",
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Contains(
+            "JsonSerializerOptions.cs",
+            document.RootElement.GetProperty("url").GetString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
