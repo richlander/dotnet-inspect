@@ -170,6 +170,48 @@ internal sealed class BrowserManagedOperationBridge
                 BrowserManagedOperationFailure<TError, TDiagnostic>>
                 unexpectedFailure)
     {
+        ArgumentNullException.ThrowIfNull(body);
+        return RunCoreAsync<TValue, TError, TDiagnostic, TEvent>(
+            operationId,
+            eventCallback,
+            (entry, events) => body(entry.Token, events),
+            unexpectedFailure);
+    }
+
+    internal Task<BrowserManagedOperationResult<TValue, TError, TDiagnostic>>
+        RunSharedAsync<TValue, TError, TDiagnostic, TEvent>(
+            BrowserManagedOperationId operationId,
+            Action<TEvent>? eventCallback,
+            BrowserManagedSharedProducer<TValue, TError, TDiagnostic, TEvent> producer,
+            Func<
+                Exception,
+                BrowserManagedOperationFailure<TError, TDiagnostic>> unexpectedFailure)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
+        return RunCoreAsync<TValue, TError, TDiagnostic, TEvent>(
+            operationId,
+            eventCallback,
+            (entry, events) =>
+            {
+                var subscription = producer.Attach(events);
+                entry.SharedProducer = subscription;
+                return subscription.WaitAsync(entry.Token);
+            },
+            unexpectedFailure);
+    }
+
+    Task<BrowserManagedOperationResult<TValue, TError, TDiagnostic>>
+        RunCoreAsync<TValue, TError, TDiagnostic, TEvent>(
+            BrowserManagedOperationId operationId,
+            Action<TEvent>? eventCallback,
+            Func<
+                OperationEntry,
+                IBrowserManagedOperationEvents<TEvent>,
+                Task<BrowserManagedOperationBodyResult<TValue, TError, TDiagnostic>>> body,
+            Func<
+                Exception,
+                BrowserManagedOperationFailure<TError, TDiagnostic>> unexpectedFailure)
+    {
         Validate(operationId);
         ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(unexpectedFailure);
@@ -196,7 +238,7 @@ internal sealed class BrowserManagedOperationBridge
             bodyTask;
         try
         {
-            bodyTask = body(entry.Token, events)
+            bodyTask = body(entry, events)
                 ?? Task.FromException<
                     BrowserManagedOperationBodyResult<
                         TValue,
@@ -286,7 +328,8 @@ internal sealed class BrowserManagedOperationBridge
             classificationFailure = exception;
         }
 
-        List<Exception> cleanupFailures = Release(entry);
+        List<Exception> cleanupFailures =
+            await ReleaseAsync(entry).ConfigureAwait(false);
         Exception? boundaryFailure =
             snapshot.EventCallbackFailure ?? classificationFailure;
         if (boundaryFailure is not null)
@@ -408,17 +451,27 @@ internal sealed class BrowserManagedOperationBridge
                 TDiagnostic>.Succeeded(succeeded.Value);
     }
 
-    List<Exception> Release(OperationEntry entry)
+    async ValueTask<List<Exception>> ReleaseAsync(OperationEntry entry)
     {
         var failures = new List<Exception>();
         AttemptCleanup(
             BrowserManagedOperationCleanupStage.EventCallback,
             entry.CloseEvents,
             failures);
-        AttemptCleanup(
-            BrowserManagedOperationCleanupStage.SharedProducer,
-            static () => { },
-            failures);
+        try
+        {
+            if (entry.SharedProducer is { } subscription)
+            {
+                entry.SharedProducer = null;
+                _ = await subscription.DetachAsync().ConfigureAwait(false);
+            }
+            _testHooks?.CleanupCompleted?.Invoke(
+                BrowserManagedOperationCleanupStage.SharedProducer);
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
+        }
         AttemptCleanup(
             BrowserManagedOperationCleanupStage.ActiveTable,
             () => RemoveExact(entry),
@@ -488,6 +541,8 @@ internal sealed class BrowserManagedOperationBridge
         internal BrowserManagedOperationId OperationId { get; }
 
         internal CancellationToken Token => _token;
+
+        internal IBrowserManagedSharedSubscription? SharedProducer { get; set; }
 
         internal void InstallEventGate(IEventGate events)
         {
