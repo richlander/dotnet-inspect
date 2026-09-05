@@ -158,6 +158,12 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         catch (Exception creationFailure)
         {
             List<Exception> cleanupFailures = [];
+            if (creationFailure.Data[
+                    "DotnetInspector.Artifacts.Workspaces.CleanupFailures"]
+                is IReadOnlyCollection<Exception> acquisitionCleanupFailures)
+            {
+                cleanupFailures.AddRange(acquisitionCleanupFailures);
+            }
             try
             {
                 realization?.Dispose();
@@ -171,8 +177,9 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
                 .ConfigureAwait(false);
             if (cleanupFailures.Count > 0)
             {
-                throw new AggregateException(
-                    [creationFailure, .. cleanupFailures]);
+                throw new BrowserScopeConstructionException(
+                    creationFailure,
+                    cleanupFailures);
             }
 
             throw;
@@ -202,8 +209,9 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
             TryDispose(workspace, ref cleanupFailures);
             if (cleanupFailures is not null)
             {
-                throw new AggregateException(
-                    [creationFailure, .. cleanupFailures]);
+                throw new BrowserScopeConstructionException(
+                    creationFailure,
+                    cleanupFailures);
             }
 
             throw;
@@ -428,6 +436,12 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         {
             InspectionWorkspaceCloseReport report =
                 await workspace.CloseAsync().ConfigureAwait(false);
+            foreach (InspectionWorkspaceDirectGroupCloseResult group in
+                report.Groups.OfType<InspectionWorkspaceDirectGroupCloseResult>())
+            {
+                if (group.Failure is { } failure)
+                    failures.Add(failure);
+            }
             if (!report.ArtifactSessionCleanupFailures.IsEmpty)
                 failures.AddRange(report.ArtifactSessionCleanupFailures);
         }
@@ -464,6 +478,11 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
             "The selected packages have no compile libraries, so this operation has no "
             + "assembly surface to inspect.");
 }
+
+internal sealed class BrowserScopeConstructionException(
+    Exception primary,
+    IEnumerable<Exception> cleanupFailures)
+    : AggregateException([primary, .. cleanupFailures]);
 
 /// <summary>
 /// Browser package and asset provenance projected over one product-owned

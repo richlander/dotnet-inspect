@@ -5932,6 +5932,29 @@ public sealed class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageOperation_LateCancellationPreservesCleanupFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var owned = new FailingScope();
+
+        AggregateException failure = await Assert.ThrowsAsync<AggregateException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync(
+                _ =>
+                {
+                    cancellation.Cancel();
+                    return Task.FromResult(owned);
+                },
+                TimeSpan.FromSeconds(5),
+                cancellation.Token));
+
+        Assert.Collection(
+            failure.InnerExceptions,
+            primary => Assert.IsAssignableFrom<OperationCanceledException>(primary),
+            cleanup => Assert.IsType<InvalidOperationException>(cleanup));
+        Assert.Equal(1, owned.DisposalCount);
+    }
+
+    [Fact]
     public async Task PackageOperation_LateCallerCancellationRemainsCancellation()
     {
         using var callerCancellation = new CancellationTokenSource();
@@ -6341,8 +6364,10 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Equal(2, surface.Assemblies.Assemblies.Length);
     }
 
-    [Fact]
-    public async Task BrowserWorkspace_ConcurrentScopeOpensShareOneRealization()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BrowserWorkspace_ConcurrentScopeOpensShareOneRealization(bool unbound)
     {
         byte[] image =
             File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -6379,13 +6404,9 @@ public sealed class BrowserEngineBoundaryTests
         Assert.False(removal.IsCompleted);
 
         Task<BrowserScopeLease<BrowserInspectionScope>> firstOpen =
-            BrowserPackageWorkspace.OpenScopeAsync(
-                [coordinate],
-                TestContext.Current.CancellationToken);
+            OpenAsync();
         Task<BrowserScopeLease<BrowserInspectionScope>> secondOpen =
-            BrowserPackageWorkspace.OpenScopeAsync(
-                [coordinate],
-                TestContext.Current.CancellationToken);
+            OpenAsync();
 
         // Both callers are genuinely suspended: the single freed slot is not available until the
         // gated retirement settles.
@@ -6418,6 +6439,17 @@ public sealed class BrowserEngineBoundaryTests
 
         foreach (BrowserScopeLease<GatedScope> lease in held)
             await lease.DisposeAsync();
+
+        Task<BrowserScopeLease<BrowserInspectionScope>> OpenAsync() =>
+            unbound
+                ? BrowserPackageWorkspace.OpenScopeAsync(
+                    coordinate.PackageId,
+                    coordinate.Version,
+                    coordinate.Framework,
+                    TestContext.Current.CancellationToken)
+                : BrowserPackageWorkspace.OpenScopeAsync(
+                    [coordinate],
+                    TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -6648,10 +6680,87 @@ public sealed class BrowserEngineBoundaryTests
             rejection!.Message,
             StringComparison.Ordinal);
 
-        // The owning design names the runtime restart as the recovery boundary; nothing short of
-        // one returns the entry's capacity.
-        BrowserPackageWorkspace.SimulateRuntimeRestart();
+        try
+        {
+            InvalidOperationException archiveRejection =
+                await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                        $"artifact.close-failure.archive-pressure.{Guid.NewGuid():N}@1.0.0",
+                        120L * MiB));
+            Assert.Contains(
+                "failed to release its retained content",
+                archiveRejection.Message,
+                StringComparison.Ordinal);
+            Assert.Contains(packageKey, BrowserPackageWorkspace.ResidentPackageKeys());
+        }
+        finally
+        {
+            BrowserPackageWorkspace.SimulateRuntimeRestart();
+        }
         Assert.Equal(0, BrowserPackageWorkspace.QuarantinedWorkspaces);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BrowserWorkspace_DuplicateCandidateRetiresItsOwnReservation(bool cleanupFails)
+    {
+        var settled = new TaskCompletionSource();
+        settled.SetResult();
+        var retained = new GatedScope(settled);
+        string key = $"duplicate-candidate-{Guid.NewGuid():N}";
+        await using ScopeReservation firstReservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<GatedScope> first =
+            await BrowserPackageWorkspace.RegisterScopeAsync(
+                firstReservation,
+                key,
+                retained,
+                ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal));
+        await using ScopeReservation duplicateReservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(
+                TestContext.Current.CancellationToken);
+        int occupied = BrowserPackageWorkspace.Stats().Workspaces;
+        var failing = new FailingScope();
+        var healthy = new GatedScope(settled);
+        IAsyncDisposable candidate = cleanupFails ? failing : healthy;
+
+        try
+        {
+            if (cleanupFails)
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                    await BrowserPackageWorkspace.RegisterScopeAsync(
+                        duplicateReservation,
+                        key,
+                        candidate,
+                        ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal)));
+                Assert.Equal(1, failing.DisposalCount);
+                Assert.Equal(occupied, BrowserPackageWorkspace.Stats().Workspaces);
+                Assert.Equal(1, BrowserPackageWorkspace.QuarantinedWorkspaces);
+            }
+            else
+            {
+                await using BrowserScopeLease<IAsyncDisposable> joined =
+                    await BrowserPackageWorkspace.RegisterScopeAsync(
+                        duplicateReservation,
+                        key,
+                        candidate,
+                        ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal));
+                Assert.Same(retained, joined.Scope);
+                Assert.True(healthy.Disposed);
+                Assert.Equal(occupied - 1, BrowserPackageWorkspace.Stats().Workspaces);
+            }
+
+            await BrowserPackageWorkspace.RemoveScopeAsync(retained);
+            await first.DisposeAsync();
+            Assert.True(retained.Disposed);
+        }
+        finally
+        {
+            BrowserPackageWorkspace.SimulateRuntimeRestart();
+        }
     }
 
     [Fact]
@@ -6949,29 +7058,8 @@ public sealed class BrowserEngineBoundaryTests
             Package(image, "lib/net11.0/Artifact.Waiters.dll"),
             TestContext.Current.CancellationToken);
 
-        var held = new List<BrowserScopeLease<GatedScope>>();
-        var settled = new TaskCompletionSource();
-        settled.SetResult();
-        for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes - 1; index++)
-        {
-            ScopeReservation reservation =
-                await BrowserPackageWorkspace.ReserveScopeAsync(
-                    TestContext.Current.CancellationToken);
-            held.Add(await BrowserPackageWorkspace.RegisterScopeAsync(
-                reservation,
-                $"waiter-holder-{index}-{Guid.NewGuid():N}",
-                new GatedScope(settled),
-                ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal)));
-        }
-
-        var release = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var closing = new GatedScope(release);
-        await BrowserPackageWorkspace.RegisterScopeAsync(
-            $"waiter-closing-{Guid.NewGuid():N}",
-            closing);
-        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
-        await closing.DisposeStarted.Task;
+        await using ScopeAdmissionGate admission =
+            await ScopeAdmissionGate.CreateAsync();
 
         using var abandoning = new CancellationTokenSource();
         Task<BrowserScopeLease<BrowserInspectionScope>> abandoned =
@@ -6983,19 +7071,72 @@ public sealed class BrowserEngineBoundaryTests
         Assert.False(abandoned.IsCompleted);
         Assert.False(waiting.IsCompleted);
 
-        await abandoning.CancelAsync();
-        release.SetResult();
-        await removal;
+        BrowserScopeLease<BrowserInspectionScope>? lease = null;
+        try
+        {
+            await abandoning.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await abandoned.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+            Assert.False(waiting.IsCompleted);
+            Assert.False(admission.Retirement.IsCompleted);
 
-        // Cancellation is per waiter: the abandoning caller observes its own cancellation and
-        // the remaining caller still gets the workspace.
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await abandoned);
-        await using BrowserScopeLease<BrowserInspectionScope> lease = await waiting;
-        Assert.True(lease.Scope.ArtifactBacked);
-        Assert.True(BrowserPackageWorkspace.IsScopeRetained(lease.Scope));
+            admission.Release();
+            lease = await waiting;
+            Assert.True(lease.Scope.ArtifactBacked);
+            Assert.True(BrowserPackageWorkspace.IsScopeRetained(lease.Scope));
+        }
+        finally
+        {
+            admission.Release();
+            lease ??= await waiting;
+            await lease.DisposeAsync();
+        }
+    }
 
-        foreach (BrowserScopeLease<GatedScope> holder in held)
-            await holder.DisposeAsync();
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WorkspaceOccurrences_ActivationCannotOutliveItsView(bool replace)
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Activation.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Activation.dll"),
+            TestContext.Current.CancellationToken);
+        BrowserWorkspacePackageOccurrenceView view =
+            BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+        await using ScopeAdmissionGate admission =
+            await ScopeAdmissionGate.CreateAsync();
+
+        Task<string> activation = PackageExports.ActivateWorkspacePackageOccurrence(
+            Assert.Single(view.Occurrences).Action);
+        try
+        {
+            Assert.False(activation.IsCompleted);
+            if (replace)
+                BrowserWorkspaceOccurrenceOperations.ReplaceCurrent([coordinate]);
+            else
+                BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+
+            admission.Release();
+            BrowserWorkspacePackageOccurrenceActivation result =
+                JsonSerializer.Deserialize(
+                    await activation,
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceActivation)!;
+            Assert.False(result.Activated);
+            Assert.True(result.Superseded);
+            Assert.Null(result.Package);
+        }
+        finally
+        {
+            admission.Release();
+            await activation;
+            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        }
     }
 
     /// <summary>
@@ -7585,6 +7726,59 @@ public sealed class BrowserEngineBoundaryTests
     /// registry operation observes the interval in which the scope has been withdrawn but its
     /// retained bytes have not been released.
     /// </summary>
+    sealed class ScopeAdmissionGate : IAsyncDisposable
+    {
+        readonly List<BrowserScopeLease<GatedScope>> _held = [];
+        readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task Retirement { get; private set; } = Task.CompletedTask;
+
+        internal static async Task<ScopeAdmissionGate> CreateAsync()
+        {
+            var gate = new ScopeAdmissionGate();
+            var settled = new TaskCompletionSource();
+            settled.SetResult();
+            try
+            {
+                for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes - 1; index++)
+                {
+                    await using ScopeReservation reservation =
+                        await BrowserPackageWorkspace.ReserveScopeAsync(
+                            TestContext.Current.CancellationToken);
+                    gate._held.Add(await BrowserPackageWorkspace.RegisterScopeAsync(
+                        reservation,
+                        $"admission-holder-{index}-{Guid.NewGuid():N}",
+                        new GatedScope(settled),
+                        ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal)));
+                }
+
+                var closing = new GatedScope(gate._release);
+                await BrowserPackageWorkspace.RegisterScopeAsync(
+                    $"admission-closing-{Guid.NewGuid():N}",
+                    closing);
+                gate.Retirement = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+                await closing.DisposeStarted.Task;
+                return gate;
+            }
+            catch
+            {
+                await gate.DisposeAsync();
+                throw;
+            }
+        }
+
+        internal void Release() => _release.TrySetResult();
+
+        public async ValueTask DisposeAsync()
+        {
+            Release();
+            await Retirement;
+            foreach (BrowserScopeLease<GatedScope> lease in _held)
+                await lease.DisposeAsync();
+        }
+    }
+
     sealed class GatedScope(TaskCompletionSource release) : IAsyncDisposable
     {
         internal TaskCompletionSource DisposeStarted { get; } =
@@ -7602,10 +7796,15 @@ public sealed class BrowserEngineBoundaryTests
 
     sealed class FailingScope : IAsyncDisposable
     {
-        public ValueTask DisposeAsync() =>
-            ValueTask.FromException(
+        internal int DisposalCount { get; private set; }
+
+        public ValueTask DisposeAsync()
+        {
+            DisposalCount++;
+            return ValueTask.FromException(
                 new InvalidOperationException(
                     "The gated browser scope failed to close."));
+        }
     }
 
     sealed class StallingGalleryRegistrationHandler : HttpMessageHandler

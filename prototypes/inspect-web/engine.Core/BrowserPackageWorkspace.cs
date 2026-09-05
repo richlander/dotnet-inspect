@@ -435,22 +435,27 @@ internal static class BrowserPackageWorkspace
                 packageKeys,
                 cancellationToken)
             .ConfigureAwait(false);
+        return await UseAdmittedPackageScopeAsync(admission, coordinates, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static Task<BrowserScopeLease<BrowserInspectionScope>> UseAdmittedPackageScopeAsync(
+        ScopeAdmission admission,
+        ImmutableArray<BrowserPackageCoordinate> coordinates,
+        CancellationToken cancellationToken)
+    {
         if (!admission.IsNew)
-        {
-            return await UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken)
-                .ConfigureAwait(false);
-        }
+            return UseJoinedScopeAsync(admission.Use, coordinates, cancellationToken);
 
         ScopeEntry entry = admission.Use.Entry;
+        entry.Key = PackageScopeKey(coordinates);
         entry.Coordinates = coordinates;
-        entry.Binding = (demand as BoundScopeDemand)?.Binding
-            ?? (demand as UnboundScopeDemand)?.Binding;
+        entry.Binding = coordinates is [{ Binding: { } binding }] ? binding : null;
         StartConstruction(
             entry,
-            async () => await BrowserInspectionScope.CreateAsync(coordinates)
+            async token => await BrowserInspectionScope.CreateAsync(coordinates, token)
                 .ConfigureAwait(false));
-        return await UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken)
-            .ConfigureAwait(false);
+        return UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken);
     }
 
     static async Task<BrowserScopeLease<BrowserInspectionScope>> UseJoinedScopeAsync(
@@ -498,12 +503,12 @@ internal static class BrowserPackageWorkspace
     {
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (TryJoinScope(demand) is { } joined)
                 return new ScopeAdmission(joined, IsNew: false);
             if (Scopes.Count < MaxOpenScopes)
                 break;
 
-            cancellationToken.ThrowIfCancellationRequested();
             ScopeEntry? evictable = Scopes
                 .Where(candidate =>
                     candidate.State is BrowserScopeState.Ready
@@ -513,7 +518,8 @@ internal static class BrowserPackageWorkspace
                 .FirstOrDefault();
             if (evictable is not null)
             {
-                await ObserveAsync(RetireEntryAsync(evictable)).ConfigureAwait(false);
+                await ObserveAsync(RetireEntryAsync(evictable))
+                    .WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -527,7 +533,8 @@ internal static class BrowserPackageWorkspace
             ];
             if (settling.Length > 0)
             {
-                await ObserveAsync(Task.WhenAny(settling)).ConfigureAwait(false);
+                await Task.WhenAny(settling)
+                    .WaitAsync(cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -569,38 +576,76 @@ internal static class BrowserPackageWorkspace
     /// </summary>
     static void StartConstruction(
         ScopeEntry entry,
-        Func<Task<IAsyncDisposable>> factory) =>
+        Func<CancellationToken, Task<IAsyncDisposable>> factory)
+    {
+        entry.ConstructionCancellation = new CancellationTokenSource();
         entry.Construction = ConstructScopeAsync(entry, factory);
+    }
 
     static async Task<IAsyncDisposable> ConstructScopeAsync(
         ScopeEntry entry,
-        Func<Task<IAsyncDisposable>> factory)
+        Func<CancellationToken, Task<IAsyncDisposable>> factory)
     {
-        IAsyncDisposable built;
+        using CancellationTokenSource cancellation = entry.ConstructionCancellation!;
+        using var deadline = new BrowserPackageOperationDeadline(
+            PackageOperationTimeout,
+            cancellation.Token);
         try
         {
-            built = await factory().WaitAsync(PackageOperationTimeout).ConfigureAwait(false);
-        }
-        catch
-        {
-            ReleaseScopeEntry(entry);
-            throw;
-        }
+            IAsyncDisposable built;
+            try
+            {
+                built = await factory(deadline.Token).ConfigureAwait(false);
+            }
+            catch (Exception creationFailure)
+            {
+                if (creationFailure is BrowserScopeConstructionException)
+                    QuarantineEntry(entry, creationFailure);
+                else
+                    ReleaseScopeEntry(entry);
 
-        if (!Scopes.Contains(entry)
-            || entry.RemovalRequested
-            || entry.State is not BrowserScopeState.Pending)
-        {
+                if (deadline.HasExpired)
+                    throw deadline.Timeout(creationFailure);
+                throw;
+            }
+
+            // Keep ownership of late results until cleanup settles; a timed-out wait must not
+            // detach the factory and return its still-live capacity to another construction.
             entry.Scope = built;
-            await CloseEntryScopeAsync(entry).ConfigureAwait(false);
-            throw new InvalidOperationException(
-                "The browser workspace was retired before its construction completed.");
-        }
+            try
+            {
+                deadline.ThrowIfExpired();
+                if (!Scopes.Contains(entry)
+                    || entry.RemovalRequested
+                    || entry.State is not BrowserScopeState.Pending)
+                {
+                    throw new InvalidOperationException(
+                        "The browser workspace was retired before its construction completed.");
+                }
+            }
+            catch (Exception publicationFailure)
+            {
+                entry.RemovalRequested = true;
+                try
+                {
+                    await CloseEntryScopeAsync(entry).ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(publicationFailure, cleanupFailure);
+                }
 
-        entry.Scope = built;
-        entry.State = BrowserScopeState.Ready;
-        entry.LastAccess = ++_clock;
-        return built;
+                throw;
+            }
+
+            entry.State = BrowserScopeState.Ready;
+            entry.LastAccess = ++_clock;
+            return built;
+        }
+        finally
+        {
+            entry.ConstructionCancellation = null;
+        }
     }
 
     /// <summary>
@@ -633,9 +678,17 @@ internal static class BrowserPackageWorkspace
                 typed,
                 () => ReleaseUseAsync(use));
         }
-        catch
+        catch (Exception operationFailure)
         {
-            await ObserveAsync(ReleaseUseAsync(use).AsTask()).ConfigureAwait(false);
+            try
+            {
+                await ReleaseUseAsync(use).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                throw new AggregateException(operationFailure, cleanupFailure);
+            }
+
             throw;
         }
     }
@@ -683,16 +736,28 @@ internal static class BrowserPackageWorkspace
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(packageKeys);
+        ScopeEntry entry = reservation.Entry;
+        entry.Scope = scope;
+        entry.PackageKeys = packageKeys;
+        entry.State = BrowserScopeState.Ready;
+        entry.OnDisposed = onDisposed is null
+            ? null
+            : disposed => onDisposed((T)disposed);
         try
         {
-            return await AdmitScopeAsync(reservation, key, scope, packageKeys, onDisposed)
+            return await AdmitScopeAsync(reservation, key, scope, packageKeys)
                 .ConfigureAwait(false);
         }
         catch (Exception admissionFailure)
         {
+            if (entry.State is BrowserScopeState.Failed || !Scopes.Contains(entry))
+                throw;
+
+            entry.Uses = 0;
+            reservation.Release();
             try
             {
-                await scope.DisposeAsync().ConfigureAwait(false);
+                await RetireEntryAsync(entry).ConfigureAwait(false);
             }
             catch (Exception cleanupFailure)
             {
@@ -707,8 +772,7 @@ internal static class BrowserPackageWorkspace
         ScopeReservation reservation,
         string key,
         T scope,
-        ImmutableHashSet<string> packageKeys,
-        Action<T>? onDisposed)
+        ImmutableHashSet<string> packageKeys)
         where T : class, IAsyncDisposable
     {
         RetainPackageKeys(packageKeys);
@@ -726,8 +790,25 @@ internal static class BrowserPackageWorkspace
             is { } retained)
         {
             ScopeUse joined = TakeUse(retained);
+            entry.Uses = 0;
             reservation.Release();
-            await scope.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await RetireEntryAsync(entry).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                try
+                {
+                    await ReleaseUseAsync(joined).ConfigureAwait(false);
+                }
+                catch (Exception releaseFailure)
+                {
+                    throw new AggregateException(cleanupFailure, releaseFailure);
+                }
+
+                throw;
+            }
             return await UseScopeAsync<T>(joined, CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -737,9 +818,6 @@ internal static class BrowserPackageWorkspace
         entry.PackageKeys = packageKeys;
         entry.State = BrowserScopeState.Ready;
         entry.LastAccess = ++_clock;
-        entry.OnDisposed = onDisposed is null
-            ? null
-            : disposed => onDisposed((T)disposed);
         foreach (string packageKey in packageKeys)
             LeasePackage(packageKey);
         var use = new ScopeUse(entry, packageKeys);
@@ -894,7 +972,8 @@ internal static class BrowserPackageWorkspace
         entry.Uses--;
         try
         {
-            if (entry.Uses == 0 && entry.RemovalRequested)
+            if (entry.Uses == 0
+                && (entry.RemovalRequested || entry.State is BrowserScopeState.Pending))
                 await RetireEntryAsync(entry).ConfigureAwait(false);
         }
         finally
@@ -942,17 +1021,32 @@ internal static class BrowserPackageWorkspace
             SelectionRequestToken(request.TargetFramework),
             package.Content.ProducerKey,
             package.Content.GenerationIdentity);
-        if (TryJoinScope(demand) is { } joined)
+        ScopeAdmission admission = await ReserveScopeEntryAsync(
+                packageKey,
+                demand,
+                [packageKey],
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!admission.IsNew)
         {
-            return await UseScopeAsync<BrowserInspectionScope>(joined, cancellationToken)
+            return await UseScopeAsync<BrowserInspectionScope>(admission.Use, cancellationToken)
                 .ConfigureAwait(false);
         }
 
-        var coordinate = new BrowserPackageCoordinate(
-            package,
-            package.CreateRootBinding(request.TargetFramework));
-        demand.Binding = coordinate.Binding;
-        return await OpenPackageScopeAsync(demand, [coordinate], cancellationToken)
+        BrowserPackageCoordinate coordinate;
+        try
+        {
+            coordinate = new BrowserPackageCoordinate(
+                package,
+                package.CreateRootBinding(request.TargetFramework));
+        }
+        catch
+        {
+            await ReleaseUseAsync(admission.Use).ConfigureAwait(false);
+            throw;
+        }
+
+        return await UseAdmittedPackageScopeAsync(admission, [coordinate], cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -1333,7 +1427,15 @@ internal static class BrowserPackageWorkspace
                 when (exception is OperationCanceledException
                     or TimeoutException)
             {
-                await DisposeLateResultAsync(result).ConfigureAwait(false);
+                try
+                {
+                    await DisposeLateResultAsync(result).ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(exception, cleanupFailure);
+                }
+
                 throw;
             }
             return result;
@@ -1661,6 +1763,8 @@ internal static class BrowserPackageWorkspace
                 entry.PackageKeys.Contains(packageKey));
             if (dependent is null)
                 break;
+            if (dependent.Failure is { } failure)
+                throw new InvalidOperationException(failure.ToString());
             if (SettlementOf(dependent) is { } settling)
             {
                 await ObserveAsync(settling).ConfigureAwait(false);
@@ -1697,8 +1801,9 @@ internal static class BrowserPackageWorkspace
         {
             // The construction observes the retirement at its publication point, disposes what it
             // built, and only then completes. Awaiting it is awaiting the whole cleanup.
+            entry.ConstructionCancellation?.Cancel();
             Task pending = entry.Construction is { } construction
-                ? ObserveAsync(construction)
+                ? AwaitConstructionRetirementAsync(entry, construction)
                 : Task.CompletedTask;
             if (entry.Construction is null)
                 ReleaseScopeEntry(entry);
@@ -1707,6 +1812,15 @@ internal static class BrowserPackageWorkspace
 
         entry.State = BrowserScopeState.Retiring;
         return Record(entry, CloseEntryScopeAsync(entry));
+    }
+
+    static async Task AwaitConstructionRetirementAsync(
+        ScopeEntry entry,
+        Task construction)
+    {
+        await ObserveAsync(construction).ConfigureAwait(false);
+        if (entry.Failure is { } failure)
+            throw new InvalidOperationException(failure.ToString());
     }
 
     static Task Record(ScopeEntry entry, Task settlement)
@@ -1769,15 +1883,20 @@ internal static class BrowserPackageWorkspace
         }
         catch (Exception cleanupFailure)
         {
-            entry.State = BrowserScopeState.Failed;
-            entry.Failure = new BrowserScopeRetirementFailure(
-                entry.Key,
-                Describe(cleanupFailure));
-            entry.Scope = null;
+            QuarantineEntry(entry, cleanupFailure);
             throw;
         }
 
         ReleaseScopeEntry(entry);
+    }
+
+    static void QuarantineEntry(ScopeEntry entry, Exception cleanupFailure)
+    {
+        entry.State = BrowserScopeState.Failed;
+        entry.Failure = new BrowserScopeRetirementFailure(
+            entry.Key,
+            Describe(cleanupFailure));
+        entry.Scope = null;
     }
 
     /// <summary>
@@ -2193,6 +2312,8 @@ internal sealed class ScopeEntry(string key, ScopeDemand demand, long lastAccess
 
     internal Task<IAsyncDisposable>? Construction { get; set; }
 
+    internal CancellationTokenSource? ConstructionCancellation { get; set; }
+
     internal Task? Settlement { get; set; }
 
     internal BrowserScopeRetirementFailure? Failure { get; set; }
@@ -2259,9 +2380,6 @@ internal sealed class UnboundScopeDemand(
     internal string ProducerKey { get; } = producerKey;
 
     internal PackageContentGenerationIdentity Generation { get; } = generation;
-
-    /// <summary>The selection token this demand issued once it had to build a workspace.</summary>
-    internal PackageRootBinding? Binding { get; set; }
 
     private protected override bool JoinsCore(ScopeEntry entry) =>
         entry.Demand is UnboundScopeDemand other

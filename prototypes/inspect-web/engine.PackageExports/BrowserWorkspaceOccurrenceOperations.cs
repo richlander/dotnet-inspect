@@ -445,6 +445,16 @@ public static partial class PackageExports
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [selection.Coordinate]);
+        if (!ReferenceEquals(
+                selection,
+                BrowserWorkspaceOccurrenceOperations.Activate(action)))
+        {
+            return new BrowserWorkspacePackageOccurrenceActivation(
+                Activated: false,
+                Superseded: true,
+                Package: null);
+        }
+
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageSurface package =
             BrowserPackageWireProjection.Project(
