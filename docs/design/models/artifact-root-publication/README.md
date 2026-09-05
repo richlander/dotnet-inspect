@@ -12,6 +12,38 @@ outside the reusable owner module so the Workspace Scope model tracked by
 [#5796](https://github.com/richlander/dotnet-inspect/issues/5796) can consume
 the owner with a named `INSTANCE` and its own variables, bounds, and fairness.
 
+## Open-world composition boundary
+
+The Scope [consumer model](../workspace-scope-revisions/README.md) uses
+`CompositionSafetySpec`, not the closed one-operation `SafetySpec`. Both use
+the same publication actions; no physical publication assignments moved into
+Scope. The standalone harness retains its original initialization, transitions,
+fairness, and 28 exact verdicts.
+
+The composition projection adds only transitions already specified by the
+owning designs: dormant operation activation (including receipt-free plans),
+explicit prepared-batch release, gate-observing Scope-only base advancement,
+and corresponding physical refresh. Other operations may reserve fresh
+currencies and publish a complete pair of previously reserved, never-current
+currencies. Those environmental actions preserve this operation's local
+receipt and participant state, cannot run while its gate is held, and cannot
+reuse an issued identity. Every operation still observes the same live current
+pointers and global issuance histories, even after settlement.
+
+`OwnerAssumptions` is now an explicit obligation. The standalone harness
+restates it over constant substitutions; the Scope harness checks it as an
+invariant over captured plan inputs. Inputs that are captured at admission or
+participant construction are state parameters rather than TLA+ constants.
+Scenario switches remain in the harness. Standalone fairness also resides in
+the harness, so a consumer defines its own adjacent-completion assumptions.
+
+The closed-world assertions `CurrentPointersArePaired`,
+`UnpublishedCandidateIsNotCurrent`, and `FinalCommitWins` continue to describe
+the standalone operation. A composition instead checks transaction-local
+terminal outcomes, live-pointer behavior refinement, global freshness, and
+Scope's frozen complete result snapshots. Freezing an active operation's
+pointer projection would hide the stale-base race and is not used.
+
 ## Owner claim
 
 Given one exact runtime Workspace, one current physical Root composition, one

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import {
   existsSync,
   readFileSync,
-  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { publishedRuntimeTarget } from "./publish-runtime-loader.ts";
 
 interface FacadeIdentity {
   readonly assembly: string;
@@ -198,20 +198,22 @@ assert.deepEqual(
   "published facade domain does not match the production facade set");
 
 const site = resolve(siteArgument);
-const index = readFileSync(resolve(site, "index.html"), "utf8");
-const dotnetModule = /"\.\/_framework\/dotnet\.js": "\.\/_framework\/([^"]+\.js)"/
-  .exec(index)?.[1];
-assert.ok(dotnetModule, "published import map has no dotnet.js mapping");
-
-const frameworkDirectory = resolve(site, "_framework");
-const dotnetAlias = resolve(frameworkDirectory, "dotnet.js");
+const dotnetModule = publishedRuntimeTarget(site);
+const runtimeLoader = resolve(site, "runtime-loader.js");
+const originalLoader = readFileSync(runtimeLoader);
 assert.equal(
-  existsSync(dotnetAlias),
+  originalLoader.toString("utf8"),
+  `export { dotnet } from ${JSON.stringify(dotnetModule)};\n`,
+  "published runtime loader does not address the SDK import-map target");
+assert.equal(
+  existsSync(resolve(site, "_framework/dotnet.js")),
   false,
   "published framework unexpectedly contains an unhashed dotnet.js");
-writeFileSync(
-  dotnetAlias,
-  `import { dotnet as sdkDotnet } from "./${dotnetModule}";
+
+try {
+  writeFileSync(
+    runtimeLoader,
+    `import { dotnet as sdkDotnet } from ${JSON.stringify(dotnetModule)};
 const runtimes = new Set();
 let createCalls = 0;
 let runMainCount = 0;
@@ -246,7 +248,6 @@ export function inspectWebRuntimeObservation() {
 }
 `);
 
-try {
   assert.equal(
     Reflect.has(globalThis, "window"),
     false,
@@ -284,7 +285,7 @@ try {
     Promise.all([initializeFacades(), initializeFacades()]).then(() => undefined),
     "facade initialization");
 
-  const sdkModule: unknown = await import(pathToFileURL(dotnetAlias).href);
+  const sdkModule: unknown = await import(pathToFileURL(runtimeLoader).href);
   assert.ok(
     isRecord(sdkModule)
       && typeof sdkModule.inspectWebRuntimeObservation === "function",
@@ -429,5 +430,5 @@ try {
     `inspect-web published ${modeArgument} facade smoke passed `
       + `(${version}; ${facades.length} facades; one SDK runtime).`);
 } finally {
-  unlinkSync(dotnetAlias);
+  writeFileSync(runtimeLoader, originalLoader);
 }

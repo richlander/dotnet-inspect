@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Runtime.ExceptionServices;
 using System.Reflection.PortableExecutable;
 using CSharpText;
 
@@ -10,11 +12,74 @@ namespace ILInspector.Metadata;
 public record TypeDependencyNode(string TypeName, List<TypeDependencyNode> Children);
 
 /// <summary>
+/// Identifies why a candidate assembly was rejected during a dependency scan.
+/// </summary>
+public enum TypeDependencyRejectionKind
+{
+    UnsupportedMetadataFormat,
+    MalformedMetadataRoot,
+    InvalidImage,
+}
+
+/// <summary>
+/// Records a candidate assembly that a dependency scan rejected. A rejection
+/// scopes to its own participant and never aborts the surrounding scan.
+/// </summary>
+public sealed record TypeDependencyRejection(
+    string AssemblyPath,
+    TypeDependencyRejectionKind Kind)
+{
+    public MetadataRootMalformedReason? MetadataRootReason { get; init; }
+}
+
+/// <summary>
+/// Every candidate in a dependency scan was rejected, so the scan has no
+/// surviving participant to scope its rejections against. Each rejection is
+/// an independent outcome: throwing one would discard the rest, so they are
+/// carried together. <see cref="Rejections"/> holds the typed record for each
+/// rejected candidate, keeping the path-to-mechanism correspondence available
+/// as data rather than only in the rendered message.
+/// </summary>
+public sealed class AllCandidatesRejectedException : AggregateException
+{
+    private readonly string renderedMessage;
+
+    internal AllCandidatesRejectedException(
+        string message,
+        ImmutableArray<TypeDependencyRejection> rejections,
+        IEnumerable<Exception> mechanisms)
+        : base(message, mechanisms)
+    {
+        renderedMessage = message;
+        Rejections = rejections;
+    }
+
+    /// <summary>
+    /// The rendered path-to-mechanism pairing, without the inner-message list
+    /// <see cref="AggregateException"/> appends to its own message. That
+    /// default would print every mechanism a second time at a command
+    /// boundary, unpaired with the path it belongs to.
+    /// </summary>
+    public override string Message => renderedMessage;
+
+    /// <summary>
+    /// The rejected candidates, in scan order. Each entry corresponds to the
+    /// inner exception at the same index.
+    /// </summary>
+    public ImmutableArray<TypeDependencyRejection> Rejections { get; }
+}
+
+/// <summary>
 /// Result of building a type dependency tree.
 /// </summary>
 public record TypeDependencyResult(string? MatchedType, List<TypeDependencyNode> Tree)
 {
     public bool Found => MatchedType != null;
+
+    /// <summary>
+    /// Candidate assemblies the scan rejected on metadata-format grounds.
+    /// </summary>
+    public IReadOnlyList<TypeDependencyRejection> Rejections { get; init; } = [];
 }
 
 /// <summary>
@@ -36,6 +101,15 @@ public static class TypeDependencyScanner
         var typeIndex = new Dictionary<string, (PEReader PeReader, MetadataReader MdReader, TypeDefinition TypeDef)>(
             StringComparer.OrdinalIgnoreCase);
         var peReaders = new List<PEReader>();
+        var rejections = new List<TypeDependencyRejection>();
+        var admittedAny = false;
+        ExceptionDispatchInfo? firstInvalidImage = null;
+
+        // The decoder's exception carries detail that a reconstructed one
+        // would lose, so each invalid image keeps its own captured cause.
+        var invalidImageCauses =
+            new Dictionary<string, BadImageFormatException>(
+                StringComparer.Ordinal);
 
         try
         {
@@ -56,47 +130,228 @@ public static class TypeDependencyScanner
                     }
                     peReaders.Add(peReader);
 
-                    if (!peReader.HasMetadata)
-                        continue;
-
-                    var mdReader = peReader.GetMetadataReader();
-                    foreach (var typeDefHandle in mdReader.TypeDefinitions)
+                    try
                     {
-                        var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
-                        if (!typeDef.IsPublic)
+                        if (!MetadataFormatAdmission.AdmitImage(peReader))
                             continue;
 
-                        var name = mdReader.GetString(typeDef.Name);
-                        if (TypeFilters.IsCompilerGenerated(name))
-                            continue;
+                        MetadataReader mdReader =
+                            MetadataFormatAdmission.GetMetadataReader(peReader);
 
-                        var ns = mdReader.GetString(typeDef.Namespace);
-                        var fullName = TypeResolver.GetFullName(ns, name);
+                        // Stage this participant's rows separately. A rejection
+                        // must exclude the whole participant, so rows decoded
+                        // before a later failure cannot be allowed to reach the
+                        // shared index — they would shadow a healthy same-name
+                        // definition under TryAdd and make the emitted tree
+                        // wrong rather than merely incomplete.
+                        var staged =
+                            new Dictionary<string, (PEReader, MetadataReader, TypeDefinition)>(
+                                StringComparer.OrdinalIgnoreCase);
+                        foreach (var typeDefHandle in mdReader.TypeDefinitions)
+                        {
+                            var typeDef = mdReader.GetTypeDefinition(typeDefHandle);
+                            if (!typeDef.IsPublic)
+                                continue;
 
-                        // Index by ECMA name for lookup
-                        typeIndex.TryAdd(fullName, (peReader, mdReader, typeDef));
+                            var name = mdReader.GetString(typeDef.Name);
+                            if (TypeFilters.IsCompilerGenerated(name))
+                                continue;
+
+                            var ns = mdReader.GetString(typeDef.Namespace);
+                            var fullName = TypeResolver.GetFullName(ns, name);
+
+                            // Decode the relationship facts the tree will need
+                            // while still inside this participant's rejection
+                            // scope. Names alone are not enough: a malformed
+                            // base-type or interface token throws only when the
+                            // tree is built, which happens after every
+                            // participant has published and is therefore
+                            // unscoped. Reaching them here keeps a relationship
+                            // failure attributable to the participant that
+                            // caused it.
+                            ValidateRelationships(mdReader, typeDef);
+
+                            // Index by ECMA name for lookup
+                            staged.TryAdd(fullName, (peReader, mdReader, typeDef));
+                        }
+
+                        foreach (var entry in staged)
+                            typeIndex.TryAdd(entry.Key, entry.Value);
+
+                        // Only a participant that decoded all the way through
+                        // counts as surviving. A partially indexed one cannot
+                        // scope another participant's rejection.
+                        admittedAny = true;
+                    }
+                    // Admission passed but the metadata itself did not decode.
+                    // That is an ordinary invalid-image outcome rather than an
+                    // admission failure, and it still has to stay visible
+                    // instead of silently dropping the participant.
+                    // MalformedMetadataRootException derives from
+                    // BadImageFormatException, so it is excluded here to reach
+                    // its own handler and keep its exact root reason.
+                    catch (Exception invalidImage) when (
+                        invalidImage is not MalformedMetadataRootException
+                        && invalidImage is BadImageFormatException
+                            or OverflowException)
+                    {
+                        BadImageFormatException cause =
+                            invalidImage as BadImageFormatException
+                            ?? new BadImageFormatException(
+                                "The selected image metadata is invalid.",
+                                invalidImage);
+                        firstInvalidImage ??=
+                            ExceptionDispatchInfo.Capture(cause);
+                        invalidImageCauses[path] = cause;
+                        rejections.Add(
+                            new TypeDependencyRejection(
+                                path,
+                                TypeDependencyRejectionKind.InvalidImage));
                     }
                 }
+                // A rejected candidate scopes to itself: record it exactly and
+                // keep scanning the remaining assemblies.
+                catch (UnsupportedMetadataFormatException)
+                {
+                    rejections.Add(
+                        new TypeDependencyRejection(
+                            path,
+                            TypeDependencyRejectionKind
+                                .UnsupportedMetadataFormat));
+                }
+                catch (MalformedMetadataRootException ex)
+                {
+                    rejections.Add(
+                        new TypeDependencyRejection(
+                            path,
+                            TypeDependencyRejectionKind.MalformedMetadataRoot)
+                        {
+                            MetadataRootReason = ex.Reason,
+                        });
+                }
                 // Skip assemblies that can't be read
-                catch { }
+                catch (Exception ex) when (
+                    ex is not UnsupportedMetadataFormatException
+                        and not MalformedMetadataRootException)
+                {
+                }
+            }
+
+            // Scoping only applies when the scan had a surviving participant.
+            // If every candidate was rejected there is nothing to scope the
+            // rejection against, so it stays the caller's exact outcome.
+            if (!admittedAny && rejections.Count > 0)
+            {
+                // One rejection is the caller's exact outcome, so it keeps its
+                // typed mechanism. Several are independent outcomes with no
+                // single exact answer: throwing one would silently discard the
+                // rest, which is the evidence loss this contract exists to
+                // prevent, so every mechanism travels in an aggregate.
+                if (rejections.Count > 1)
+                {
+                    // The typed records keep the path-to-mechanism
+                    // correspondence as data; the message repeats it only so a
+                    // rendered error is readable. Callers read Rejections.
+                    Exception[] mechanisms =
+                    [
+                        .. rejections.Select(rejection =>
+                            ToRejectionException(
+                                rejection,
+                                invalidImageCauses)),
+                    ];
+                    string rendered = string.Join(
+                        "; ",
+                        rejections.Zip(
+                            mechanisms,
+                            (rejection, mechanism) =>
+                                $"'{rejection.AssemblyPath}': "
+                                + mechanism.Message));
+                    throw new AllCandidatesRejectedException(
+                        "Every candidate assembly was rejected before the "
+                            + $"dependency scan could run ({rendered})",
+                        [.. rejections],
+                        mechanisms);
+                }
+
+                TypeDependencyRejection soleRejection = rejections[0];
+
+                // The captured invalid-image exception carries the decoder's
+                // exact detail, which a reconstructed one would lose.
+                if (soleRejection.Kind
+                    == TypeDependencyRejectionKind.InvalidImage)
+                {
+                    firstInvalidImage?.Throw();
+                }
+
+                throw ToRejectionException(
+                    soleRejection,
+                    invalidImageCauses);
             }
 
             // Find the target type
             var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
             var matchKey = typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalizedTarget));
             if (matchKey == null)
-                return new TypeDependencyResult(null, []);
+                return new TypeDependencyResult(null, []) { Rejections = rejections };
 
             var match = typeIndex[matchKey];
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var tree = BuildNode(match.MdReader, match.TypeDef, typeIndex, seen);
-            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree);
+            return new TypeDependencyResult(TypeResolver.FormatDisplayName(matchKey), tree)
+            {
+                Rejections = rejections,
+            };
         }
         finally
         {
             foreach (var pr in peReaders)
                 pr.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Touches the base-type and interface tokens a dependency tree reads, so
+    /// a malformed relationship surfaces while the owning participant is still
+    /// in scope. Resolution results are discarded; only reachability matters
+    /// here, and <see cref="BuildNode"/> re-reads them for the small subset it
+    /// actually visits.
+    /// </summary>
+    /// <remarks>
+    /// Resolution is strict. The nullable <c>GetTypeName</c> overload collapses
+    /// a signature rejection to <see langword="null"/>, and <see cref="BuildNode"/>
+    /// silently drops a null dependency — so a malformed <c>TypeSpecification</c>
+    /// base or interface would publish an edge-less type carrying no rejection,
+    /// which is the certified-absence shape this scanner exists to prevent.
+    /// </remarks>
+    private static void ValidateRelationships(
+        MetadataReader reader,
+        TypeDefinition typeDef)
+    {
+        var context = GenericContext.ForType(reader, typeDef);
+
+        ThrowIfRejected(
+            TypeResolver.ResolveTypeName(reader, typeDef.BaseType, context));
+
+        foreach (var ifaceHandle in typeDef.GetInterfaceImplementations())
+        {
+            var iface = reader.GetInterfaceImplementation(ifaceHandle);
+            ThrowIfRejected(
+                TypeResolver.ResolveTypeName(reader, iface.Interface, context));
+        }
+    }
+
+    /// <summary>
+    /// Raises a rejected type-name resolution as the invalid-image outcome the
+    /// participant scope already handles, preserving the mechanism and detail.
+    /// </summary>
+    private static void ThrowIfRejected(MetadataTypeNameResult result)
+    {
+        if (result is not MetadataTypeNameResult.Rejected rejected)
+            return;
+
+        throw new BadImageFormatException(
+            $"Metadata relationship traversal rejected ({rejected.Failure.Kind}): "
+            + rejected.Failure.Detail);
     }
 
     /// <summary>
@@ -236,6 +491,27 @@ public static class TypeDependencyScanner
         => typeIndex.ContainsKey(normalized)
             ? normalized
             : typeIndex.Keys.FirstOrDefault(k => TypeMatcher.Matches(k, normalized));
+
+    private static Exception ToRejectionException(
+        TypeDependencyRejection rejection,
+        IReadOnlyDictionary<string, BadImageFormatException> invalidImageCauses)
+        => rejection.Kind switch
+        {
+            TypeDependencyRejectionKind.UnsupportedMetadataFormat =>
+                new UnsupportedMetadataFormatException(),
+            TypeDependencyRejectionKind.MalformedMetadataRoot
+                when rejection.MetadataRootReason is { } reason =>
+                new MalformedMetadataRootException(reason),
+            TypeDependencyRejectionKind.InvalidImage =>
+                invalidImageCauses.TryGetValue(
+                    rejection.AssemblyPath,
+                    out BadImageFormatException? cause)
+                    ? cause
+                    : new BadImageFormatException(
+                        $"'{rejection.AssemblyPath}' has invalid metadata."),
+            _ => new InvalidOperationException(
+                "Unknown metadata-format rejection."),
+        };
 
     private static bool IsSystemRoot(string typeName)
     {

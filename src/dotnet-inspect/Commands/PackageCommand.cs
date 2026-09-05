@@ -352,6 +352,9 @@ public class PackageCommand
         // Handle --versions mode: list versions and exit early
         if (options.ListVersions)
         {
+            if (!Core.HttpClientFactory.IsOffline)
+                return await ExecuteOnlineVersionQueryAsync(packageArgs[0], options, context);
+
             using var failureScope = FeedFailureTelemetry.Scope();
             PackageVersionRange? range = null;
             string? rangeError = null;
@@ -824,55 +827,13 @@ public class PackageCommand
                 return 0;
             }
 
-            List<string>? versions;
-            if (Core.HttpClientFactory.IsOffline)
-            {
-                versions = await PackageExtractor.GetVersionsAsync(
-                    context.HttpClient,
-                    normalizedName,
-                    options.IncludePrerelease,
-                    options.Limit,
-                    logger.Log,
-                    options.SourceOptions);
-            }
-            else
-            {
-                await using DesktopPackageSourceComposition composition =
-                    context.CreatePackageSourceComposition();
-                PackageVersionDiscoveryResult discovery =
-                    await composition.GetVersionsAsync(
-                        normalizedName,
-                        options.IncludePrerelease,
-                        options.Limit,
-                        options.SourceOptions,
-                        logger.Log);
-                if (discovery.State
-                    == PackageVersionDiscoveryState.Failed)
-                {
-                    WriteVersionDiscoveryFailure(
-                        normalizedName,
-                        discovery.Failures);
-                    return 1;
-                }
-
-                if (discovery.State == PackageVersionDiscoveryState.Partial)
-                {
-                    CommandError.WriteWarning(
-                        $"Version results for package '{normalizedName}' are partial.",
-                        [.. discovery.Failures.Select(
-                            failure => failure.Message)]);
-                }
-
-                if (!discovery.HasAnyCandidate)
-                {
-                    WriteVersionLookupFailure(
-                        normalizedName,
-                        $"Package '{packageArgs[0]}' not found on eligible configured sources.");
-                    return 1;
-                }
-
-                versions = [.. discovery.Versions];
-            }
+            List<string>? versions = await PackageExtractor.GetVersionsAsync(
+                context.HttpClient,
+                normalizedName,
+                options.IncludePrerelease,
+                options.Limit,
+                logger.Log,
+                options.SourceOptions);
 
             if (versions == null)
             {
@@ -1378,6 +1339,139 @@ public class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task<int> ExecuteOnlineVersionQueryAsync(
+        string packageReference,
+        InspectionOptions options,
+        CommandContext context)
+    {
+        PackageVersionRange? range = null;
+        string? rangeError = null;
+        bool isRange = !File.Exists(packageReference)
+            && PackageVersionRange.TryParse(packageReference, out range, out rangeError);
+        if (rangeError is not null)
+        {
+            CommandError.Write(rangeError);
+            return 1;
+        }
+
+        var (name, requestedVersion) = PackageExtractor.ParsePackageReference(packageReference);
+        string packageId = isRange ? range!.PackageId : name.ToLowerInvariant();
+        bool latest = !isRange && (options.ForceLatest
+            || string.Equals(requestedVersion, "latest", StringComparison.OrdinalIgnoreCase));
+        bool pinned = !isRange && !latest
+            && !string.IsNullOrEmpty(requestedVersion)
+            && (options.Limit == 1 || HasSemanticSingleVersionLimit(options.VersionRowSelection));
+        NuGet.Versioning.NuGetVersion? pinnedVersion = null;
+        if (pinned && !NuGet.Versioning.NuGetVersion.TryParse(requestedVersion, out pinnedVersion))
+        {
+            CommandError.Write($"Version '{requestedVersion}' is not an exact NuGet version.");
+            return 1;
+        }
+
+        using var requestScope = RequestTelemetry.Scope($"package {packageId}", "package versions");
+        await using DesktopPackageSourceComposition composition = context.CreatePackageSourceComposition();
+        PackageVersionDiscoveryResult discovery = await composition.GetVersionsAsync(
+            packageId,
+            pinned || options.IncludePrerelease || (range?.IncludesPrerelease ?? false),
+            options.VersionRowSelection is not null || isRange || pinned
+                ? null : latest ? 1 : options.Limit,
+            options.SourceOptions,
+            context.Logger.Log,
+            includeUnlisted: !latest && (pinned || options.IncludeUnlisted));
+
+        bool requiresCompleteEvidence = latest || isRange
+            || (!pinned && options.SingleVersionQuery);
+        if (discovery.State == PackageVersionDiscoveryState.Failed
+            || (requiresCompleteEvidence && discovery.State != PackageVersionDiscoveryState.Authoritative))
+        {
+            WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+            return 1;
+        }
+
+        IReadOnlyList<PackageVersionInfo> listings = discovery.Listings;
+        if (latest)
+            listings = [.. listings.Take(1)];
+        if (pinned)
+        {
+            listings = [.. listings.Where(row =>
+                NuGet.Versioning.VersionComparer.VersionRelease.Equals(
+                    NuGet.Versioning.NuGetVersion.Parse(row.Version), pinnedVersion))];
+            if (listings.Count == 0
+                && discovery.Failures.Any(failure => failure.Kind != PackageAuthorityFailureKind.IncompleteMetadata))
+            {
+                WriteVersionDiscoveryFailure(packageId, discovery.Failures);
+                return 1;
+            }
+        }
+
+        if (!discovery.HasAnyCandidate || ((pinned || latest) && listings.Count == 0))
+        {
+            CommandError.Write(pinned
+                ? $"Version '{requestedVersion}' of package '{packageId}' not found. Use --versions to see available versions."
+                : $"Package '{packageReference}' not found on eligible configured sources.");
+            return 1;
+        }
+
+        if (isRange)
+        {
+            try
+            {
+                listings = [.. PackageVersionVector.CreateListingAware(
+                    range!, listings, options.IncludePrerelease)
+                    .Take(options.Limit ?? int.MaxValue)];
+            }
+            catch (ArgumentException exception)
+            {
+                CommandError.Write(exception.Message);
+                return 1;
+            }
+        }
+
+        if (discovery.State == PackageVersionDiscoveryState.Partial)
+        {
+            CommandError.WriteWarning(
+                $"Version results for package '{packageId}' are partial.",
+                [.. discovery.Failures.Select(failure => failure.Message)]);
+        }
+
+        if (options.ListVersionsWithFeed)
+        {
+            var rowsByVersion = discovery.SourceListings.ToLookup(
+                row => row.Version, StringComparer.OrdinalIgnoreCase);
+            if (!TrySelectVersionRows(
+                    listings.SelectMany(row => rowsByVersion[row.Version]).ToList(),
+                    options,
+                    out IReadOnlyList<PackageVersionSourceInfo> rows))
+                return 1;
+            if (LensProjection.TryProject(options, "--versions-with-feed",
+                    rows.Count, out var exit, VersionFeedColumns(rows, options)))
+                return exit;
+            OutputFormatter.WriteVersionFeedTable(rows, options, Console.Out);
+        }
+        else if (options.IncludeUnlisted)
+        {
+            if (!TrySelectVersionRows(listings, options, out IReadOnlyList<PackageVersionInfo> rows))
+                return 1;
+            if (LensProjection.TryProject(options, "--versions",
+                    rows.Count, out var exit, ["Version", "Listing"]))
+                return exit;
+            OutputFormatter.WriteVersionListings(rows, options, Console.Out);
+        }
+        else
+        {
+            if (!TrySelectVersionRows(
+                    listings.Select(row => row.Version).ToList(),
+                    options,
+                    out IReadOnlyList<string> rows))
+                return 1;
+            if (LensProjection.TryProject(options, latest ? "--latest-version" : "--versions",
+                    rows.Count, out var exit, ["Version"]))
+                return exit;
+            WriteVersions(rows, options);
+        }
+        return 0;
     }
 
     private static void WriteVersions(
@@ -4824,7 +4918,6 @@ public class PackageCommand
         {
             if (ShouldUseArtifactBackedPackageIntegrations(
                     isLocalFile,
-                    options.Tfm,
                     selectionResult.TargetFramework,
                     selectedProducerKey,
                     selected.Select(selection =>
@@ -4867,6 +4960,11 @@ public class PackageCommand
                             acquisition,
                             includeIntegrationOpportunities:
                                 includeIntegrationOpportunities);
+                }
+                else
+                {
+                    logger.Log(
+                        $"Using artifact-backed package Integrations for {selectionResult.TargetFramework}.");
                 }
             }
             else
@@ -5378,13 +5476,11 @@ public class PackageCommand
 
     internal static bool ShouldUseArtifactBackedPackageIntegrations(
         bool isLocalFile,
-        string? requestedTargetFramework,
         string? selectedTargetFramework,
         string? selectedProducerKey,
         IEnumerable<string> selectedPackagePaths) =>
         !isLocalFile
-        && string.IsNullOrWhiteSpace(requestedTargetFramework)
-        && !string.IsNullOrWhiteSpace(selectedTargetFramework)
+        && PackageCoordinateResolver.IsAcquisitionTargetText(selectedTargetFramework)
         && !string.IsNullOrWhiteSpace(selectedProducerKey)
         && selectedPackagePaths.All(static path =>
             path.StartsWith("ref/", StringComparison.OrdinalIgnoreCase)

@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;
@@ -146,6 +146,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "RequestPackageQueryMatches.1520975400");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.RequestPackageQueryMatches.1520975400\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ResolvePackageDependencyVersion.451505237");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.ResolvePackageDependencyVersion.451505237\u0027 is not callable.");
@@ -154,9 +162,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.287304775");
+        value = $ownDataProperty(value, "RunPackageQuery.1079207954");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.287304775\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1079207954\u0027 is not callable.");
         }
     }
     {
@@ -254,11 +262,14 @@ export async function queryWorkspacePackageOccurrences(workspaceJson) {
     const $parsed = JSON.parse($result);
     return $parsed;
 }
+export function requestPackageQueryMatches(additionalMatchCredit) {
+    return $requireManagedExports()["PackageExports"]["RequestPackageQueryMatches.1520975400"](additionalMatchCredit);
+}
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
     return await $requireManagedExports()["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
-export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink) {
-    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.287304775"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink);
+export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
+    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1079207954"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

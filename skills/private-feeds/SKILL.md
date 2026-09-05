@@ -41,24 +41,37 @@ Version discovery combines all eligible sources and chooses the highest
 semantic version; source order is not precedence. Pin `Package@Version` when
 the exact coordinate matters.
 
-### List versions from a folder feed
+### Query versions from a folder feed
 
-Ordinary version listing also supports NuGet V2/V3 folder feeds, specified as a
+Online version queries support NuGet V2/V3 folder feeds, specified as a
 path, a `file://` URI, or a mapped source in `NuGet.Config`:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions --source ./feed
 dnx dotnet-inspect -y -- package MyCompany.Widget --versions -n 5 --preview \
   --source ./feed --jsonl
+dnx dotnet-inspect -y -- package MyCompany.Widget --latest-version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --version --source ./feed
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.0.0..2.0.0 --versions \
+  --source ./feed --include-unlisted
+dnx dotnet-inspect -y -- package MyCompany.Widget --versions-with-feed \
+  --source ./feed --add-source https://api.nuget.org/v3/index.json
 ```
 
 Local and HTTP versions are combined and sorted before the result limit.
 Missing folders or invalid archives are source failures, not package absence;
 usable peer results carry an explicit partial warning on stderr. Local reads
 use bounded enumeration rather than treating filenames as version evidence.
-This applies to ordinary `--versions` without `--offline`, not yet
-`--versions-with-feed`, `--include-unlisted`, latest/range selection, or payload
-acquisition.
+Latest, single-version discovery, and range selection require complete
+evidence: an unreadable peer makes them fail instead of choosing from a
+healthy subset. A pinned verification may report a coordinate observed on a
+readable feed, with peer failures disclosed. `--include-unlisted` and
+`--versions-with-feed` retain their listing and feed columns; local versions
+use the non-Gallery `listed` convention.
+
+These are metadata-only queries without `--offline`. Local-feed payload
+inspection, including latest/wildcard/range selection that downloads packages,
+has not migrated yet.
 
 ### Restrict package ids to feeds
 
@@ -140,8 +153,9 @@ coordinate only when `.nupkg.metadata.source` names an authorized producer.
 Missing or mismatched provenance is a cache miss, and installed payloads do not
 introduce version candidates. Use `--no-nuget-cache` to exclude that layer.
 `--offline` forbids network access and does not start credential plugins, so it
-succeeds only from producer-authorized caches. Outside ordinary online
-`--versions`, configured folder feeds remain on legacy paths that skip them;
+succeeds only from producer-authorized caches. Online version queries bypass
+these legacy caches. Outside metadata-only online version queries,
+configured folder feeds remain on legacy paths that skip them;
 `--verbose` reports the skip. Pass a local `.nupkg` path directly for package
 inspection when the package is available as a file.
 

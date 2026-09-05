@@ -507,6 +507,13 @@ One invocation is governed entirely by the active command or selected lens
 declaration and never changes meaning based on whether a later subsystem
 happens to handle the result.
 
+The package adoption consumes the online metadata-query evidence policy from
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+Semantic limits do not cap that discovery or relax its completeness rules.
+Rows and Count follow query resolution: raw and observed pinned results retain
+partial-source disclosure, while latest and range queries with insufficient
+evidence fail before row selection or projection.
+
 ## Supported spellings and guidance
 
 Only spellings in [Grammar](#grammar) are part of this contract. L3 does not
@@ -595,9 +602,9 @@ The plural package-version adoption is enforced by:
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |
-| `LatestVersionListing_RefreshesWarmFeedCache` and `FeedLatest_RefreshFailureDoesNotFallBackToCachedRows` | `@latest` refreshes warm feed-listing caches, preserves feed row identity, and reports refresh failures rather than returning cached rows. |
+| `LatestVersionListing_RefreshesOnlineEvidence` and `FeedLatest_RefreshFailureDoesNotFallBackToCachedRows` | Ordinary and `@latest` online listings acquire fresh source evidence, preserve feed row identity, and report refresh failures rather than returning earlier rows. |
 | `PackageVersionListing_LimitOneStillReportsPartialEvidence`, `PackageVersionListing_IncludeUnlistedLimitOneStillReportsPartialEvidence`, and `PackageVersionFeedListing_LimitOneStillReportsPartialEvidence` | Semantic Head(1) does not suppress multi-source failure evidence in merged, listing-aware, or feed-attributed listings, including count projection. |
-| `CoordinateVersionListing_PreservesPartialEvidence` and `SingularCoordinateVersionListing_PreservesLegacyFailureDisclosure` | Adopted pin/latest/range listings retain source-failure warnings before selection and count projection, with or without listing status; unadopted singular disclosure remains unchanged. |
+| `CoordinateVersionListing_PreservesPartialEvidence` and `SingularCoordinateVersionListing_PreservesSourceFailureDisclosure` | Adopted coordinates preserve source-failure evidence before selection and count projection, with or without listing status: observed pins disclose partial results, latest/range queries fail without rows, and singular pins retain the source owner's disclosure. |
 | `PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport` | Local-directory and file-URI sources enumerate versions without HTTP/plugin authentication under semantic Head(1). |
 
 The remaining implementation must satisfy:

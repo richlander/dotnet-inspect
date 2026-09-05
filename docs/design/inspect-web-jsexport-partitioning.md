@@ -181,7 +181,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 48 `[JSExport]` methods.
+The seven rooted export assemblies contain 49 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -205,7 +205,7 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 17 exports
+### Package facade: 18 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
@@ -221,6 +221,7 @@ deployment smoke's deterministic awaited operation.
 - `QueryPackageDependencies`
 - `QueryPackageVersions`
 - `QueryWorkspacePackageOccurrences`
+- `RequestPackageQueryMatches`
 - `ResolvePackageDependencyVersion`
 - `RunPackageQuery`
 - `SearchTypes`
@@ -635,7 +636,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 48
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 49
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,
