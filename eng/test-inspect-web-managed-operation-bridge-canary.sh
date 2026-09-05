@@ -211,5 +211,13 @@ expect_failure \
   skipped-final-natural \
   "did not execute every shared scenario exactly once" \
   "$node" "$verifier" "$mono_site" skip-final-natural
+expect_failure \
+  early-epoch-finalization \
+  "Epoch finalization physical completion returned true instead of false." \
+  "$node" "$verifier" "$mono_site" early-epoch-finalization
+expect_failure \
+  skipped-epoch-reuse \
+  "did not execute every epoch scenario exactly once" \
+  "$node" "$verifier" "$mono_site" skip-epoch-reuse
 
 echo "Managed-operation bridge Browser/Wasm mutations were rejected."

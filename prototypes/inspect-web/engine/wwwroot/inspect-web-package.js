@@ -34,9 +34,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.304094707");
+        value = $ownDataProperty(value, "ActivateWorkspacePackageOccurrence.976702342");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.304094707\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.ActivateWorkspacePackageOccurrence.976702342\u0027 is not callable.");
         }
     }
     {
@@ -200,8 +200,8 @@ export function initializeRuntime(runtime) {
 export function runEntryPoint(mainAssemblyName, args) {
     return $requireRuntime().runMain(mainAssemblyName, args);
 }
-export function activateWorkspacePackageOccurrence(action) {
-    const $result = $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.304094707"](action);
+export async function activateWorkspacePackageOccurrence(action) {
+    const $result = await $requireManagedExports()["PackageExports"]["ActivateWorkspacePackageOccurrence.976702342"](action);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

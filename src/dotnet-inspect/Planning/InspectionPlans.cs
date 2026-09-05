@@ -372,15 +372,18 @@ public static class ApiInspectionCatalogRegistry
                 "The requested identity is not an API inspection catalog.");
 
     public static SectionPipeline<ApiType> CreateMemberPipeline(
-        InspectionCatalogIdentity identity)
+        InspectionCatalogIdentity identity,
+        int? selectedBodyOrdinal = null)
         => identity switch
         {
             InspectionCatalogIdentity.ApiMember =>
                 ApiMemberSectionDescriptors.CreatePipeline(),
             InspectionCatalogIdentity.ApiMemberOverload =>
-                ApiMemberOverloadSectionDescriptors.CreatePipeline(),
+                ApiMemberOverloadSectionDescriptors.CreatePipeline(
+                    selectedBodyOrdinal),
             InspectionCatalogIdentity.ApiMemberDetail =>
-                ApiMemberDetailSectionDescriptors.CreatePipeline(),
+                ApiMemberDetailSectionDescriptors.CreatePipeline(
+                    selectedBodyOrdinal),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(identity),
                 identity,
@@ -407,17 +410,17 @@ public static class ApiInspectionCatalogRegistry
                     InspectionCatalogIdentity.ApiMember,
                     member.SelectableSectionNames,
                     member.InfoSectionNames,
-                    member.GetCategoryMap()),
+                    ApiMemberSectionPipelines.GetCategoryMap(member)),
                 Create(
                     InspectionCatalogIdentity.ApiMemberOverload,
                     overload.SelectableSectionNames,
                     overload.InfoSectionNames,
-                    overload.GetCategoryMap()),
+                    ApiMemberSectionPipelines.GetCategoryMap(overload)),
                 Create(
                     InspectionCatalogIdentity.ApiMemberDetail,
                     detail.SelectableSectionNames,
                     detail.FixedOverviewSectionNames,
-                    detail.GetCategoryMap()),
+                    ApiMemberSectionPipelines.GetCategoryMap(detail)),
             }
             .ToImmutableDictionary(catalog => catalog.Identity);
     }
@@ -569,6 +572,7 @@ public static class ApiSectionDemandIndex
             SectionNames.AppliedTaste,
             SectionNames.AnnotatedSource,
             SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
             SectionNames.CostOverlay,
             SectionNames.SemanticsOverlay,
             SectionNames.PdbSource,

@@ -51,14 +51,7 @@ public static partial class Exports
     public static void CreateSharedProducer(string producerId, string mode)
     {
         ArgumentException.ThrowIfNullOrEmpty(producerId);
-        SharedMode parsed = mode switch
-        {
-            "natural-success" => SharedMode.NaturalSuccess,
-            "stop-and-drain" => SharedMode.StopAndDrain,
-            "late-failure" => SharedMode.LateFailure,
-            "origin-cancellation" => SharedMode.OriginCancellation,
-            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown shared canary mode."),
-        };
+        SharedMode parsed = ParseSharedMode(mode);
         lock (s_sync)
         {
             if (s_sharedControllers.ContainsKey(producerId))
@@ -66,6 +59,16 @@ public static partial class Exports
             s_sharedControllers.Add(producerId, new ControlledSharedProducer(parsed));
         }
     }
+
+    private static SharedMode ParseSharedMode(string mode) =>
+        mode switch
+        {
+            "natural-success" => SharedMode.NaturalSuccess,
+            "stop-and-drain" => SharedMode.StopAndDrain,
+            "late-failure" => SharedMode.LateFailure,
+            "origin-cancellation" => SharedMode.OriginCancellation,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown shared canary mode."),
+        };
 
     [JSExport]
     public static async Task<string> RunSharedOperation(
@@ -205,13 +208,15 @@ public static partial class Exports
         private int _bodyStarts;
         private int _stopRequests;
 
-        internal ControlledSharedProducer(SharedMode mode)
+        internal ControlledSharedProducer(
+            SharedMode mode, BrowserManagedEpochWorkSource? epochWork = null)
         {
             _mode = mode;
             Producer = new(
                 Start,
                 mode is SharedMode.StopAndDrain ? RequestStop : null,
-                _producerCancellation.Token);
+                _producerCancellation.Token,
+                epochWork);
         }
 
         internal BrowserManagedSharedProducer<string, string, string, CanaryProgress>

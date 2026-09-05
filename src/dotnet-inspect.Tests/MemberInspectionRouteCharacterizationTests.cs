@@ -321,19 +321,19 @@ public sealed class MemberInspectionRouteCharacterizationTests : IDisposable
             new(
                 "overload-inventory",
                 "schema-static/effective-deferred/executed-multiple-overloads",
-                "ApiMemberOverload[schema:81:0B835ECE3CFC]",
+                "ApiMemberOverload[schema:83:EC233F0F8836]",
                 "focus=none;discovery=none",
                 "focus:pdb=False;source=False"),
             new(
                 "exact-member-detail",
                 "schema-static/effective-deferred",
-                "ApiMemberDetail[schema:57:9CF9EB2E407B]",
+                "ApiMemberDetail[schema:59:D5DF0FA9A398]",
                 "focus=none;discovery=none",
                 "focus:pdb=True;source=True"),
             new(
                 "hidden-router",
                 "schema-static-alternatives-before-router-rewrite",
-                "ApiType[schema:163:C277619B2C35]",
+                "ApiType[schema:165:F3B3EB15AE2D]",
                 "focus=none;discovery=none",
                 "focus:none"),
         ];

@@ -179,7 +179,13 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
     testTsconfig.include,
-    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts", "../playwright.worker.config.ts"],
+    [
+      "./**/*.ts",
+      "../browser/**/*.ts",
+      "../playwright.config.ts",
+      "../playwright.worker.config.ts",
+      "../playwright.package-adoption.config.ts",
+    ],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
@@ -2855,7 +2861,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades engine/facades "
       + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
-      + "playwright.config.ts playwright.worker.config.ts && "
+      + "playwright.config.ts playwright.worker.config.ts "
+      + "playwright.package-adoption.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });
