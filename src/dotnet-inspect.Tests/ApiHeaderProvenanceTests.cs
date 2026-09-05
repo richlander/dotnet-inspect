@@ -42,6 +42,50 @@ public class ApiHeaderProvenanceTests
     }
 
     [Theory]
+    [InlineData(Verbosity.Quiet, false)]
+    [InlineData(Verbosity.Minimal, false)]
+    [InlineData(Verbosity.Normal, false)]
+    [InlineData(Verbosity.Detailed, false)]
+    [InlineData(Verbosity.Minimal, true)]
+    [InlineData(Verbosity.Normal, true)]
+    [InlineData(Verbosity.Detailed, true)]
+    public async Task TypePlaintext_RespectsProvenanceVisibility(
+        Verbosity verbosity, bool focused)
+    {
+        var output = new StringWriter();
+        var options = new TypeOptions
+        {
+            PlainText = true,
+            Format = OutputFormat.PlainText,
+            Verbosity = verbosity,
+            IncludeSections = focused ? ["Methods"] : null
+        };
+
+        int exit = await ApiCommand.WriteTypeOutputAsync(
+            CreateType(), "lib/net10.0/Example.dll", "Example.Package", "2.0.0",
+            "NuGet", "net10.0", options, output);
+
+        string text = output.ToString();
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("(Example.Package", text);
+        if (focused)
+        {
+            Assert.Contains("Run", text);
+            Assert.DoesNotContain("Package:", text);
+            Assert.DoesNotContain("Library:", text);
+        }
+        else
+        {
+            Assert.StartsWith("Example.Widget\n\n", text);
+            Assert.Contains("Package: Example.Package", text);
+            Assert.Contains("Version: 2.0.0", text);
+            Assert.Contains("TFM: net10.0", text);
+            Assert.Contains("Library: lib/net10.0/Example.dll", text);
+            Assert.Contains("Source: NuGet", text);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task MemberInventory_KeepsProvenanceOutsideTitle(bool focused)

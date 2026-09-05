@@ -527,7 +527,7 @@ public static class ApiOutputFormatter
         bool topFieldsOnly = options.Verbosity == Verbosity.Quiet
             || (options is TypeOptions { MarkdownExplicitlySet: true } && !memberDetail);
         bool showProvenance = topFieldsOnly
-            || (options is MemberOptions && !memberDetail && options.IncludeSections is null);
+            || (!memberDetail && options.IncludeSections is null);
         var title = memberDetail
             ? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(selectedMember!.Name)}"
             : FormatGenericFullName(type);

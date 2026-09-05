@@ -67,11 +67,11 @@ Context is structured metadata with named fields, selectable with `--fields`.
 Markout controls inline versus stacked layout; type/member document headers
 use a compact `Label: value | Label: value` line.
 
-Header presence follows the existing view and section-selection policy. A
-default member-group document retains its acquisition context outside the
-title; an explicitly focused inventory does not gain a context row. Selected
-members retain their existing Summary context. The default type tree is a
-declaration-oriented shape, not a Markdown document header.
+Header presence follows the existing view and section-selection policy.
+Default type and member-group documents retain acquisition context outside the
+title in both Markdown and plaintext; an explicitly focused inventory does not
+gain a context row. Selected members retain their existing Summary context.
+The default type tree is a declaration-oriented shape, not a document header.
 
 **When to use fields vs tables:**
 
@@ -115,7 +115,8 @@ Fields always appear in a consistent order. Empty/null fields are omitted.
 
 `ApiHeaderProvenanceTests` gates subject-only headings, retained context,
 focused-inventory behavior, and acquired asset paths.
-`Type_SingleType_MarkdownQuiet_RendersCompactSectionView` and
+`Type_SingleType_MarkdownQuiet_RendersCompactSectionView`,
+`Type_SingleType_PlaintextIncludesAcquisitionContext`, and
 `Router_FullyQualifiedGenericPlatformType_PreservesContractSource` gate CLI
 header and contract-asset disclosure.
 `ApiServices_RetainsSelectedForwarderDescriptor` gates the separation from

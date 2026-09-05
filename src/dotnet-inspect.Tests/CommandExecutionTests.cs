@@ -3626,6 +3626,27 @@ public partial class CommandExecutionTests
         Assert.Contains("## Method Groups", output);
     }
 
+    [Theory]
+    [InlineData("q")]
+    [InlineData("m")]
+    [InlineData("n")]
+    [InlineData("d")]
+    public async Task Type_SingleType_PlaintextIncludesAcquisitionContext(string verbosity)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.JsonSerializer", "--plaintext",
+            $"-v:{verbosity}", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.StartsWith("System.Text.Json.JsonSerializer\n\n", output);
+        AssertLibraryAsset(output, "System.Text.Json");
+        Assert.Contains("Source: Platform", output);
+        Assert.Contains("Version:", output);
+        Assert.Contains("TFM:", output);
+        Assert.DoesNotContain("├─", output);
+    }
+
     [Fact]
     public async Task Type_PrefixBrowse_InferredPlatformTypo_ListsBestEffortMatches()
     {
