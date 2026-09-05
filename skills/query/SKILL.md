@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-query
 version: 0.1.0
-description: Output formats, curated package/library -D/-S discovery and selection, value projection, @ categories, and output limits shared across commands.
+description: Output formats, -D/-S discovery and selection, -Q query-capability discovery, value projection, @ categories, and output limits shared across commands.
 ---
 
 # dotnet-inspect: query and output system
@@ -65,10 +65,10 @@ format.
 
 ## Discover and select sections
 
-`-D` and `-S` are the uppercase cross-command query namespace. Use `-D` to
+`-D`, `-S`, and `-Q` are the uppercase cross-command query namespace. Use `-D` to
 discover sections and fields, `-S` to select exact names, categories, compatible
-aliases, or wildcards, and `--columns`/`--fields` to project values. Discover
-first instead of guessing names.
+aliases, or wildcards, `-Q` to discover query facets and operators, and
+`--columns`/`--fields` to project values. Discover first instead of guessing names.
 
 ```bash
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -D --tsv
@@ -117,6 +117,32 @@ Use `library X -D @Performance` or `-D @Metadata`; add `--effective` for
 populated members. Row formats require a concrete section or homogeneous
 family. Heterogeneous categories use Markdown/JSON; `Performance:*` flattens
 kinds and adds `Kind` when multiple kinds have rows.
+
+## Discover query capabilities
+
+`-Q` (alias `--query-help`) is structural and does not acquire or inspect a
+target. It is available on `library`, `type`, `member`, `package`, and `find`.
+Use it before constructing filters; displayed columns do not imply support for
+`--where`, `--order-by`, or `--top`.
+
+```bash
+dnx dotnet-inspect -y -- library -Q
+dnx dotnet-inspect -y -- type -Q "Body Shapes"
+dnx dotnet-inspect -y -- library -Q "Performance: Arrays" --json
+dnx dotnet-inspect -y -- library -Q @Performance
+```
+
+Bare `-Q` lists query-capable sections. Named `-Q` lists exact facet keys,
+operators, comparisons, and values; `-v:d` adds examples. JSON retains typed
+arrays of operators and legal values. Named TSV/JSONL output requires one
+section. `--columns`, `--fields`, `--rows`, and `--count` shape the discovery
+rows, not inspected data.
+
+Do not combine `-Q` with `-S`, `-D`, `--where`, `--order-by`, or `--top`.
+Each named description is a companion section called `Query: <Section>`;
+`-S "Query: Body Shapes"` selects it directly, but normal output and data
+wildcards omit companions. A known section with no implemented query bindings
+says so; this currently includes package-query facets not yet wired to the CLI.
 
 ## Query rendered body shapes
 

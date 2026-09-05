@@ -20,6 +20,7 @@ and `--` sends remaining options to dotnet-inspect rather than `dnx`.
 | Inspect overloads | `member Type --platform Lib -m Name -S "Member Index"` |
 | Select an overload | `member Type --platform Lib Name:1` or `Name~digest` |
 | Discover legal query values or demos | `vocabulary -D`; select values with `vocabulary -S Accessibility`, `-S "C# Style Choices" --json`, or `-S "C# Body Kinds"`; use `demo list` for product-home scenarios. |
+| Discover query facets and operators | `library -Q` lists query-capable sections; `type -Q "Body Shapes"` or `library -Q "Performance: Arrays" --json` describes accepted keys and operators without inspection. |
 | Find rendered body syntax | `library path/to.dll --where "Kind=ObjectCreationExpression"`, `type Type --library path/to.dll --where "Kind=InvocationExpression"`, or `member Type Method:1 --library path/to.dll --where "Kind=InvocationExpression"`; load `skill decompiler` for stable kinds and coordinates. |
 | Compare APIs or implementations | `diff --package Foo@old..new --breaking` (`--additive` new APIs; `--alloc-regressions` for allocation regressions); `match Type.MethodA Type.MethodB --package Foo --implementation` compares two methods with C#/IL; `match Type.Method --similar --package Foo` ranks structural candidates for discovery. |
 | Trace API evolution | `timeline --package Foo@old..new --type Type --members --at all`; omit `--at` to inspect the vector without acquiring packages. |
