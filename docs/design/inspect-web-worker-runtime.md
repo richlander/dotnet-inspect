@@ -1362,21 +1362,23 @@ into the runtime host:
    `inspect-web-worker-protocol` gate (**implemented**);
 3. adapt the current generated facade bootstrap behind the consumer-owned
    bootstrap operation (**implemented** with the browser-binding sub-gate);
-4. move one long-running source or package inspection through a typed worker
-   operation adapter;
-5. connect keyed cancellation, progress, managed settlement, and epoch-work
+4. add durable event batches after #5570 and the relevant #5419 handoff supply
+   their prerequisite contracts, before moving the existing Package Query
+   stream; #5566 and #5570 are merged;
+5. consume the [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client)
+   and move the existing source operation through a typed worker adapter;
+6. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
-6. prove real-browser responsiveness and hard realm release;
-7. migrate additional feature adapters only after each declares its own
-   payload and liveness policy; and
-8. add durable event batches only after #5570 and the relevant #5419 handoff
-   supply their remaining prerequisite contracts; #5566 is merged.
+7. prove real-browser responsiveness and hard realm release; and
+8. migrate additional feature lifecycle adapters only after each declares its
+   own payload and liveness policy.
 
 These eight production-host adoption steps are tracked by #5418 under #4937
 and #4571, with composition handoffs mapped by #5095. The first feature
 consumer is the existing source operation in
-issue #5420, not a duplicate feature. Step 7 retires each remaining direct
-main-thread feature invocation as its adapter is adopted. The approved
+issue #5420, not a duplicate feature. The client owner retires direct
+main-thread managed dispatch in one production cutover; step 8 is subsequent
+feature lifecycle adoption, not permission to retain a second runtime. The approved
 inspect-web-only scope does not imply a CLI runtime migration. Typed feature
 results continue to reach their existing rendering owners; this binding adds
 no rendering or format-lowering domain.
