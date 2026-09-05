@@ -574,13 +574,18 @@ public static class PackagePayloadAcquisition
             }
 
             using IPackagePayloadReservation? reservation =
-                transferPolicy?.Reserve(
-                    new PackagePayloadTransfer(
-                        coordinate,
-                        producerKey,
-                        advertisedLength));
+                transferPolicy is null
+                    ? null
+                    : await transferPolicy.ReserveAsync(
+                            new PackagePayloadTransfer(
+                                coordinate,
+                                producerKey,
+                                advertisedLength),
+                            bodyCancellationToken)
+                        .ConfigureAwait(false);
             try
             {
+                bodyCancellationToken.ThrowIfCancellationRequested();
                 byte[]? archive = advertisedLength is { } declared
                     && declared >= 0
                     && declared <= int.MaxValue

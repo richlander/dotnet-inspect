@@ -1410,12 +1410,15 @@ internal static class BrowserPlatformWorkspace
             return content;
         }
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(transfer);
             return new LeasingPackageReservation(
-                BrowserPackageWorkspace.PackageTransferPolicy.Reserve(transfer),
+                await BrowserPackageWorkspace.PackageTransferPolicy
+                    .ReserveAsync(transfer, cancellationToken)
+                    .ConfigureAwait(false),
                 BrowserPackageWorkspace.PackageKey(
                     transfer.Coordinate.PackageId,
                     transfer.Coordinate.Version),
