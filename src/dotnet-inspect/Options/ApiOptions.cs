@@ -230,6 +230,13 @@ public partial record ApiOptions : IProjectionOptions
     /// silently ignore the selector. See #3547.
     /// </remarks>
     public bool SelectDeferredToListing { get; init; }
+
+    /// <summary>
+    /// Set when effective discovery names resolve only on the Type-listing
+    /// catalog and final target lookup must choose between that catalog and the
+    /// provisional single-Type catalog.
+    /// </summary>
+    public bool DiscoverDeferredToListing { get; init; }
     public string[]? Columns { get; init; }
     public string[]? Fields { get; init; }
     public bool Schema { get; init; }

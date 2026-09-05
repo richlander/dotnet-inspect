@@ -7,11 +7,15 @@ NuGet Gallery discovery in `NuGetFetch` is the sole normative owner.
 [Delivery tracker #5919](https://github.com/richlander/dotnet-inspect/issues/5919)
 records eight milestones from this design through both CLI and browser adoption.
 
-**Design only; implementation and delegation claims below are unverified.**
+**Typed request/catalog implemented; transport and delegation remain unverified.**
+[Milestone 2, #5934](https://github.com/richlander/dotnet-inspect/issues/5934),
+adds `NuGetGalleryDiscoveryRequest`, `NuGetGalleryPackageType`, and
+`NuGetGalleryDiscoveryCatalog` in NuGetFetch. These express inert source intent;
+they do not authorize access or advertise executable Gallery discovery.
 Existing Gallery keyword/prefix search, typed source results, deadlines, and
-the semantic row-selection language already exist. Gallery browse requests,
-this catalog, the general Source Delegation protocol, and their product-row
-adoption do not. Closed design issues are not implementation evidence.
+the semantic row-selection language remain unchanged. The discovery transport,
+general Source Delegation protocol, and product-row/host adoption are still
+future work. Closed design issues are not implementation evidence.
 
 The user goal is inexpensive discovery: find popular packages, tools, or
 templates without already knowing a package name. Gallery capabilities should
@@ -149,6 +153,22 @@ but neither host maintains a second provider-parameter or predicate inventory.
 Additional facets earn admission individually with a provider contract and
 gate; framework, verified-owner, dependency, and archive-content predicates are
 not implied by this initial registry.
+
+### Typed request/catalog adoption
+
+`NuGetGalleryDiscoveryRequest` requires a Gallery source descriptor and explicit
+capacity; it grants no source eligibility. It normalizes absent/whitespace-only
+text to browse and resolves the default or explicit order at construction.
+Package-type values use the existing NuGet package-ID grammar, as the Gallery
+provider does, with lowercase value identity. Invalid construction or unknown
+catalog identities throw argument exceptions, consistent with existing
+NuGetFetch coordinate/configuration APIs, rather than returning altered intent.
+
+The catalog exposes the typed package-type domain, optional-single cardinality,
+source kind, suggestions, and separate source-order descriptors. Opaque IDs
+use ordinal matching; labels and provider wire strings are not lookup aliases.
+The entries describe source intent, not a transport capability advertisement.
+The focused Release gate is `GalleryDiscoveryRequestAndCatalogTests`.
 
 ## Provider contract and typed results
 
@@ -385,14 +405,14 @@ A subsequent GET with `Origin: https://dotnet-inspect.net` returned
 `Access-Control-Allow-Origin: *` on 2026-09-05 UTC. Browser adoption still
 requires a real browser run against the product path.
 
-### Future Release gates
+### Release gates
 
 These gates are required before their respective implementation claims ship.
-They are not present or passing merely because this design names them.
+Except for the request/catalog gate, they remain unimplemented and unverified.
 
 | Gate | Outcome established |
 | --- | --- |
-| `GalleryDiscoveryRequestAndCatalog` | Termless/type-filtered requests, explicit/default orders, stable/prerelease selection, custom valid package types, invalid/unknown selections, and inert shared descriptor discovery retain their declared meaning. |
+| `GalleryDiscoveryRequestAndCatalogTests` | Implemented in `src/NuGetFetch.Tests`: termless/type-filtered intent, explicit/default orders, prerelease intent, custom valid package types, invalid/unknown selections, bounded-input identity, and immutable descriptor discovery retain their declared meaning. Provider execution remains a later gate. |
 | `GalleryDiscoveryUsesSearchMetadataOnly` | The product adapter returns basic browse rows with only search transport; no per-package enrichment is requested. |
 | `GalleryDiscoveryProviderProjection` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, provider ordering, and selector evidence are preserved. |
 | `GalleryDiscoveryFiniteInputSelection` | Product acquisition preserves K and the whole provider response; the shared adopter's residual matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |

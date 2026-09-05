@@ -746,6 +746,10 @@ public static class ApiSurfaceExtractor
                         moduleVersionId, GetMemorySafetyIndex().Rules),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                HasUnionAttribute = AttributeReader.HasUnionAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork),
                 Attributes = AttributeReader.RenderAttributes(
                     reader,
                     typeDef.GetCustomAttributes(),
@@ -2891,7 +2895,9 @@ public static class ApiSurfaceExtractor
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
-        methodName.StartsWith("op_", StringComparison.Ordinal);
+        methodName.StartsWith(
+            "op_",
+            StringComparison.Ordinal);
 
     private static void AttachLocalExtensionMethods(
         ApiSurface surface,
