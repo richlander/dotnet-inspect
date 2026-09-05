@@ -66,6 +66,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
+        value = $ownDataProperty(value, "ListGalleryDiscoveryCatalog.1310674786");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027PackageExports.ListGalleryDiscoveryCatalog.1310674786\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "PackageExports");
         value = $ownDataProperty(value, "ListPackageQueryFacets.1310674786");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027PackageExports.ListPackageQueryFacets.1310674786\u0027 is not callable.");
@@ -162,9 +170,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "PackageExports");
-        value = $ownDataProperty(value, "RunPackageQuery.1079207954");
+        value = $ownDataProperty(value, "RunPackageQuery.1009197168");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1079207954\u0027 is not callable.");
+            throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1009197168\u0027 is not callable.");
         }
     }
     {
@@ -213,6 +221,11 @@ export function clearWorkspacePackageOccurrences() {
 }
 export async function getPackageDocument(packageId, version, path) {
     const $result = await $requireManagedExports()["PackageExports"]["GetPackageDocument.1001223652"](packageId, version, path);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
+export function listGalleryDiscoveryCatalog() {
+    const $result = $requireManagedExports()["PackageExports"]["ListGalleryDiscoveryCatalog.1310674786"]();
     const $parsed = JSON.parse($result);
     return $parsed;
 }
@@ -268,8 +281,8 @@ export function requestPackageQueryMatches(additionalMatchCredit) {
 export async function resolvePackageDependencyVersion(packageId, declaredRange) {
     return await $requireManagedExports()["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
-export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink) {
-    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1079207954"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
+export async function runPackageQuery(prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId) {
+    const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1009197168"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink, packageType, sourceOrderId);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

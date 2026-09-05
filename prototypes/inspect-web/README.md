@@ -1045,16 +1045,33 @@ routes use the navigation fallback, while API, asset, and framework requests
 remain excluded.
 
 Search also exposes a `Package query` action that opens the routed `/query`
-surface. It runs the product-issued nuspec-only facet catalog against
-nuget.org, streams rows and visible partial failures from Browser Wasm, and
-hands an exact result coordinate to the normal Workspace package-opening path.
+surface. Leave search text empty to browse, then select a package type or
+source order from NuGetFetch's Gallery catalog. Basic discovery uses search
+metadata only; the separate inspection facets explicitly add manifest or
+bounded package-content evaluation. Browser Wasm streams shared product rows
+and visible failures, then hands an exact result coordinate to the normal
+Workspace package-opening path. Results disclose one bounded Gallery response,
+not a globally exhaustive or exact top-N result; provider totals are estimates.
 The route keeps request and result state in the current session rather than in
-the URL; a direct load starts with an empty prefix.
+the URL; a direct load starts with empty search text.
+
+The Gallery scenarios in `browser/package-adoption.spec.ts` drive the published
+production page through the existing real-Wasm package-adoption harness.
+Deterministic search responses cover blank tool/template browse, text search,
+source ordering, metadata-only acquisition, and bounded completion. Set
+`INSPECT_WEB_GALLERY_LIVE=1` when running
+`eng/test-inspect-web-package-adoption-gate.sh` to include the opt-in live Gallery
+CORS observation and capture the tool-browse page. Live provider availability
+is point-in-time evidence, not a permanent guarantee.
 
 The .NET 11 preview Emscripten wrapper currently mishandles an SDK packs path
 that contains whitespace. If that applies to the local SDK installation, pass
-`EmscriptenSdkToolsPath` pointing to a no-whitespace link to the installed
-Emscripten `tools` directory.
+`-p:EmscriptenSdkToolsPath=/absolute/no-whitespace/link/` pointing to a link to
+the installed Emscripten `tools` directory. The trailing slash is required,
+and an environment variable alone is overwritten by the SDK's property file.
+For the facade-generation script, its `DOTNET` executable override can name a
+worktree-local wrapper that supplies this property without changing `PATH` or
+the installed SDK.
 
 ## Static analysis
 

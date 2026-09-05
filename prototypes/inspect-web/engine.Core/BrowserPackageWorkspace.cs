@@ -1141,7 +1141,7 @@ internal static class BrowserPackageWorkspace
 
     internal static ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
-            PackageProfileMatch package,
+            PackageQueryPackage package,
             IPackageSourceClient source,
             BrowserPackageOperationDeadline deadline) =>
         AcquirePackageQueryContentAsync(
@@ -1152,7 +1152,7 @@ internal static class BrowserPackageWorkspace
 
     internal static async ValueTask<PackageQueryContentResult>
         AcquirePackageQueryContentAsync(
-            PackageProfileMatch package,
+            PackageQueryPackage package,
             IPackageSourceClient source,
             PackageSourceIdentity configuredSourceIdentity,
             BrowserPackageOperationDeadline deadline)

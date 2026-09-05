@@ -2,7 +2,10 @@ import type {
   PackageQueryState,
   QueryFacetTerm,
   QueryResultRow,
+  QuerySourceCatalog,
+  QuerySourceSelection,
 } from "./package-query.ts";
+import { createQueryRequest } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
 import { focusRenderedElement } from "./scope-bar.ts";
 
@@ -16,6 +19,7 @@ export interface PackageQueryBindingActions {
   onResultPressure: () => void;
   onRowOpen: (packageId: string, version: string) => void;
   onRun: (prefix: string) => void;
+  onSourceChange: (selection: QuerySourceSelection, searchText: string) => void;
 }
 
 export type PackageQueryFocusSnapshot =
@@ -27,6 +31,7 @@ export type PackageQueryFocusSnapshot =
   | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
+  | { kind: "type" | "order" | "prerelease" }
   | { kind: "facet"; facetKey: string }
   | { kind: "row"; packageId: string; version: string }
   | { kind: "cancel"; index: number }
@@ -74,6 +79,9 @@ export function capturePackageQueryFocus(
   if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
+  if (active.id === "package-query-type") return { kind: "type" };
+  if (active.id === "package-query-order") return { kind: "order" };
+  if (active.id === "package-query-prerelease") return { kind: "prerelease" };
   if (active.dataset.queryFacet) {
     return { kind: "facet", facetKey: active.dataset.queryFacet };
   }
@@ -111,6 +119,11 @@ export function restorePackageQueryFocus(
       break;
     case "run":
       target = root.querySelector("#package-query-run");
+      break;
+    case "type":
+    case "order":
+    case "prerelease":
+      target = root.querySelector(`#package-query-${snapshot.kind}`);
       break;
     case "facet":
       target = [...root.querySelectorAll<HTMLElement>("[data-query-facet]")]
@@ -183,6 +196,22 @@ export function bindPackageQueryView(
     button.addEventListener("click", () => actions.onFacetToggle(
       button.dataset.queryFacet ?? "",
       prefixInput()?.value ?? "")));
+  const packageType = root.querySelector<HTMLSelectElement>(
+    "#package-query-type");
+  const sourceOrder = root.querySelector<HTMLSelectElement>(
+    "#package-query-order");
+  const prerelease = root.querySelector<HTMLInputElement>(
+    "#package-query-prerelease");
+  if (packageType && sourceOrder && prerelease) {
+    const sourceChanged = () => actions.onSourceChange({
+      packageType: packageType.value || null,
+      sourceOrderId: sourceOrder.value || null,
+      includePrerelease: prerelease.checked,
+    }, prefixInput()?.value ?? "");
+    packageType.addEventListener("change", sourceChanged);
+    sourceOrder.addEventListener("change", sourceChanged);
+    prerelease.addEventListener("change", sourceChanged);
+  }
   bindPackageQueryStreamControls(root, actions);
   const queryMain = root.querySelector<HTMLElement>(".query-main");
   const reportResultPressure = () => {
@@ -234,9 +263,14 @@ function renderRow(
         </div>
         <span class="query-tier query-tier-${escapeHtml(row.tier)}">${escapeHtml(row.tier)}</span>
       </div>
+      ${row.description?.trim()
+        ? `<p class="query-row-description">${escapeHtml(row.description)}</p>`
+        : ""}
       <ul class="query-evidence">${evidence}</ul>
       <div class="query-row-meta">
-        <span>${row.totalDownloads.toLocaleString()} downloads</span>
+        <span>${row.totalDownloads === null
+          ? "Lifetime downloads unavailable"
+          : `${row.totalDownloads.toLocaleString()} lifetime downloads`}</span>
         ${row.producer
           ? `<span>${escapeHtml(row.producer)}</span>`
           : ""}
@@ -319,6 +353,53 @@ function renderCompletionFooter(
     </div>`;
 }
 
+function renderSourceControls(
+  catalog: QuerySourceCatalog | null,
+  selection: QuerySourceSelection,
+  escapeHtml: (value: unknown) => string,
+): string {
+  if (!catalog) return "";
+  const packageTypes = catalog.packageType.suggestions.map(suggestion => `
+    <option value="${escapeHtml(suggestion.value)}"${selection.packageType === suggestion.value ? " selected" : ""}>${escapeHtml(suggestion.label)}</option>`).join("");
+  const customType = selection.packageType !== null
+    && !catalog.packageType.suggestions.some(
+      suggestion => suggestion.value === selection.packageType)
+    ? `<option value="${escapeHtml(selection.packageType)}" selected>${escapeHtml(selection.packageType)}</option>`
+    : "";
+  const orders = catalog.orders.map(order => `
+    <option value="${escapeHtml(order.id)}" title="${escapeHtml(order.summary)}"${selection.sourceOrderId === order.id ? " selected" : ""}>${escapeHtml(order.label)}</option>`).join("");
+  const orderSummary = selection.sourceOrderId === null
+    ? "Automatic uses the source default for this search."
+    : catalog.orders.find(order => order.id === selection.sourceOrderId)?.summary
+      ?? `Unavailable source order: ${selection.sourceOrderId}`;
+  const unavailableOrder = selection.sourceOrderId !== null
+    && !catalog.orders.some(order => order.id === selection.sourceOrderId)
+    ? `<option value="${escapeHtml(selection.sourceOrderId)}" selected>${escapeHtml(selection.sourceOrderId)} (unavailable)</option>`
+    : "";
+  return `
+    <div class="query-source-controls" role="group" aria-label="Gallery filters">
+      <h2>Gallery filters</h2>
+      <label for="package-query-type">${escapeHtml(catalog.packageType.label)}
+        <select id="package-query-type" aria-describedby="package-query-type-description">
+          <option value=""${selection.packageType === null ? " selected" : ""}>All package types</option>
+          ${packageTypes}${customType}
+        </select>
+      </label>
+      <p id="package-query-type-description">${escapeHtml(catalog.packageType.summary)}</p>
+      <label for="package-query-order">Source order
+        <select id="package-query-order" aria-describedby="package-query-order-description">
+          <option value=""${selection.sourceOrderId === null ? " selected" : ""}>Automatic</option>
+          ${orders}${unavailableOrder}
+        </select>
+      </label>
+      <p id="package-query-order-description">${escapeHtml(orderSummary)}</p>
+      <label for="package-query-prerelease">
+        <input id="package-query-prerelease" type="checkbox"${selection.includePrerelease ? " checked" : ""} />
+        Include prerelease
+      </label>
+    </div>`;
+}
+
 function renderStreamingCancel(
   state: PackageQueryState,
 ): string {
@@ -365,7 +446,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">⌕</span>
         <h2>Query nuget.org</h2>
-        <p>Enter a package ID prefix, then narrow the live result stream with product facets.</p>
+        <p>Leave search blank to browse, or enter Gallery search text. Narrow the source with Gallery filters; add inspection facets only when needed.</p>
       </section>`;
   }
   if (completion.kind === "cancelled") {
@@ -389,7 +470,7 @@ function renderEmptyState(
       <section class="query-empty">
         <span class="large-glyph">◇</span>
         <h2>No matches within the bound</h2>
-        <p>Searched ${escapeHtml(completion.reason)}, not the whole source.${state.outcome.failures.length ? " Some source work also failed, so this is not a confirmed empty result within that bound." : ""}</p>
+        <p>Scope: ${escapeHtml(completion.reason)}. This is not the whole source.${state.outcome.failures.length ? " Some source work also failed, so this is not a confirmed empty result within that bound." : ""}</p>
       </section>`;
   }
   if (state.outcome.failures.length) {
@@ -404,7 +485,7 @@ function renderEmptyState(
     <section class="query-empty">
       <span class="large-glyph">◇</span>
       <h2>No matches</h2>
-      <p>Try a broader prefix or fewer facets.</p>
+      <p>Try a broader search, browse without search text, or select fewer inspection facets.</p>
     </section>`;
 }
 
@@ -412,6 +493,7 @@ export interface RenderPackageQueryOptions {
   state: PackageQueryState;
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
+  sourceCatalog?: QuerySourceCatalog | null;
   navigationError?: string;
   escapeHtml: (value: unknown) => string;
 }
@@ -477,6 +559,7 @@ export function renderPackageQueryView(
     state,
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
+    sourceCatalog = null,
     navigationError = "",
     escapeHtml,
   } = options;
@@ -484,6 +567,7 @@ export function renderPackageQueryView(
   const facets = renderFacets(availableFacets, activeKeys, escapeHtml);
   const failures = renderFailures(state, escapeHtml);
   const results = renderResults(state, escapeHtml);
+  const request = state.request ?? createQueryRequest("");
 
   return `
     <div class="query-page">
@@ -495,13 +579,13 @@ export function renderPackageQueryView(
       </header>
       <main class="query-main">
         <div class="query-heading">
-          <p class="query-kicker">manifest + bounded package content · nuget.org</p>
+          <p class="query-kicker">Gallery discovery + optional inspection · nuget.org</p>
           <h1 id="package-query-heading" tabindex="-1">Package query</h1>
-          <p>Find packages by product-owned source, manifest, and package-content facets.</p>
+          <p>Browse or search using basic search metadata. Manifests and package content are acquired only with explicit inspection facets.</p>
         </div>
         <form id="package-query-form" class="query-bar" role="search">
-          <label for="package-query-prefix">Package ID prefix (<code>*</code> optional)</label>
-          <input id="package-query-prefix" name="prefix" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="System.*" required maxlength="100" />
+          <label for="package-query-prefix">Search (optional)</label>
+          <input id="package-query-prefix" name="search" value="${escapeHtml(prefix)}" autocomplete="off" spellcheck="false" placeholder="Search packages or leave blank to browse" maxlength="100" />
           <button id="package-query-run" type="submit">Run query</button>
           <span id="package-query-cancel-region">${renderStreamingCancel(state)}</span>
         </form>
@@ -510,11 +594,14 @@ export function renderPackageQueryView(
           : ""}
         <div id="package-query-failure-region">${failures}</div>
         <div class="query-layout">
-          <aside class="query-facet-rail" aria-label="Package query facets">
-            <h2>Facets</h2>
+          <aside class="query-facet-rail" aria-label="Package query controls">
+            ${renderSourceControls(sourceCatalog, request, escapeHtml)}
+            <h2>Inspection facets</h2>
             <p>Every change starts a fresh request.</p>
             <div class="query-facets">${facets}</div>
             <p class="query-facet-disclosure">Content facets download up to 20 candidate package archives.</p>
+            <p class="query-facet-disclosure">Source capacity K: ${request.requestedLimit.toLocaleString()} candidates. Maximum matches N: ${request.requestedMatchLimit.toLocaleString()}. The match limit does not change source capacity.</p>
+            <p class="query-facet-disclosure">Match counts and lifetime downloads describe a bounded response, not global top-N.</p>
           </aside>
           <section id="package-query-results" class="query-results" aria-label="Package query results">
             ${results}
