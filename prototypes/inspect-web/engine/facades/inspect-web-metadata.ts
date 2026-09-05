@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
@@ -115,6 +115,8 @@ export interface BrowserMetadataHeaders {
   readonly majorRuntimeVersion: number | null;
   readonly minorRuntimeVersion: number | null;
   readonly entryPointToken: number | null;
+  readonly managedNativeHeaderRva: number;
+  readonly managedNativeHeaderSize: number;
 }
 
 export interface BrowserMetadataHeap {

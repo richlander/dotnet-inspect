@@ -44,12 +44,17 @@ public sealed class PackageVersionDiscoveryResult
 {
     internal PackageVersionDiscoveryResult(
         PackageVersionDiscoveryState state,
-        IReadOnlyList<string> versions,
+        IReadOnlyList<PackageVersionSourceInfo> sourceListings,
         IReadOnlyList<PackageAuthorityFailure> failures,
         bool hasAnyCandidate)
     {
         State = state;
-        Versions = new ReadOnlyCollection<string>([.. versions]);
+        SourceListings = new ReadOnlyCollection<PackageVersionSourceInfo>([.. sourceListings]);
+        Listings = new ReadOnlyCollection<PackageVersionInfo>(
+            [.. sourceListings
+                .GroupBy(row => row.Version, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new PackageVersionInfo(group.Key, group.Any(row => row.Listed)))]);
+        Versions = new ReadOnlyCollection<string>([.. Listings.Select(row => row.Version)]);
         Failures =
             new ReadOnlyCollection<PackageAuthorityFailure>([.. failures]);
         HasAnyCandidate = hasAnyCandidate;
@@ -57,13 +62,17 @@ public sealed class PackageVersionDiscoveryResult
 
     public PackageVersionDiscoveryState State { get; }
     public IReadOnlyList<string> Versions { get; }
+    public IReadOnlyList<PackageVersionInfo> Listings { get; }
+
+    /// <summary>Per-authority display rows, not payload authorization receipts.</summary>
+    public IReadOnlyList<PackageVersionSourceInfo> SourceListings { get; }
     public IReadOnlyList<PackageAuthorityFailure> Failures { get; }
     public bool HasAnyCandidate { get; }
 }
 
 /// <summary>
-/// Owns source associations, plugin-authentication contexts, and V3 routes for
-/// one desktop package-composition lifetime.
+/// Owns source associations, HTTP and local routes, and HTTP authentication
+/// contexts for one desktop package-composition lifetime.
 /// </summary>
 public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 {
@@ -117,7 +126,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         int? limit,
         NuGetSourceOptions? sourceOptions = null,
         Action<string>? log = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool includeUnlisted = false)
     {
         ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _disposed) != 0,
@@ -208,7 +218,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             _options.RequestTimeout,
             _options.OperationTimeout,
             cancellationToken);
-        var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
+        var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
         bool hasAnyCandidate = false;
         bool operationTimedOut = false;
 
@@ -239,19 +250,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 break;
             }
 
-            if (!Uri.TryCreate(
-                    source.Url,
-                    UriKind.Absolute,
-                    out Uri? endpoint)
-                || endpoint.Scheme is not ("http" or "https"))
-            {
-                failures.Add(new PackageAuthorityFailure(
-                    PackageSourceDisplay.ForDiagnostics(source),
-                    PackageAuthorityFailureKind.Unsupported,
-                    $"Package source {PackageSourceDisplay.ForDiagnostics(source)} does not support version enumeration in this host."));
-                continue;
-            }
-
             if (!ConfiguredPackageAuthorityKey.TryCreate(
                     source,
                     out ConfiguredPackageAuthorityKey? authorityKey,
@@ -268,7 +266,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 
             bool isGallery =
                 authorityKey.IsNuGetOrg && source.Credential is null;
-            if (!isGallery
+            if (authorityKey.HttpEndpoint is { } endpoint
+                && !isGallery
                 && source.Credential is null
                 && !PluginAuthenticationContext.CanScopeProviderQuery(
                     endpoint))
@@ -285,7 +284,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             AuthorityEntry authority = GetOrCreateAuthority(
                 source,
                 authorityKey,
-                endpoint,
                 isGallery);
             log?.Invoke(
                 $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(source)}.");
@@ -335,10 +333,17 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                     bool listed = !value.HasAuthoritativeListingState
                         || candidate.ListingState
                             != PackageListingState.Unlisted;
-                    if (listed
+                    if ((listed || includeUnlisted)
                         && (includePrerelease || !parsed.IsPrerelease))
                     {
-                        versions.Add(candidate.Coordinate.Version);
+                        string version = candidate.Coordinate.Version;
+                        if (!versions.TryGetValue(version, out var rows))
+                        {
+                            rows = [];
+                            versions.Add(version, rows);
+                        }
+                        rows.Add(new PackageVersionSourceInfo(
+                            version, feedLabels[sourceIndex].ToString(), listed));
                     }
                 }
             }
@@ -366,15 +371,15 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             }
         }
 
-        List<string> ordered =
+        List<PackageVersionSourceInfo> ordered =
         [
-            .. versions
+            .. versions.Keys
                 .Select(version => (
                     Parsed: NuGetVersion.Parse(version),
                     Original: version))
                 .OrderByDescending(candidate => candidate.Parsed)
                 .Take(limit ?? int.MaxValue)
-                .Select(candidate => candidate.Original),
+                .SelectMany(candidate => versions[candidate.Original]),
         ];
         try
         {
@@ -405,7 +410,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
     private AuthorityEntry GetOrCreateAuthority(
         PackageSource source,
         ConfiguredPackageAuthorityKey key,
-        Uri endpoint,
         bool isGallery)
     {
         if (_authorities.TryGetValue(key, out AuthorityEntry? existing))
@@ -425,29 +429,36 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         IPackageSourceClient? client = null;
         try
         {
-            transport = _createTransport(source, isGallery);
-            if (isGallery)
+            if (key.LocalIdentity is { } local)
             {
-                client = PackageSourceClientFactory.CreateGallery(
-                    association,
-                    transport,
-                    _options);
+                client = PackageSourceClientFactory.Create(local, association);
             }
             else
             {
-                if (source.Credential is null)
+                transport = _createTransport(source, isGallery);
+                if (isGallery)
                 {
-                    owner = PluginAuthenticationContextOwner.Create(
+                    client = PackageSourceClientFactory.CreateGallery(
                         association,
-                        endpoint,
-                        _credentialSource);
+                        transport,
+                        _options);
                 }
-                client = PackageSourceClientFactory.Create(
-                    source,
-                    association,
-                    transport,
-                    _options,
-                    owner?.Context);
+                else
+                {
+                    if (source.Credential is null)
+                    {
+                        owner = PluginAuthenticationContextOwner.Create(
+                            association,
+                            key.HttpEndpoint!,
+                            _credentialSource);
+                    }
+                    client = PackageSourceClientFactory.Create(
+                        source,
+                        association,
+                        transport,
+                        _options,
+                        owner?.Context);
+                }
             }
 
             var authority =

@@ -108,7 +108,8 @@ import type {
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
-  buildTypeGraphMermaid
+  buildTypeGraphMermaid,
+  resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 
 const packageAt = (version: string, framework: string, types = 1) => ({
@@ -1393,9 +1394,6 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   const callGraphBinding =
     appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
     ?? "";
-  const dependencyNodeBinding =
-    graphInteractionsSource.match(/export function bindDependencyGraphNodes\([\s\S]*?\n}(?=\n\nexport function bindGraphPanZoom)/)?.[0]
-    ?? "";
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -1409,8 +1407,8 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
   assert.match(
-    dependencyNodeBinding,
-    /mermaidNodeId\(node, "d"\)[\s\S]*classList\.add\("nav-node"\)[\s\S]*style\.cursor = "pointer"[\s\S]*addEventListener\("click", binding\.onSelect\)/);
+    graphInteractionsSource,
+    /const resolveNode = options\.resolveCallGraphNode \?\? options\.resolveDependencyGraphNode;[\s\S]*mermaidNodeId\(node, options\.resolveCallGraphNode \? "n" : "d"\)[\s\S]*if \(!moved\) binding\.onSelect\(\)/);
   assert.match(
     appSource,
     /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
@@ -1425,7 +1423,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
   assert.match(
     dependencyGraph,
-    /bindGraphPanZoom\(container, viewport, \{ keybindings \}\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
   assert.match(
     dependencyGraph,
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
@@ -1455,11 +1453,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
   assert.match(
     graphInteractionsSource,
-    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
+    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindDependencyGraphNodes\(/g)?.length, 1);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
@@ -2006,7 +2003,7 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   assertIdentifierArgument(innerCall, 0, "document", "bindMetadataExplorer");
   assertIdentifierArgument(innerCall, 1, "ex", "bindMetadataExplorer");
   const actions = objectArgument(innerCall, 2, "bindMetadataExplorer");
-  assert.equal(actions.properties.length, 12);
+  assert.equal(actions.properties.length, 13);
   const rowFocus = callbackProperty(actions, "onRowFocus");
   assert.deepEqual(
     statementSignatures(rowFocus.body.body),
@@ -2031,17 +2028,18 @@ test("metadata viewer owns its rendered explorer control bindings", () => {
   const binding = sourceText(innerCall);
   assert.match(
     binding,
-    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRetryPackageMetadata: \(\) =>\s*observeAsync\(loadPackageMetadata\(\), "Retrying package metadata"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
+    /bindMetadataExplorer\s*\(document, ex, \{[\s\S]*onClose: closeExplorer,[\s\S]*onHistoryBack: explorerHistoryBack,[\s\S]*onHistoryForward: explorerHistoryForward,[\s\S]*onHeapFocus: heap => pushExplorerFocus\(\{ heap \}\),[\s\S]*onJump: explorerJump,[\s\S]*onOpenHeap: openExplorerHeap,[\s\S]*onOpenOverview: openExplorerOverview,[\s\S]*onOpenTable: openExplorer,[\s\S]*onPage: \(index, startRowId\) =>\s*observeAsync\(\s*loadExplorerWindow\(index, startRowId\),\s*"Loading metadata table rows"\),[\s\S]*onRetryPackageMetadata: \(\) =>\s*observeAsync\(loadPackageMetadata\(\), "Retrying package metadata"\),[\s\S]*onRowFocus: \(index, rowId\) => \{[\s\S]*ex\.detail = already \? null : \{ index, rowId \};[\s\S]*ex\.highlight = already \? null : \{ index, rowId \};[\s\S]*onShowOverview: explorerShowOverview,[\s\S]*onTableFocus: \(index, rowId\) => pushExplorerFocus\(\{ index, rowId \}\),/);
   assert.doesNotMatch(
     binding,
     /\b(?:getElementById|querySelector|querySelectorAll)\s*\(|\.addEventListener\s*\(/);
   assert.match(
     metadataViewerSource,
-    /export function bindMetadataExplorer\([\s\S]*\[data-package-metadata-retry\][\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
+    /export function bindMetadataExplorer\([\s\S]*\[data-package-metadata-retry\][\s\S]*#mde-exit[\s\S]*#mde-hist-back[\s\S]*#mde-hist-fwd[\s\S]*\[data-mde-explore\][\s\S]*\[data-mde-open\][\s\S]*\[data-mde-open-heap\][\s\S]*\[data-mde-chip\][\s\S]*\[data-mde-jump\][\s\S]*\[data-mde-overview\][\s\S]*\[data-mde-page\][\s\S]*\[data-mde-heap-chip\][\s\S]*\.mde-wall \.mde-card\[data-mde-index\] \.mde-card-head[\s\S]*\.mde-wall \.mde-heap-card\[data-mde-heap\] \.mde-card-head[\s\S]*\.mde-wall \.mde-row\[data-mde-row\][\s\S]*#mde-canvas[\s\S]*\.mde-focus \.mde-row\[data-mde-row\]/);
   for (const selector of [
     "#mde-exit",
     "#mde-hist-back",
     "#mde-hist-fwd",
+    "[data-mde-explore]",
     "[data-mde-open]",
     "[data-mde-open-heap]",
     "[data-mde-chip]",
@@ -2298,7 +2296,7 @@ test("global workbench shortcuts respect the topmost modal", () => {
     /function openSpotlight\(seed = "", spotlightScope: SpotlightScope = "all"\) \{\s*if \(state\.loading \|\| state\.error\) return;\s*beginSpotlightNavigation\(\)/);
   assert.match(
     spotlightSource,
-    /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(\);/);
+    /function bind\(root: ParentNode, mode: "modal" \| "inline"\)[\s\S]*if \(mode === "modal"\)[\s\S]*focus\(selection\);/);
   assert.match(
     appSource,
     /id: "metadata-explorer\.dismiss"[\s\S]*priority: WORKBENCH_KEYBINDING_PRIORITY\.metadataExplorer[\s\S]*Boolean\(state\.explorer\?\.open\)[\s\S]*metadata-explorer\.contain-browser-shortcut/);
@@ -3232,7 +3230,17 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+  const streamPatch =
+    appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
+    ?? "";
+  assert.match(
+    streamPatch,
+    /patchPackageQueryStream\(\s*document,[\s\S]*packageQueryActions\)/);
+  assert.doesNotMatch(streamPatch, /app\.innerHTML/);
+  assert.match(
+    appSource,
+    /function schedulePackageQueryStreamRender\(\) \{\s*if \(packageQueryStreamRenderFrame !== null\) return;\s*packageQueryStreamRenderFrame = requestAnimationFrame\(/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -3244,7 +3252,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
@@ -3317,16 +3325,13 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /id="package-query-announcement"[\s\S]*class="query-announcement"[\s\S]*role="alert"[\s\S]*aria-live="assertive"[\s\S]*aria-atomic="true"/);
   assert.match(
     appSource,
-    /workspaceAvailable: state\.package !== null/);
-  assert.match(
-    appSource,
     /renderApplicationScopeBar\(\s*activeScope === "workspace" \? "workspace" : null,\s*true,\s*escapeHtml\)/);
   assert.match(
     appSource,
     /openPackageQueryRoute\("", \{\s*preserveState: true,\s*returnFocus: "application-query"/);
   assert.match(
     appSource,
-    /function selectWorkspaceApplicationScope\(fromPackageQuery = false\) \{\s*const pkg = state\.package;\s*if \(!pkg\) return;\s*const navigationSeq = navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*if \(fromPackageQuery\) \{\s*packageQueryWorkspaceFocusNavigationSeq = navigationSeq;\s*\}\s*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
+    /function selectWorkspaceApplicationScope\(\) \{\s*const pkg = state\.package;\s*if \(!pkg\) return;\s*navigationSequence\.begin\(\);[\s\S]*resolvePackageQueryWorkspaceSuccessor\(\s*\(\) => buildStateUrl\(\),[\s\S]*fallback\.hash = "workspace";[\s\S]*appendQueryNotice\([\s\S]*complete state could not be saved in the address bar[\s\S]*workspaceLocation\.push\(successor\.url\.toString\(\)\);\s*render\(\)/);
   assert.match(
     appSource,
     /onApplicationScopeSelect: applicationScope => \{[\s\S]*applicationScope === "query"[\s\S]*else if \(scope\(\) !== "workspace"\) \{\s*selectWorkspaceApplicationScope\(\)/);
@@ -3529,7 +3534,7 @@ test("Type Source completion settles behind workbench overlays", () => {
     ?? "";
   assert.match(
     appSource,
-    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null;/);
+    /function workbenchOverlayOwnsFocus\(\) \{\s*return workbenchModalOwnsFocus\(\);[\s\S]*function workbenchModalOwnsFocus\(\) \{\s*return state\.spotlightOpen\s*\|\| state\.graphSourceOpen\s*\|\| state\.docViewerOpen\s*\|\| state\.memberAnnotatedModal !== null\s*\|\| graphExplorer\.isOpen;/);
   assert.match(
     appSource,
     /sourceInspection\.loadTypeSource\(\{[\s\S]*isVisible: \(\) =>\s*currentSourceOperationKind\(\) === "type"\s*&& !workbenchModalOwnsFocus\(\)/);
@@ -3679,7 +3684,7 @@ test("dependency graph binds navigation to generated node identities", () => {
     /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
   assert.match(
     appSource,
-    /bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
+    /resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
   assert.doesNotMatch(appSource, /nodeInfoByLabel/);
   assert.match(
     appSource,
@@ -3829,10 +3834,9 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
-  const factsRenderer =
-    appSource.match(
-      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
-    ?? "";
+  const factsRenderer = readFileSync(
+    new URL("../src/member-facts.ts", import.meta.url), "utf8");
+  assert.match(appSource, /content = renderMemberFacts\(state\)/);
 
   assert.match(
     coordinator,
@@ -5213,6 +5217,9 @@ test("member API uses full-area overload and selected-member surfaces", () => {
   assert.match(
     memberOverview,
     /aria-labelledby="member-declaration-title"[\s\S]*?aria-label="Copy declaration"[\s\S]*?aria-label="Copy stable selector"[\s\S]*?aria-label="Copy digest"[\s\S]*?aria-label="Copy canonical signature"/);
+  assert.match(
+    memberOverview,
+    /renderMemberContractSections\(\{[\s\S]*?parameters,[\s\S]*?returnType: overload\.returnType,[\s\S]*?returns: overload\.returns,[\s\S]*?exceptions: overload\.exceptions,[\s\S]*?activeFramework: pkg\.activeFramework,[\s\S]*?documentationStatus:/);
   assert.doesNotMatch(renderMember, /class="learn-title"/);
   assert.doesNotMatch(
     renderMember,
@@ -5228,13 +5235,19 @@ test("member API uses full-area overload and selected-member surfaces", () => {
     /\.member-surface \{[^}]*height: 100%;[^}]*grid-template-rows: 40px minmax\(0, 1fr\);/s);
   assert.match(
     stylesSource,
-    /\.member-surface \.learn-overview \{ max-width: none; \}[\s\S]*?\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\) \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
+    /\.member-surface \.learn-overview \{ max-width: none; \}/);
+  assert.match(
+    stylesSource,
+    /\.member-surface \.learn-overview > \.learn-section:not\(\.member-overview-intro\),\s*\.member-applicability \{ max-width: 900px; \}[\s\S]*?\.member-overview-intro \.signature-panel \{ margin-top: 0; \}/);
   assert.match(
     stylesSource,
     /\.member-documentation \{ max-width: 760px;/);
   assert.match(
     stylesSource,
     /\.member-surface-scroll \{ container: member-surface \/ inline-size;[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-identity dl > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(
+    stylesSource,
+    /\.member-contract-list > div \{[^}]*grid-template-columns: minmax\(190px, 32%\) minmax\(0, 1fr\);[\s\S]*?@container member-surface \(max-width: 575px\) \{[\s\S]*?\.member-contract-list > div \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(
     stylesSource,
     /\.api-surface-head p,\s*\.metadata-surface-head p \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/s);
@@ -5293,6 +5306,12 @@ test("package metadata uses compact coordinates in a full-area working surface",
     renderMetadata,
     /data-platform-metadata-library[\s\S]*?requireSelection: true[\s\S]*?controlsHtml:[\s\S]*?package-metadata-controls[\s\S]*?packageCoordinateFields\(\)/);
   assert.match(
+    appSource,
+    /function openExplorerOverview\(assemblyFileName: string\)[\s\S]*?ex\.overview = true;[\s\S]*?state\.explorer = ex;[\s\S]*?render\(\);/);
+  assert.match(
+    appSource,
+    /onOpenOverview: openExplorerOverview/);
+  assert.match(
     stylesSource,
     /\.detail-scroll\.package-metadata-working-surface \{[^}]*overflow: hidden;[^}]*padding: 0;/s);
   assert.match(
@@ -5340,6 +5359,33 @@ test("package dependencies use compact coordinates in a full-area working surfac
   assert.match(
     stylesSource,
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
+});
+
+test("Dependencies adopts the shared graph viewer without moving the package lists", () => {
+  assert.match(
+    appSource,
+    /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
+  assert.match(
+    appSource,
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}\$\{assemblyReferences\}/);
+  assert.match(
+    appSource,
+    /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);
+  assert.match(
+    appSource,
+    /graphExplorer\.afterRender\(graphExplorerTarget\(\)\)/);
+  const key = appSource.match(/function graphExplorerKey\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(key, /JSON\.stringify\(\["dependencies", packageDependenciesSignature\(\)\]\)/);
+  assert.doesNotMatch(key, /dependenciesGroupIndex/);
+  assert.match(
+    appSource,
+    /function switchToPackageForDependencies[\s\S]*?closeGraphExplorerForNavigation\(\);[\s\S]*?activatePackage\(target/);
+  assert.match(
+    appSource,
+    /async function openDependencyPackage[\s\S]*?closeGraphExplorerForNavigation\(\);[\s\S]*?navigationSequence\.begin\(\)/);
+  assert.match(
+    appSource,
+    /function restoreGraphExplorerNavigationFocus[\s\S]*?querySelector<HTMLButtonElement>\("\[data-graph-explore\]"\)/);
 });
 
 test("graph member projections stay transport- and package-bounded", () => {
@@ -5475,7 +5521,7 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?state\.graphMemberNavigationError\s*=\s*`Could not open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}\.`;[\s\S]*?render\(\)/);
   assert.match(
     graphInteractionsSource,
-    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
+    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
 });
 
 test("navigable call graph targets share mouse and keyboard activation", () => {
@@ -6491,6 +6537,14 @@ test("type graph rendering contains artifact labels", () => {
     /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
   assert.equal(definition.includes("\u202E"), false);
   assert.equal(definition.includes("\uD800"), false);
+});
+
+test("Mermaid resolves the current theme without inventing missing colors", () => {
+  assert.equal(
+    resolveMermaidCssVariables(
+      "classDef self fill:var(--accent-soft),stroke:var(--accent);",
+      name => name === "--accent-soft" ? " #abcdef " : ""),
+    "classDef self fill:#abcdef,stroke:var(--accent);");
 });
 
 test("dependency graph rendering contains artifact labels", () => {

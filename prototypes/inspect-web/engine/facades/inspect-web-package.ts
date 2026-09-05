@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
@@ -318,8 +318,9 @@ type $ManagedExports = {
     readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
     readonly "QueryPackageVersions.976702342": (packageId: string) => Promise<string>;
     readonly "QueryWorkspacePackageOccurrences.976702342": (workspaceJson: string) => Promise<string>;
+    readonly "RequestPackageQueryMatches.1520975400": (additionalMatchCredit: number) => boolean;
     readonly "ResolvePackageDependencyVersion.451505237": (packageId: string, declaredRange: string | null) => Promise<string>;
-    readonly "RunPackageQuery.287304775": (prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, eventSink: unknown) => Promise<string>;
+    readonly "RunPackageQuery.1079207954": (prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown) => Promise<string>;
     readonly "SearchTypes.271973316": (query: string, candidatesJson: string) => string;
   };
 };
@@ -481,6 +482,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "RequestPackageQueryMatches.1520975400");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027PackageExports.RequestPackageQueryMatches.1520975400\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "PackageExports");
     value = $ownDataProperty(value, "ResolvePackageDependencyVersion.451505237");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027PackageExports.ResolvePackageDependencyVersion.451505237\u0027 is not callable.");
@@ -489,9 +498,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "RunPackageQuery.287304775");
+    value = $ownDataProperty(value, "RunPackageQuery.1079207954");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027PackageExports.RunPackageQuery.287304775\u0027 is not callable.");
+      throw new Error("Managed export \u0027PackageExports.RunPackageQuery.1079207954\u0027 is not callable.");
     }
   }
   {
@@ -615,12 +624,16 @@ export async function queryWorkspacePackageOccurrences(workspaceJson: string): P
   return $parsed as BrowserWorkspacePackageOccurrenceView;
 }
 
+export function requestPackageQueryMatches(additionalMatchCredit: number): boolean {
+  return $requireManagedExports()["PackageExports"]["RequestPackageQueryMatches.1520975400"](additionalMatchCredit);
+}
+
 export async function resolvePackageDependencyVersion(packageId: string, declaredRange: string | null): Promise<string> {
   return await $requireManagedExports()["PackageExports"]["ResolvePackageDependencyVersion.451505237"](packageId, declaredRange);
 }
 
-export async function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, eventSink: unknown): Promise<BrowserPackageQueryEvent> {
-  const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.287304775"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, eventSink);
+export async function runPackageQuery(prefix: string, facetIdsJson: string, maximumCandidates: number, maximumMatches: number, includePrerelease: boolean, initialMatchCredit: number, eventSink: unknown): Promise<BrowserPackageQueryEvent> {
+  const $result = await $requireManagedExports()["PackageExports"]["RunPackageQuery.1079207954"](prefix, facetIdsJson, maximumCandidates, maximumMatches, includePrerelease, initialMatchCredit, eventSink);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageQueryEvent;
 }

@@ -181,7 +181,7 @@ TMPDIR="$repo_root/artifacts" \
   "$assembly" \
   --context InspectWeb.Engine.InspectWebJsExportContext \
   --assembly-search-path "$assembly_directory" \
-  --runtime-module ./_framework/dotnet.js \
+  --runtime-module ./runtime-loader.js \
   --output "$context_output"
 
 runtime_pack_directory=$(
@@ -210,6 +210,8 @@ fi
 
 mkdir -p "$compiled_sources/_framework"
 cp "$dotnet_dts" "$compiled_sources/_framework/dotnet.d.ts"
+cp "$repo_root/prototypes/inspect-web/engine/wwwroot/runtime-loader.js" \
+  "$compiled_sources/runtime-loader.js"
 "$node" --input-type=module - \
   "$domain" \
   "$context_output" \
@@ -249,6 +251,8 @@ const [domainPath, configPath] = process.argv.slice(2);
 const domain = JSON.parse(readFileSync(domainPath, "utf8"));
 writeFileSync(configPath, `${JSON.stringify({
   compilerOptions: {
+    allowJs: true,
+    checkJs: true,
     declaration: true,
     exactOptionalPropertyTypes: true,
     lib: ["DOM", "ES2022"],
@@ -263,7 +267,7 @@ writeFileSync(configPath, `${JSON.stringify({
     types: [],
     verbatimModuleSyntax: true,
   },
-  include: domain.map(entry => `${entry.module}.ts`),
+  include: [...domain.map(entry => `${entry.module}.ts`), "runtime-loader.js"],
 }, null, 2)}\n`);
 JS
 
@@ -295,11 +299,11 @@ assert.deepEqual(
   "contract generation did not emit the context-issued declaration set");
 assert.deepEqual(
   readdirSync(compiled).filter(name => name.endsWith(".d.ts")).sort(),
-  expectedDeclarations,
+  [...expectedDeclarations, "runtime-loader.d.ts"].sort(),
   "pinned TypeScript compilation emitted an unexpected declaration set");
 assert.deepEqual(
   readdirSync(compiled).filter(name => name.endsWith(".js")).sort(),
-  expectedModules,
+  [...expectedModules, "runtime-loader.js"].sort(),
   "pinned TypeScript compilation emitted an unexpected JavaScript set");
 for (const entry of domain) {
   const declaration = `${entry.module}.d.ts`;

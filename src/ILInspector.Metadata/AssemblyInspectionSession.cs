@@ -213,6 +213,25 @@ public sealed class AssemblyInspectionSession : IDisposable
     public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations()
         => EcosystemIntegrationScanner.Scan(_image.PEReader);
 
+    /// <summary>Decodes immutable Integration observations from this retained image.</summary>
+    public EcosystemIntegrationObservationContext EcosystemIntegrationObservations()
+    {
+        _image.EnsureAlive();
+        return _image.HasMetadata
+            ? EcosystemIntegrationObservationReader.Read(_image.GetMetadataReader())
+            : new EcosystemIntegrationObservationContext([], []);
+    }
+
+    /// <summary>Runs one selected scanner without computing full-library presence.</summary>
+    public List<EcosystemIntegrationSignalInfo> EcosystemIntegrations(
+        EcosystemIntegrationScannerBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return EcosystemIntegrationScanner.Scan(
+            EcosystemIntegrationObservations(),
+            binding);
+    }
+
     /// <summary>Presence flags summarized from grouped integration evidence.</summary>
     public EcosystemIntegrationPresence EcosystemIntegrationPresence(
         IEnumerable<EcosystemIntegrationSignalInfo> ecosystemSignals)

@@ -113,8 +113,8 @@ terminal-deficit states inside the remaining page boundary.
 The application-scope strip uses a distinct quiet treatment and may be removed
 at constrained widths only after focus has left it. Query remains reachable
 through Spotlight's global keyboard entry and Workspace through hierarchical
-drill-out or a return action. On `/query`, the visible heading and
-route-specific Back action continue to orient the surface if the strip yields.
+drill-out or a return action. The standalone `/query` surface does not render
+this strip; its visible heading and route-specific Back action orient it.
 
 The subject and inspector region has `min-width: 0`. Its preferred allocation
 is large enough to expose complete common inventories, but exact pixel
@@ -281,6 +281,18 @@ package documentation, loading, failure, or absence
 
 Identity
 stable selector, digest, canonical signature
+
+Parameters                                      count
+name
+modifier + type · default                       documentation
+
+Returns
+return type                                     documentation
+
+Exceptions                                      documented count
+exception type                                  condition
+
+Applies to  target framework
 ```
 
 The declaration and identity use the working surface's available width while
@@ -290,8 +302,110 @@ declaration and identity. At constrained widths the declaration scrolls
 horizontally without separating its Copy action, and identity labels stack
 above their values rather than forcing page-level horizontal overflow.
 
+The member contract below identity uses compact structured sections rather than
+restarting a documentation-page hierarchy. Parameters keep name, modifier,
+type, and default together as row identity while documentation occupies a
+separate readable column. Documented Returns uses the same
+identity-and-documentation alignment, and Exceptions pairs each exception type
+with its documented condition. Loading, failure, and absence remain distinct
+for parameter and exception documentation; a failed query does not become a
+claim that documentation is absent. Returns remains absent when no returns
+documentation was supplied because the current typed surface does not identify
+whether that absence describes a void member or missing package documentation.
+
+Contract rows stack identity above documentation according to the detail pane's
+width. Long parameter names, generic types, defaults, and namespace-qualified
+exception types remain contained within their row. Applicability closes the
+overview as compact terminal metadata rather than another full-weight article
+section.
+
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.
+
+Member Facts begins with a compact `Analysis summary` that separates static
+analysis values and supporting IL offsets from subject identity. The subject
+path and quiet member header retain declaring type, member kind, and overload
+ordinal; the summary does not repeat them. The metadata token follows the
+summary as compact identity, before the unchanged detail sections.
+
+Summary rows preserve every existing signal, including explicit zero and
+`no` values. IL offsets remain non-interactive evidence, not Finding-navigation
+links or runtime measurements. The summary retains a readable measure; when
+the detail pane narrows, supporting offsets move below their value. Long
+values and evidence wrap within their row without widening the member
+scroller. Loading and failure retain the member header and remain visibly
+distinct from a successful zero-valued summary.
+
+#### Graph Explore
+
+Member Call graph retains its inline default and exposes `Explore` in the
+working-surface action row when a graph result is available. Explore places
+the existing interactive result in a full-viewport dialog: a quiet heading,
+selected-member context, and Close above the graph, with scope, legend, and
+Mermaid source remaining accessible as secondary information. The diagram
+takes the remaining space rather than retaining the inline fixed-height card.
+At narrow widths context may elide, but Close and graph controls stay available
+without page-level horizontal overflow.
+
+This document owns that placement contract. The existing
+[shared modal semantics](inspect-web-shell-interaction.md#shared-menu-and-modal-semantics)
+own focus, dismissal, background containment, modal replacement, and history.
+The implementation uses the browser's native modal dialog and the existing
+shell focus helper rather than adding a second custom inert-background system.
+Annotated Source's explicit Explore action is the local interaction precedent;
+its separate source-viewer sessions are not needed for a graph placement change.
+
+Opening and closing relocate one live graph, without another query, Mermaid
+mount, or loss of pan/zoom. Fit remains explicit for the larger viewport.
+Ordinary dismissal returns focus to Explore and keeps the selected member and
+platform descent. Existing result replacement, including theme changes, may
+remount the graph as it does inline. Workspace expansion, platform drill/back,
+and their loading, diagnostics, no-body, and failure results stay in Explore.
+A known member or source destination closes Explore before navigation; failure
+keeps the prior result visible inline and focuses Explore or its stable heading.
+Leaving the originating member, overload, package, framework, or inspector
+closes the viewer. Opening another dialog also closes it, without reopening it
+when that dialog is dismissed.
+
+Package Dependencies uses the same viewer and action-row placement. Explore is
+available once dependency groups have been read, including a selected group with
+no connected packages. The viewer contains the manifest-group selector, exact-group
+notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
+dependency lists, assembly references, and the coordinate footer remain on the
+underlying page. The viewer identifies the inspected package; group buttons
+identify the selected manifest framework independently of the active coordinate.
+Selecting a group stays in Explore and updates the existing list and graph.
+Closing retains that selection. Pending graph rendering can complete in either
+placement; opening or closing does not restart it.
+
+Dependency nodes use the same keyboard activation and drag suppression as Call
+graph nodes. Selecting a loaded or unloaded package closes Explore and uses the
+existing dependency-navigation path. Success focuses the destination heading;
+failure exposes the existing inline notice and restores Explore focus. A package,
+version, active framework, assembly, or inspector change closes the viewer rather
+than moving an unrelated graph into it. Empty, query-failed, render-failed,
+partial-workspace, and truncated results remain visible; graph controls do not
+cover truncation diagnostics.
+
+The browser-only presentation scope was explicitly approved for
+[the two-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/5867).
+Step 1 is [Member Call graph](https://github.com/richlander/dotnet-inspect/issues/5868);
+step 2 is [Package Dependencies](https://github.com/richlander/dotnet-inspect/issues/5904)
+using the same placement component. Inline presentation is not retired.
+Existing typed `BrowserCallGraph`/`InspectedCallGraph` and
+`DependencyGraphModel`/`DependencyGraphResult` results, target bindings, and
+Mermaid lowering continue to supply graph data and node identity. This host-only
+placement change bypasses Markout for the interactive browser canvas, adds no
+graph-analysis substrate, and does not change CLI output, query scope, traversal,
+acquisition, or layout algorithms.
+
+The browser gate covers live DOM and interaction retention across placement
+changes, result replacement, pending completion, no-body/failure visibility,
+dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
+the production action row and destination navigation. Dependency coverage also
+exercises group changes, empty groups, pending completion, truncation geometry,
+and package navigation/failure. Live platform drill/back evidence is reported
+separately from component coverage when acquisition is unavailable.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
@@ -360,6 +474,10 @@ references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
 
+The action row also exposes [Graph Explore](#graph-explore), retaining inline
+presentation as the default and the same dependency-group selection in both
+placements.
+
 The fixed bottom context row preserves the exact package coordinate and active
 framework. Loading, query failure, no-dependency, no-exact-group, graph
 failure, and partial-workspace states retain the same header, controls, scroll
@@ -418,6 +536,11 @@ initial prefix, and requests this route. [Inspect Web Navigation
 Consumer](inspect-web-navigation-consumer.md#package-query-entry-and-return)
 owns this route's browser-history entry and return-focus behavior, including
 its visible `Back` action.
+
+The page header contains the product home link and `Back`, not the
+`Query`/`Workspace` application-scope buttons. This placement is independent of
+viewport width and whether a workspace is retained in the session; the
+workspace shell keeps its application-scope strip.
 
 The route renders one visible level-one `Package query` heading followed by an
 editable `Package ID prefix` input and `Run query` action.

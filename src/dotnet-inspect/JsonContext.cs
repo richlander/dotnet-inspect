@@ -58,6 +58,8 @@ namespace DotnetInspector;
 [JsonSerializable(typeof(List<PackageSourceLinkFile>))]
 [JsonSerializable(typeof(PackageSourceAvailability))]
 [JsonSerializable(typeof(PackageSourceIntegrity))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class JsonContext : JsonSerializerContext
 {
 }
@@ -159,6 +161,8 @@ internal partial class PackageFileContentJsonContext : JsonSerializerContext
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(ApiSurface))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiJsonContext : JsonSerializerContext
 {
 }
@@ -172,6 +176,8 @@ public partial class ApiJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(SampleReference))]
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiTypeJsonContext : JsonSerializerContext
 {
 }
@@ -185,6 +191,8 @@ public partial class ApiTypeJsonContext : JsonSerializerContext
 [JsonSerializable(typeof(SampleReference))]
 [JsonSerializable(typeof(List<SampleReference>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(MemorySafetyRulesResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyRules")]
+[JsonSerializable(typeof(MemorySafetyMemberContractResult.Unavailable), TypeInfoPropertyName = "UnavailableMemorySafetyContract")]
 public partial class ApiTypeCompactJsonContext : JsonSerializerContext
 {
 }

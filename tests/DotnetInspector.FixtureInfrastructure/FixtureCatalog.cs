@@ -85,6 +85,7 @@ public static class FixtureIds
     public const string AnalysisSpoofSystemRuntime = "analysis.spoof.system-runtime";
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
+    public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
     public const string DecompilerClassicAsyncArtifacts =
         "decompiler.classic-async-artifacts";
@@ -120,10 +121,29 @@ public static class FixtureIds
     public const string RunFasterAllocation = "runfaster.allocation";
 
     public const string RestoredProjectDependencyFacts = "restored-project.dependency-facts";
+
+    public const string ServicesRouteLearningBase =
+        "services.route-learning.base";
+    public const string ServicesRouteLearningContract =
+        "services.route-learning.contract";
+    public const string ServicesRouteLearningMiddle =
+        "services.route-learning.middle";
+    public const string ServicesRouteLearningConsumer =
+        "services.route-learning.consumer";
+    public const string ServicesRouteLearningUnrelated =
+        "services.route-learning.unrelated";
 }
 
 public static class FixtureCatalog
 {
+    public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
+        FixtureIds.DecompilerAuthoredRebuild,
+        "ILInspector.Decompiler.Fixtures.AuthoredRebuild",
+        "ILInspector.Decompiler.Fixtures.AuthoredRebuild.dll",
+        ["decompiler", "authored-rebuild", "unoptimized"],
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.SidecarAsset),
+        Asset("source", "ILInspector.Decompiler.Fixtures.AuthoredRebuild", "RebuildSamples.cs"));
+
     /// <summary>
     /// Attacker-controlled text inside C# string literals — a parameter default
     /// value, an [Obsolete] message, and a custom attribute argument, each
@@ -555,8 +575,62 @@ public static class FixtureCatalog
         Asset("project.assets.json", "DotnetInspector.RestoredProjectFixtures", "project.assets.json"),
         Asset("manifest.nuspec", "DotnetInspector.RestoredProjectFixtures", "RestoredProjectFixture.nuspec"));
 
+    public static readonly FixtureDefinition ServicesRouteLearningBase =
+        Fixture(
+            FixtureIds.ServicesRouteLearningBase,
+            "DotnetInspector.Services.RouteLearning.Base",
+            "DotnetInspector.Services.RouteLearning.Base.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "services", "binding", "route-learning", "base");
+
+    public static readonly FixtureDefinition ServicesRouteLearningContract =
+        Fixture(
+            FixtureIds.ServicesRouteLearningContract,
+            "DotnetInspector.Services.RouteLearning.Contract",
+            "DotnetInspector.Services.RouteLearning.Middle.dll",
+            Boundaries(
+                FixtureBoundary.AssemblyName,
+                FixtureBoundary.CrossAssemblyBoundary),
+            "services", "binding", "route-learning", "compile-contract");
+
+    public static readonly FixtureDefinition ServicesRouteLearningMiddle =
+        Fixture(
+            FixtureIds.ServicesRouteLearningMiddle,
+            "DotnetInspector.Services.RouteLearning.Middle",
+            "DotnetInspector.Services.RouteLearning.Middle.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "services", "binding", "route-learning", "middle");
+
+    public static readonly FixtureDefinition ServicesRouteLearningConsumer =
+        Fixture(
+            FixtureIds.ServicesRouteLearningConsumer,
+            "DotnetInspector.Services.RouteLearning.Consumer",
+            "DotnetInspector.Services.RouteLearning.Consumer.dll",
+            ["services", "binding", "route-learning", "consumer"],
+            Boundaries(
+                FixtureBoundary.CrossAssemblyBoundary,
+                FixtureBoundary.PostBuildTransformation,
+                FixtureBoundary.SidecarAsset),
+            Asset(
+                "middle",
+                "DotnetInspector.Services.RouteLearning.Consumer",
+                "DotnetInspector.Services.RouteLearning.Middle.dll"),
+            Asset(
+                "base",
+                "DotnetInspector.Services.RouteLearning.Consumer",
+                "DotnetInspector.Services.RouteLearning.Base.dll"));
+
+    public static readonly FixtureDefinition ServicesRouteLearningUnrelated =
+        Fixture(
+            FixtureIds.ServicesRouteLearningUnrelated,
+            "DotnetInspector.Services.RouteLearning.Unrelated",
+            "DotnetInspector.Services.RouteLearning.Unrelated.dll",
+            Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+            "services", "binding", "route-learning", "unrelated");
+
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
         SourceLinkPartiallyMalformed,
@@ -611,6 +685,11 @@ public static class FixtureCatalog
         DecompilerVbFinalizer,
         RunFasterAllocation,
         RestoredProjectDependencyFacts,
+        ServicesRouteLearningBase,
+        ServicesRouteLearningContract,
+        ServicesRouteLearningMiddle,
+        ServicesRouteLearningConsumer,
+        ServicesRouteLearningUnrelated,
         ResearchTargetSample,
         ResearchTargetCorrespondenceV1,
         ResearchTargetCorrespondenceV2,
@@ -907,6 +986,11 @@ public static class FixtureCatalog
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
             "DotnetInspector.SourceLinkNormalizedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkNormalizedFixtures",
             "DotnetInspector.SourceLinkPartiallyMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkPartiallyMalformedFixtures",
+            "DotnetInspector.Services.RouteLearning.Base" => "fixtures/services/DotnetInspector.Services.RouteLearning.Base",
+            "DotnetInspector.Services.RouteLearning.Consumer" => "fixtures/services/DotnetInspector.Services.RouteLearning.Consumer",
+            "DotnetInspector.Services.RouteLearning.Contract" => "fixtures/services/DotnetInspector.Services.RouteLearning.Contract",
+            "DotnetInspector.Services.RouteLearning.Middle" => "fixtures/services/DotnetInspector.Services.RouteLearning.Middle",
+            "DotnetInspector.Services.RouteLearning.Unrelated" => "fixtures/services/DotnetInspector.Services.RouteLearning.Unrelated",
             "ILInspector.Analysis.AsyncSiblingFriendFixtures" => "fixtures/analysis/ILInspector.Analysis.AsyncSiblingFriendFixtures",
             "ILInspector.Analysis.CallerGraphCaller" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCaller",
             "ILInspector.Analysis.CallerGraphCallerTwin" => "fixtures/analysis/ILInspector.Analysis.CallerGraphCallerTwin",
@@ -933,6 +1017,7 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.ClassicStateMachines" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines",
             "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
             "ILInspector.Decompiler.Fixtures.Ladder" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.Ladder",
+            "ILInspector.Decompiler.Fixtures.AuthoredRebuild" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.AuthoredRebuild",
             "ILInspector.Decompiler.Fixtures.LegacyUnsafe" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.LegacyUnsafe",
             "ILInspector.Decompiler.Fixtures.NewUnsafe" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.NewUnsafe",
             "ILInspector.Decompiler.Fixtures.RuntimeAsync" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.RuntimeAsync",
@@ -941,9 +1026,9 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.UnsafeChainB" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainB",
             "ILInspector.Decompiler.Fixtures.UnsafeChainC" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainC",
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
-            "ILInspector.Research.TargetFixtures" => "src/ILInspector.Research.TargetFixtures",
-            "ResearchTargetCorrespondenceFixtures.V1" => "src/ResearchTargetCorrespondenceFixtures.V1",
-            "ResearchTargetCorrespondenceFixtures.V2" => "src/ResearchTargetCorrespondenceFixtures.V2",
+            "ILInspector.Research.TargetFixtures" => "fixtures/research/ILInspector.Research.TargetFixtures",
+            "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
+            "ResearchTargetCorrespondenceFixtures.V2" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V2",
             "RunFaster.AllocationFixture" => "src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture",
             _ => throw new ArgumentException(
                 $"Unknown fixture project '{projectName}'.",

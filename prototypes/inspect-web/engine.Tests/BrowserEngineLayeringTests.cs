@@ -392,6 +392,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.AssemblyContextGroup",
             "DotnetInspector.Queries.AssemblyContextParticipant",
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
+            "DotnetInspector.Queries.ImplementationComparisonBinding",
             "DotnetInspector.Queries.InspectionGraphSubject",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+InvalidImage",
@@ -521,6 +522,7 @@ public sealed class BrowserEngineLayeringTests
             "ILInspector.Metadata.ApiSurfaceInspectionSubject",
             "ILInspector.Metadata.ApiType",
             "ILInspector.Metadata.CorpusMember",
+            "ILInspector.Metadata.TypeDependencyRejection",
         ];
         HashSet<string> approved =
             approvedOwners.ToHashSet(StringComparer.Ordinal);

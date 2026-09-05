@@ -182,7 +182,7 @@ test("narrowing retains detail after focus leaves the content frame", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.evaluate(() => new Promise<void>(resolve =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -199,7 +199,7 @@ test("immediate narrowing ignores stale navigation focus ownership", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.locator("#type-list").focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
@@ -231,7 +231,7 @@ test("pointer departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
@@ -248,7 +248,7 @@ test("pointer departure cancels queued replacement focus", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("body")).toBeFocused();
@@ -264,18 +264,20 @@ test("focus departure cancels replacement focus authority", async ({
 
   await page.locator("#type-list").focus();
   await page.evaluate(() => window.beginContentFrameReplacementProbe());
-  await page.locator(".docs-unavailable").evaluate(element => {
-    if (!(element instanceof HTMLElement))
-      throw new Error("The detail focus target is unavailable.");
-    element.tabIndex = -1;
-    element.focus();
-  });
+  await page.locator(".member-documentation .docs-unavailable")
+    .evaluate(element => {
+      if (!(element instanceof HTMLElement))
+        throw new Error("The detail focus target is unavailable.");
+      element.tabIndex = -1;
+      element.focus();
+    });
   await page.setViewportSize({ width: 600, height: 700 });
   await page.evaluate(() => window.flushContentFrameReplacementProbe());
 
   await expect(page.locator("#content-navigation-pane")).toBeHidden();
   await expect(page.locator(".detail-pane")).toBeVisible();
-  await expect(page.locator(".docs-unavailable")).toBeFocused();
+  await expect(page.locator(".member-documentation .docs-unavailable"))
+    .toBeFocused();
 });
 
 test("failed replacement restoration expires its pane authority", async ({
@@ -304,7 +306,7 @@ test("immediate widening ignores a departed narrow toggle", async ({
   await page.goto("/browser/workspace-titlebar.html?member=1");
 
   await page.getByRole("button", { name: "Members" }).focus();
-  await page.locator(".docs-unavailable").click();
+  await page.locator(".member-documentation .docs-unavailable").click();
   await expect(page.locator("body")).toBeFocused();
   await page.setViewportSize({ width: 900, height: 700 });
 
@@ -405,6 +407,85 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
+test("Member Facts presents a compact summary separate from member identity", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&member-facts=populated");
+  await expect(page.locator(".facts-summary-heading h2"))
+    .toHaveText("Analysis summary");
+  await expect(page.locator(".facts-summary-list dt")).toHaveText([
+    "Allocations", "Calls", "Copies", "Reflection calls",
+    "Throws / catches / finally", "Unsafe", "Allocates in loop",
+  ]);
+  await expect(page.locator(".facts-summary-value"))
+    .toHaveText(["1", "3", "0", "0", "1 / 0 / 0", "no", "no"]);
+  await expect(page.locator(".facts-summary a, .facts-summary button"))
+    .toHaveCount(0);
+  await expect(page.locator(".facts-metadata-identity"))
+    .toHaveText("Metadata token0x06000125");
+  await expect(page.locator(".member-surface-head p"))
+    .toHaveText("method · 1 of 1");
+  await expect(page.locator(".fact-group").first().locator("h2"))
+    .toHaveText("Allocation facts");
+  const header = await box(page, ".member-surface-head");
+  const summary = await box(page, ".facts-summary");
+  expect(summary.y - (header.y + header.height)).toBeCloseTo(12, 0);
+  expect(summary.height).toBeLessThanOrEqual(310);
+  const value = await box(page, ".facts-summary-list > div:first-child .facts-summary-value");
+  const evidence = await box(page, ".facts-summary-list > div:first-child .fact-evidence");
+  expect(Math.abs(value.y - evidence.y)).toBeLessThan(3);
+  expect(evidence.x).toBeGreaterThan(value.x + value.width);
+});
+
+test("Member Facts keeps zero, loading, and failure states distinct", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  for (const mode of ["zero", "loading", "error"]) {
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-facts=${mode}`);
+    await expect(page.locator(".member-surface-head")).toBeVisible();
+    if (mode === "zero") {
+      await expect(page.locator(".facts-summary-value"))
+        .toHaveText(["0", "0", "0", "0", "0 / 0 / 0", "no", "no"]);
+      await expect(page.locator(".fact-evidence")).toHaveCount(0);
+    } else {
+      await expect(page.locator(".facts-summary")).toHaveCount(0);
+      await expect(page.locator(".member-surface-scroll h2"))
+        .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
+      if (mode === "error") {
+        await expect(page.locator(".member-surface-scroll p"))
+          .toHaveText("The selected method could not be decoded.");
+      }
+    }
+  }
+});
+
+test("Member Facts reflows values and evidence within the detail pane", async ({
+  page,
+}) => {
+  for (const width of [900, 480, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&member-facts=long");
+    const value = await box(page, ".facts-summary-list > div:first-child .facts-summary-value");
+    const evidence = await box(page, ".facts-summary-list > div:first-child .fact-evidence");
+    expect(evidence.y).toBeGreaterThanOrEqual(value.y + value.height);
+    expect(evidence.x).toBeCloseTo(value.x, 0);
+    for (const selector of [
+      ".facts-summary", ".facts-summary-list > div",
+      ".facts-summary-value", ".fact-evidence", ".member-surface-scroll",
+    ]) {
+      const contained = await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth));
+      expect(contained, `${selector} at ${width}px`).toBe(true);
+    }
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
 test("Member Overview anchors its declaration below the quiet header", async ({
   page,
 }) => {
@@ -447,8 +528,10 @@ test("Member Overview keeps declaration, summary, and identity in order", async 
   const declaration = await box(page, ".signature-panel");
   const summary = await box(page, ".member-documentation");
   const parameters = await box(page, ".member-parameters");
-  const parameterProse = await box(page, ".member-parameters dd p");
-  const returnsProse = await box(page, ".member-returns .api-summary");
+  const parameterProse = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd p");
+  const returnsProse = await box(page, ".member-returns dd p");
   expect(detail.x + detail.width - (declaration.x + declaration.width))
     .toBeCloseTo(16, 0);
   expect(summary.width).toBeLessThan(declaration.width);
@@ -456,6 +539,86 @@ test("Member Overview keeps declaration, summary, and identity in order", async 
   expect(parameterProse.width).toBeLessThanOrEqual(900);
   expect(returnsProse.width).toBeLessThanOrEqual(900);
   expect(declaration.width).toBeGreaterThan(parameters.width);
+});
+
+test("Member Overview presents a compact structured contract body", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(
+    "/browser/workspace-titlebar.html?member=1&member-docs=summary");
+
+  await expect(page.locator(".member-contract-heading h2"))
+    .toHaveText(["Parameters", "Returns", "Exceptions"]);
+  await expect(page.locator(".member-parameters .member-contract-heading span"))
+    .toHaveText("3 parameters");
+  await expect(page.locator(".member-exceptions .member-contract-heading span"))
+    .toHaveText("2 documented");
+  await expect(page.locator(".member-parameters a")).toHaveCount(0);
+  await expect(page.locator(".member-contract-name"))
+    .toHaveText(["utf8Json", "jsonTypeInfo", "propertyNamingPolicy"]);
+  await expect(page.locator(".member-contract-default"))
+    .toHaveText(/Default\s+"camelCasePropertyNamingAndCaseInsensitive"/);
+  await expect(page.locator(".member-applicability"))
+    .toHaveText(/Applies to\s*net10\.0/);
+  expect(await page.locator(".member-contract-heading h2").first()
+    .evaluate(element => getComputedStyle(element).fontSize)).toBe("16px");
+  const wideParameterIdentity = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dt");
+  const wideParameterDocumentation = await box(
+    page,
+    ".member-parameters .member-contract-list > div:first-child dd");
+  expect(wideParameterDocumentation.y)
+    .toBeCloseTo(wideParameterIdentity.y, 0);
+
+  const order = await page.evaluate(() => {
+    const selectors = [
+      ".member-identity",
+      ".member-parameters",
+      ".member-returns",
+      ".member-exceptions",
+      ".member-applicability",
+    ];
+    const regions = selectors.map(selector => document.querySelector(selector));
+    if (regions.some(region => !region))
+      throw new Error("The Member Overview contract regions are unavailable.");
+    return regions.slice(0, -1).every((region, index) =>
+      Boolean(region!.compareDocumentPosition(regions[index + 1]!)
+        & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(order).toBe(true);
+});
+
+test("Member Overview distinguishes lower documentation states", async ({
+  page,
+}) => {
+  const states = [
+    {
+      mode: "loading",
+      parameter: "Loading parameter documentation…",
+      exceptions: "Loading documented exceptions…",
+    },
+    {
+      mode: "error",
+      parameter: "Parameter documentation is unavailable.",
+      exceptions: "Exception documentation is unavailable.",
+    },
+    {
+      mode: "missing",
+      parameter:
+        "No parameter documentation was found in the package XML documentation.",
+      exceptions: "No exceptions are documented for this overload.",
+    },
+  ];
+  for (const state of states) {
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-docs=${state.mode}`);
+    await expect(page.locator(".member-parameters dd p").first())
+      .toHaveText(state.parameter);
+    await expect(page.locator(".member-exceptions > p"))
+      .toHaveText(state.exceptions);
+  }
 });
 
 test("Member Overview responds to constrained pane widths", async ({
@@ -472,7 +635,22 @@ test("Member Overview responds to constrained pane widths", async ({
     const value = await box(
       page,
       ".member-identity dl > div:first-child dd");
+    const parameterIdentity = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dt");
+    const parameterDocumentation = await box(
+      page,
+      ".member-parameters .member-contract-list > div:first-child dd");
     expect(value.y).toBeGreaterThan(label.y);
+    expect(parameterDocumentation.y).toBeGreaterThan(parameterIdentity.y);
+    for (const selector of [
+      ".member-parameters .member-contract-list > div:nth-child(2) dt",
+      ".member-parameters .member-contract-list > div:nth-child(3) dt",
+      ".member-exceptions .member-contract-list > div:first-child dt",
+    ]) {
+      expect(await page.locator(selector).evaluate(element =>
+        element.scrollWidth <= element.clientWidth)).toBe(true);
+    }
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
@@ -486,7 +664,22 @@ test("Member Overview responds to constrained pane widths", async ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
   }));
+  const longParameterRow = await page.locator(
+    ".member-parameters .member-contract-list > div:first-child")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+  const memberScroller = await page.locator(".member-surface-scroll")
+    .evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
   expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
+  expect(longParameterRow.scrollWidth)
+    .toBeLessThanOrEqual(longParameterRow.clientWidth);
+  expect(memberScroller.scrollWidth)
+    .toBeLessThanOrEqual(memberScroller.clientWidth);
   expect(copy.x + copy.width)
     .toBeLessThanOrEqual(declaration.x + declaration.width);
   expect(copy.y).toBeGreaterThanOrEqual(declarationHeader.y);
@@ -2027,7 +2220,7 @@ test("application scope rerenders preserve focus until responsive yielding", asy
   await expect(page.locator(".brand")).toBeFocused();
 });
 
-test("query rerenders preserve product focus and reject yielded scopes", async ({
+test("query header omits scope buttons and preserves navigation focus across widths", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 700, height: 900 });
@@ -2041,11 +2234,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
   });
 
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-back")).toBeVisible();
   await page.locator("#package-query-product").focus();
   const productResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
@@ -2060,7 +2255,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -2073,11 +2267,11 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     activeId: "package-query-product",
   });
 
-  const workspace = page.locator("[data-application-scope='workspace']");
-  await workspace.focus();
+  const back = page.locator("#package-query-back");
+  await back.focus();
   await page.setViewportSize({ width: 500, height: 900 });
-  await expect(workspace).toBeVisible();
-  const yieldedResult = await page.evaluate(async () => {
+  await expect(back).toBeVisible();
+  const backResult = await page.evaluate(async () => {
     const { initialQueryState } = await import("../src/package-query.ts");
     const {
       capturePackageQueryFocus,
@@ -2090,7 +2284,6 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
     app.innerHTML = renderPackageQueryView({
       state: initialQueryState(),
       availableFacets: [],
-      workspaceAvailable: true,
       escapeHtml: value => String(value),
     });
     return {
@@ -2098,12 +2291,13 @@ test("query rerenders preserve product focus and reject yielded scopes", async (
       activeId: document.activeElement?.id,
     };
   });
-  expect(yieldedResult).toEqual({
-    restoration: "fallback",
-    activeId: "package-query-prefix",
+  expect(backResult).toEqual({
+    restoration: "restored",
+    activeId: "package-query-back",
   });
-  await expect(page.locator(".query-page-bar .application-scope-region"))
-    .toBeHidden();
+  await expect(page.getByRole("button", { name: "Query", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Workspace", exact: true })).toHaveCount(0);
+  await expect(page.locator("#package-query-product")).toBeVisible();
 });
 
 test("Workspace retains its full split height at constrained widths", async ({

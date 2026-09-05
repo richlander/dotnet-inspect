@@ -44,13 +44,13 @@ public static class MetadataImageInspector
     {
         ArgumentNullException.ThrowIfNull(peReader);
 
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return null;
 
         // MetadataReaderOptions.None for the same reason the projector uses it:
         // the default enables Windows-Runtime projection, which would rewrite the
         // very facts this overview reports.
-        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader, MetadataReaderOptions.None);
         var headers = peReader.PEHeaders;
 
         InertString version = MetadataTableProjector.ContainCellText(
@@ -129,7 +129,8 @@ public static class MetadataImageInspector
                 corHeader.MajorRuntimeVersion,
                 corHeader.MinorRuntimeVersion,
                 corHeader.Flags,
-                corHeader.EntryPointTokenOrRelativeVirtualAddress)
+                corHeader.EntryPointTokenOrRelativeVirtualAddress,
+                corHeader.ManagedNativeHeaderDirectory)
             : null;
 
         var pe = headers.PEHeader;

@@ -13,6 +13,8 @@ gated expensive work), and follows the terminology and honesty rules in
 counterpart — where the facet engine and its layering actually live — is
 [package-query-cli.md](package-query-cli.md); this document's facets are the
 browser front end for that one product surface.
+[#5816](https://github.com/richlander/dotnet-inspect/issues/5816) tracks the
+end-to-end latency and Browser-pressure work.
 
 **What is enforced.** The production integration supplies the `/query` page,
 prefix form, product-issued facet catalog, streaming Browser engine source,
@@ -135,7 +137,14 @@ and
   `embedded SKILL.md` matches package entries at `skills/SKILL.md` or
   `skills/**/SKILL.md`, case-insensitively. The rail persistently discloses
   that content facets may download up to 20 candidate archives.
-- **Result stream**: rows append incrementally. Product-issued progress
+- **Result stream**: the Browser initially advertises room for 20 package rows.
+  As scrolling approaches the end of the delivered window, it grants 10 more
+  row slots. The engine retains the active query and pauses durable match
+  delivery when credit is exhausted; progress and bounded item failures remain
+  visible without consuming package-row credit. Rows append to source-
+  independent state, while Browser publication is frame-batched and patches
+  only the live failure, cancellation, and result regions rather than replacing
+  the whole application DOM for every event. Product-issued progress
   checkpoints distinguish source search, manifest evaluation, and explicit
   package-content evaluation, so filtered candidates remain perceptible
   without becoming result rows. Each row is a compact package summary plus the
@@ -150,7 +159,7 @@ and
 | State | Trigger | UI |
 |---|---|---|
 | Composing | Query surface opened with no request yet | Prefix form and facet rail stay visible; the result pane explains how to start |
-| Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; result rows append as matches arrive; running count and cancel affordance remain visible; facets stay interactive and re-scope the live stream |
+| Streaming | Request dispatched | Source, manifest, and package-content progress updates as bounded work advances; the first 20 matches fill the initial Browser window and near-end scroll pressure requests 10 more at a time; running count and cancel affordance remain visible; facets stay interactive and re-scope the live stream |
 | Partial failure | One source/page fails | Rows already fetched stay visible; a persistent banner names the failed producer or package, matching `NuGetSearchOutcome.Failures` — never silently drop to a smaller "complete" count |
 | Bounded-complete | Stream reaches the declared cap or the source is exhausted | Footer states which one explicitly: `"first 1,500 relevance-ranked ids"` vs. `"all 340 matches"` — the exhaustiveness claim from the funnel-feasibility analysis is rendered, not just known internally; if a source also failed partway *and the cap was reached via exhaustion*, the footer says so ("all matches from sources that succeeded") rather than overclaiming completeness — a stream stopped by hitting the declared cap keeps its `bounded: <reason>` label regardless, since a cap-reached outcome never claimed exhaustiveness to begin with |
 | Failed | The request itself never reached a completion (a rejected/thrown source, not just a per-page failure) | A distinct "query failed" state naming the error, never rendered as a confirmed empty or still-streaming result |
@@ -186,12 +195,35 @@ coalescing. A request produces at most two search checkpoints, one manifest
 checkpoint per candidate, and one package-content checkpoint per admitted
 archive plus its initial phase checkpoint. The current synchronous callback
 only validates and enqueues nonterminal events; one JavaScript microtask drains
-each pending batch in producer order, outside the managed callback stack.
-Because all Package Query work is bounded, the queue is structurally capped at
-`2 * candidateLimit + 2` events without content facets and
-`3 * candidateLimit + 3` events with them. A future worker adapter may batch
-durable events and coalesce same-phase progress under the shared owner without
-changing this feature vocabulary.
+each pending batch in producer order, coalescing consecutive matches into one
+controller page outside the managed callback stack. Browser publication is
+then limited to one animation-frame patch of the dynamic query regions.
+Because all Package Query work is bounded, the callback queue is structurally
+capped at `2 * candidateLimit + 2` events without content facets and
+`3 * candidateLimit + 3` events with them.
+
+Package Query uses the shared owner's optional durable-item credit. The
+positive initial credit is 20 matches and each replenishment grants 10.
+Near-end pressure means the scroll container is within 600 CSS pixels of its
+current end; the controller additionally requires that received rows are
+within five of already granted credit, preventing repeated scroll events from
+over-granting. Only `Match` consumes credit. Progress is advisory, and
+`Failure` remains bounded by the candidate limit, so neither can prevent a
+visible package window from filling. The managed adapter may establish one
+match beyond available credit, waits before publishing it, and requests no
+later producer event while waiting. A completion or non-match event discovered
+after the last credited match does not require surplus match credit.
+Explicit cancellation or supersession releases the wait and carries an
+already-established match to the revoked generation guard. An active-work
+timeout remains a visible failure and does not publish an uncredited match.
+The existing 30-second Browser package-operation budget measures active query
+work, not the user's reading time: the sole adapter suspends it while waiting
+for match credit, with no producer work in flight, and resumes the remaining
+budget rather than granting a fresh one. Caller cancellation remains effective
+while paused. Source request deadlines and ordinary non-query package
+operation deadlines are unchanged.
+A future worker adapter may preserve the same sizes and meanings while
+batching durable events under the shared owner.
 
 This direct callback is the shared stream contract's transitional first-adopter
 path. The Package Query controller's feature-owned generation guard suppresses
@@ -355,8 +387,9 @@ preset never needs to "contain" its own history.
   a new request, keeping displayed counts honest.
 - No unbounded archive evaluation. Package-content facets are an explicit
   gesture and are product-gated to 20 candidates.
-- No assembly, metadata, or IL evaluation. A future promoted tier still
-  requires a separately owned product operation and UI change.
+- No assembly, metadata, or IL evaluation in the current Browser slice.
+  Adopting the separately owned promoted evaluator still requires a later
+  Browser composition and UI change.
 - No persistence, sharing, or outcome cache in the current slice.
 - No chart or aggregation surface in the current slice.
 
@@ -402,6 +435,16 @@ and browser-history and focus-return outcomes are proved by
     prefix rather than treating `*` as a package-ID character.
 11. Confirm that no assembly/IL promoted facet, selection checkbox, or `Deepen`
    control is rendered.
+12. Confirm that a query publishes no more than 20 matches before Browser
+   pressure, near-end pressure grants 10 more without repeated over-granting,
+   producer work pauses with at most one match established ahead, completion
+   needs no surplus credit, and cancellation settles a paused query. The
+   `BrowserPackageQueryOperationsTests` Release gates exercise the enclosing
+   package operation: idle credit waits outlive the active-work budget,
+   replenishment resumes it, spent budget is not reset, and active-work expiry
+   cannot publish an uncredited match.
+13. Confirm that streamed progress and rows produce at most one query-region
+   patch per animation frame and do not replace the application root.
 
 ## Landing sequence
 
@@ -413,8 +456,19 @@ and browser-history and focus-return outcomes are proved by
    event adapter, product-issued facet rail, and typed Workspace handoff.
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
    facet, and the segmented .NET tool format control.
-5. Assembly/IL evaluation requires a separate product-owned query and UX
-   design; this contract does not reserve controls for it.
+5. **#5816** adds Browser-advertised match credit, scroll-pressure
+   replenishment, and frame-batched query-region rendering. Incremental NuGet
+   prefix candidate production remains a separately owned follow-up.
+6. [Package Query assembly-pattern
+   evaluation](package-query-assembly-evaluation.md) owns one-candidate
+   primary-assembly selection, semantic confirmation, evidence, and resource
+   release. A later Browser composition slice owns the explicit gesture,
+   candidate scheduling, rendering, and exact result opening. Its
+   `Open in workspace` action consumes #5837's Artifact Acquisition-owned Root
+   reacquisition request rather than applying this assembly-free slice's
+   package-ID/version handoff to a result whose selection target may differ
+   from its acquisition coordinate. This contract does not reserve controls
+   for it.
 
 The TypeScript state and renderer (`src/package-query.ts` and
 `src/package-query-view.ts`) retain their source-independent controller seam.

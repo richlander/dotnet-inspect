@@ -465,9 +465,14 @@ plugin-authentication context per configurable V3 authority, uses the
 credential-free Gallery route for the exact anonymous NuGet.org authority,
 uses one operation context across those authorities, adopts each typed result
 through the exact association, and reports authoritative, partial, or failed
-version evidence. A selected local authority is classified without
-constructing HTTP state and currently produces the explicit
-capability-unavailable result owned by #5400.
+version evidence. A selected local authority invokes the existing bounded
+NuGetFetch local-folder client without constructing an HTTP transport or
+authentication context. Its complete version observations, including an empty
+result, join the same aggregate as HTTP evidence through exact association
+lookup. Unavailable local capability, missing roots, invalid archives, and
+source limits remain attributed failures rather than package absence. The
+NuGetFetch host contract is unchanged: desktop filesystems support local reads;
+Browser/Wasm without a filesystem capability returns typed unsupported.
 When the Gallery route cannot complete its registration listing-state join,
 its retained flat-container candidates are explicitly partial rather than
 authoritative.
@@ -476,10 +481,18 @@ scopes become attributed pre-client failures before transport construction.
 Other valid selected authorities still run, and usable peer evidence is
 reported as partial.
 
-Offline version enumeration and the `--versions-with-feed`,
-`--include-unlisted`, latest-version, range, payload, metadata, search, and
-extraction paths remain on the legacy composition until their package-owned
-adoption slices land. The process-global authentication decorator therefore
+Online metadata-only version queries also use this composition: pinned
+verification, latest-version, range enumeration, `--versions-with-feed`, and
+`--include-unlisted`. Latest and range selection require authoritative
+discovery; a healthy subset cannot choose the answer. A pinned verification
+can report an observed exact coordinate with peer failures disclosed, but
+cannot infer absence from unreadable peers. Failed operations, including the
+terminal operation deadline, publish no query rows.
+
+Offline version queries, payload-selecting latest/wildcard/range resolution,
+payload, metadata, search, and extraction paths remain on the legacy
+composition until their package-owned adoption slices land.
+The process-global authentication decorator therefore
 also remains solely for those legacy paths; it cannot be removed until they no
 longer depend on it. This first live slice does not read or publish the legacy
 producer-keyed version-list cache; authority-safe cache adoption remains a
@@ -497,6 +510,64 @@ producer identity, transport kind, source order, or a healthy subset were
 mistakenly used as authority. Existing NuGetFetch and authentication gates
 remain evidence for their owners; they do not substitute for these
 package-composition gates.
+
+### Local version-listing adoption
+
+The CLI consumer is ordinary `package <id> --versions --source <folder>` (or a
+mapped folder in `NuGet.Config`). Local and HTTP version evidence use the same
+operation context, filtering, sorting, and final result limit. Directory layout
+recognition and finite observation limits remain owned by NuGetFetch.
+
+`PackageVersionListing_LocalFolderReadsVersionsWithoutHttpTransport`,
+`PackageVersionListing_LocalMappingPrecedesCollapseAndKeepsDistinctRoots`,
+`PackageVersionListing_LocalAndHttpUnionIsSortedBeforeLimit`,
+`PackageVersionListing_EmptyLocalRootIsAbsenceButMissingRootFails`,
+`PackageVersionListing_LocalFailureRetainsHttpPeerAsPartial`,
+`PackageVersionListing_HttpFailureRetainsLocalPeerAsPartial`, and
+`OperationContext_RequestTimeoutContinuesToLaterAuthorityWithinCeiling` are the
+Release gates for this adoption. The existing terminal-operation-timeout and
+HTTP source-association gates remain unchanged.
+
+The production adoption path is tracked by
+[#5400](https://github.com/richlander/dotnet-inspect/issues/5400) in five steps:
+configured authorities, ordinary version listing, metadata-only version
+queries, payload/cache authority (including payload-selecting resolution),
+and remaining CLI consumers/legacy retirement. The user explicitly approved
+CLI-only continuation ("CLI is good enough. proceed"); browser adoption is
+not a prerequisite for this workstream. These slices do not add browser
+filesystem registration or claim that offline local discovery is supported.
+
+### Metadata-only version queries
+
+The consumer is the CLI version-query family, not package inspection. The
+aggregate projects adopted observations into existing `PackageVersionInfo`
+and `PackageVersionSourceInfo` presentation models. These projections are not
+payload authorization receipts. Existing Markout-backed output paths retain
+their Markdown, TSV, JSONL, row-window, and count shapes.
+
+Listing state is per authority. An unlisted Gallery row is hidden by default
+even if another authority lists that version; the merged listing is visible
+if any authority lists it. Local/V3 sources without listing semantics retain
+the existing visible/`listed` presentation convention. Feed labels are
+credential-safe presentation only; colliding labels get operation-local
+ordinals, never hashes of HTTP authority keys.
+
+Limits apply to distinct versions after the union, not source rows. Range
+limits apply after inclusive endpoint resolution in caller direction.
+Explicit latest queries exclude unlisted versions even when their output
+requests the listing column. Pinned queries enumerate including prereleases
+and unlisted coordinates, compare normalized versions, and do not consult
+legacy payload caches online. Raw partial listings (including `--versions 1`)
+retain warnings; bare `--version`, explicit latest, and range queries fail
+before rendering when evidence is partial.
+
+`CliVersionQueries_LocalSelectorsUseCompleteEvidence`,
+`CliVersionQueries_PartialEvidenceCannotSelectLatestOrRange`,
+`CliVersionQueries_PinnedEvidenceDoesNotRequireReadablePeers`,
+`CliVersionQueries_ListingLensesPreservePerAuthorityRows`, and
+`CliVersionQueries_SourceOrderCannotChangeLatest` are the Release gates for
+this slice. Payload-selecting wildcard/latest/range paths remain outside this
+claim and migrate with their authority-preserving payload handoff.
 
 ### Reusable authority authorization
 

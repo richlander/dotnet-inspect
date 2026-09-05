@@ -23,6 +23,8 @@ Authority is intentionally distributed:
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host
   composition without treating the CLI as the whole product.
+- [Decompiler architecture](decompiler-architecture.md) maps the decompiler
+  implementation, host integration, and testing infrastructure.
 
 ## Essential shape
 
@@ -121,6 +123,11 @@ alphabetically.
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
 | `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
 
+Within Services, `LocalRepoSourceAcquisition` owns [local repository source
+acquisition](design/local-repository-source-acquisition.md): checksum-backed
+substitution of Git blob bytes for one PDB source request. PDB acquisition
+retains the surrounding source-selection and fallback policy.
+
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
 the universal CLI acquisition path. The current package-free fixture consumes
@@ -133,7 +140,7 @@ and query workspaces while migration continues.
 | ------ | ------------- | -------------- | ----------------- |
 | `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
 | `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
-| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), focused Metadata designs |
+| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
 | `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |
@@ -141,6 +148,12 @@ and query workspaces while migration continues.
 Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
 CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
 depends on typed models.
+
+[C# memory-safety declaration spelling](design/csharp-memory-safety-spelling.md)
+owns the proposed CSharp policy for consuming independent caller-contract,
+pointer, and declaration-shape facts. Its adoption and production-host gates
+remain pending; Metadata interpretation and Decompiler reconstruction stay
+with their respective owners.
 
 ### Evidence and comparison engines
 
@@ -205,6 +218,13 @@ and validating the ordered committed sequence. Its
 [committed authored-corpus history](design/authored-corpus-history.md) contract
 separates persistence evidence from benchmark production, methodology,
 ratchet comparison, and history-card rendering.
+
+`SourceOracleCandidateLedger` is the focused harness owner for complete
+candidate-file accounting and deterministic next-enrollment ranking over one
+accepted source-oracle baseline. Its
+[candidate-ledger contract](design/source-oracle-candidate-ledger.md) consumes
+PDB mapping, acquisition, evaluation, syntax-inventory, and provenance evidence
+without taking ownership of those producers or of manifest enrollment.
 
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
@@ -314,7 +334,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
-| Decompilation or implementation comparison | [Decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
+| Decompilation or implementation comparison | [Decompiler architecture](decompiler-architecture.md), [decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/dotnet-inspect` |
 | Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) composition map; see [navigation presentation](design/inspect-web-navigation-presentation.md), [navigation consumer](design/inspect-web-navigation-consumer.md), [shell interaction](design/inspect-web-shell-interaction.md), and [surface composition](design/inspect-web-surface-composition.md) | `prototypes/inspect-web` |
 

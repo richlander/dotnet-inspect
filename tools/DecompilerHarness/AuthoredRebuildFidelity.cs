@@ -2,15 +2,16 @@ using System.Net;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
-using System.Reflection;
 using System.Text;
 
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using DotnetInspector.RoundTripCompilation;
 using DotnetInspector.Services;
 using ILInspector.Findings;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using InertText;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -36,19 +37,18 @@ enum AuthoredBuildContextStatus
     Failed,
 }
 
-sealed record AuthoredBuildContextAssessment(
-    AuthoredBuildContextStatus Status,
-    bool IsDeterministic,
-    string Detail,
-    IReadOnlyDictionary<string, string>? RecordedOptions = null);
-
 sealed record AuthoredRebuildFidelityResult(
     ReturnToSender.Result DecompilerLane,
     AuthoredRebuildOutcome Outcome,
     SourceChecksumVerification? ChecksumVerification,
-    AuthoredBuildContextAssessment BuildContext,
+    RecordedBuildContext BuildContext,
     string? Detail,
-    ImplementationMemberDiffResult? ImplementationDiff);
+    ImplementationMemberDiffResult? ImplementationDiff,
+    RebuildCompilationAttempt? AuthoredAttempt = null)
+{
+    public LaneBuildContext AuthoredContext => BuildContext.Assess(AuthoredAttempt);
+    public LaneBuildContext DecompiledContext => BuildContext.Assess(DecompilerLane.CompilationAttempt);
+}
 
 static class AuthoredRebuildFidelity
 {
@@ -131,26 +131,20 @@ static class AuthoredRebuildFidelity
             {
                 pdbAcquisitionFailure = ex;
             }
-            IReadOnlyList<MetadataReference> compilationReferences =
-                decompilerResults.FirstOrDefault()?.FinalRequest?
-                    .CompilationClosure?.References
-                ?? ReturnToSender.CompilationReferences(
-                    assemblyPath).ToArray();
-            AuthoredBuildContextAssessment buildContext =
+            var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
+            RecordedBuildContext buildContext =
                 source is null
-                    ? new AuthoredBuildContextAssessment(
-                        AuthoredBuildContextStatus.Failed,
-                        IsDeterministic: false,
+                    ? RecordedBuildContext.Failed(
+                        subject,
                         "Portable PDB acquisition failed before build-context inspection.")
-                    : AssessBuildContext(
+                    : new RecordedBuildContext(
                         SourceLinkInspector.InspectDll(assemblyPath).IsDeterministic,
                         MetadataFindings.InspectCompilationOptions(
                             source.Context,
-                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
+                            subject),
                         MetadataFindings.InspectCompilationReferences(
                             source.Context,
-                            new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath))),
-                        compilationReferences);
+                            subject));
 
             using (source)
             {
@@ -218,7 +212,7 @@ static class AuthoredRebuildFidelity
         SourceLinkService source,
         SourceFetcher fetcher,
         ReturnToSender.Result decompilerResult,
-        AuthoredBuildContextAssessment buildContext)
+        RecordedBuildContext buildContext)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(fetcher);
@@ -832,7 +826,7 @@ static class AuthoredRebuildFidelity
         ReturnToSender.Result decompilerResult,
         string authoredBody,
         SourceChecksumVerification? checksumVerification,
-        AuthoredBuildContextAssessment buildContext)
+        RecordedBuildContext buildContext)
     {
         ArgumentNullException.ThrowIfNull(decompilerResult);
         ArgumentNullException.ThrowIfNull(authoredBody);
@@ -848,6 +842,7 @@ static class AuthoredRebuildFidelity
                 ImplementationDiff: null);
         }
 
+        RebuildCompilationAttempt? authoredAttempt = null;
         try
         {
             using var originalPe = new PEReader(File.OpenRead(request.AssemblyPath));
@@ -857,8 +852,8 @@ static class AuthoredRebuildFidelity
                 request,
                 new ProductTargetBody(authoredBody, []));
             var artifact = CompileBackSourceComposer.Compose(authoredRequest);
-            var parseOptions = ParseOptions(buildContext.RecordedOptions);
-            var compileOptions = CompilationOptions(buildContext.RecordedOptions);
+            var parseOptions = ParseOptions(buildContext);
+            var compileOptions = CompilationOptions(buildContext);
             if (request.CompilationClosure is not { } compilationClosure)
             {
                 return new AuthoredRebuildFidelityResult(
@@ -871,16 +866,19 @@ static class AuthoredRebuildFidelity
             }
             MetadataReference[] references =
                 compilationClosure.References;
-            var compilation = CSharpCompilation.Create(
-                "return-to-sender",
-                [CSharpSyntaxTree.ParseText(artifact.Source, parseOptions)],
+            var compilation = RoundTripCompilationEngine.Compile(
+                () => artifact,
+                produced => produced.Source,
                 references,
-                compileOptions);
-            using var stream = new MemoryStream();
-            var emit = compilation.Emit(stream);
-            if (!emit.Success)
+                parseOptions,
+                compileOptions,
+                static (_, _, _) => RoundTripGrowthResult.Stop("authored-recompile-failed"),
+                new RoundTripCompilationOptions { AssemblyName = "return-to-sender", MaxIterations = 1 });
+            authoredAttempt = RebuildCompilationAttempt.Capture(
+                artifact, parseOptions, compileOptions, compilation.Provenance, references);
+            if (!compilation.Succeeded || compilation.PeImage is null)
             {
-                var error = emit.Diagnostics.FirstOrDefault(diagnostic =>
+                var error = compilation.Diagnostics.FirstOrDefault(diagnostic =>
                     diagnostic.Severity == DiagnosticSeverity.Error);
                 return new AuthoredRebuildFidelityResult(
                     decompilerResult,
@@ -890,7 +888,8 @@ static class AuthoredRebuildFidelity
                     error is null
                         ? "The authored body did not compile in the RTS shell."
                         : $"{error.Id}: {error.GetMessage()}",
-                    ImplementationDiff: null);
+                    ImplementationDiff: null,
+                    AuthoredAttempt: authoredAttempt);
             }
 
             var originalMethod = MetadataTokens.MethodDefinitionHandle(
@@ -899,7 +898,7 @@ static class AuthoredRebuildFidelity
                 request.AssemblyPath,
                 originalReader,
                 originalMethod,
-                stream.ToArray(),
+                compilation.PeImage,
                 request.FullType,
                 request.MethodName,
                 overload: 0,
@@ -912,7 +911,8 @@ static class AuthoredRebuildFidelity
                     checksumVerification,
                     buildContext,
                     "The authored rebuild target could not be compared to shipped IL.",
-                    ImplementationDiff: null);
+                    ImplementationDiff: null,
+                    AuthoredAttempt: authoredAttempt);
             }
 
             return new AuthoredRebuildFidelityResult(
@@ -923,7 +923,8 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 Detail: null,
-                implementationDiff);
+                implementationDiff,
+                authoredAttempt);
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -936,101 +937,21 @@ static class AuthoredRebuildFidelity
                 checksumVerification,
                 buildContext,
                 $"{ex.GetType().Name}: {ex.Message}",
-                ImplementationDiff: null);
+                ImplementationDiff: null,
+                AuthoredAttempt: authoredAttempt);
         }
     }
 
-    internal static AuthoredBuildContextAssessment AssessBuildContext(
-        bool isDeterministic,
-        FindingInspection<CompilationOptionInfo> options,
-        FindingInspection<CompilationReferenceInfo> references,
-        IEnumerable<MetadataReference> actualReferences)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(references);
-        ArgumentNullException.ThrowIfNull(actualReferences);
-
-        if (options.Value is FindingInspection<CompilationOptionInfo>.Failed optionFailure)
-        {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Failed,
-                isDeterministic,
-                $"Compilation options: {optionFailure.Error.Reason}");
-        }
-        if (references.Value is FindingInspection<CompilationReferenceInfo>.Failed referenceFailure)
-        {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Failed,
-                isDeterministic,
-                $"Compilation references: {referenceFailure.Error.Reason}");
-        }
-        if (options.Value is not FindingInspection<CompilationOptionInfo>.Complete optionComplete
-            || references.Value is not FindingInspection<CompilationReferenceInfo>.Complete referenceComplete
-            || optionComplete.Findings.IsEmpty
-            || referenceComplete.Findings.IsEmpty)
-        {
-            return new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Incomplete,
-                isDeterministic,
-                "Portable-PDB compilation options or references are incomplete.");
-        }
-
-        var drift = new List<string>();
-        var optionValues = optionComplete.Findings
-            .Select(finding => finding.Payload)
-            .ToDictionary(option => option.Name, option => option.Value, StringComparer.OrdinalIgnoreCase);
-        CheckOption(optionValues, "optimization", "release", drift);
-        CheckOption(optionValues, "unsafe", "true", drift, missingIsDrift: false);
-        CheckOption(optionValues, "language-version", "preview", drift, missingIsDrift: false);
-        CheckOption(
-            optionValues,
-            "compiler-version",
-            typeof(CSharpCompilation).Assembly
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion
-                ?? typeof(CSharpCompilation).Assembly.GetName().Version?.ToString()
-                ?? "unknown",
-            drift,
-            missingIsDrift: false);
-
-        var actualNames = actualReferences
-            .Select(reference => Path.GetFileName(reference.Display))
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var missingReferences = referenceComplete.Findings
-            .Select(finding => finding.Payload.Name)
-            .Select(Path.GetFileName)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Where(name => !actualNames.Contains(name!))
-            .Take(3)
-            .ToArray();
-        if (missingReferences.Length > 0)
-            drift.Add($"references missing from RTS context: {string.Join(", ", missingReferences)}");
-
-        return drift.Count == 0
-            ? new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Recorded,
-                isDeterministic,
-                "Portable-PDB options and reference names agree with the RTS context.",
-                optionValues)
-            : new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Drift,
-                isDeterministic,
-                string.Join("; ", drift),
-                optionValues);
-    }
-
-    static CSharpParseOptions ParseOptions(
-        IReadOnlyDictionary<string, string>? options)
+    static CSharpParseOptions ParseOptions(RecordedBuildContext context)
     {
         var languageVersion = LanguageVersion.Preview;
-        if (options?.TryGetValue("language-version", out string? language) == true
+        if (context.Option("language-version") is { } language
             && LanguageVersionFacts.TryParse(language, out var parsedLanguage))
         {
             languageVersion = parsedLanguage;
         }
 
-        var symbols = options?.TryGetValue("define", out string? define) == true
+        var symbols = context.Option("define") is { } define
             ? define.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : [];
         return new CSharpParseOptions(
@@ -1038,14 +959,13 @@ static class AuthoredRebuildFidelity
             preprocessorSymbols: symbols);
     }
 
-    static CSharpCompilationOptions CompilationOptions(
-        IReadOnlyDictionary<string, string>? options)
+    static CSharpCompilationOptions CompilationOptions(RecordedBuildContext context)
     {
-        bool release = options?.TryGetValue("optimization", out string? optimization) != true
+        bool release = context.Option("optimization") is not { } optimization
             || string.Equals(optimization, "release", StringComparison.OrdinalIgnoreCase);
-        bool allowUnsafe = options?.TryGetValue("unsafe", out string? unsafeValue) != true
+        bool allowUnsafe = context.Option("unsafe") is not { } unsafeValue
             || bool.TryParse(unsafeValue, out bool parsedUnsafe) && parsedUnsafe;
-        bool checkOverflow = options?.TryGetValue("checked", out string? checkedValue) == true
+        bool checkOverflow = context.Option("checked") is { } checkedValue
             && bool.TryParse(checkedValue, out bool parsedChecked) && parsedChecked;
         return new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
@@ -1053,24 +973,6 @@ static class AuthoredRebuildFidelity
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: allowUnsafe,
             checkOverflow: checkOverflow);
-    }
-
-    static void CheckOption(
-        IReadOnlyDictionary<string, string> options,
-        string name,
-        string expected,
-        ICollection<string> drift,
-        bool missingIsDrift = true)
-    {
-        if (!options.TryGetValue(name, out string? actual))
-        {
-            if (missingIsDrift)
-                drift.Add($"{name} is not recorded");
-            return;
-        }
-
-        if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-            drift.Add($"{name}={actual} (RTS uses {expected})");
     }
 
     internal static async Task AcquirePdbAsync(
@@ -1153,42 +1055,83 @@ static class AuthoredRebuildFidelity
             or HttpRequestException
             or TaskCanceledException;
 
-    static void WriteReport(
+    internal static void WriteReport(
         IReadOnlyList<AuthoredRebuildFidelityResult> results,
-        int maxExamples)
+        int maxExamples,
+        TextWriter? output = null)
     {
-        Console.WriteLine($"AUTHORED-SOURCE REBUILD FIDELITY over {results.Count} target(s)");
-        Console.WriteLine();
+        ArgumentNullException.ThrowIfNull(results);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxExamples);
+        output ??= Console.Out;
+        var rows = results.Select(result => (
+            Result: result, Authored: result.AuthoredContext, Decompiled: result.DecompiledContext)).ToArray();
+        output.WriteLine($"AUTHORED-SOURCE REBUILD FIDELITY over {results.Count} target(s)");
+        output.WriteLine();
         foreach (AuthoredRebuildOutcome outcome in Enum.GetValues<AuthoredRebuildOutcome>())
-            Console.WriteLine($"  {outcome,-16}: {results.Count(result => result.Outcome == outcome)}");
-        Console.WriteLine();
-        Console.WriteLine("Build context:");
-        foreach (AuthoredBuildContextStatus status in Enum.GetValues<AuthoredBuildContextStatus>())
-            Console.WriteLine($"  {status,-16}: {results.Count(result => result.BuildContext.Status == status)}");
-        Console.WriteLine($"  {"Deterministic",-16}: {results.Count(result => result.BuildContext.IsDeterministic)}");
+            output.WriteLine($"  {outcome,-16}: {results.Count(result => result.Outcome == outcome)}");
+        output.WriteLine();
+        output.WriteLine("Decompiler outcomes:");
+        foreach (var group in results.GroupBy(result => result.DecompilerLane.Status).OrderBy(group => group.Key))
+            output.WriteLine($"  {group.Key,-16}: {group.Count()}");
+        WriteContextSummary("A (authored)", rows.Select(row => row.Authored));
+        WriteContextSummary("B (decompiled)", rows.Select(row => row.Decompiled));
+        output.WriteLine($"  {"Deterministic",-16}: {results.Count(result => result.BuildContext.IsDeterministic == true)}");
+        output.WriteLine($"  {"Determinism unknown",-16}: {results.Count(result => result.BuildContext.IsDeterministic is null)}");
 
-        var examples = results
-            .Where(result => result.Outcome != AuthoredRebuildOutcome.Exact
-                || result.BuildContext.Status != AuthoredBuildContextStatus.Recorded
-                || !result.BuildContext.IsDeterministic)
+        var examples = rows
+            .Where(row => row.Result.Outcome != AuthoredRebuildOutcome.Exact
+                || row.Result.DecompilerLane.Status != FidelityCheck.CompileBackStatus.Exact
+                || row.Authored.Status != AuthoredBuildContextStatus.Recorded
+                || row.Decompiled.Status != AuthoredBuildContextStatus.Recorded
+                || row.Result.BuildContext.IsDeterministic != true)
             .Take(maxExamples)
             .ToArray();
-        if (examples.Length == 0)
-            return;
 
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        foreach (var result in examples)
+        output.WriteLine();
+        output.WriteLine($"Examples: {examples.Length} shown (limit {maxExamples}; all results retained)");
+        foreach (var row in examples)
         {
+            var result = row.Result;
             var target = result.DecompilerLane.Plan.TargetMethod;
-            Console.WriteLine($"  {target.Type}::{target.Method}");
-            Console.WriteLine($"    decompiled : {result.DecompilerLane.Status}");
-            Console.WriteLine($"    authored   : {result.Outcome}");
-            Console.WriteLine($"    checksum   : {result.ChecksumVerification?.ToString() ?? "unavailable"}");
-            Console.WriteLine($"    deterministic: {result.BuildContext.IsDeterministic}");
-            Console.WriteLine($"    context    : {result.BuildContext.Status} — {result.BuildContext.Detail}");
+            output.WriteLine($"  {Field(target.Type)}::{Field(target.Method)}");
+            output.WriteLine($"    decompiled : {result.DecompilerLane.Status}");
+            output.WriteLine($"    authored   : {result.Outcome} (comparison-only; normalized IL-body when available)");
+            output.WriteLine($"    checksum   : {result.ChecksumVerification?.ToString() ?? "unavailable"}");
+            output.WriteLine($"    deterministic: {result.BuildContext.IsDeterministic?.ToString() ?? "unavailable"}");
+            WriteContext("A", row.Authored, result.AuthoredAttempt);
+            WriteContext("B", row.Decompiled, result.DecompilerLane.CompilationAttempt);
             if (!string.IsNullOrWhiteSpace(result.Detail))
-                Console.WriteLine($"    detail     : {result.Detail}");
+                output.WriteLine($"    detail     : {Field(result.Detail)}");
+            if (!string.IsNullOrWhiteSpace(result.DecompilerLane.Detail))
+                output.WriteLine($"    decompiler detail: {Field(result.DecompilerLane.Detail)}");
         }
+
+        void WriteContextSummary(string label, IEnumerable<LaneBuildContext> contexts)
+        {
+            output.WriteLine();
+            output.WriteLine($"{label} build context (disclosed evidence only):");
+            foreach (AuthoredBuildContextStatus status in Enum.GetValues<AuthoredBuildContextStatus>())
+                output.WriteLine($"  {status,-16}: {contexts.Count(context => context.Status == status)}");
+        }
+
+        void WriteContext(string lane, LaneBuildContext context, RebuildCompilationAttempt? attempt)
+        {
+            output.WriteLine($"    {lane} context  : {context.Status}");
+            if (attempt is not null)
+                output.WriteLine($"      target: {Field(attempt.Target.ToString())}; owner artifact retained; artifact digest unavailable");
+            int agreeingReferences = context.Facts.Count(fact =>
+                fact.Dimension == "references" && fact.Status == BuildContextFactStatus.Agree);
+            if (agreeingReferences > 0)
+                output.WriteLine($"      references: {agreeingReferences} agree on MVID, aliases, kind, and embed-interop (not original bytes)");
+            foreach (var fact in context.Facts)
+            {
+                if (fact.Dimension == "references" && fact.Status == BuildContextFactStatus.Agree)
+                    continue;
+                output.WriteLine($"      {Field(fact.Dimension)}/{Field(fact.Name)}: {fact.Status}; "
+                    + $"recorded={Field(fact.Recorded)}; effective={Field(fact.Effective)}; {Field(fact.Detail)}");
+            }
+        }
+
+        static InertString Field(string? value) => new(TextPolicy.Field, value ?? "unavailable");
     }
 }

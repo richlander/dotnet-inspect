@@ -25,9 +25,9 @@ public sealed class MalformedMetadataRootException(
 /// <summary>
 /// Maps the MetadataPrimitives-owned root classification to Metadata's direct
 /// API contract before any SRM metadata reader is constructed.
-/// Gate: <c>LayeringTests.Metadata_MetadataReadersRequireFormatAdmission</c>
-/// covers direct and alternate reader-construction paths, while
-/// <c>MetadataImageFormatClassifierTests</c> exercises every result arm.
+/// Gate: <c>MetadataImageFormatClassifierTests</c> exercises every result arm.
+/// That no other entry point in this assembly constructs a reader outside this
+/// type is <c>unverified</c> — no gate enforces that closure.
 /// </summary>
 public static class MetadataFormatAdmission
 {

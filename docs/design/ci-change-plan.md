@@ -30,11 +30,11 @@ foundational repository infrastructure rather than product behavior.
 
 ## Problem
 
-The current change detector has grown into a policy engine without a single
-typed boundary. `eng/ci-detect-changes.sh` acquires paths, validates API
-responses and Git streams, evaluates job rules, reads policy manifests, and
-enforces implications among eleven outputs. Separate workflow and domain-job
-logic can still establish another candidate relation or reinterpret paths.
+The former change detector had grown into a policy engine without a single
+typed boundary. It acquired paths, validated API responses and Git streams,
+evaluated job rules, read policy manifests, and enforced implications among
+eleven outputs. Separate workflow and domain-job logic could establish another
+candidate relation or reinterpret paths.
 
 PR #5347 demonstrated the concrete consequence. GitHub's pull-request Files
 API described merge-base-to-PR-head paths, while the checked-out workflow
@@ -42,8 +42,8 @@ validated the current synthetic merge candidate. A base-branch rename made
 those path sets disagree, so TLA+ scheduling had to recompute its decision from
 the candidate that the job actually checked.
 
-Structural tests make the current behavior safer, but they do not remove the
-distributed ownership that caused the mismatch.
+Structural tests made that behavior safer, but did not remove the distributed
+ownership that caused the mismatch.
 
 ## Boundary
 
@@ -91,9 +91,9 @@ endpoints must resolve to themselves as commits, so a tag or tree object is
 refused rather than peeled.
 
 A push event without a usable before-tree endpoint therefore refuses instead
-of preserving the legacy classifier's conservative over-run. The aggregate
-gate keeps that refusal visible and blocking until a separately designed
-provenance case supplies an exact replacement endpoint.
+of conservatively over-running. The aggregate gate keeps that refusal visible
+and blocking until a separately designed provenance case supplies an exact
+replacement endpoint.
 
 "The checked candidate" is a checked condition, not an assumption: the
 repository's `HEAD^{commit}` object ID must equal the candidate endpoint. A
@@ -210,6 +210,60 @@ Inventory roots are unique canonical repository-relative lines. A duplicate
 root makes the inventory malformed even though the legacy shell reader would
 tolerate it; the conservative policy above then applies.
 
+The three CodeQL lanes route on file-extension families rather than a project
+inventory, because CodeQL's unit of analysis is a language, not a project:
+`codeqlActions` on workflow and composite-action YAML, `codeqlCSharp` on the
+input families the C# extractor enumerates for itself, and `codeqlJavaScript`
+on the JavaScript extractor's own published default inclusion set. Both
+language lanes mirror the extractor rather than the file types this repository
+happens to contain, so that the lists do not drift as the repository gains file
+types; families that are absent simply never match. The C# set is wider than
+C# sources: buildless extraction still resolves dependencies, so it covers
+MSBuild and solution inputs, Razor views, resource files, and the
+`global.json`, `NuGet.Config`, and `packages.config` inputs that decide which
+packages and feeds participate. The enumerated families deliberately not
+routed are DLL files, which are build outputs rather than tracked sources, and
+small non-binary files. That last family is every text file in the repository —
+3,662 of 3,704 tracked files when this policy was written. The extractor scans
+it for package references and project settings that can influence dependency
+inference, so excluding it is a real narrowing of the mirror rather than a
+technicality: a documentation example containing a `PackageReference` element
+does not select the lane. It is excluded because routing it would select C#
+analysis on nearly every candidate, reinstating the ten-minute cost on
+documentation-only changes that this policy exists to remove. Both exclusions
+are bounded by the weekly scan rather than by per-candidate routing.
+The
+JavaScript set is wider than JavaScript and TypeScript sources: it also covers
+HTML and its templates, YAML,
+and named inputs such as `package.json` and `tsconfig.json`. YAML therefore
+selects both `codeqlActions` and `codeqlJavaScript`.
+The one documented inclusion deliberately not
+routed is "all extension-less files", which would select the lane for ordinary
+metadata on nearly every candidate. Matching folds ASCII case, so an
+uppercase spelling of either an extension or a named input such as
+`NuGet.Config` cannot silently skip a lane. Like `markdownlint`,
+`inspectWeb`, and `tla`, these lanes carry no pre-merge event condition, so a
+push to `main` analyzes whichever languages that push touched.
+
+Push-time analysis is skipped for Dependabot-authored commits. This repository
+allows only squash merging, so merging a Dependabot pull request produces a
+Dependabot-authored commit on `main`, and GitHub gives workflows running on
+such a commit read-only permissions. Because uploading SARIF for a branch
+requires `security-events: write`, the lane would fail rather than publish, so
+the workflow does not start it. The condition tests both the actor and the head
+commit's author, because they differ: on a squash merge the actor is the
+maintainer who merged rather than Dependabot, so an actor-only guard would
+never fire. The pull-request run still analyzes the change,
+since code scanning always accepts uploads from a `pull_request` event; only
+the default-branch baseline refresh is deferred to the weekly scan.
+
+Routing a whole-program analyzer is a scheduling decision rather than a
+coverage one. The weekly scan in `codeql-scheduled.yml` analyzes all three
+languages unconditionally, so a language this policy fails to select on some
+candidate delays a finding to the next scheduled scan rather than dropping it.
+That bound is what makes extension-family routing acceptable here even though
+it is coarser than the project-closure inventories used elsewhere.
+
 Jobs and named in-job validation units consume selections, not paths.
 Domain-specific interpretation begins only after routing. For example, the
 TLA+ job may validate model-directory layout within its assigned evidence, but
@@ -274,8 +328,8 @@ only printable ASCII, with deterministic property order, lower camel member
 names, no newline, and lowercase digests. Its `validations` member always
 carries every field — `test`, `dependencyPolicy`, `csharpDiffSmoke`,
 `decompilerGates`, `markdownlint`, `ilDiffSmoke`, `ilRoundTrip`, `pack`,
-`buildNet10`,
-`inspectWeb`, `skillGate`, and `tla` — so a consumer never distinguishes
+`buildNet10`, `inspectWeb`, `skillGate`, `tla`, `codeqlActions`,
+`codeqlCSharp`, and `codeqlJavaScript` — so a consumer never distinguishes
 "false" from "absent". `ilRoundTrip` implies `test` as a construction
 invariant. A scope descriptor names its artifact, record framing, record
 count, and digest; the TLA+ artifact is `ci-plan-tla-paths0`. The plan
@@ -408,9 +462,7 @@ The planner implementation gate must also cover:
 - every job-level and named in-job validation rule, event rule, and cross-field
   implication as planner values;
 - an oversized plan or scoped-evidence descriptor;
-- effective validation-selection parity with the combined existing classifier
-  and workflow routing when both receive the same event and changed-path
-  corpus;
+- every raw routing rule and effective event mapping as planner-native values;
 - the deliberate provenance change from API or event approximations to exact
   candidate endpoints;
 - the deliberate failure-contract change from all-true recovery to a blocking
@@ -447,11 +499,9 @@ serialization, plan publisher, and command boundary are implemented behind
 which constructs plans through the production planner rather than a
 harness-built substitute. That gate covers the routing canaries and
 first-match exclusions, event semantics, the `ilRoundTrip` implication,
-effective-selection parity against the legacy shell classifier for every
-scenario where both receive the same event and changed-path corpus, real
-temporary Git repository fixtures including the #5347 rename fixtures, raw
-parser fixtures with invalidly encoded path bytes, the refusal contract, and
-deterministic serialization with strict deserialization rejection.
+real temporary Git repository fixtures including the #5347 rename fixtures,
+raw parser fixtures with invalidly encoded path bytes, the refusal contract,
+and deterministic serialization with strict deserialization rejection.
 
 The workflow consumes the planner's compact JSON as its sole
 candidate-relevance output and projects `validations.*` fields for job and
@@ -465,7 +515,7 @@ The live CI run demonstrates the artifact actions and cross-job transport.
 
 ## Adoption sequence
 
-Adoption proceeds in focused slices:
+Adoption completed in focused slices:
 
 1. Implement the planner types, path-evidence reader, routing policy, canonical
    serialization, and effective-selection parity harness without making it
@@ -474,7 +524,7 @@ Adoption proceeds in focused slices:
    an explicit evidence directory, and whose gate is
    `dotnet run eng/test-ci-change-detection.cs`. Before workflow adoption, that
    gate pinned the entrypoint shim to the planner façade independently of the
-   legacy classifier.
+   then-current workflow detector.
 2. The workflow's change-planning job consumes the planner and replaces
    candidate-relevance conditions with mechanical plan projections. Existing
    event gates and named in-job selectors are planner validation fields;
@@ -483,11 +533,11 @@ Adoption proceeds in focused slices:
    changes. GitHub workflow parsing, live execution, and review provide its
    wiring evidence rather than a repository-owned YAML expression evaluator.
 3. Move each scoped-path consumer to planner-produced evidence and remove its
-   independent provenance and path acquisition. TLA+ is the first consumer:
-   the producer uploads its bounded scope, and the job verifies the descriptor
-   and exact bytes before invoking the scoped runner.
-4. Remove the legacy shell classifier and obsolete structural seams only after
-   parity and all planned consumers have transferred.
+   independent provenance and path acquisition. TLA+ is the plan's only
+   current scoped consumer: the producer uploads its bounded scope, and the job
+   verifies the descriptor and exact bytes before invoking the scoped runner.
+4. Remove the legacy shell classifier and obsolete parity seams after the
+   authoritative workflow and planned scoped consumers have transferred.
 
 Each slice names its own adopting owner and gate. The design does not authorize
 a single PR to rewrite every CI consumer.

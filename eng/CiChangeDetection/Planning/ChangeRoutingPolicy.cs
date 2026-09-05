@@ -4,13 +4,11 @@ namespace CiChangeDetection.Planning;
 
 /// <summary>
 /// The planner's path and event routing policy. Every repository path rule
-/// that decides whether a CI validation applies lives here, ported from
-/// <c>eng/ci-detect-changes.sh</c> including its first-match <c>case</c>
-/// semantics, in which <c>*</c> crosses <c>/</c>.
+/// that decides whether a CI validation applies lives here. Patterns retain
+/// the repository routing convention in which <c>*</c> crosses <c>/</c>.
 /// </summary>
 internal sealed class ChangeRoutingPolicy
 {
-    private const string DetectionScript = "eng/ci-detect-changes.sh";
     private const string TlaExpectedExitCodes =
         "eng/tla-expected-exit-codes.txt";
 
@@ -88,11 +86,6 @@ internal sealed class ChangeRoutingPolicy
         RoutingState state = default;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (BytePattern.Matches(record.Path, DetectionScript))
-            {
-                return RoutingSelections.All;
-            }
-
             RoutePath(record.Path, ref state);
         }
 
@@ -106,6 +99,9 @@ internal sealed class ChangeRoutingPolicy
 
         return new RoutingSelections(
             state.Code,
+            state.CodeqlActions,
+            state.CodeqlCSharp,
+            state.CodeqlJavaScript,
             state.CSharpDiff,
             state.Decompiler,
             state.Docs,
@@ -153,7 +149,6 @@ internal sealed class ChangeRoutingPolicy
         BytePattern.MatchesAny(
             path,
             ".github/workflows/ci.yml",
-            DetectionScript,
             "eng/run-tla-checks.sh",
             "eng/test-tla-checks.sh",
             "eng/tla-module-overrides.txt",
@@ -182,6 +177,127 @@ internal sealed class ChangeRoutingPolicy
         RouteIlRoundtrip(path, ref state);
         RoutePackaging(path, ref state);
         RouteShipped(path, ref state);
+        RouteCodeql(path, ref state);
+    }
+
+    // CodeQL analyzes whole source trees, so each lane is selected by the
+    // extensions its extractor reads rather than by the project graph the
+    // build gates use. The lists are deliberately whole extension families:
+    // a lane that runs when it did not have to costs analysis minutes, while
+    // a lane that fails to run leaves the change unscanned until the weekly
+    // full analysis in codeql-scheduled.yml. A push to the default branch
+    // applies this same routing rather than re-analyzing the whole tree, so
+    // the scheduled scan is the only routing-independent backstop.
+    private static void RouteCodeql(
+        ReadOnlySpan<byte> path,
+        ref RoutingState state)
+    {
+        // Folded so that an uppercase extension cannot silently skip a lane.
+        ReadOnlySpan<byte> folded = BytePattern.AsciiFold(path);
+        if (BytePattern.MatchesAny(
+            folded,
+            // This list mirrors the input families the C# extractor
+            // enumerates for itself rather than the file types this
+            // repository happens to contain. Running the lane logs one
+            // "Found N <kind> files" line per family it reads: source,
+            // project, solution, resource, packages.config, nuget.config,
+            // global.json, DLL, Razor view, and small non-binary files.
+            // Two enumerated families are deliberately not routed. DLL
+            // files are build outputs rather than tracked sources. Small
+            // non-binary files are every text file in the repository
+            // (3,662 of 3,704 tracked files at the time of writing); the
+            // extractor scans them for package and project settings that
+            // can influence dependency inference, but routing them would
+            // select this lane on nearly every candidate and reinstate the
+            // ten-minute analysis on documentation-only changes that this
+            // policy exists to avoid. The weekly scan is the backstop for
+            // both exclusions.
+            "*.cs",
+            "*.csx",
+            "*.csproj",
+            // Buildless C# extraction still resolves dependencies, so the
+            // MSBuild and SDK inputs that decide which packages and sources
+            // participate change what the analysis sees.
+            "*.props",
+            "*.targets",
+            "*.slnx",
+            "*.sln",
+            // Razor extraction is default-on, so views carry C# source.
+            "*.cshtml",
+            "*.razor",
+            "*.resx",
+            // Dependency-resolution inputs decide which packages and feeds
+            // participate. Matched at the root and at any depth because a
+            // pattern is tested against the whole path.
+            "global.json",
+            "*/global.json",
+            "nuget.config",
+            "*/nuget.config",
+            "packages.config",
+            "*/packages.config"))
+        {
+            state.CodeqlCSharp = true;
+        }
+
+        // This list mirrors the JavaScript extractor's own default inclusion
+        // set rather than the file types this repository happens to contain,
+        // because the extractor indexes considerably more than JavaScript.
+        // Follow FileExtractor.FileType and AutoBuild's defaultExtract loop
+        // in github/codeql; AutoBuild's prose extension list can lag the code.
+        // Families this repository does not use simply never match.
+        //
+        // The one documented inclusion deliberately not routed is "all
+        // extension-less files". Routing it would select this lane for
+        // ordinary metadata such as LICENSE or CODEOWNERS on nearly every
+        // candidate, and the weekly scan already bounds a missed lane.
+        if (BytePattern.MatchesAny(
+            folded,
+            "*.js",
+            "*.jsx",
+            "*.mjs",
+            "*.cjs",
+            "*.es",
+            "*.es6",
+            "*.xsjs",
+            "*.xsjslib",
+            "*.ts",
+            "*.tsx",
+            "*.mts",
+            "*.cts",
+            // The extractor reads script embedded in HTML and its templates.
+            "*.htm",
+            "*.html",
+            "*.xhtm",
+            "*.xhtml",
+            "*.vue",
+            "*.hbs",
+            "*.ejs",
+            "*.njk",
+            "*.html.erb",
+            "*.html.dot",
+            "*.jsp",
+            // The extractor indexes YAML, so YAML selects this lane as well
+            // as the Actions lane.
+            "*.yml",
+            "*.yaml",
+            "*.raml",
+            // Named dependency, compiler, and configuration inputs.
+            "*package.json",
+            "*tsconfig*.json",
+            "*codeql-javascript-*.json",
+            "*.eslintrc*",
+            "*.xsaccess",
+            "*xs-app.json",
+            "*.view.json",
+            "*manifest.json"))
+        {
+            state.CodeqlJavaScript = true;
+        }
+
+        if (BytePattern.MatchesAny(folded, "*.yml", "*.yaml"))
+        {
+            state.CodeqlActions = true;
+        }
     }
 
     private static void RouteLanes(
@@ -200,19 +316,19 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "fixtures/*"))
-        {
-            state.Code = true;
-        }
         else if (BytePattern.MatchesAny(
             path,
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
             "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*",
-            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/*",
+            "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
             "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*"))
         {
             state.Code = true;
             state.Web = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
+        {
+            state.Code = true;
         }
         else if (BytePattern.Matches(path, "tests/*"))
         {
@@ -284,6 +400,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-ts-jsexport-typescript.sh",
             "eng/generate-inspect-web-multi-facade-canary.sh",
             "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",
@@ -549,6 +667,9 @@ internal sealed class ChangeRoutingPolicy
     private struct RoutingState
     {
         internal bool Code;
+        internal bool CodeqlActions;
+        internal bool CodeqlCSharp;
+        internal bool CodeqlJavaScript;
         internal bool CSharpDiff;
         internal bool Decompiler;
         internal bool Docs;

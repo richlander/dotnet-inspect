@@ -1,6 +1,9 @@
+using System.Buffers.Binary;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Metadata;
@@ -9,6 +12,261 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class AssemblyContextIntegrationsQueryTests
 {
+    static readonly List<string> s_scanOrder = [];
+    static Exception? s_callbackFailure;
+
+    [Fact]
+    public void SelectedScan_PublicConsumerRunsOncePerParticipantWithoutCaching()
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly di = TestAssembly.Create(
+            "SelectedDi",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy);
+        TestAssembly logging = TestAssembly.Create(
+            "SelectedLogging",
+            "Microsoft.Extensions.Logging.CustomLogger",
+            policy);
+        TestAssembly empty = TestAssembly.Create(
+            "SelectedEmpty",
+            "N.Hidden",
+            policy,
+            publicType: false);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [di.Participant, logging.Participant, empty.Participant]);
+        s_scanOrder.Clear();
+        var selected = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
+        var neighboring = EcosystemIntegrationScannerBinding.Create(UnselectedScanner);
+        Assert.NotSame(selected, neighboring);
+        Assert.Empty(s_scanOrder);
+
+        AssemblyContextIntegrationScanResult first =
+            AssemblyContextIntegrationScanQuery.Execute(group, selected);
+        AssemblyContextIntegrationScanResult second =
+            AssemblyContextIntegrationScanQuery.Execute(group, selected);
+
+        Assert.True(first.IsComplete);
+        Assert.True(second.IsComplete);
+        Assert.Same(selected, first.Binding);
+        Assert.False(new AssemblyContextIntegrationsResult(first.Assemblies).IsComplete);
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+                "Microsoft.Extensions.Logging.CustomLogger",
+                "<empty>",
+                "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+                "Microsoft.Extensions.Logging.CustomLogger",
+                "<empty>",
+            ],
+            s_scanOrder);
+        var diEntry = Assert.IsType<AssemblyIntegrationsEntry.Selected>(first.Assemblies[0]);
+        AssertSubject(di, diEntry.Subject);
+        EcosystemIntegrationSignalInfo signal = Assert.Single(diEntry.EcosystemSignals);
+        Assert.Same(IntegrationConceptCatalog.DependencyInjection, signal.GetConcept());
+        Assert.Same(IntegrationConceptCatalog.EcosystemObserved, signal.GetProducerPolicy());
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            signal.GetTypeDefinition()?.ToMetadataFullName());
+        Assert.Empty(Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+            first.Assemblies[1]).EcosystemSignals);
+        Assert.Empty(Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+            first.Assemblies[2]).EcosystemSignals);
+        Assert.Equal(1, di.OpenCount);
+        Assert.Equal(1, logging.OpenCount);
+        Assert.Equal(1, empty.OpenCount);
+    }
+
+    [Fact]
+    public void SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope()
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "SelectedScopes",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy,
+            additionalIntegrationTypeName: "Microsoft.Extensions.Logging.CustomLogger");
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
+        s_scanOrder.Clear();
+        var di = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
+        var logging = EcosystemIntegrationScannerBinding.Create(SelectLogging);
+
+        var diResult = AssemblyContextIntegrationScanQuery.Execute(group, di);
+        var loggingResult = AssemblyContextIntegrationScanQuery.Execute(group, logging);
+        AssemblyContextIntegrationsResult full = AssemblyContextIntegrationsQuery.Execute(group);
+
+        Assert.Same(di, diResult.Binding);
+        Assert.Same(logging, loggingResult.Binding);
+        Assert.Same(
+            IntegrationConceptCatalog.DependencyInjection,
+            Assert.Single(Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+                Assert.Single(diResult.Assemblies)).EcosystemSignals).GetConcept());
+        Assert.Same(
+            IntegrationConceptCatalog.Logging,
+            Assert.Single(Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+                Assert.Single(loggingResult.Assemblies)).EcosystemSignals).GetConcept());
+        var available = Assert.IsType<AssemblyIntegrationsEntry.Available>(
+            Assert.Single(full.Assemblies));
+        Assert.Equal(2, available.EcosystemSignals.Length);
+        Assert.Equal(2, available.Presence.IntegrationCount);
+        Assert.True(available.Presence.HasDependencyInjectionSupport);
+        Assert.True(available.Presence.HasLoggingSupport);
+        Assert.Single(s_scanOrder);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    [Fact]
+    public void SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults()
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly rejected = TestAssembly.Create(
+            "SelectedRejected",
+            "N.Rejected",
+            policy,
+            selectedName: "DifferentIdentity");
+        TestAssembly malformed = TestAssembly.Create(
+            "SelectedMalformed",
+            "N.Malformed",
+            policy,
+            invalidTypeName: true);
+        TestAssembly available = TestAssembly.Create(
+            "SelectedAvailable",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [rejected.Participant, malformed.Participant, available.Participant]);
+        s_scanOrder.Clear();
+        var binding = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
+
+        AssemblyContextIntegrationScanResult result =
+            AssemblyContextIntegrationScanQuery.Execute(group, binding);
+
+        Assert.False(result.IsComplete);
+        var rejection = Assert.IsType<AssemblyIntegrationsEntry.Rejected>(result.Assemblies[0]);
+        AssertSubject(rejected, rejection.Subject);
+        Assert.Equal(CandidateOpenFailureKind.InvalidImage, rejection.Failure.Kind);
+        var failure = Assert.IsType<AssemblyIntegrationsEntry.Failed>(result.Assemblies[1]);
+        AssertSubject(malformed, failure.Subject);
+        var success = Assert.IsType<AssemblyIntegrationsEntry.Selected>(result.Assemblies[2]);
+        AssertSubject(available, success.Subject);
+        Assert.Single(success.EcosystemSignals);
+        Assert.Single(s_scanOrder);
+    }
+
+    [Fact]
+    public void SelectedScan_BudgetRejectionDoesNotInvokeScanner()
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly first = TestAssembly.Create(
+            "SelectedBudgetFirst",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy);
+        TestAssembly second = TestAssembly.Create(
+            "SelectedBudgetSecond",
+            "Microsoft.Extensions.Logging.CustomLogger",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [first.Participant, second.Participant],
+            new AssemblyContextGroupOptions { MaxRetainedImageBytes = first.Bytes.Length });
+        s_scanOrder.Clear();
+        var binding = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
+
+        var result = AssemblyContextIntegrationScanQuery.Execute(group, binding);
+
+        Assert.False(result.IsComplete);
+        Assert.IsType<AssemblyIntegrationsEntry.Selected>(result.Assemblies[0]);
+        Assert.Equal(
+            CandidateOpenFailureKind.ResourceBudget,
+            Assert.IsType<AssemblyIntegrationsEntry.Rejected>(result.Assemblies[1]).Failure.Kind);
+        Assert.Single(s_scanOrder);
+    }
+
+    [Theory]
+    [InlineData("metadata")]
+    [InlineData("range")]
+    [InlineData("overflow")]
+    [InlineData("configuration")]
+    public void SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem(string kind)
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create("CallbackFault", "N.Source", policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
+        s_callbackFailure = kind switch
+        {
+            "metadata" => new BadImageFormatException("Scanner callback marker."),
+            "range" => new ArgumentOutOfRangeException("scanner"),
+            "overflow" => new OverflowException("Scanner callback marker."),
+            _ => new InvalidOperationException("Scanner callback marker."),
+        };
+        var binding = EcosystemIntegrationScannerBinding.Create(FaultingScanner);
+
+        Exception? failure = Record.Exception(() =>
+            AssemblyContextIntegrationScanQuery.Execute(group, binding));
+
+        Assert.Same(s_callbackFailure, failure);
+    }
+
+    [Fact]
+    public void SelectedScan_ParticipantExecutionKeepsTheGroupReusable()
+    {
+        var policy = new TestBindingPolicy(new AssemblyBindingPolicyVersion());
+        TestAssembly source = TestAssembly.Create(
+            "SelectedReusable",
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            policy);
+        using var workspace = new InspectionWorkspace();
+        AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([source.Participant]);
+        s_scanOrder.Clear();
+        var binding = EcosystemIntegrationScannerBinding.Create(SelectDependencyInjection);
+
+        Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+            AssemblyContextIntegrationScanQuery.ExecuteParticipant(
+                group,
+                source.Participant,
+                binding));
+        Assert.True(AssemblyContextIntegrationScanQuery.Execute(group, binding).IsComplete);
+        Assert.True(AssemblyContextIntegrationsQuery.Execute(group).IsComplete);
+        Assert.Equal(2, s_scanOrder.Count);
+        Assert.Equal(1, source.OpenCount);
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> SelectDependencyInjection(
+        EcosystemIntegrationObservationContext context)
+    {
+        s_scanOrder.Add(context.Types.IsEmpty ? "<empty>" : context.Types[0].MetadataName);
+        return
+        [
+            .. context.Types
+                .Where(type => type.MetadataName ==
+                    "Microsoft.Extensions.DependencyInjection.IServiceCollection")
+                .Select(type => type.Classify(
+                    IntegrationConceptCatalog.DependencyInjection,
+                    "Dependency Injection")),
+        ];
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> SelectLogging(
+        EcosystemIntegrationObservationContext context) =>
+        [
+            .. context.Types
+                .Where(type => type.MetadataName.StartsWith(
+                    "Microsoft.Extensions.Logging.",
+                    StringComparison.Ordinal))
+                .Select(type => type.Classify(IntegrationConceptCatalog.Logging, "Logging")),
+        ];
+
+    static ImmutableArray<EcosystemIntegrationClassification> UnselectedScanner(
+        EcosystemIntegrationObservationContext context) =>
+        throw new InvalidOperationException("An unselected scanner was invoked.");
+
+    static ImmutableArray<EcosystemIntegrationClassification> FaultingScanner(
+        EcosystemIntegrationObservationContext context) =>
+        throw s_callbackFailure!;
+
     [Fact]
     public void RegistryRun_ScansEveryParticipantInOrderAndReusesSnapshots()
     {
@@ -525,13 +783,16 @@ public sealed class AssemblyContextIntegrationsQueryTests
             TestBindingPolicy policy,
             Action? onOpen = null,
             string? selectedName = null,
-            string? additionalIntegrationTypeName = null)
+            string? additionalIntegrationTypeName = null,
+            bool publicType = true,
+            bool invalidTypeName = false)
         {
             byte[] bytes =
                 BuildAssembly(
                     assemblyName,
                     integrationTypeName,
-                    additionalIntegrationTypeName);
+                    additionalIntegrationTypeName,
+                    publicType);
             AssemblyReferenceIdentity actualIdentity;
             using (var peReader =
                    new PEReader(new MemoryStream(bytes, writable: false)))
@@ -539,6 +800,18 @@ public sealed class AssemblyContextIntegrationsQueryTests
                 actualIdentity =
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
                         peReader.GetMetadataReader());
+                if (invalidTypeName)
+                {
+                    MetadataReader reader = peReader.GetMetadataReader();
+                    int nameOffset = peReader.PEHeaders.MetadataStartOffset
+                        + reader.GetTableMetadataOffset(TableIndex.TypeDef)
+                        + reader.GetTableRowSize(TableIndex.TypeDef)
+                        + sizeof(uint);
+                    Assert.True(reader.GetHeapSize(HeapIndex.String) < ushort.MaxValue);
+                    BinaryPrimitives.WriteUInt16LittleEndian(
+                        bytes.AsSpan(nameOffset, sizeof(ushort)),
+                        ushort.MaxValue);
+                }
             }
 
             var selectedIdentity = actualIdentity with
@@ -572,7 +845,8 @@ public sealed class AssemblyContextIntegrationsQueryTests
         static byte[] BuildAssembly(
             string assemblyName,
             string integrationTypeName,
-            string? additionalIntegrationTypeName)
+            string? additionalIntegrationTypeName,
+            bool publicType)
         {
             var assemblyBuilder = new PersistedAssemblyBuilder(
                 new AssemblyName(assemblyName),
@@ -591,7 +865,8 @@ public sealed class AssemblyContextIntegrationsQueryTests
             {
                 TypeBuilder type = module.DefineType(
                     typeName,
-                    TypeAttributes.Public | TypeAttributes.Class);
+                    (publicType ? TypeAttributes.Public : TypeAttributes.NotPublic)
+                    | TypeAttributes.Class);
                 type.DefineDefaultConstructor(
                     MethodAttributes.Public);
                 type.CreateType();

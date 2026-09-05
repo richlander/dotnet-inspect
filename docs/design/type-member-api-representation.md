@@ -114,6 +114,87 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### API memory-safety facts
+
+`ApiMember.MemorySafety` retains two independent facts: the caller contract
+returned by `MemorySafetyMetadataIndex`, and structural pointer evidence from
+the member's signature. The latter includes function pointers, is independent
+of the selected memory-safety rules, and is never inferred from display text.
+An unavailable signature is not pointer-free. A definite pointer remains
+positive evidence even when another part of the signature is unavailable.
+
+The caller contract and its evidence retain the resolver's `None`, `Implicit`,
+`Explicit`, and `Unavailable` distinctions without a second interpretation.
+`AccessorMemorySafety` carries the same facts for the MethodDefs reached
+through a property's or event's accessor slots, rather than substituting the
+owner's contract for an accessor's own result. Each member fact carries the
+module MVID that scopes its evidence tokens. A projected extension retains its
+declaration's facts, not facts inferred from the receiver type.
+
+`ApiType.MemorySafety` retains the module rules result and its observations,
+including unsupported versions, malformed markers, and conflicting markers.
+`ApiType.Layout` separately retains the layout-kind bits. These are inputs to
+CSharp declaration policy, not precomputed `safe` or `unsafe` spelling.
+Full extraction supplies these facts; compact summary and types-only
+extraction retain layout without acquiring member-contract facts.
+
+`ApiMember.BackingStorage` records compiler-convention matches:
+generated-name, compiler-generated marker,
+signature-type, and staticness agreement for auto-properties; and a
+compiler-generated adder plus a same-named private compiler-generated field
+with matching type and staticness for field-like events. Type agreement uses
+exact same-module signature encoding, not rendered names: scope tokens,
+generic positions, array shape, modifiers, and pointer shape remain distinct.
+Equivalent types using different encodings are outside this convention's
+positive-match scope, as are indexed properties. Existing field-folding
+policy is unchanged. The selected
+convention travels with the field tokens, matched names, and storage kind.
+This is conventional evidence, not authentication of the original source
+construct. It follows the evidence-grade distinction in
+[Metadata semantic substrates](metadata-semantic-substrates.md#admission-test);
+it does not independently admit event association as a shared substrate.
+
+One established match is `Associated`; multiple established matches are
+`Ambiguous`. A missing, unsupported, or incompletely decoded association is
+`Unknown`, not a claim that the declaration has no instance storage. An
+incomplete match retains any positive candidates without claiming uniqueness.
+Duplicate property or event names are outside this convention's unique-owner scope and
+remain unknown. Consumers must not infer storage absence from a missing name
+match or from the absence of a caller contract.
+
+All retained facts are reader-independent, JSON-capable values. Null is the
+compatibility state for older or hand-composed surfaces, not an invented
+negative fact. New retained evidence text participates in the existing
+API-surface text budget. `ApiMember.IsUnsafe` retains its existing population,
+filtering, diff, and rendering behavior in this additive slice; its consumer
+policies do not silently switch to the new caller contract.
+
+`ApiMemorySafetyFactsTests` gates the version-aware split, all member kinds,
+accessor and extension projection, conventional storage evidence, ambiguity,
+unknown/degraded cases, layout, persistence, and compatibility.
+`ApiMemorySafetyJsonTests` gates the production source-generated JSON contexts
+and command-level filtered and section-selected projections.
+The existing `ApiSurfaceUnsafeTests`, `ArrayKindIdentityTests`, and
+`ApiSurfaceExtractorBoundsTests` remain compatibility and extraction-budget
+gates. `MemorySafetyMetadataIndex` still owns contract derivation, under
+[its rules contract](assembly-inspection-query.md#4-memorysafetymetadataindex--shared-module-and-member-meaning).
+
+The focused implementation is
+[#5253](https://github.com/richlander/dotnet-inspect/issues/5253), under the
+end-to-end memory-safety tracker
+[#5226](https://github.com/richlander/dotnet-inspect/pull/5226).
+The declaration-spelling adoption path has three stages: (1) publish these
+Metadata facts, (2) adopt them in the shared CSharp declaration producer under
+[#5257](https://github.com/richlander/dotnet-inspect/issues/5257), and (3)
+exercise that producer through CLI and browser/Wasm declaration surfaces.
+Stage 2 also consumes the Decompiler's independently owned primary-constructor
+fallback from #5255. The focused
+[CSharp spelling contract](csharp-memory-safety-spelling.md) owns that consumer's
+declaration policy. This slice completes stage 1, not the host behavior.
+JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
+The existing Boolean remains until its consumers explicitly migrate; no
+retirement or narrowing is performed here.
+
 ### Projected Member declaring identity
 
 When an `ApiMember` is projected beneath a Type other than its metadata
@@ -569,6 +650,24 @@ identity without the owning resolver and scope.
 Only canonical `mss1:` transport participates in candidate correspondence.
 Legacy signature text is accepted solely to validate an already selected
 exact-token record; it is not candidate-selection currency.
+
+`MemberSignatureShapeFlowTests` records literal shapes, canonical transport,
+and candidate outcomes across the source and Metadata adapters. Its same-name
+overload set distinguishes vector/non-SZ arrays, mixed array nesting, generic
+array ranks, and tuple element order. Generic-parameter and tuple-element names
+are erased deliberately; duplicate matches remain ambiguous and an unavailable
+source sibling prevents uniqueness. Rank-one non-SZ metadata has no ordinary
+C# declaration counterpart. These are correspondence gates, not member-identity
+or source-ownership proofs.
+
+`ConversionSignatureShapeFlowTests` records conversion return shapes and
+canonical transport against compiler-produced methods and independently located
+MethodDef tokens. Same-name conversion candidates remain distinct by return
+type; ordinary-method return types are erased, so their shape cannot establish
+return-type identity. The caller supplies the operator-name group: the shape
+itself does not distinguish implicit from explicit or checked operators. Checked
+explicit operators retain Metadata return evidence, while the current source
+adapter refuses their headers visibly rather than manufacturing correspondence.
 
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
