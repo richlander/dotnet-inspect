@@ -151,14 +151,31 @@ public sealed class MethodBodyInspectionSession
         Analysis.LibraryBodyAnalysisFeatures features,
         IAssemblyReferenceResolver? resolver = null,
         ResolvedAssemblyReference? assembly = null)
+        => OpenWithPrefetchedImage(
+            assemblyPath,
+            context.GetPrefetchedImage(),
+            features,
+            resolver,
+            assembly);
+
+    internal static MethodBodyInspectionSession OpenWithPrefetchedImage(
+        string assemblyPath,
+        ImmutableArray<byte> image,
+        Analysis.LibraryBodyAnalysisFeatures features,
+        IAssemblyReferenceResolver? resolver = null,
+        ResolvedAssemblyReference? assembly = null,
+        IReadOnlySet<int>? bodyScope = null,
+        Func<Analysis.TypeRef, bool>? bodyTypeScope = null)
     {
         System.Threading.Interlocked.Increment(ref OpenCountForTests);
         return new(
             Analysis.LibraryBodyIndex.OpenFromPrefetchedImage(
                 assemblyPath,
-                context.GetPrefetchedImage(),
+                image,
                 features,
-                resolver),
+                resolver,
+                bodyScope,
+                bodyTypeScope),
             assembly
                 ?? ResolvedAssemblyReference.CreateFromPath(
                     assemblyPath,

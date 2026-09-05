@@ -2191,7 +2191,7 @@ public class ApiCommand
         return 1;
     }
 
-    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
+    internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null, ResolvedAssemblyReference? sourceAssembly = null)
     {
         var sink = output ?? Console.Out;
 
@@ -2423,7 +2423,7 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    options.DllPath!, GetRequestedMemberSections(type, options), type, options);
+                    options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
 
             if (options.DllPath is not null
                 && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
@@ -3091,7 +3091,8 @@ public class ApiCommand
         string? PackageName,
         string? PackageVersion,
         string? ApiSource,
-        string? SelectedTfm);
+        string? SelectedTfm,
+        ResolvedAssemblyReference? SourceAssembly = null);
 
     internal static int ExecuteEffectiveDiscovery(
         ApiType apiType, SectionPipeline<ApiType> memberPipeline, ApiOptions options,
@@ -3360,7 +3361,8 @@ public class ApiCommand
             Analysis.LibraryBodyIndex? typeAnalysisIndex = null;
             Analysis.LibraryBodyIndex TypeAnalysisIndex() =>
                 typeAnalysisIndex ??= ApiAnalysisInspection.OpenTypeAnalysisIndex(
-                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions);
+                    renderOptions.DllPath!, GetRequestedMemberSections(type, renderOptions), type, renderOptions,
+                    acquisition?.SourceAssembly);
 
             if (renderOptions.DllPath is not null
                 && GetRequestedMemberSections(type, renderOptions).Contains(SectionNames.UnsafeMembers))

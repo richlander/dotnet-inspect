@@ -285,6 +285,8 @@ public static class TypeCommand
                     }
 
                     var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
+                    ResolvedAssemblyReference? sourceAssembly =
+                        loaded.TryGetSourceAssembly(apiType);
 
                     // Default --docs on for single-type view at Normal+ unless explicitly disabled
                     TypeOptions effectiveOptions = options;
@@ -301,8 +303,6 @@ public static class TypeCommand
                     if (effectiveOptions.DllPath is { } dllForPdb
                         && AuthorizesPdbAcquisition(apiType, effectiveOptions))
                     {
-                        ResolvedAssemblyReference? sourceAssembly =
-                            loaded.TryGetSourceAssembly(apiType);
                         var pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
                                 dllForPdb,
@@ -366,7 +366,8 @@ public static class TypeCommand
                         return ApiCommand.ExecuteEffectiveDiscovery(
                             apiType, memberPipeline, effectiveOptions,
                             new ApiCommand.TypeAcquisitionContext(
-                                foundIn, packageName, packageVersion, apiSource, selectedTfm));
+                                foundIn, packageName, packageVersion, apiSource, selectedTfm,
+                                sourceAssembly));
                     }
 
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath
@@ -381,7 +382,7 @@ public static class TypeCommand
                             effectiveOptions,
                             logger,
                             context.HttpClient,
-                            loaded.TryGetSourceAssembly(apiType),
+                            sourceAssembly,
                             fallbackPackageName: packageName,
                             fallbackPackageVersion: packageVersion);
                     }
@@ -411,7 +412,7 @@ public static class TypeCommand
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
                         var sw = new StringWriter { NewLine = "\n" };
-                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw, sourceAssembly);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -420,7 +421,7 @@ public static class TypeCommand
                     }
                     else
                     {
-                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sourceAssembly: sourceAssembly);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
