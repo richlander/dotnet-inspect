@@ -94,8 +94,10 @@ internal static class ChangePlanTestSuite
                 "code,decompiler,web"),
             ("tests/DotnetInspector.Artifacts.Local.PlatformProbe/P.cs",
                 "code,decompiler,web"),
-            ("tests/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
+            ("fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/F.ts",
                 "code,decompiler,web"),
+            ("fixtures/js-export/ILInspector.JsExportSurface.Fixtures/F.cs",
+                "code,decompiler"),
             ("tests/ILInspector.JsExportSurface.Tests/Fixtures/"
                 + "ts-jsexport-runtime/R.ts", "code,decompiler,web"),
             ("tests/DotnetInspector.ILRoundtrip.Tests/T.cs",
