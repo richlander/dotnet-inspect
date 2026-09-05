@@ -239,6 +239,7 @@ internal static class ClassicInverseNodeFacts
         => node switch
         {
             AwaitExpression => "await",
+            TypeOf typeOf => $"typeof:{ClassicInverseTypedIdentity.Type(typeOf.Type)}",
             Call call => $"call:{ClassicInverseTypedIdentity.Method(call.Callee)}"
                 + $":{(call.IsVirtual ? "virt" : "direct")}"
                 + (call.ConstrainedTo is { } constrained

@@ -595,6 +595,7 @@ internal static class ClassicInverseRealizationRules
             (CastClass left, CastClass right) => Equals(left.Type, right.Type),
             (UnboxAny left, UnboxAny right) => Equals(left.Type, right.Type),
             (IsInstance left, IsInstance right) => Equals(left.Type, right.Type),
+            (TypeOf left, TypeOf right) => Equals(left.Type, right.Type),
             (NewArray left, NewArray right) =>
                 Equals(left.ElementType, right.ElementType),
             (Call left, Call right) =>
@@ -631,6 +632,13 @@ internal static class ClassicInverseRealizationRules
                     right.ConsumedFields)
                 && left.ConsumedMethodsAreVirtual.SequenceEqual(
                     right.ConsumedMethodsAreVirtual),
+            (InitializerBlock left, InitializerBlock right) =>
+                left.IsCollection == right.IsCollection
+                && left.Members.SequenceEqual(right.Members)
+                && left.ArgumentCounts.SequenceEqual(right.ArgumentCounts)
+                && left.ConsumedMethods.SequenceEqual(right.ConsumedMethods)
+                && left.ConsumedFields.SequenceEqual(right.ConsumedFields)
+                && left.ConsumedMethodsAreVirtual.SequenceEqual(right.ConsumedMethodsAreVirtual),
             (WithExpression left, WithExpression right) =>
                 left.Members.SequenceEqual(right.Members)
                 && left.ConsumedMethods.SequenceEqual(

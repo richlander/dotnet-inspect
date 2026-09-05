@@ -208,6 +208,13 @@ internal sealed record ClassicInverseConstantNode(object? Value, TypeRef Type)
         $"const[{Value ?? "null"}:{TypeText(Type)}]";
 }
 
+internal sealed record ClassicInverseTypeOfNode(TypeRef Type) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new TypeOf(Type);
+
+    internal override string Signature => $"typeof[{ClassicInverseTypedIdentity.Type(Type)}]";
+}
+
 internal sealed record ClassicInverseBinaryNode(
     BinaryKind Kind,
     bool IsChecked,
@@ -532,6 +539,18 @@ internal sealed record ClassicInverseWithNode(
         + $"{string.Join(",", Entries.Select(static e => e.Signature))})";
 }
 
+internal sealed record ClassicInverseInitializerBlockNode(
+    bool IsCollection,
+    ImmutableArray<ClassicInverseInitializerEntry> Entries)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new InitializerBlock(IsCollection, Entries.Select(ClassicInverseBodyCapture.MaterializeEntry));
+
+    internal override string Signature =>
+        $"initblock[{IsCollection}]({string.Join(",", Entries.Select(static entry => entry.Signature))})";
+}
+
 /// <summary>
 /// Captures a freshly built, recipe-owned output subtree into the closed
 /// blueprint union. Capture is the only bridge from IR into a plan, and it
@@ -645,6 +664,9 @@ internal static class ClassicInverseBodyCapture
                 return new ClassicInverseConstantNode(
                     constant.Value,
                     constant.Type);
+
+            case TypeOf typeOf:
+                return new ClassicInverseTypeOfNode(typeOf.Type);
 
             case Binary binary:
             {
@@ -851,6 +873,14 @@ internal static class ClassicInverseBodyCapture
                         creation,
                         initializer.IsCollection,
                         entries.Value);
+            }
+
+            case InitializerBlock block:
+            {
+                var entries = TryCaptureEntries(block.Entries, budget);
+                return entries is null
+                    ? null
+                    : new ClassicInverseInitializerBlockNode(block.IsCollection, entries.Value);
             }
 
             case WithExpression with:

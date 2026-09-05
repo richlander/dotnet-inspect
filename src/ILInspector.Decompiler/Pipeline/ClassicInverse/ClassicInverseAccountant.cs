@@ -52,7 +52,9 @@ internal sealed class ClassicInverseAccountant
         new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<IrNode, IrNode> _rawBooleanFolds =
         new(ReferenceEqualityComparer.Instance);
-    readonly Dictionary<int, ImmutableArray<int>> _booleanFoldOffsets = [];
+    readonly Dictionary<int, ImmutableArray<int>> _foldedValueOffsets = [];
+    readonly Dictionary<IrNode, TypeOf> _rawTypeOfCalls =
+        new(ReferenceEqualityComparer.Instance);
     ImmutableArray<string> _planningEffectOrder = [];
     ClassicInverseConsumedMembers? _consumedMembers;
     bool _consumedMembersIndexed;
@@ -590,7 +592,7 @@ internal sealed class ClassicInverseAccountant
         {
             if (!_budget.Charge())
             {
-                _terminal = Failure("boolean correspondence indexing exhausted the planning budget");
+                _terminal = Failure("value correspondence indexing exhausted the planning budget");
                 return [];
             }
             if (!planningByOffset.TryAdd(value.SourceOffset, value))
@@ -612,14 +614,27 @@ internal sealed class ClassicInverseAccountant
             ClassicInverseProtocolRule protocol =
                 ClassicInverseProtocol.Classify(node, _shell, _candidate);
             if (node is LoadStackSlot
-                && _shell.Protocol.CoalescingTestForJoin(node) is { } coalescingTest)
+                && _shell.Protocol.SelectionTestForJoin(node) is { } selectionTest)
             {
-                values.Add(coalescingTest);
+                values.Add(selectionTest);
                 return;
             }
             if (protocol.Kind is ClassicInverseProtocolKind.OwnedProtocol
                 or ClassicInverseProtocolKind.Preserved)
             {
+                return;
+            }
+
+            if (node is Call typeCall
+                && planningByOffset.TryGetValue(typeCall.SourceOffset, out IrNode? typeReplacement)
+                && typeReplacement is TypeOf typeOf
+                && ClassicInverseExpressionRules.IsTypeOf(typeCall, typeOf))
+            {
+                IrNode token = typeCall.Arguments[0];
+                _rawSemanticValues.Add(token);
+                _rawTypeOfCalls.Add(typeCall, typeOf);
+                _foldedValueOffsets[typeCall.SourceOffset] = [token.SourceOffset];
+                values.Add(typeCall);
                 return;
             }
 
@@ -641,7 +656,7 @@ internal sealed class ClassicInverseAccountant
                 }
                 _rawSemanticValues.Add(comparison.Right);
                 _rawBooleanFolds.Add(comparison, replacement);
-                _booleanFoldOffsets[comparison.SourceOffset] =
+                _foldedValueOffsets[comparison.SourceOffset] =
                     replacement is LogicalNot
                         ? [comparison.Right.SourceOffset]
                         : [comparison.Right.SourceOffset, operand.SourceOffset];
@@ -649,7 +664,7 @@ internal sealed class ClassicInverseAccountant
                 return;
             }
 
-            foreach (IrNode child in node.Children)
+            foreach (IrNode child in _shell.Protocol.RawEvaluationChildren(node))
             {
                 if (_terminal is not null)
                     return;
@@ -724,8 +739,10 @@ internal sealed class ClassicInverseAccountant
     {
         if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
             return ReferenceEquals(replacement, planning);
-        if (raw is ConditionalBranch && planning is Coalesce)
-            return _shell.Protocol.ProvesCoalescingValue(raw, planning);
+        if (_rawTypeOfCalls.TryGetValue(raw, out TypeOf? typeOf))
+            return ReferenceEquals(typeOf, planning);
+        if (raw is ConditionalBranch && planning is Coalesce or Conditional)
+            return _shell.Protocol.ProvesSelectionValue(raw, planning);
 
         return (raw, planning) switch
         {
@@ -903,7 +920,7 @@ internal sealed class ClassicInverseAccountant
             if (protocol.Kind == ClassicInverseProtocolKind.OwnedProtocol)
                 return;
 
-            foreach (IrNode child in node.Children)
+            foreach (IrNode child in _shell.Protocol.RawEvaluationChildren(node))
             {
                 if (_terminal is not null)
                     return;
@@ -954,6 +971,9 @@ internal sealed class ClassicInverseAccountant
 
     string NormalizeRawEffect(IrNode node, string signature)
     {
+        if (_rawTypeOfCalls.TryGetValue(node, out TypeOf? typeOf))
+            return ClassicInverseNodeFacts.EffectSignature(typeOf, _shell.Machine)!;
+
         if (node is Call { ConstrainedTo: null } call)
         {
             string effect = ClassicInverseConsumedMembers.Effect(
@@ -1161,7 +1181,7 @@ internal sealed class ClassicInverseAccountant
         for (int i = 0; i < _realizations.Count; i++)
         {
             ClassicInverseSemanticRealization realization = _realizations[i];
-            ImmutableArray<int> offsets = ExpandBooleanOffsets(realization.ImportOffsets);
+            ImmutableArray<int> offsets = ExpandFoldedValueOffsets(realization.ImportOffsets);
             if (_terminal is not null)
                 return false;
             ImmutableArray<ImmutableArray<int>> paths =
@@ -1178,7 +1198,7 @@ internal sealed class ClassicInverseAccountant
         for (int i = 0; i < _ancestors.Count; i++)
         {
             ClassicInverseAncestorReceipt receipt = _ancestors[i];
-            ImmutableArray<int> offsets = ExpandBooleanOffsets(receipt.ImportOffsets);
+            ImmutableArray<int> offsets = ExpandFoldedValueOffsets(receipt.ImportOffsets);
             if (_terminal is not null)
                 return false;
             ImmutableArray<ImmutableArray<int>> paths =
@@ -1194,26 +1214,26 @@ internal sealed class ClassicInverseAccountant
         return true;
     }
 
-    ImmutableArray<int> ExpandBooleanOffsets(ImmutableArray<int> offsets)
+    ImmutableArray<int> ExpandFoldedValueOffsets(ImmutableArray<int> offsets)
     {
-        if (_booleanFoldOffsets.Count == 0)
+        if (_foldedValueOffsets.Count == 0)
             return offsets;
         var expanded = new HashSet<int>();
         foreach (int offset in offsets)
         {
             if (!_budget.Charge())
             {
-                _terminal = Failure("boolean origin accounting exhausted the planning budget");
+                _terminal = Failure("value origin accounting exhausted the planning budget");
                 return [];
             }
             expanded.Add(offset);
-            if (!_booleanFoldOffsets.TryGetValue(offset, out var consumed))
+            if (!_foldedValueOffsets.TryGetValue(offset, out var consumed))
                 continue;
             foreach (int origin in consumed)
             {
                 if (!_budget.Charge())
                 {
-                    _terminal = Failure("boolean origin accounting exhausted the planning budget");
+                    _terminal = Failure("value origin accounting exhausted the planning budget");
                     return [];
                 }
                 expanded.Add(origin);
@@ -1966,7 +1986,7 @@ internal sealed class ClassicInverseAccountant
         => ClassicInverseSignature.Path(
             PathOf(claim.Source, _executionPaths));
 
-    static bool VisitInitializer(
+    bool VisitInitializer(
         IrNode node,
         Action<IrNode> visit,
         ImmutableArray<string>.Builder? effects,
@@ -1998,27 +2018,63 @@ internal sealed class ClassicInverseAccountant
                 return false;
         }
 
-        foreach (InitializerEntry entry in entries)
+        VisitEntries(entries, []);
+        return true;
+
+        void VisitEntries(IReadOnlyList<InitializerEntry> items, List<InitializerEntry> receivers)
         {
-            foreach (IrExpression argument in entry.Arguments)
-                visit(argument);
+            foreach (InitializerEntry entry in items)
+            {
+                if (_terminal is not null)
+                    return;
+                if (!_budget.Charge())
+                {
+                    _terminal ??= Failure("initializer effect accounting exhausted the planning budget");
+                    return;
+                }
+                if (entry.Arguments is [InitializerBlock nested])
+                {
+                    receivers.Add(entry);
+                    VisitEntries(nested.Entries, receivers);
+                    receivers.RemoveAt(receivers.Count - 1);
+                    continue;
+                }
+                foreach (InitializerEntry receiver in receivers)
+                {
+                    Emit(receiver, isRead: true);
+                    if (_terminal is not null)
+                        return;
+                }
+                foreach (IrExpression argument in entry.Arguments)
+                {
+                    visit(argument);
+                    if (_terminal is not null)
+                        return;
+                }
+                Emit(entry, isRead: false);
+            }
+        }
+
+        void Emit(InitializerEntry entry, bool isRead)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal ??= Failure("initializer effect accounting exhausted the planning budget");
+                return;
+            }
             if (effects is null)
-                continue;
+                return;
             if (entry.ConsumedMethod is { } method)
             {
-                string effect = ClassicInverseConsumedMembers.Effect(
-                    method,
-                    entry.ConsumedMethodIsVirtual);
+                string effect = ClassicInverseConsumedMembers.Effect(method, entry.ConsumedMethodIsVirtual);
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
             if (entry.ConsumedField is { } field)
             {
-                string effect =
-                    $"store:{ClassicInverseTypedIdentity.Field(field)}";
+                string effect = $"{(isRead ? "read" : "store")}:{ClassicInverseTypedIdentity.Field(field)}";
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
         }
-        return true;
     }
 
     ClassicInverseClaim? EnclosingClaimSource(IrNode node)

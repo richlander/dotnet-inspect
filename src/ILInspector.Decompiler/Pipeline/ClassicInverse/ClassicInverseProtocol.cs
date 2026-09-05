@@ -179,6 +179,14 @@ internal static class ClassicInverseProtocol
                 return ClassicInverseProtocolRule.Owned(
                     ClassicInverseLoweringProof.CoalesceRead);
 
+            case StoreStackSlot store when shell.Protocol.RoleOf(store) is
+                ClassicInverseLoweringProof.SelectionStore or ClassicInverseLoweringProof.DeferredAwaitStore:
+                return ClassicInverseProtocolRule.Frame(shell.Protocol.RoleOf(store)!, 0);
+
+            case LoadStackSlot load when shell.Protocol.RoleOf(load) is
+                ClassicInverseLoweringProof.SelectionRead or ClassicInverseLoweringProof.DeferredAwaitRead:
+                return ClassicInverseProtocolRule.Owned(shell.Protocol.RoleOf(load)!);
+
             case ExpressionStatement { Expression: Call builderCall }
                 when IsProvenCompletionCallback(builderCall, shell, candidate):
                 return ClassicInverseProtocolRule.Owned(

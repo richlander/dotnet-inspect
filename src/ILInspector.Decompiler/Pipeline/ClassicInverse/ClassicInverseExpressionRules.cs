@@ -3,6 +3,19 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Closed representation changes shared by value and coalescing correspondence.</summary>
 internal static class ClassicInverseExpressionRules
 {
+    internal static bool IsTypeOf(Call call, TypeOf expression)
+        => MemberIdentity.IsTypeGetTypeFromHandle(call)
+            && call.ConstrainedTo is null
+            && call.Callee.DeclaringType.Equals(TypeRef.CoreLib("System", "Type"))
+            && call.Callee.TypeArguments.IsDefaultOrEmpty
+            && call.Callee.DefinitionParameterTypes.IsDefaultOrEmpty
+            && call.Callee.DefinitionReturnType is null
+            && !call.Callee.HasRefReadOnlyParameters
+            && call.Callee.ParameterRefKinds.All(static kind => kind == ArgumentRefKind.Value)
+            && call.Arguments is
+                [LoadToken { Kind: RuntimeTokenKind.Type, Type: { } target, SourceOffset: >= 0 }]
+            && target.Equals(expression.Type);
+
     internal static bool SameTree(
         IrNode raw,
         IrNode planning,
@@ -16,6 +29,8 @@ internal static class ClassicInverseExpressionRules
             return ReferenceEquals(planning, outputReplacement);
         if (raw.SourceOffset < 0 || raw.SourceOffset != planning.SourceOffset)
             return false;
+        if (raw is Call typeCall && planning is TypeOf typeOf)
+            return IsTypeOf(typeCall, typeOf);
         if (raw is Comparison comparison
             && TryMatchBooleanNegation(comparison, planning, budget))
         {

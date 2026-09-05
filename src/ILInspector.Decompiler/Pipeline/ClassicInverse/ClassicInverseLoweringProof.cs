@@ -51,21 +51,25 @@ internal sealed partial class ClassicInverseLoweringProof
     internal const string AwaitCompletionBranch = "awaiter-completed-branch";
     internal const string CoalesceStore = "coalesce-value-transfer";
     internal const string CoalesceRead = "coalesce-carried-value";
+    internal const string SelectionStore = "conditional-value-transfer";
+    internal const string SelectionRead = "conditional-joined-value";
+    internal const string DeferredAwaitStore = "deferred-await-value-store";
+    internal const string DeferredAwaitRead = "deferred-await-value-read";
 
     const string BudgetFailure =
         "the lowering-protocol proof exhausted the planning budget";
 
     readonly Dictionary<IrNode, string> _roles;
-    readonly CoalescingBindings _coalescing;
+    readonly SelectionBindings _selections;
 
     ClassicInverseLoweringProof(
         Dictionary<IrNode, string> roles,
         string? failure,
-        CoalescingBindings? coalescing = null)
+        SelectionBindings? selections = null)
     {
         _roles = roles;
         Failure = failure;
-        _coalescing = coalescing ?? new();
+        _selections = selections ?? new();
     }
 
     /// <summary>Why the lowering protocol is unproven, or <c>null</c> when it holds.</summary>
@@ -119,17 +123,17 @@ internal sealed partial class ClassicInverseLoweringProof
         if (Mismatch(planningProtocol, rawProtocol, budget) is { } mismatch)
             return new(empty, mismatch);
 
-        if (!ProveCoalescingCorrespondence(
+        if (!ProveSelectionCorrespondence(
                 planningProtocol.Index, rawProtocol.Index, planningRoles, budget,
-                out CoalescingBindings coalescing))
+                out SelectionBindings selections))
         {
             return new(empty, budget.Exhausted ? BudgetFailure
-                : "the raw coalescing branch and planning expression do not carry the same value and join");
+                : "the raw selection branch and planning expression do not carry the same value and join");
         }
 
         foreach ((IrNode node, string role) in rawRoles)
             planningRoles[node] = role;
-        return new(planningRoles, null, coalescing);
+        return new(planningRoles, null, selections);
     }
 
     /// <summary>
@@ -1315,11 +1319,11 @@ internal sealed partial class ClassicInverseLoweringProof
                         completionMethod.DeclaringType)),
             ];
             if (results.Count == 0 && !isRawImport
-                && TryFindCoalescedResult(index, continuation, transfer.Local,
-                    completionMethod.DeclaringType, budget) is { } coalesced)
+                && TryFindSelectionResult(index, continuation, transfer.Local,
+                    completionMethod.DeclaringType, budget) is { } selection)
             {
-                results.Add(coalesced.GetResult);
-                index.CoalescedContinuations.Add(coalesced);
+                results.Add(selection.GetResult);
+                index.SelectionContinuations.Add(selection);
             }
             if (results is not [Call getResult])
             {
@@ -1670,7 +1674,7 @@ internal sealed partial class ClassicInverseLoweringProof
 
         internal List<StoreStackSlot> AllSlotStores { get; } = [];
 
-        internal List<CoalescedContinuation> CoalescedContinuations { get; } = [];
+        internal List<SelectionContinuation> SelectionContinuations { get; } = [];
 
         internal List<ConditionalBranch> AwaitCompletionBranches { get; } = [];
 

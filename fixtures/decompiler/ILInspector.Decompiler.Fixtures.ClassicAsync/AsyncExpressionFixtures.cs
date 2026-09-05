@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace ILInspector.Decompiler.Fixtures.ClassicAsync;
@@ -141,6 +142,77 @@ public static class AsyncExpressionFixtures
     static string Fallback() => Environment.TickCount.ToString();
 
     static string ChooseFallback(bool useFirst) => useFirst ? "first" : "second";
+
+    public static async Task<bool> TypeEquality(Task<Type> value)
+        => await value == typeof(string);
+
+    public static async Task<Type> CoalesceTypeOf(Task<Type> value)
+        => await value ?? typeof(string);
+
+    public static async Task<bool> TypeArrayEquality(Task<Type> value)
+        => await value == typeof(string[]);
+
+    public static async Task<bool> TypeGenericEquality(Task<Type> value)
+        => await value == typeof(Dictionary<string, int>);
+
+    public static async Task<Type> TypeArguments(Task<int> value)
+        => TypeChoice(await value, typeof(string), typeof(int));
+
+    public static async Task<int> BooleanChoice(Task<bool> value, int yes, int no)
+        => await value ? yes : no;
+
+    public static async Task<int> BooleanChoiceCalls(Task<bool> value)
+        => await value ? PositiveChoice() : NegativeChoice();
+
+    public static async Task<int> NegatedBooleanChoice(Task<bool> value, int yes, int no)
+        => !await value ? yes : no;
+
+    public static async Task<string> BooleanChoiceObjects(Task<bool> value, string yes, string no)
+        => await value ? yes : no;
+
+    public static async Task<Type> BooleanChoiceTypeOf(Task<bool> value)
+        => await value ? typeof(string) : typeof(int);
+
+    public static async Task<int> ComparisonChoice(Task<int> value, int yes, int no)
+        => await value > 0 ? yes : no;
+
+    public static async Task<int> BooleanChoiceThenCall(Task<bool> value)
+        => Math.Abs(await value ? -7 : -9);
+
+    public static async Task<InitializerHolder> NestedInitializer(Task<int> value)
+        => CombineInitialized(await value, new InitializerHolder { Child = { Value = 7 } });
+
+    public static async Task<InitializerHolder> NestedInitializerEntries(Task<int> value)
+        => CombineInitialized(await value,
+            new InitializerHolder { Child = { Value = 7, Other = PositiveChoice() } });
+
+    public static async Task<InitializerHolder> NestedCollectionInitializer(Task<int> value)
+        => CombineInitialized(await value, new InitializerHolder { Values = { 7, 8 } });
+
+    public static async Task<InitializerHolder> NestedInitializerTypeOf(Task<int> value)
+        => CombineInitialized(await value, new InitializerHolder { Child = { Kind = typeof(string) } });
+
+    static Type TypeChoice(int which, Type left, Type right) => which == 0 ? left : right;
+    static int PositiveChoice() => Environment.TickCount;
+    static int NegativeChoice() => Environment.CurrentManagedThreadId;
+    static InitializerHolder CombineInitialized(int value, InitializerHolder holder)
+    {
+        holder.Child.Value += value;
+        return holder;
+    }
+
+    public sealed class InitializerHolder
+    {
+        public InitializerChild Child { get; } = new();
+        public List<int> Values { get; } = new();
+    }
+
+    public sealed class InitializerChild
+    {
+        public int Value { get; set; }
+        public int Other;
+        public Type Kind { get; set; }
+    }
 
     public class Reading
     {

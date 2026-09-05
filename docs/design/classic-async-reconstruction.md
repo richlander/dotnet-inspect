@@ -437,6 +437,23 @@ test supplies the coalesce's import origin and remains semantic; its temporary
 transfers alone are protocol. A same-offset call elsewhere in the body cannot
 license this movement.
 
+An awaited conditional predicate has the corresponding closed diamond rule:
+the raw test, its two exclusive arms, their common join, and the joined slot's
+sole use must agree with the planning condition, typed arms, and surrounding
+expression. No external entry or intervening work is admitted. Semantic
+enumeration follows the proven true/false association rather than treating
+physical arm layout as evaluation order; physical receipts still address the
+unchanged import tree.
+
+The importer can defer spilling an already evaluated `GetResult` until after
+spilling a newly constructed initializer receiver. That adjacent pair may
+recover its IL evaluation order only when the exact awaited result precedes
+every constructor operand in imported provenance, has one typed spill/use in
+the same continuation, and agrees with the planning result. This is a closed
+deferred-operand rule, not permission to sort arbitrary expressions or repair
+missing origins. Its spill frame and read are protocol; the awaited result and
+construction remain ordered semantic effects.
+
 The proof's work is proportional to the budget it charges. One charged pass
 builds every index the later phases need — builder callbacks, state stores and
 awaiter transfers grouped by block, blocks by start offset, dispatch tests by
@@ -606,6 +623,18 @@ type. Array creation retains its exact element type and length expression.
 Ordered operands remain accounted, including the exceptions and effects of
 casts, unboxing, and allocation, through detached publication.
 
+`typeof` retains its exact target type, including array and generic structure.
+Only the exact static core-library `Type.GetTypeFromHandle` over a type token
+corresponds to that value; both call and token import origins remain accounted.
+The semantic lookup is retained through detached publication, not equated by
+rendered text.
+
+Nested initializer blocks retain their ordered typed entries and consumed
+member dispatch. Each leaf entry evaluates its receiver path before its value
+and mutation; repeated receiver getters remain repeated effects, and receiver
+fields are reads rather than stores. The immutable block does not invent a
+standalone result type to hide an existing diagnostic.
+
 The compiler's unchecked, signed `conv.i4` directly over an `ArrayLength` is
 an identity under the imported int-typed array-length model, as recognized by
 `IdentityConvertPass`. Raw accounting may preserve that frame while still
@@ -670,6 +699,12 @@ the accepted set only where the old result cannot satisfy this contract; that
 change is an honesty correction and must be measured explicitly. Adding a new
 recipe requires a separate raise contract and evidence under
 [Raise-work discipline](../decompiler-raise-discipline.md).
+
+Compatibility includes useful reconstructed `Partial` bodies, not just the
+`Full` set. Replacing such a body with kickoff scaffolding can be a regression
+without changing its grade. The nested-initializer gate retains its complete
+async body and existing DEC0008, independently of its successful compile-back;
+this owner does not repair the unrelated unknown-type diagnostic.
 
 ## Bounded role of CFG evidence
 
@@ -810,6 +845,15 @@ Release gates:
 | `ClassicInverseNamedResultRawOverwriteCannotBeHealedByPlanning` and `ClassicInverseUnnamedReceiverAddressCannotBeHealedByPlanning` | Planning hides a raw overwrite, different receiver slot, or changed receiver type. |
 | `ClassicInverseAppliedArgumentsKeepKickoffBinders` | Reconstructed argument reads lose the kickoff's parameter binders during application. |
 | `ClassicInverseNamedResultBudgetRemainsLoadBearing` | Named or unnamed receiver proof exhaustion becomes ordinary decline or reconstruction. |
+| `ClassicInversePreservesTypeOfExpressions` and `ClassicInverseTypeOfOriginsAreRequiredAndAccounted` | A supported type lookup loses its exact target, call/token origins, or reconstructed source. |
+| `ClassicInverseRejectsChangedTypeOfTarget` and `ClassicInverseTypeOfCannotBeHealedByPlanning` | Output changes a target, or planning hides a different raw token, type assembly, or lookup member. |
+| `ClassicInversePreservesAwaitedPredicates` | The existing awaited-predicate conditional loses its selected value, arms, or surrounding expression. |
+| `ClassicInverseAwaitedPredicateRawControlCannotBeHealed` and `ClassicInverseAwaitedPredicatePlanningCannotLoseControl` | A changed target, condition, arm, external entry, merged type, or conditional effect licenses reconstruction. |
+| `ClassicInversePreservesUsefulPartialInitializerSource` | A nested initializer loses its useful reconstructed body while remaining superficially `Partial`. |
+| `ClassicInverseNestedInitializerRequiresExactEntries` | A nested entry's member, dispatch, or order changes. |
+| `ClassicInverseDeferredAwaitSpillRetainsItsOrderingWitness` | A deferred await spill is reordered without its imported evaluation-order evidence. |
+| `ClassicInverseExtendedExpressionPlansAreDetached` and `ClassicInverseExtendedExpressionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or budget exhaustion stops being visible failure. |
+| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current EH-blind comparison contract. |
 
 `BooleanConstantComparison_PreservesExpressionOrigin`, the coalescing-store
 cases in `BooleanFoldingSourceOffsetTests`, and
