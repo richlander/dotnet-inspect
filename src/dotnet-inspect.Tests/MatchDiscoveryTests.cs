@@ -2439,7 +2439,8 @@ public sealed class MatchDiscoveryTests
 
             Assert.Equal(1, widenedExit);
             Assert.Contains(
-                "Could not extract API",
+                "The assembly metadata root is malformed "
+                    + "(UnmappableMetadataDirectory).",
                 widenedError);
             Assert.Equal(0, replayExit);
             Assert.Empty(replayError);

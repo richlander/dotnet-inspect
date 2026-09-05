@@ -11,9 +11,10 @@ internal static class BrowserPackageQueryOperationCoordinator
     static readonly SemaphoreSlim Gate = new(1, 1);
     static PackageQueryOperation? _current;
 
-    internal static async ValueTask<BrowserPackageQueryOperationLease> BeginAsync()
+    internal static async ValueTask<BrowserPackageQueryOperationLease> BeginAsync(
+        int initialMatchCredit)
     {
-        var operation = new PackageQueryOperation();
+        var operation = new PackageQueryOperation(initialMatchCredit);
         PackageQueryOperation? superseded =
             Interlocked.Exchange(ref _current, operation);
         superseded?.Cancel();
@@ -26,6 +27,7 @@ internal static class BrowserPackageQueryOperationCoordinator
             operation.Token.ThrowIfCancellationRequested();
             return new BrowserPackageQueryOperationLease(
                 operation.Token,
+                operation.MatchCredit,
                 () => Complete(operation));
         }
         catch
@@ -41,6 +43,10 @@ internal static class BrowserPackageQueryOperationCoordinator
     internal static void CancelCurrent() =>
         Volatile.Read(ref _current)?.Cancel();
 
+    internal static bool RequestCurrentMatches(int additionalMatchCredit) =>
+        Volatile.Read(ref _current)
+            ?.MatchCredit.TryAdd(additionalMatchCredit) == true;
+
     static void Complete(PackageQueryOperation operation)
     {
         Gate.Release();
@@ -54,7 +60,13 @@ internal static class BrowserPackageQueryOperationCoordinator
         readonly CancellationTokenSource _cancellation = new();
         bool _disposed;
 
+        internal PackageQueryOperation(int initialMatchCredit)
+        {
+            MatchCredit = new BrowserPackageQueryMatchCredit(initialMatchCredit);
+        }
+
         internal CancellationToken Token => _cancellation.Token;
+        internal BrowserPackageQueryMatchCredit MatchCredit { get; }
 
         internal void Cancel()
         {
@@ -73,7 +85,48 @@ internal static class BrowserPackageQueryOperationCoordinator
                     return;
                 _disposed = true;
                 _cancellation.Dispose();
+                MatchCredit.Dispose();
             }
+        }
+    }
+}
+
+[SupportedOSPlatform("browser")]
+internal sealed class BrowserPackageQueryMatchCredit : IDisposable
+{
+    readonly object _sync = new();
+    readonly SemaphoreSlim _available;
+    bool _disposed;
+
+    internal BrowserPackageQueryMatchCredit(int initialMatchCredit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initialMatchCredit);
+        _available = new SemaphoreSlim(initialMatchCredit, int.MaxValue);
+    }
+
+    internal ValueTask WaitAsync(CancellationToken cancellationToken) =>
+        new(_available.WaitAsync(cancellationToken));
+
+    internal bool TryAdd(int additionalMatchCredit)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(additionalMatchCredit);
+        lock (_sync)
+        {
+            if (_disposed)
+                return false;
+            _available.Release(additionalMatchCredit);
+            return true;
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            _available.Dispose();
         }
     }
 }
@@ -85,13 +138,16 @@ internal sealed class BrowserPackageQueryOperationLease : IDisposable
 
     internal BrowserPackageQueryOperationLease(
         CancellationToken cancellationToken,
+        BrowserPackageQueryMatchCredit matchCredit,
         Action release)
     {
         CancellationToken = cancellationToken;
+        MatchCredit = matchCredit;
         _release = release;
     }
 
     internal CancellationToken CancellationToken { get; }
+    internal BrowserPackageQueryMatchCredit MatchCredit { get; }
 
     public void Dispose() =>
         Interlocked.Exchange(ref _release, null)?.Invoke();
