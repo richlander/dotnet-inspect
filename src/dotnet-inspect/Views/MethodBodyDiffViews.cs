@@ -129,12 +129,12 @@ public sealed record MethodBodyCleanupDocument(
 [MarkoutSerializable(TitleProperty = nameof(Title))]
 public sealed class MethodBodyDiffView(
     InertString title,
-    string stage,
+    InertString stage,
     InertString outcome,
     InertString summary)
 {
     [MarkoutIgnore] public string Title => title.ToString();
-    public string Stage => stage;
+    public string Stage => stage.ToString();
     public string Outcome => outcome.ToString();
     public string Summary => summary.ToString();
 
@@ -156,41 +156,55 @@ public sealed class MethodBodyDiffView(
 
 [MarkoutSerializable]
 public sealed record MethodBodyProducerRow(
-    string Producer,
-    string Work,
-    string NativeVerdict,
-    string Before,
-    string After,
-    string Findings);
+    [property: MarkoutIgnore, JsonIgnore] InertString ProducerText,
+    [property: MarkoutIgnore, JsonIgnore] InertString WorkText,
+    [property: MarkoutIgnore, JsonIgnore] InertString NativeVerdictText,
+    [property: MarkoutIgnore, JsonIgnore] InertString BeforeText,
+    [property: MarkoutIgnore, JsonIgnore] InertString AfterText,
+    [property: MarkoutIgnore, JsonIgnore] InertString FindingsText)
+{
+    public string Producer => ProducerText.ToString();
+    public string Work => WorkText.ToString();
+    public string NativeVerdict => NativeVerdictText.ToString();
+    public string Before => BeforeText.ToString();
+    public string After => AfterText.ToString();
+    public string Findings => FindingsText.ToString();
+}
 
 [MarkoutSerializable]
 public sealed record MethodBodyEndpointRow(
-    string Producer,
-    string Side,
-    [property: MarkoutIgnore] InertString MemberText,
-    string State,
-    string Address,
-    [property: MarkoutIgnore] InertString DetailText)
+    [property: MarkoutIgnore, JsonIgnore] InertString ProducerText,
+    [property: MarkoutIgnore, JsonIgnore] InertString SideText,
+    [property: MarkoutIgnore, JsonIgnore] InertString MemberText,
+    [property: MarkoutIgnore, JsonIgnore] InertString StateText,
+    [property: MarkoutIgnore, JsonIgnore] InertString AddressText,
+    [property: MarkoutIgnore, JsonIgnore] InertString DetailText)
 {
+    public string Producer => ProducerText.ToString();
+    public string Side => SideText.ToString();
+    public string State => StateText.ToString();
+    public string Address => AddressText.ToString();
     public string Member => MemberText.ToString();
     public string Detail => DetailText.ToString();
 }
 
 [MarkoutSerializable]
 public sealed record MethodBodyEvidenceRow(
-    string Producer,
-    [property: MarkoutIgnore] InertString EvidenceText)
+    [property: MarkoutIgnore, JsonIgnore] InertString ProducerText,
+    [property: MarkoutIgnore, JsonIgnore] InertString EvidenceText)
 {
+    public string Producer => ProducerText.ToString();
     public string Evidence => EvidenceText.ToString();
 }
 
 [MarkoutSerializable]
 public sealed record MethodBodyDiagnosticRow(
-    string Producer,
-    [property: MarkoutIgnore] InertString SideText,
-    [property: MarkoutIgnore] InertString KindText,
-    [property: MarkoutIgnore] InertString DetailText)
+    [property: MarkoutIgnore, JsonIgnore] InertString ProducerText,
+    [property: MarkoutIgnore, JsonIgnore] InertString SideText,
+    [property: MarkoutIgnore, JsonIgnore] InertString KindText,
+    [property: MarkoutIgnore, JsonIgnore] InertString DetailText)
 {
+    public string Producer => ProducerText.ToString();
     public string Side => SideText.ToString();
     public string Kind => KindText.ToString();
     public string Detail => DetailText.ToString();
@@ -198,8 +212,12 @@ public sealed record MethodBodyDiagnosticRow(
 
 [MarkoutSerializable]
 public sealed record MethodBodyCleanupRow(
-    string Side,
-    string Outcome);
+    [property: MarkoutIgnore, JsonIgnore] InertString SideText,
+    [property: MarkoutIgnore, JsonIgnore] InertString OutcomeText)
+{
+    public string Side => SideText.ToString();
+    public string Outcome => OutcomeText.ToString();
+}
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(MethodBodyDiffView))]

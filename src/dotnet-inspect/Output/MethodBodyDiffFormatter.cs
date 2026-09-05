@@ -93,12 +93,12 @@ public static class MethodBodyDiffFormatter
         {
             string name = ProducerName(producer.Producer);
             producers.Add(new(
-                name,
-                producer.Outcome,
-                producer.NativeVerdict,
-                producer.Before.State.ToString(),
-                producer.After.State.ToString(),
-                FindingsSummary(producer.Findings)));
+                Field(name),
+                Field(producer.Outcome),
+                Field(producer.NativeVerdict),
+                Field(producer.Before.State.ToString()),
+                Field(producer.After.State.ToString()),
+                Field(FindingsSummary(producer.Findings))));
             endpoints.Add(EndpointRow(name, producer.Before, document.Before));
             endpoints.Add(EndpointRow(name, producer.After, document.After));
             AddDiagnostic(diagnostics, producer.Diagnostic);
@@ -110,7 +110,7 @@ public static class MethodBodyDiffFormatter
             if (producer.NativeCSharp is { } csharp)
             {
                 evidence.AddRange(CSharpDiffPrinter.ToUnifiedLines(csharp)
-                    .Select(line => new MethodBodyEvidenceRow(name, Field(line))));
+                    .Select(line => new MethodBodyEvidenceRow(Field(name), Field(line))));
                 if (!csharp.FailureRows.IsDefaultOrEmpty)
                     foreach (var failure in csharp.FailureRows)
                         diagnostics.Add(DiagnosticRow(name, failure.Side, failure.Kind.ToString(),
@@ -123,7 +123,7 @@ public static class MethodBodyDiffFormatter
             if (producer.NativeIl is { } il)
             {
                 evidence.AddRange(IlDiffPrinter.ToUnifiedLines(il.Diff)
-                    .Select(line => new MethodBodyEvidenceRow(name, Field(line))));
+                    .Select(line => new MethodBodyEvidenceRow(Field(name), Field(line))));
                 if (!il.Diff.FailureRows.IsDefaultOrEmpty)
                     foreach (var failure in il.Diff.FailureRows)
                         diagnostics.Add(DiagnosticRow(name, failure.Side, failure.Kind.ToString(),
@@ -140,7 +140,7 @@ public static class MethodBodyDiffFormatter
 
         var view = new MethodBodyDiffView(
             Field($"Method Body Diff: {document.Before} vs {document.After}"),
-            document.Stage.ToString(),
+            Field(document.Stage.ToString()),
             Field(document.Outcome),
             Field(document.Stage == MethodBodyDiffStage.Query
                 ? "The query did not publish a Research comparison."
@@ -153,7 +153,7 @@ public static class MethodBodyDiffFormatter
             Evidence = evidence.Count == 0 ? null : evidence,
             Diagnostics = diagnostics.Count == 0 ? null : diagnostics,
             Cleanup = document.Cleanup.IsEmpty ? null : [.. document.Cleanup.Select(
-                cleanup => new MethodBodyCleanupRow(cleanup.Side.ToString(), cleanup.Outcome))],
+                cleanup => new MethodBodyCleanupRow(Field(cleanup.Side.ToString()), Field(cleanup.Outcome)))],
         };
         var writer = new MarkoutWriter(new MarkdownFormatter(), options);
         MethodBodyDiffViewContext.Default.Serialize(view, writer);
@@ -348,11 +348,11 @@ public static class MethodBodyDiffFormatter
         MethodBodyEndpointDocument endpoint,
         string fallbackDisplay)
         => new(
-            producer,
-            endpoint.Side.ToString(),
+            Field(producer),
+            Field(endpoint.Side.ToString()),
             Field(endpoint.CSharpSubject?.Display ?? endpoint.IlSubject?.Label ?? fallbackDisplay),
-            endpoint.State.ToString(),
-            endpoint.Address is { } address ? $"{address.ModuleVersionId:D}/0x{address.Token:X8}" : "",
+            Field(endpoint.State.ToString()),
+            Field(endpoint.Address is { } address ? $"{address.ModuleVersionId:D}/0x{address.Token:X8}" : ""),
             Field(endpoint.Detail ?? ""));
 
     static void AddDiagnostic(
@@ -366,7 +366,7 @@ public static class MethodBodyDiffFormatter
     }
 
     static MethodBodyDiagnosticRow DiagnosticRow(string producer, string? side, string kind, string detail)
-        => new(producer, Field(side ?? ""), Field(kind), Field(detail));
+        => new(Field(producer), Field(side ?? ""), Field(kind), Field(detail));
 
     static string Detail(string message, string? detail)
         => string.IsNullOrEmpty(detail) ? message : $"{message}; {detail}";
