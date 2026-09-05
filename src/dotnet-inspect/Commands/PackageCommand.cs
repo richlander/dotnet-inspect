@@ -64,16 +64,11 @@ public class PackageCommand
             && options.Discover is not null
             && options.Schema)
         {
-            if (options.AllLibraries
-                && !ValidatePackageAllLibrariesMode(
+            if (GetLibraryInspectionModeError(
                     options,
-                    allowStaticDiscovery: true))
+                    allowStaticDiscovery: true) is { } modeError)
             {
-                return 1;
-            }
-            if (!options.AllLibraries
-                && !ValidatePackageLibraryMode(options))
-            {
+                CommandError.Write(modeError);
                 return 1;
             }
 
@@ -370,10 +365,11 @@ public class PackageCommand
         if (!ValidatePackageContentMode(options))
             return 1;
 
-        if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
+        if (GetLibraryInspectionModeError(options) is { } libraryModeError)
+        {
+            CommandError.Write(libraryModeError);
             return 1;
-        if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
-            return 1;
+        }
 
         InspectionOptions producerOptions = CreateProducerOptions(
             options,
@@ -4472,7 +4468,18 @@ public class PackageCommand
         options.Verbosity >= Verbosity.Detailed
         || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
-    private static bool ValidatePackageLibraryMode(InspectionOptions options)
+    internal static OptionError? GetLibraryInspectionModeError(
+        InspectionOptions options,
+        bool allowStaticDiscovery = false)
+    {
+        if (options.AllLibraries)
+            return GetPackageAllLibrariesModeError(options, allowStaticDiscovery);
+        if (options.PackageLibrary is not null)
+            return GetPackageLibraryModeError(options);
+        return null;
+    }
+
+    private static OptionError? GetPackageLibraryModeError(InspectionOptions options)
     {
         if (options.Tree
             && !options.Count
@@ -4485,8 +4492,7 @@ public class PackageCommand
                 || options.JsonArray
                 || options.NoHeader))
         {
-            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
-            return false;
+            return new OptionError("--tree cannot be combined with row projections or non-Markdown formats.");
         }
 
         List<string> conflicts = [];
@@ -4501,13 +4507,12 @@ public class PackageCommand
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
         if (conflicts.Count == 0)
-            return true;
+            return null;
 
-        CommandError.Write($"--library cannot be combined with {string.Join(", ", conflicts)}.");
-        return false;
+        return new OptionError($"--library cannot be combined with {string.Join(", ", conflicts)}.");
     }
 
-    private static bool ValidatePackageAllLibrariesMode(
+    private static OptionError? GetPackageAllLibrariesModeError(
         InspectionOptions options,
         bool allowStaticDiscovery = false)
     {
@@ -4531,11 +4536,10 @@ public class PackageCommand
 
         if (conflicts.Count > 0)
         {
-            CommandError.Write($"--all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
-            return false;
+            return new OptionError($"--all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
         }
 
-        return true;
+        return null;
     }
 
     private static async Task<int> ExecutePackageLibraryAsync(

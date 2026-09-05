@@ -34,7 +34,8 @@ public static class RouterCommandDefinition
         RootCommand rootCommand,
         SharedOptions opts,
         TypeOptionsParser.TypeCommandArgs typeArgs,
-        MemberOptionsParser.MemberCommandArgs memberArgs)
+        MemberOptionsParser.MemberCommandArgs memberArgs,
+        PackageOptionsParser.PackageCommandArgs packageArgs)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
         {
@@ -177,11 +178,9 @@ public static class RouterCommandDefinition
                             request,
                             sourceIdentityTypeTarget);
                 var optionErrors = new Dictionary<string, OptionError?>(StringComparer.Ordinal);
-                string[] interpretationTokens = sourceParseResult.CommandResult.Children
-                    .OfType<OptionResult>()
-                    .Any(result => result.Option.Name == "--all-libraries"
-                        && !result.Implicit
-                        && !result.GetValueOrDefault<bool>())
+                string[] interpretationTokens =
+                    sourceParseResult.GetResult(packageArgs.AllLibrariesOption) is { Implicit: false }
+                    && !sourceParseResult.GetValue(packageArgs.AllLibrariesOption)
                     ? RouterTokenRewriter.RemoveOptionWithValue(tokens, "--all-libraries", "false")
                     : tokens;
                 foreach (string command in alternatives.Alternatives
@@ -206,6 +205,19 @@ public static class RouterCommandDefinition
                                 interpretation, opts, memberArgs,
                                 out _, out optionError, out _,
                                 interpretedTypeTarget: typeTarget);
+                        }
+                        else if (command == PackageCommand.Name)
+                        {
+                            optionError = PackageOptionsParser.Parse(interpretation, opts, packageArgs) switch
+                            {
+                                PackageOptionsParser.Success success =>
+                                    PackageCommand.GetLibraryInspectionModeError(
+                                        success.Options,
+                                        allowStaticDiscovery: true),
+                                PackageOptionsParser.UnrecognizedOption unknown =>
+                                    new OptionError($"Unrecognized option '{unknown.Option}'."),
+                                _ => throw new InvalidOperationException("Unexpected package parse result."),
+                            };
                         }
                     }
                     optionErrors.Add(command, optionError);

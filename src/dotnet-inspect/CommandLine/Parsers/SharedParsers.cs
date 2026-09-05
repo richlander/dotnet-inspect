@@ -199,10 +199,8 @@ public static class SharedParsers
                     overloadHead[(markerIndex + 1)..]
                     + typeName[^suffixLength..];
                 if ((marker is ".operator" or ".op_")
-                    && !MemberTargetSelector.Parse(memberName)
-                        .Name.StartsWith(
-                            "op_",
-                            StringComparison.Ordinal))
+                    && !OperatorNames.IsMetadataOperatorName(
+                        MemberTargetSelector.Parse(memberName).Name))
                 {
                     continue;
                 }

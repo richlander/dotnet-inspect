@@ -387,7 +387,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
-        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
+        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts, out var packageArgs));
 
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
@@ -401,7 +401,7 @@ public static class CommandLineBuilder
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts, typeArgs, memberArgs));
+        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts, typeArgs, memberArgs, packageArgs));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));

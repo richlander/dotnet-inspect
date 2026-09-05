@@ -961,6 +961,14 @@ public sealed class InspectionPlanningTests
         "Newtonsoft.Json.Linq.Op_Helpers.JValue",
         "Newtonsoft.Json.Linq.Op_Helpers",
         "JValue")]
+    [InlineData(
+        "Missing.op_Helpers.Widget.Run",
+        "Missing.op_Helpers.Widget",
+        "Run")]
+    [InlineData(
+        "Missing.op_Addition.Widget.Run",
+        "Missing.op_Addition.Widget",
+        "Run")]
     public void OperatorLikeIdentifiers_UseTheOrdinaryMemberBoundary(
         string target,
         string expectedType,
@@ -1760,6 +1768,47 @@ public sealed class InspectionPlanningTests
         Assert.DoesNotContain(
             "cannot be combined with --layout",
             result.Error);
+    }
+
+    [Theory]
+    [InlineData("--layout", null)]
+    [InlineData("--tfms", null)]
+    [InlineData("--print", null)]
+    [InlineData("--dependencies", null)]
+    [InlineData("--tfm", "all")]
+    [InlineData("--path", "README.md")]
+    public async Task PackageLibraryAlternativesUsePackageModeValidation(string option, string? value)
+    {
+        string[] args =
+        [
+            "Missing.Type.Run", "--library", "missing.dll", option,
+            .. value is null ? Array.Empty<string>() : [value],
+            "-D", "Library Info", "--schema", "--table", "--tips", "q",
+        ];
+        var commandless = await RunAppAsync(args);
+        var explicitPackage = await RunAppAsync(["package", .. args]);
+
+        Assert.Equal(1, commandless.Exit);
+        Assert.Equal(1, explicitPackage.Exit);
+        Assert.Empty(commandless.Output);
+        Assert.Contains($"--library cannot be combined with {option}", commandless.Error);
+        Assert.Contains(explicitPackage.Error.Trim(), commandless.Error);
+        Assert.DoesNotContain("Resolving", commandless.Error);
+    }
+
+    [Theory]
+    [InlineData("--layout=false")]
+    [InlineData("--layout:false")]
+    [InlineData("--tfms=false")]
+    public async Task PackageLibraryAlternativesPreserveDisabledConflictingOptions(string option)
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", "--library", "missing.dll", option,
+            "-D", "Library Info", "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[package/single-library/Library] Library Info", result.Output);
     }
 
     [Theory]
@@ -3193,6 +3242,43 @@ public sealed class InspectionPlanningTests
             "[member/member-target/",
             result.Output);
         Assert.Empty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("op_Helpers", "Run:1")]
+    [InlineData("Op_Helpers", "Run:1")]
+    [InlineData("op_Addition", "Run:1")]
+    [InlineData("op_Helpers", "Run~abcd")]
+    public async Task OperatorLikeNamespacePreservesEquivalentExactMemberSelectors(
+        string namespaceSegment,
+        string selector)
+    {
+        string type = $"Missing.{namespaceSegment}.Widget";
+        string[] tail =
+        [
+            "--platform", "Missing.Platform.For.Schema",
+            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q",
+        ];
+        var implied = await RunAppAsync(["member", $"{type}.{selector}", "-m", "Run", .. tail]);
+        var explicitMember = await RunAppAsync(["member", type, "-m", selector, .. tail]);
+
+        Assert.Equal(0, implied.Exit);
+        Assert.Equal(explicitMember, implied);
+        Assert.Contains(SectionNames.Signature, implied.Output);
+        Assert.Empty(implied.Error);
+    }
+
+    [Fact]
+    public async Task OperatorLikeNamespaceStillRejectsDistinctExactMemberSelectors()
+    {
+        var result = await RunAppAsync(
+            "member", "Missing.op_Helpers.Widget.Run:1", "-m", "Stop",
+            "--platform", "Missing.Platform.For.Schema",
+            "-D", SectionNames.Signature, "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires exactly one member name", result.Error);
     }
 
     [Fact]
