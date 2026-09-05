@@ -33,9 +33,12 @@ members or traversal permissions. Prefer it to an ambiguous inspection-only
 Open label. An actual saved-definition Open still means replacement and
 restoration; this contract does not rename that operation.
 
-While editing, Inspect and Run entry points are unavailable, including
-equivalent shell and subject-navigation paths. Configuration discovery, such
-as package search or listing curated package names, can remain available.
+The editor does not offer Inspect or Run against its draft. Ordinary shell,
+history, and subject-navigation departure requests remain reachable, but they
+cannot execute their destination until the editor's leave decision completes.
+These are guarded departures, not a way to execute the draft.
+Configuration discovery, such as package search or listing curated package
+names, can remain available.
 It must not execute inspection or materialize the draft as a side effect.
 Package and eager-loading selections describe the requested configuration;
 they do not apply changes to the committed Workspace as controls are toggled.
@@ -70,6 +73,17 @@ entry. Existing name validation and no-silent-replacement rules remain owned
 by [Saved Workspaces](inspect-web-saved-workspaces.md). Updating an existing
 entry is unavailable until that owner supplies the separately supported action;
 this contract does not add overwrite or rename semantics.
+
+An unnamed Workspace may enter Edit. Choosing Save then requests a new local
+name; Cancel creates no saved entry. Requiring a destination for this explicit
+Save does not require a named save for ordinary inspection outside Edit.
+
+Valid intent-only drafts, such as no loaded packages and an allowed prefix,
+also require a supported Save path without package-content acquisition.
+The current named Save's nonempty-Workspace restriction cannot implement that
+path. Intent-only saving is a specific prerequisite of the focused
+Definitions/Saved Workspaces adoption, not a capability supplied by this
+document or a reason to silently discard those edits.
 
 The current named Save snapshots an already-ready Workspace and does not
 apply a draft. It is not, by itself, an implementation of editor Save.
@@ -145,8 +159,10 @@ experience plan rather than replacing it:
 1. Lock this interaction contract and correct the experience mockups.
 2. Supply the missing owner-backed edit-save completion through focused
    Scope, Definitions, and Saved Workspaces adoption under #6012. This stage
-   must close persistence/admission correlation and failure behavior before
-   editor Save can be offered; this document does not prescribe their internals.
+   must support explicit unnamed-save destinations and valid intent-only
+   saving, and close persistence/admission correlation and failure behavior
+   before editor Save can be offered; this document does not prescribe their
+   internals.
 3. Adopt the editor eligibility and leave decisions in Browser controls and
    navigation through focused work in #6012's Browser stage. Model the
    asynchronous edit/save/departure interaction with owner-issued identities
@@ -167,14 +183,15 @@ gates must exercise these outcomes through product-owned operations:
 
 | Scenario | Required observation |
 | --- | --- |
-| Edit permissions or package choices | The draft changes; the committed Workspace does not; Inspect/Run are unavailable |
+| Edit permissions or package choices | The draft changes without applying it to the committed Workspace; draft inspection is unavailable |
 | Request inspection through another in-app entry point | Dirty edits receive Save/Discard/Stay before departure; no draft is executed |
+| Save an unnamed or valid intent-only draft | A new local name is requested explicitly; valid intent-only saving requires no package-content acquisition |
 | Save succeeds | Persisted intent and the ready Workspace match the requested edit before inspection is enabled |
 | Save fails or only part of its requested work succeeds | The draft and error remain visible; no completed-save claim or departure occurs |
 | Cancel, Discard, or Stay | Each has the declared effect on draft retention, persistence, and departure |
 | Save succeeds but the pending destination is no longer valid | The save remains completed; Navigation supplies the failure without recreating a dirty draft |
 | A late completion arrives after the owning edit is no longer current | It cannot release a different action or close a later editor |
-| Open a package directly from Home without entering Edit | Ordinary inspection does not require a named save |
+| Inspect a package directly from Home without entering Edit | Ordinary inspection does not require a named save |
 
 Interactive controls use existing Browser typed view models and DOM bindings,
 not Markout; they are stateful forms and navigation decisions rather than a

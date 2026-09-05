@@ -279,6 +279,7 @@ discovering a live prefix population remains an explicit query.
 The [Workspace editing contract](inspect-web-workspace-editing.md) owns the
 explicit Save/Cancel and dirty-navigation boundary. Drafts are not inspection
 inputs, and selecting Inspect never implicitly saves or discards edits.
+
 The editor configures traversal permissions and membership. Package Query
 selects a bounded population to add. The viewer browses the resulting content
 and can offer contextual Add actions without requiring a trip through the
@@ -311,7 +312,7 @@ Workspace                                                   [Edit]
 The editor exposes the independent traversal policy:
 
 ```text
-Workspace
+Edit Workspace
   Subject: Example.Package
   Packages: Example.Package
 
@@ -326,10 +327,10 @@ After leaving editing, the prefix-only stress case remains usable in the
 viewer with both defaults removed:
 
 ```text
-Workspace
+Workspace                                                   [Edit]
   Packages: 0
   Allowed traversal
-    Aspire.*                     Package prefix             [x]
+    Aspire.*                     Package prefix, on demand
 
   Call graph
     Subject: Aspire.*            Population: bounded
