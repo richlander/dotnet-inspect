@@ -1294,6 +1294,117 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void ChildScopeOptionRecognitionDefersRowArguments()
+    {
+        foreach (string valueAlias in new[] { "-n", "--rows", "--top", "--order-by" })
+        {
+            foreach (bool childOnly in new[] { false, true })
+            {
+                CandidateFixture first =
+                    new("first", parentName: "scope", childName: "Target",
+                        childDeclarations: RowDeclarations.All,
+                        extraOptionName: childOnly ? null : "--other",
+                        childOptionName: childOnly ? "--other" : null);
+                CandidateFixture second =
+                    new("second", childName: "Target", childDeclarations: RowDeclarations.All,
+                        extraOptionName: childOnly ? null : "--other",
+                        childOptionName: childOnly ? "--other" : null);
+                foreach (string following in new[] { "--other", "--other=payload", "--other:payload" })
+                {
+                    CliRowSelectionRouteEnvelopeResult result =
+                        Evaluate(["Target", valueAlias, following], first, second);
+                    CliRowSelectionRouteEnvelopeResult reversed =
+                        Evaluate(["Target", valueAlias, following], second, first);
+                    Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                    Assert.Equal(result.Outcome, reversed.Outcome);
+                    Assert.Equal([0], result.DeferredPositions);
+                    Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+                }
+
+                CliRowSelectionRouteEnvelopeResult laterValue =
+                    Evaluate(["Target", valueAlias, "--other", "--rows", "bad"], first, second);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.LoweringFailure, laterValue.Outcome);
+                Assert.Equal(CliRowSelectionFailureReason.InvalidWindowForm, laterValue.Failure!.Reason);
+                Assert.Equal(3, laterValue.Position);
+
+                CliRowSelectionRouteEnvelopeResult laterArity =
+                    Evaluate(["Target", valueAlias, "--other", "--rows"], first, second);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure, laterArity.Outcome);
+                Assert.Equal(CliRowSelectionArgumentFailureReason.MissingValue, laterArity.ArgumentFailure!.Reason);
+                Assert.Equal(CliRowSelectionOccurrenceKind.Rows, laterArity.RequestKind);
+                Assert.Equal(3, laterArity.Position);
+
+                CliRowSelectionRouteEnvelopeResult attached =
+                    Evaluate(["Target", $"{valueAlias}=--other"], first, second);
+                if (valueAlias == "--order-by")
+                {
+                    Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, attached.Outcome);
+                }
+                else
+                {
+                    Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.LoweringFailure, attached.Outcome);
+                    Assert.Equal(
+                        valueAlias == "--rows"
+                            ? CliRowSelectionFailureReason.InvalidWindowForm
+                            : CliRowSelectionFailureReason.MalformedValue,
+                        attached.Failure!.Reason);
+                    Assert.Equal(1, attached.Position);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void RowArityUsesTheTokenScope()
+    {
+        CandidateFixture first =
+            new("first", childName: "Target", childDeclarations: RowDeclarations.All,
+                extraOptionName: "--other");
+        CandidateFixture second =
+            new("second", childName: "Target", childDeclarations: RowDeclarations.All,
+                extraOptionName: "--other");
+
+        CliRowSelectionRouteEnvelopeResult absence =
+            Evaluate(["Target", "--head", "-n", "--other"], first, second);
+        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, absence.Outcome);
+        Assert.Equal([0], absence.DeferredPositions);
+
+        CliRowSelectionRouteEnvelopeResult prefix =
+            Evaluate(["-n", "--other", "Target"], first, second);
+        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure, prefix.Outcome);
+        Assert.Equal(CliRowSelectionArgumentFailureReason.MissingValue, prefix.ArgumentFailure!.Reason);
+        Assert.Equal(0, prefix.Position);
+
+        CliRowSelectionArgumentResult explicitChild =
+            CliRowSelectionArgumentAdapter.LowerExplicit(
+                first.Candidate.ParserRoot,
+                [.. first.Candidate.CommandPrefix, "Target", "-n", "--other"],
+                first.Candidate.Bindings,
+                CliRowSelectionCapabilities.All);
+        Assert.Empty(explicitChild.ArgumentFailures);
+        Assert.Empty(explicitChild.ParseErrors);
+        Assert.Equal(CliRowSelectionFailureReason.MalformedValue, explicitChild.LoweringResult!.Failure!.Reason);
+
+        CandidateFixture recursiveFirst =
+            new("recursive-first", childName: "Target", childDeclarations: RowDeclarations.All,
+                extraOptionName: "--other", extraOptionRecursive: true);
+        CandidateFixture recursiveSecond =
+            new("recursive-second", childName: "Target", childDeclarations: RowDeclarations.All,
+                extraOptionName: "--other", extraOptionRecursive: true);
+        CliRowSelectionRouteEnvelopeResult commonArity =
+            Evaluate(["Target", "-n", "--other"], recursiveFirst, recursiveSecond);
+        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure, commonArity.Outcome);
+        Assert.Equal(CliRowSelectionArgumentFailureReason.MissingValue, commonArity.ArgumentFailure!.Reason);
+        Assert.Equal(1, commonArity.Position);
+
+        CliRowSelectionRouteEnvelopeResult commonValue =
+            Evaluate(["Target", "-n", "--unknown"], first, second);
+        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.LoweringFailure, commonValue.Outcome);
+        Assert.Equal(CliRowSelectionFailureReason.MalformedValue, commonValue.Failure!.Reason);
+        Assert.Equal(1, commonValue.Position);
+    }
+
+    [Fact]
     public void DeferredLineModifierCannotChangeEarlierCountMeaning()
     {
         CandidateFixture lineIsRequiredValue =
@@ -1655,7 +1766,8 @@ public sealed class CliRowSelectionRouterPreflightTests
             string tailName = "--tail",
             string linesName = "--lines",
             string tailLinesName = "--tail-lines",
-            string? childOptionName = null)
+            string? childOptionName = null,
+            bool extraOptionRecursive = false)
         {
             Option<string[]> limit =
                 RowValueOption(limitName);
@@ -1735,9 +1847,9 @@ public sealed class CliRowSelectionRouterPreflightTests
             command.Options.Add(required);
             if (extraOptionName is not null)
             {
-                command.Options.Add(
-                    ModifierOption(
-                        extraOptionName));
+                Option<bool> extraOption = ModifierOption(extraOptionName);
+                extraOption.Recursive = extraOptionRecursive;
+                command.Options.Add(extraOption);
             }
             command.Arguments.Add(
                 new Argument<string[]>("values")
