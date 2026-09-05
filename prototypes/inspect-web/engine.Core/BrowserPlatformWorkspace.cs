@@ -539,7 +539,10 @@ internal static class BrowserPlatformWorkspace
                 state: state).ConfigureAwait(false);
         }
 
-        await using PlatformLoadAttempt runtime = await ProbeFamilyAsync(
+        await using ScopeReservation reservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
+        var runtime = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -554,7 +557,7 @@ internal static class BrowserPlatformWorkspace
             throw Failure(runtime.Failure);
         }
 
-        await using PlatformLoadAttempt aspNetCore = await ProbeFamilyAsync(
+        var aspNetCore = await ProbeFamilyAsync(
             state,
             targetFramework,
             platformVersion,
@@ -569,51 +572,30 @@ internal static class BrowserPlatformWorkspace
             throw Failure(aspNetCore.Failure);
         }
 
-        if (runtime.Scope is not null && aspNetCore.Scope is not null)
+        if (runtime.Coordinate is not null && aspNetCore.Coordinate is not null)
         {
             throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' belongs to more than one supported platform family.");
         }
 
-        PlatformLoadAttempt selected;
-        string family;
-        if (runtime.Scope is not null)
-        {
-            selected = runtime;
-            family = RuntimeFamily;
-        }
-        else if (aspNetCore.Scope is not null)
-        {
-            selected = aspNetCore;
-            family = AspNetCoreFamily;
-        }
-        else
-        {
-            throw new InvalidOperationException(
+        RealizedMemberCoordinate.Platform selected =
+            runtime.Coordinate ?? aspNetCore.Coordinate
+            ?? throw new InvalidOperationException(
                 $"Platform assembly '{assembly}' is not carried by any supported platform family. "
                 + $"{FailureMessage(runtime.Failure!)}; "
                 + FailureMessage(aspNetCore.Failure!));
-        }
-
-        if (ReferenceEquals(selected, runtime))
-            await aspNetCore.DisposeAsync().ConfigureAwait(false);
-        else
-            await runtime.DisposeAsync().ConfigureAwait(false);
-        bool useDeclaration = !state.Coordinates.Any(coordinate =>
-            coordinate.Family.Equals(family, StringComparison.Ordinal));
-        if (!useDeclaration)
-            await selected.DisposeAsync().ConfigureAwait(false);
 
         return await OpenCoreAsync(
             targetKey,
             targetFramework,
             platformVersion,
-            [new PlatformSelection(family, assembly)],
+            [new PlatformSelection(selected.Family, assembly)],
             host,
             deadline,
             packageLeases,
-            declaration: useDeclaration ? selected : null,
-            state: state).ConfigureAwait(false);
+            declaration: selected,
+            state: state,
+            reservation: reservation).ConfigureAwait(false);
     }
 
     static BrowserScopeLease<BrowserPlatformScope>? LeaseRetainedScope(
@@ -631,8 +613,9 @@ internal static class BrowserPlatformWorkspace
         Host host,
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline,
         BrowserPackageWorkspace.PackageLeaseSet packageLeases,
-        PlatformLoadAttempt? declaration,
-        TargetState state)
+        RealizedMemberCoordinate.Platform? declaration,
+        TargetState state,
+        ScopeReservation? reservation = null)
     {
         deadline.Token.ThrowIfCancellationRequested();
         state.LastAccess = ++_targetClock;
@@ -698,8 +681,8 @@ internal static class BrowserPlatformWorkspace
         // The counted workspace entry — and with it the full image allowance — is reserved before
         // any platform image is loaded, so a platform load under construction counts against the
         // same bound as a ready workspace.
-        await using ScopeReservation reservation =
-            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+        await using ScopeReservation candidateReservation =
+            reservation ?? await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
                 .ConfigureAwait(false);
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
             state.Coordinates;
@@ -744,28 +727,28 @@ internal static class BrowserPlatformWorkspace
                         StringComparison.Ordinal));
             if (familyCoordinate is null)
             {
-                bool usesDeclaration = declaration?.Scope?.Coordinates.Any(
-                    coordinate =>
-                        coordinate.Family.Equals(
-                            selection.Family,
-                            StringComparison.Ordinal)
-                        && string.Equals(
-                            coordinate.Assembly,
-                            selection.Assembly,
-                            StringComparison.OrdinalIgnoreCase)) == true;
-                await using PlatformLoadAttempt? loaded = !usesDeclaration
-                    ? await LoadDeclaredAttemptAsync(
+                if (declaration is { } discovered
+                    && discovered.Family.Equals(
+                        selection.Family,
+                        StringComparison.Ordinal)
+                    && string.Equals(
+                        discovered.Assembly,
+                        selection.Assembly,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    coordinates = coordinates.Add(discovered);
+                    continue;
+                }
+
+                await using PlatformLoadAttempt declared =
+                    await LoadDeclaredAttemptAsync(
                         targetFramework,
                         platformVersion,
                         selection.Family,
                         selection.Assembly,
                         host,
                         deadline,
-                        packageLeases).ConfigureAwait(false)
-                    : null;
-                PlatformLoadAttempt declared = usesDeclaration
-                    ? declaration!
-                    : loaded!;
+                        packageLeases).ConfigureAwait(false);
                 if (declared.Failure is not null)
                     throw Failure(declared.Failure);
                 RealizedMemberCoordinate.Platform realized =
@@ -814,7 +797,7 @@ internal static class BrowserPlatformWorkspace
         string scopeKey = ScopeKey(coordinates);
         BrowserScopeLease<BrowserPlatformScope> lease =
             await BrowserPackageWorkspace.RegisterScopeAsync(
-                    reservation,
+                    candidateReservation,
                     scopeKey,
                     candidate,
                     packageKeys,
@@ -844,7 +827,9 @@ internal static class BrowserPlatformWorkspace
             lease);
     }
 
-    static async Task<PlatformLoadAttempt> ProbeFamilyAsync(
+    static async Task<(
+        RealizedMemberCoordinate.Platform? Coordinate,
+        WorkspaceContextLoadOutcome.Failed? Failure)> ProbeFamilyAsync(
         TargetState state,
         string targetFramework,
         string? platformVersion,
@@ -857,30 +842,34 @@ internal static class BrowserPlatformWorkspace
         RealizedMemberCoordinate.Platform? pinned =
             state.Coordinates.FirstOrDefault(coordinate =>
                 coordinate.Family.Equals(family, StringComparison.Ordinal));
-        if (pinned is null)
-        {
-            return await LoadDeclaredAttemptAsync(
+        // Only the realized coordinate survives a probe. Its images close before the next
+        // probe or final realization reuses the operation's single counted reservation.
+        await using PlatformLoadAttempt attempt = pinned is null
+            ? await LoadDeclaredAttemptAsync(
                 targetFramework,
                 platformVersion,
                 family,
                 assembly,
                 host,
                 deadline,
+                packageLeases).ConfigureAwait(false)
+            : await LoadRealizedAttemptAsync(
+                [
+                    new RealizedMemberCoordinate.Platform(
+                        pinned.Family,
+                        pinned.Version,
+                        pinned.Producer,
+                        pinned.Framework,
+                        assembly),
+                ],
+                host,
+                deadline,
                 packageLeases).ConfigureAwait(false);
-        }
-
-        return await LoadRealizedAttemptAsync(
-            [
-                new RealizedMemberCoordinate.Platform(
-                    pinned.Family,
-                    pinned.Version,
-                    pinned.Producer,
-                    pinned.Framework,
-                    assembly),
-            ],
-            host,
-            deadline,
-            packageLeases).ConfigureAwait(false);
+        return (
+            attempt.Scope is { } scope
+                ? AssertSingleCoordinate(scope, family, assembly)
+                : null,
+            attempt.Failure);
     }
 
     static async Task<PlatformLoadAttempt> LoadDeclaredAttemptAsync(

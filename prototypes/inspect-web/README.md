@@ -459,6 +459,13 @@ tightens the old one-copy admission capacity while preserving the total bound;
 budget rejection must remain visible. The 256-assembly per-role bound remains.
 These are retained-image limits, not a total Wasm heap estimate.
 
+Unknown-family Platform discovery reserves before its first probe. Each probe
+releases its images before the next probe, retaining only its product-issued
+coordinate and the leased archives. Final realization reuses that reservation
+and those coordinates. This may reopen a selected image from the retained
+archive, but does not require two simultaneous probe allowances or another
+download.
+
 Archive bytes and download reservations separately keep the existing
 12-package/128 MiB aggregate. Packages referenced by pending construction,
 protected queries, or unfinished retirement remain charged there. Neither a
@@ -482,10 +489,12 @@ algorithm or a host-issued artifact identity.
 Registry retirement has an awaitable terminal outcome. Synchronous scope
 disposal is adapted as an already-completed retirement; an asynchronous
 workspace uses `CloseAsync`, never a synchronous wait or request-only
-`Dispose` pretending that reclamation finished. The outcome includes the
-workspace's group results and `ArtifactSessionCleanupFailures`, not merely
-whether its close task completed. The primary operation failure and any cleanup
-failures remain observable together. If cleanup fails, the entry remains
+`Dispose` pretending that reclamation finished. The outcome includes propagated
+workspace-close exceptions and `ArtifactSessionCleanupFailures`, not merely
+whether its close task completed. Coordinated role-release diagnostics retain
+their lower-owner representation; converting those diagnostics into Browser
+exceptions is not part of this adoption. The primary operation failure and the
+observed cleanup failures remain observable together. If cleanup fails, the entry remains
 charged and unavailable, with its bounded failure record surfaced to awaiting
 callers and subsequent admissions; no retry silently clears it or allocates
 replacement resources against unproven capacity. An abandoned caller does not
@@ -511,6 +520,12 @@ through success, expected failure, and unexpected failure.
 `QueryMemberCallGraph_RejectsCollapsedContextCoordinates` gate release of the
 resolved scope at the Catalog and Call Graph facade boundaries: after success
 or rejection, archive pressure can reclaim the completed query's resources.
+`WorkspaceOccurrences_LeaseAcquiredDuringRetirementKeepsArchiveResident` gates
+the independent occurrence lease acquired while retirement is suspended: archive
+pressure must not discard it, and occurrence activation must still work.
+`PlatformWorkspace_UnknownFamilyReservesBeforeProbing` gates rejection before
+loading when four scopes are protected, and successful sequential discovery
+within the fourth reservation when three scopes are protected.
 
 `eng/test-inspect-web-package-adoption-gate.sh` runs the public generated
 Package and Analysis facades against the published production engine in

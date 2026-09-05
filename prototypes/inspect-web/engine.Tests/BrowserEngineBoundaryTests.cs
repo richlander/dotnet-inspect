@@ -642,6 +642,91 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Single(resolution.Scope.Members);
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task PlatformWorkspace_UnknownFamilyReservesBeforeProbing(int protectedScopes)
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        var held = new List<BrowserScopeLease<BrowserInspectionScope>>();
+        try
+        {
+            for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes; index++)
+            {
+                BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+                    $"Artifact.PlatformCapacity.{Guid.NewGuid():N}",
+                    Package(image, "lib/net11.0/InspectWeb.Engine.Tests.dll"),
+                    TestContext.Current.CancellationToken);
+                held.Add(await BrowserPackageWorkspace.OpenScopeAsync(
+                    [coordinate],
+                    TestContext.Current.CancellationToken));
+            }
+            if (protectedScopes < held.Count)
+            {
+                BrowserScopeLease<BrowserInspectionScope> released = held[^1];
+                await BrowserPackageWorkspace.RemoveScopeAsync(released.Scope);
+                await released.DisposeAsync();
+                held.RemoveAt(held.Count - 1);
+            }
+            Assert.Equal(protectedScopes, BrowserPackageWorkspace.Stats().Workspaces);
+
+            var observedCounts = new List<int>();
+            var handler = new MultiplePlatformVersionHandler(
+                $"11.0.12{protectedScopes}",
+                new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["microsoft.netcore.app.runtime.linux-x64"] = PlatformPackage(
+                        ("System.Private.CoreLib.dll",
+                            File.ReadAllBytes(typeof(object).Assembly.Location))),
+                    ["microsoft.aspnetcore.app.runtime.linux-x64"] = PlatformPackage(
+                        ("InspectWeb.Engine.Tests.dll", image)),
+                })
+            {
+                BeforeDownload = _ =>
+                    observedCounts.Add(BrowserPackageWorkspace.Stats().Workspaces),
+            };
+            using var client = new HttpClient(handler);
+            var authorization =
+                new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]);
+
+            if (protectedScopes == BrowserPackageWorkspace.MaxOpenScopes)
+            {
+                InvalidOperationException error =
+                    await Assert.ThrowsAsync<InvalidOperationException>(OpenAsync);
+                Assert.Contains("cannot evict an active inspection", error.Message);
+                Assert.Empty(observedCounts);
+            }
+            else
+            {
+                await using BrowserPlatformScopeResolution resolution = await OpenAsync();
+                Assert.Equal("runtime", resolution.Coordinate.Family);
+                Assert.Single(resolution.Scope.Members);
+                Assert.Equal(2, observedCounts.Count);
+                Assert.All(observedCounts, count =>
+                    Assert.Equal(BrowserPackageWorkspace.MaxOpenScopes, count));
+                Assert.Equal(
+                    BrowserPackageWorkspace.MaxOpenScopes,
+                    BrowserPackageWorkspace.Stats().Workspaces);
+            }
+
+            Task<BrowserPlatformScopeResolution> OpenAsync() =>
+                BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    $"net11.0-auto-family-capacity-{protectedScopes}",
+                    "System.Private.CoreLib.dll",
+                    "",
+                    client,
+                    authorization,
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            foreach (BrowserScopeLease<BrowserInspectionScope> lease in held)
+                await lease.DisposeAsync();
+        }
+    }
+
     [Fact]
     public async Task PlatformWorkspace_UnknownFamilyRefusesMissingAssembly()
     {
@@ -6580,6 +6665,72 @@ public sealed class BrowserEngineBoundaryTests
             Assert.DoesNotContain(
                 packageKey,
                 BrowserPackageWorkspace.ResidentPackageKeys());
+        }
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_LeaseAcquiredDuringRetirementKeepsArchiveResident()
+    {
+        BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+        (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"artifact.occurrence.drain.{Guid.NewGuid():N}@1.0.0",
+            128L * MiB)).Dispose();
+
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.OccurrenceLease.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/InspectWeb.Engine.Tests.dll"),
+            TestContext.Current.CancellationToken);
+        string packageKey =
+            BrowserPackageWorkspace.PackageKey(coordinate.PackageId, coordinate.Version);
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"occurrence-retirement-{Guid.NewGuid():N}",
+            closing,
+            [packageKey]);
+        Task<BrowserPackageWorkspace.PackageDownloadReservation> pressure =
+            BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"artifact.occurrence.pressure.{Guid.NewGuid():N}@1.0.0",
+                128L * MiB).AsTask();
+        try
+        {
+            await closing.DisposeStarted.Task.WaitAsync(
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+            BrowserWorkspacePackageOccurrenceView view =
+                await BrowserWorkspaceOccurrenceOperations.QueryAsync(
+                    [new BrowserPackageRequest(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        coordinate.Framework)]);
+
+            release.TrySetResult();
+            InvalidOperationException error =
+                await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                {
+                    using var unexpected = await pressure;
+                });
+            Assert.Contains("package-cache limit", error.Message);
+            Assert.Contains(packageKey, BrowserPackageWorkspace.ResidentPackageKeys());
+
+            BrowserWorkspacePackageOccurrenceActivation activation =
+                JsonSerializer.Deserialize(
+                    await PackageExports.ActivateWorkspacePackageOccurrence(
+                        Assert.Single(view.Occurrences).Action),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceActivation)!;
+            Assert.True(activation.Activated);
+            Assert.False(activation.Superseded);
+            Assert.NotNull(activation.Package);
+        }
+        finally
+        {
+            release.TrySetResult();
+            BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+            await BrowserPackageWorkspace.RemoveScopeAsync(closing);
         }
     }
 

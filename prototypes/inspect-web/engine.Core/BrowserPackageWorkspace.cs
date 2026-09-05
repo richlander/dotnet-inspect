@@ -1781,7 +1781,9 @@ internal static class BrowserPackageWorkspace
                 return;
         }
 
-        Cache.Remove(packageKey);
+        // Occurrence queries can acquire an archive lease while scope retirement is suspended.
+        if (!Leases.ContainsKey(packageKey))
+            Cache.Remove(packageKey);
     }
 
     /// <summary>
