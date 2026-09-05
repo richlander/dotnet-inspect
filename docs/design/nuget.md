@@ -1,9 +1,187 @@
-# NuGet API Reference
+# NuGet API selection and reference
 
-This document describes the NuGet APIs used by `dotnet-inspect` for fetching package metadata.
+## Status and scope
+
+This is the scenario-to-API decision record for
+[#5942](https://github.com/richlander/dotnet-inspect/issues/5942), followed by
+the endpoint reference. Its claim is deliberately small:
+
+> Select an API or combination of APIs that supplies the scenario's required
+> facts and population, then compare the cost of semantically suitable routes.
+> No NuGet API is the preferred source for every tool scenario.
+
+The decisions guide implementation; they do not introduce a runtime selector,
+new query syntax, or a Catalog-backed product capability. Current paths,
+proposed adoption, and unmeasured alternatives are distinguished below.
+"Preferred" means the best-supported role under the stated requirements, not
+a measured latency win over every alternative.
+
+This document owns API-selection guidance, not neighboring contracts:
+[package sources](package-source-model.md) own authority and result adoption;
+[version resolution](version-resolution.md) and
+[metadata persistence](package-metadata-persistence.md) own their policies;
+[Gallery discovery](nuget-gallery-discovery.md) owns provider search semantics;
+and the query, row-selection, and [event-stream
+owners](engine-browser-async-event-stream.md) retain evaluation, completion,
+and delivery semantics. Implementation belongs in the appropriate shared
+source/package/query path, consumed by CLI and browser, rather than duplicated
+host HTTP logic.
+
+## Scenario selection
+
+Start with an authorized source and the exact question. Distinguish one known
+ID/version, searchable listed IDs, downloadable versions, and a time-bounded
+event history. Those are different populations, not different speeds of the
+same query. Reuse eligible local evidence under its owning cache policy before
+adding network work; a local package or restored project need not become a
+Gallery request.
+
+The conventional baseline is NuGet's separation of discovery, per-package
+metadata, content, and change feeds. Gallery-specific ordering is a deliberate,
+separately documented extension, not a capability assumed of every V3 feed.
+Source eligibility and supported resource versions precede endpoint choice.
+Missing capability, failure, and authoritative absence remain distinct under
+the source owner; an API preference never authorizes borrowing another feed's
+answer.
+
+| Tool scenario and required evidence | Preferred route or combination | Boundary that makes the choice meaningful |
+| --- | --- | --- |
+| Find packages by text; obtain searchable display metadata | V3 Search for portable feed search; use the Gallery-specific route when its additional behavior is requested. | Ranked, policy-filtered package IDs, not every version or every historical package. Search results are candidates for deeper inspection. |
+| Browse popular packages, tools, or templates without a term | Gallery Search with its declared type selector and source order; basic rows need only search metadata. | Follow [Gallery discovery](nuget-gallery-discovery.md): one declared finite input, approximate population total, and page-local download ordering. This does not promise exact global top-N. |
+| Suggest package IDs while entering a name | Autocomplete ID mode fits names-only suggestions; Search fits suggestions that also need version and description. | Suggestions are not exhaustive prefix enumeration. Compare equivalent UI evidence, not bare names against richer search rows. |
+| List downloadable versions of a known ID | Flat Container version index; add Registration when listing state or version metadata is needed. | Downloadable includes unlisted versions; normal user-facing latest/listed policy still belongs to version resolution. |
+| Populate a listed-version-only selector | Autocomplete version mode is a candidate when only version strings under its prerelease/SemVer policy are required. | Compare with the existing Flat Container plus Registration route. It cannot supply unlisted versions or per-version metadata, and is not the current adopted path. |
+| Inspect deprecation or listing state of one exact version | Registration for the selected ID/version, consuming embedded metadata or following its Catalog-entry reference. | A Search result for another version cannot answer this question. A direct Catalog leaf fetch is not a Catalog crawl. |
+| Inspect the manifest, declared dependencies, or manifest-defined package type | Exact Flat Container `.nuspec`, or the manifest in an already acquired package; reuse equivalent metadata only when the query's evidence contract admits it. | Registration/Catalog dependency groups may answer a metadata question, but do not silently replace exact manifest or package-content evidence. |
+| Profile packages under a literal ID prefix with manifest predicates | Bounded Search candidates, exact prefix filtering, then exact manifests for the candidates. | Preserve source truncation and per-candidate failures. Search type selection and a manifest predicate with a similar label are not interchangeable evidence. |
+| Match assembly APIs, IL, SourceLink, or package-file contents | Discover or resolve coordinates as needed, then use the package acquisition owner and the required artifacts. | Neither Search nor Catalog metadata proves an assembly/content predicate. Sparse/range acquisition is an acquisition choice, not a different NuGet discovery API. |
+| Ask what changed after a Catalog cursor or within a stated event interval | Catalog index/page discovery, then the leaves needed for the requested facts. | Commit time is change-feed order, not original publication time. Changes since a cursor are not a complete current package inventory. |
+| Build or audit an inventory beyond Search's bounded window | Catalog-derived state with an explicit baseline and horizon, followed by metadata/content enrichment required by the membership rule. | A partial history scan needs a scenario-specific coverage argument. A maintained view is a possible optimization, not a prerequisite for every useful Catalog query. |
+| Evaluate advisories across selected package versions | Vulnerability API pages plus local version-range matching; fetch advisory detail only when requested. | This answers known vulnerability applicability, not deprecation, popularity, or a universal absence-of-vulnerabilities claim. |
+
+One operation may legitimately compose several rows: Search can discover a
+candidate, Registration can supply current version metadata, and Flat Container
+can supply the exact manifest or assembly needed to confirm it. Preserve the
+source and package/version association at each existing owner boundary.
+
+Neither a provider result limit nor a cheaper filter may change the question.
+For example, taking ten candidates before a selective manifest predicate is
+not the same as returning ten matching packages. Source capacity `K` and
+semantic result selection `n` remain distinct under
+[source delegation](source-delegation.md) and
+[row selection](semantic-row-selection.md).
+
+### Current paths and adoption gaps
+
+This inventory describes repository head
+`f29d73ed84908fa29593aa5184185344bec9bd14` on 2026-09-05 UTC.
+It is a navigation aid, not a second implementation specification or a claim
+that every recommendation above has shipped.
+
+| Surface | Current path and evidence | Remaining decision |
+| --- | --- | --- |
+| CLI prefix profiles and browser Package Query | [PackageProfileQuery](../../src/DotnetInspector.Queries/PackageProfileQuery.cs) and [PackageQuery](../../src/DotnetInspector.Queries/PackageQuery.cs) use the shared source for prefix candidates, then manifest/content evidence. [BrowserPackageQueryOperations](../../prototypes/inspect-web/engine.PackageExports/PackageQueryExports.cs) consumes the shared query stream. | Preserve those evidence tiers while measuring first and last qualifying results; do not replace manifest/content predicates with similarly named search selectors. |
+| Gallery version listing | [NuGetGalleryPackageSourceClient.GetVersionsAsync](../../src/NuGetFetch/NuGetGalleryPackageSourceClient.cs) combines Flat Container versions with Registration listing evidence. The [browser workspace](../../prototypes/inspect-web/engine.Core/BrowserPackageWorkspace.cs) calls that source operation; package resolution also has its own policy. | A bare version array does not establish listed state. Evaluate reuse of existing Registration observations without changing version-resolution or partial-evidence policy. |
+| Exact-version metadata and advisories | [PackageMetadataService.FetchAllMetadataAsync](../../src/DotnetInspector.Services/PackageMetadataService.cs) composes Registration, referenced Catalog metadata, Search enrichment, a content probe, and vulnerability data. | This is an aggregate acquisition path, not a demonstrated minimal request plan for every individual field. [#5947](https://github.com/richlander/dotnet-inspect/issues/5947) tracks portable Registration-link discovery; compare field-specific alternatives before further routing changes. |
+| Browser Spotlight package suggestions | [querySpotlightPackages](../../prototypes/inspect-web/src/dotnet-inspect.ts) directly calls V3 Search with `take=8` and consumes ID, version, and description. | Autocomplete names alone would reduce the result's information. Any move to shared discovery should retain those fields and be evaluated through the actual host. |
+| Termless/type-filtered Gallery browse and download ordering | [Gallery discovery](nuget-gallery-discovery.md) is the design from #5922, not evidence of completed host adoption. | [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) retains its eight-milestone source, row, CLI, and browser sequence. This record does not restart or replace it. |
+| Catalog history/inventory | Referenced leaves already contribute metadata; the [package-set audits](package-set-registry.md#initial-registry) used the event Catalog as authoring evidence. | Bounded change queries and a maintained inventory are candidate capabilities, not product behavior established by those audits. Establish their scenario and cost before choosing a new runtime design. |
+
+Names-only Autocomplete adoption and Catalog enumeration are research
+directions here, not automatic replacements for current paths. Shared API
+selection does not mean one endpoint, one request, or one universal planner.
+
+## Performance evidence and comparison
+
+### Measure first and last requested results
+
+For a request selecting `n` results, report both **time to first result** and
+**time to the last requested result**. Use one start boundary before source
+discovery/acquisition and one named observation boundary throughout a
+comparison, such as CLI output publication or browser result-model publication.
+Engine emission, host publication, and browser paint are different milestones;
+label them rather than treating a callback as a paint measurement.
+
+| Metric | Meaning |
+| --- | --- |
+| `T_first` | Elapsed time until the first usable selected result crosses the named boundary, after the required predicates and ordering. Not first response byte, candidate, or progress event. |
+| `T_n` | Elapsed time until result `n` crosses that same boundary. This is time to the last requested result, not total source-enumeration time. |
+| `T_terminal` | Elapsed time until the operation publishes its completion, cancellation, or failure, including final accounting. It may follow the last result. |
+| Returned count and last-result time | If fewer than `n` results arrive, report the actual count, time of the last delivered result when one exists, and the completion kind. `T_n` is not attained; do not relabel the shorter result as satisfying `n`. |
+
+For zero delivered results, `T_first` and last-result time are unavailable.
+For a zero-result request, `T_n` is not applicable. Report terminal latency
+and the reason, not a zero latency success. For `n = 1`, `T_first` and `T_n`
+refer to the same event. A failure after rows were delivered remains a failed
+operation alongside those observed timings.
+
+Keep query semantics, requested `n`, source capacity `K` where applicable, source/version
+policy, required fields, and observation boundary fixed between comparable
+routes. Record cold and warm cache state, host/runtime, repeated samples,
+requests, transferred bytes, candidate/evaluation counts, failures, and
+completion scope. For Catalog, also record the baseline, cursor/horizon,
+initial ingestion cost, and incremental refresh cost; do not hide index
+construction behind a warm-query result.
+
+The [event-stream contract](engine-browser-async-event-stream.md) from
+[#5566](https://github.com/richlander/dotnet-inspect/pull/5566) permits useful
+partial outcomes and progress to be delivered separately from completion.
+It does not make the upstream source incremental or remove an ordering barrier.
+A route that must collect and sort its input can have a late `T_first`; a
+streaming route can improve `T_first` without improving `T_n`. Measure both.
+Progress latency is useful supplemental evidence on sparse/no-match paths, not
+a substitute for either result metric.
+
+### What the existing evidence establishes
+
+| Evidence | Observation | Decision supported, and limit |
+| --- | --- | --- |
+| [Gallery discovery probe](nuget-gallery-discovery.md#provider-and-convention-evidence), 2026-09-04 | Ten stable tools: 6,742 compressed response bytes and 0.355 s for the sorted Gallery request. | Metadata-only browse is practical in that observation. This is one HTTP timing, not product `T_first`/`T_n` or a measured win over an equivalent Catalog query. |
+| [Package-prefix benchmark](package-query-cli.md#measured-package-profile-limits), 2026-09-02 | For 500 `Microsoft.` IDs, Search took 0.72/0.73 s and the manifest profile took 36.89/28.02 s on the two recorded hosts. | Per-candidate enrichment materially changes end-to-end cost. The two operations answer different questions; Search alone cannot replace the profile's evidence. These are total timings, not first/last-result measurements. |
+| Same benchmark's source boundary | A request for 5,000 yielded 2,933 exact-prefix IDs from the current fixed-page Search path before `SourcePageLimit`. | A larger client limit does not make Search exhaustive. The provider permits `skip` only through 3,000; a larger final legal page still cannot continue beyond that offset. |
+| [Extensions/ASP.NET audit](package-set-registry.md#initial-registry), 2026-09-03 | 1,361 Catalog pages; three current Extensions IDs were missed by prefix Search. | Concrete completeness value. All three were shared-framework-only, so the additive set was unchanged. The scan's date boundary was justified by that membership rule, not by a universal completeness claim. |
+| [Aspire audit](package-set-registry.md#aspire-adoption), 2026-09-04 | 9,354 Catalog events for 163 post-launch IDs; 26 Catalog-only IDs were preview-only. | Historical/prerelease inventory value, not proof that stable Search missed qualifying stable packages. Catalog, metadata, and archives were complementary authoring evidence. |
+
+The linked records preserve the inputs, dates, procedures, and qualifications.
+They do not establish a general API speed ranking. In particular, the time to
+fetch a known Catalog leaf, scan a bounded interval, bootstrap an inventory,
+and query a warm derived index are four different measurements. First/last
+product-result comparisons for these alternatives remain **unmeasured**.
+
+### Next comparisons, not presumed winners
+
+Use the smallest experiment that can change a scenario decision:
+
+- **Exact-version metadata:** compare a direct Registration leaf plus any
+  referenced Catalog fetch against index/page metadata already available for
+  the same ID. Include a package with many versions and an older deprecated
+  version whose searchable current version is not deprecated. Compare only
+  routes that supply the same required fields and version identity.
+- **Selective profiles:** hold the admitted candidate input and `n` fixed,
+  include both dense-match and sparse/no-match cases, and separate discovery
+  from manifest/content evaluation costs. A provider type selector is a
+  different query unless the query owner establishes equivalent evidence.
+- **Listed-version selectors:** compare Autocomplete version mode with Flat
+  Container plus Registration for the same listed/stable/SemVer population.
+  Include unlisted and SemVer 2 versions; a smaller response that omits required
+  versions is not a faster answer to the same question.
+- **Catalog discovery:** separately measure a bounded recent-change request,
+  initial inventory construction, and resumed cursor consumption. Pin the
+  baseline/horizon and distinguish event rows from distinct current packages.
+  Include a package with no event in the recent interval so the experiment
+  cannot accidentally equate "recently changed" with "all current packages."
+- **Host delivery:** measure `T_first` and `T_n` through both the CLI and
+  browser adopter, including a buffered-ordering case. An HTTP-only probe
+  characterizes the provider, not a shipped product interaction.
+
+Record the result beside the scenario decision. Change shared acquisition
+routing only after equivalent evidence and a useful cost or capability benefit
+are established. New runtime capabilities need a focused owner and counted
+CLI/browser adoption plan; this decision record is not that implementation.
 
 ## Service Index
 
+The [Service Index contract][service-index] describes resource discovery.
 NuGet API endpoints are discovered from each configured source's V3 service index. NuGet.org's
 index is the default only when source resolution selects it:
 
@@ -85,35 +263,56 @@ entry; the next request retries them.
 
 ## APIs Used
 
+The references distinguish protocol capabilities from current access patterns.
+Autocomplete is included as a candidate resource, not as a claim of adoption.
+
 ### 1. Registration API
 
-**Purpose:** Version-specific package metadata (what the NuGet client uses for restore)
+**Purpose:** Metadata for a known package ID and its versions, rather than discovery of IDs.
+
+**Contract:** [Package metadata resource][registration].
 
 **Service type:** `RegistrationsBaseUrl/*`
 
-**Request:** `{registration-base}/{id-lower}/{version-lower}.json`
+**Index:** `{registration-base}/{id-lower}/index.json`
 
-**Fields returned:**
+The index contains pages, either embedded or linked. Page items embed a
+`catalogEntry` object with version-specific metadata, including optional
+`dependencyGroups`, `deprecation`, `vulnerabilities`, `licenseExpression`,
+`published`, and `listed`. Reuse an embedded page instead of fetching it again;
+for a known version, page bounds identify which linked page is relevant.
 
-| Field | Description |
-| ----- | ----------- |
-| `published` | Publication date |
-| `listed` | Whether package is listed |
-| `packageContent` | URL to download .nupkg |
-| `catalogEntry` | URL to full catalog entry |
-| `registration` | URL to package registration index |
+The **standalone Registration leaf** is a different shape: it can contain
+`published`, `listed`, `packageContent`, `registration`, and a `catalogEntry`
+**URL**, without the full metadata embedded in a page item. Following that URL
+is an additional request, not a guarantee of one-request deprecation lookup.
+The current metadata service also accepts an embedded Catalog object from feeds.
+
+The public contract discovers page and leaf URLs through parent links.
+`PackageMetadataService` currently constructs
+`{registration-base}/{id-lower}/{version-lower}.json`, the familiar nuget.org
+leaf pattern. That is an implementation convention, not a portable V3 URL
+guarantee; [#5947](https://github.com/richlander/dotnet-inspect/issues/5947)
+tracks parent-link discovery separately from this documentation.
 
 **Notes:**
 
 - Feeds may omit this optional resource
 - When capability versions differ, the highest advertised version is used; equivalent endpoints
   at that version are tried in advertised order
-- Does NOT include: deprecation, downloads, owners, verified status
-- The `catalogEntry` may be a URL or an embedded object
+- Resource version matters: the documented `3.6.0` hive includes SemVer 2
+  packages; older hives exclude them. Optional metadata availability varies by source.
+- Registration **can include version-specific deprecation**; fetching a
+  separate Catalog leaf is not always necessary.
+- Downloads, current owners, and reserved-prefix verification are Search metadata.
+- On nuget.org, an unlisted version's `published` value uses the year 1900.
+  Do not treat that sentinel as the original publication date.
 
 ### 2. Search API
 
 **Purpose:** Package discovery and aggregate metadata (what nuget.org website uses)
+
+**Contract:** [Search Query Service][search].
 
 **Service type:** `SearchQueryService/*`
 
@@ -124,11 +323,11 @@ entry; the next request retries them.
 | Field | Description |
 | ----- | ----------- |
 | `totalDownloads` | Lifetime download count |
-| `verified` | Whether owner is verified |
+| `verified` | Package ID matches a reserved prefix and is owned by a prefix owner on nuget.org |
 | `owners` | List of package owners |
-| `deprecation` | Deprecation info (reasons, message, alternatePackage) |
-| `vulnerabilities` | Known vulnerabilities (summary only) |
-| `versions` | All available versions |
+| `deprecation` | Deprecation of the result's latest package version |
+| `vulnerabilities` | Known vulnerabilities of the result's latest package version |
+| `versions` | Listed versions under the request's prerelease/SemVer policy, with per-version downloads |
 | `authors` | Package authors |
 | `description` | Package description |
 | `tags` | Package tags |
@@ -143,27 +342,53 @@ entry; the next request retries them.
   ASCII subset; `SearchServiceTests.SearchAsync_UnicodePackageIds_ReturnResults` gates the live-feed
   case
 - Results are paged until the exact package ID is found or 1,000 candidates have been examined
-- Best source for: deprecation, downloads, verified status, owners
-- Returns data for latest version only (not version-specific deprecation)
+  in the current metadata-enrichment path; this is not a general protocol limit
+- Aggregate fields include downloads, reserved-prefix verification, and current owners.
+  `authors` is package-authored text, not feed ownership.
+- Other result metadata describes the latest version under the search policy,
+  not an arbitrary requested older version
+- Unlisted versions are excluded. `semVerLevel=2.0.0` opts into SemVer 2
+  results; `prerelease` independently controls prerelease inclusion.
+- Empty text is supported. `SearchQueryService/3.5.0` adds `packageType`
+  filtering and `packageTypes`; these are not manifest/content predicates.
+- On nuget.org, `skip <= 3000` and `take <= 1000`. The response does not offer
+  a continuation cursor beyond that window.
+- Portable V3 Search does not define a download-order parameter. The separate
+  [Gallery Search design](nuget-gallery-discovery.md) owns `/search/query`,
+  its provider extension, ordering limits, and approximate total.
 
 ### 3. Vulnerability API
 
-**Purpose:** Security vulnerability data for all packages
+**Purpose:** Bulk known-vulnerability data for local package/version-range matching.
+
+**Contract:** [Vulnerability Info][vulnerability-info]. Its bulk-download model
+is the NuGet client's conventional alternative to fetching metadata separately
+for every package. Already available exact-version metadata may also carry
+advisories; no route establishes that unknown vulnerabilities do not exist.
 
 **Service type:** `VulnerabilityInfo/*`
 
 **Structure:**
 
 ```json
-{
-  "pages": [
-    { "@id": "vulnerability.base.json", "comment": "...", "updated": "..." },
-    { "@id": "vulnerability.update.json", "comment": "...", "updated": "..." }
-  ]
-}
+[
+  {
+    "@name": "base",
+    "@id": "https://nuget.example/v3/vulnerabilities/base.json",
+    "@updated": "2026-09-01T00:00:00Z"
+  },
+  {
+    "@name": "update",
+    "@id": "https://nuget.example/v3/vulnerabilities/update.json",
+    "@updated": "2026-09-04T00:00:00Z"
+  }
+]
 ```
 
-Each page is a gzipped JSON dictionary keyed by lowercase package name:
+The index is an array, not an object with a `pages` property. Its `@name`
+and `@updated` fields support cache reuse and refresh decisions. Pages combine
+additively; an update page is not an overwrite/delete patch for a base page.
+A populated page is a JSON dictionary keyed by lowercase package name:
 
 ```json
 {
@@ -199,29 +424,46 @@ Each page is a gzipped JSON dictionary keyed by lowercase package name:
 
 **Purpose:** Package content and version listing
 
+**Contract:** [Package Base Address][package-content].
+
 **Service type:** `PackageBaseAddress/*`
 
 **Version list:** `{package-base}/{id-lower}/index.json`
 
 **Package download:** `{package-base}/{id-lower}/{version-lower}/{id-lower}.{version-lower}.nupkg`
 
+**Manifest:** `{package-base}/{id-lower}/{version-lower}/{id-lower}.nuspec`
+
+Versions in these URLs are NuGet-normalized and lowercased, excluding SemVer
+build metadata. The manifest endpoint supplies the `.nuspec` contained in the
+corresponding package without requiring archive acquisition.
+
 **Metadata probe:** the package download URL is requested with `Range: bytes=0-0`; the
 response establishes package existence and reports package size without downloading the body.
 
 **Notes:**
 
-- Used for downloading packages and listing available versions
-- Static blob storage (fast)
+- The version index lists downloadable versions, including **listed and
+  unlisted**. It supplies neither listing flags nor an event history.
+- Suitable for exact manifest/content acquisition and simple version lists.
+  Static storage is an implementation property, not proof that this route is
+  fastest for a question requiring additional metadata.
+- Range-based content acquisition must follow the package acquisition owner's
+  support and admission contract; a size probe is not partial-assembly evidence.
 
 ### 5. Catalog API
 
 **Purpose:** Append-only log of all package events, and **version-specific metadata**
 
-**Index:** `https://api.nuget.org/v3/catalog0/index.json`
+**Contract:** [Catalog resource][catalog].
 
-**Catalog Entry:** Accessed via `catalogEntry` URL from Registration API response
+**Service type:** `Catalog/3.0.0`; not every source provides it.
 
-**Example:** `https://api.nuget.org/v3/catalog0/data/2024.07.10.16.09.35/system.text.json.5.0.0.json`
+**Index on nuget.org:** `https://api.nuget.org/v3/catalog0/index.json`
+
+**Individual entry:** Follow a Catalog page's leaf URL or an authorized
+Registration response's `catalogEntry` reference; do not synthesize a
+timestamped leaf URL.
 
 **Fields returned (in catalog entry):**
 
@@ -233,24 +475,63 @@ response establishes package existence and reports package size without download
 | `licenseExpression` | SPDX license expression |
 | `projectUrl` | Project URL |
 | `dependencyGroups` | Dependencies by target framework |
-| `published` | Publication date |
+| `packageTypes` | Package-authored types when present |
+| `packageSize` | Package archive size in bytes |
+| `published` | Listing/publication timestamp, with an unlisted sentinel on nuget.org |
 | `listed` | Whether version is listed |
 
 **Notes:**
 
-- Contains full history of package publishes, unlists, deprecations
-- **Critical:** This is the only source for version-specific deprecation
-- The catalog index is designed for mirroring, but individual entries can be fetched directly
-- Access pattern: Registration API → `catalogEntry` URL → fetch catalog entry
+- Catalog is indexed by **time**, not package ID, prefix, or type.
+  Page summaries expose ID, version, event type, and commit time; fetch leaves
+  when the question needs listing state or richer metadata.
+- `PackageDetails` snapshots arise from publishes and metadata changes,
+  including relisting, unlisting, deprecation, and administrative reflow.
+  `PackageDelete` records deletion. Do not infer a unique user action from a
+  details snapshot alone.
+- Process change-feed order by server `commitTimeStamp`, not `published` or
+  the client's clock. A resumable cursor describes successfully processed
+  commits. Index/page array position is not an event-order guarantee.
+- A complete current view requires a covered baseline and replay through a
+  stated horizon, accounting for updates and deletes. A recent window alone
+  answers only a recent-change question unless a membership rule justifies
+  broader coverage.
+- The API supports both bounded interval queries and maintained derived
+  views. Neither needs to be confused with the existing single-leaf metadata
+  path. Registration page metadata can supply the same deprecation field.
+- Lifetime download counts and current ownership are not Catalog metadata.
+  For inventory rules requiring them, plan separate authorized enrichment.
+
+### 6. Autocomplete API
+
+**Purpose:** Interactive package-ID suggestions and listed-version enumeration.
+This is a candidate resource for scenario selection, not a claim that the
+current Spotlight or version selector uses it.
+
+**Contract:** [Search Autocomplete Service][autocomplete].
+
+**Service type:** `SearchAutocompleteService/*`; `3.5.0` adds `packageType`.
+
+| Mode | Request | Result and limitation |
+| --- | --- | --- |
+| Package IDs | `{autocomplete}?q={text}&skip={offset}&take={count}&prerelease={bool}&semVerLevel=2.0.0` | `data` contains ID strings. Query interpretation is provider-defined; nuget.org matches ID-token prefixes, not necessarily the tool's literal full-ID prefix. Packages with only unlisted versions are excluded. |
+| Versions of a known ID | `{autocomplete}?id={id}&prerelease={bool}&semVerLevel=2.0.0` | `data` contains all matching **listed** version strings. The documented version mode has no `skip`/`take`; it is not the Flat Container downloadable-version population. |
+
+Both modes omit descriptions, owner/download metadata, and full version
+records. Names-only suggestions can avoid that payload; richer suggestions
+would require another source or should retain Search. Preserve the requested
+prerelease/SemVer policy in either case.
 
 ## Deprecation: Package vs Version
 
-NuGet supports two levels of deprecation:
+Deprecation is associated with package versions. Search projects the latest
+version's deprecation; it is not a separate package-wide verdict proving that
+all versions are deprecated.
 
-| Level | Source | Example |
-| ----- | ------ | ------- |
-| **Package-level** | Search API | Entire package deprecated (e.g., EntityFramework.MappingAPI) |
-| **Version-specific** | Catalog Entry | Old versions deprecated but package still active (e.g., System.Text.Json 5.0.0) |
+| Question | Sufficient metadata source |
+| --- | --- |
+| Is the version selected by Search deprecated? | That Search result's deprecation, when available for that version |
+| Is this exact older version deprecated? | That version's Registration page metadata or referenced Catalog entry |
 
 **Version-specific deprecation example (System.Text.Json 5.0.0):**
 
@@ -266,25 +547,32 @@ NuGet supports two levels of deprecation:
 **Access pattern for version-specific deprecation:**
 
 1. Discover `RegistrationsBaseUrl/*` from the selected source's service index
-2. Fetch `{registration-base}/{package}/{version}.json`
-3. Extract `catalogEntry` URL from response
-4. Fetch catalog entry to get `deprecation` field
+2. Select that version's metadata from the Registration index/page, or use a
+   known leaf reference
+3. Consume embedded `catalogEntry.deprecation` when supplied
+4. If using a standalone leaf that references Catalog, fetch that entry for
+   its version-specific metadata
 
-The Search API only returns deprecation for the latest version, so it won't show deprecation for older versions of actively maintained packages.
+The current service's direct-leaf access convention is documented above.
+Source/version association and metadata-availability state remain important:
+a missing optional field or failed fetch is not permission to use another
+version's answer.
 
 ## Data Source Summary
 
 | Data Point | Best Source | Notes |
 | ---------- | ----------- | ----- |
-| Published date | Registration API | Version-specific |
-| Downloads | Search API | Aggregate across all versions |
-| Verified status | Search API | Owner verification |
+| Published/listed metadata | Registration API | Version-specific; account for the unlisted timestamp sentinel |
+| Downloads | Search API | Package lifetime total and per-version counts have different scopes |
+| Verified status | Search API | Reserved-prefix association on nuget.org, not package safety certification |
 | Owners | Search API | Current owners |
-| Deprecation (package) | Search API | When entire package is deprecated |
-| Deprecation (version) | Catalog Entry | When specific version is deprecated |
+| Deprecation (Search-selected version) | Search API | Does not establish a package-wide verdict |
+| Deprecation (exact version) | Registration metadata or referenced Catalog entry | Preserve version identity |
 | Vulnerabilities | Vulnerability API | Must check version ranges |
 | CVE ID | GitHub Advisory API | Fetch using GHSA ID from advisory URL |
-| Available versions | Flat Container | Simple JSON array |
+| Downloadable versions | Flat Container | Array includes unlisted versions |
+| Listed version strings | Autocomplete version mode | Candidate route; preserve prerelease/SemVer policy |
+| Exact manifest | Flat Container | XML without downloading the archive |
 | Package content | Flat Container | Direct .nupkg download |
 
 ## GitHub Advisory API
@@ -328,3 +616,11 @@ The dotnet/core repository publishes structured CVE data:
 - Affected package version ranges (precise)
 
 This is the authoritative source for .NET runtime/SDK CVEs but requires navigating the timeline structure.
+
+[service-index]: https://learn.microsoft.com/en-us/nuget/api/service-index
+[registration]: https://learn.microsoft.com/en-us/nuget/api/registration-base-url-resource
+[search]: https://learn.microsoft.com/en-us/nuget/api/search-query-service-resource
+[vulnerability-info]: https://learn.microsoft.com/en-us/nuget/api/vulnerability-info
+[package-content]: https://learn.microsoft.com/en-us/nuget/api/package-base-address-resource
+[catalog]: https://learn.microsoft.com/en-us/nuget/api/catalog-resource
+[autocomplete]: https://learn.microsoft.com/en-us/nuget/api/search-autocomplete-service-resource
