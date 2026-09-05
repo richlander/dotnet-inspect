@@ -51,41 +51,45 @@ public static partial class CallGraphExports
                 targetFramework,
                 workspaceJson);
 
-        await using BrowserScopeResolution resolution =
-            await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
-        if (resolution.RequestedCoordinates.Length != requests.Length)
+        BrowserCallGraph graph;
+        await using (BrowserScopeResolution resolution =
+            await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests))
         {
-            throw new InvalidOperationException(
-                "The selected Call Graph context did not preserve its "
-                + "distinct package coordinates.");
-        }
-        BrowserInspectionScope scope = resolution.Scope;
-        BrowserPackageCoordinate rootCoordinate =
-            scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
-        BrowserMemberResolution.Resolved resolved =
-            BrowserMemberResolution.ResolveImplementationMember(
-                scope,
-                rootCoordinate,
-                assemblyName,
-                typeIdentity,
-                memberName,
-                selectorKey,
-                metadataToken);
-        BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
-        Analysis.CallGraphMemberResolution memberResolution = resolved.Member;
+            if (resolution.RequestedCoordinates.Length != requests.Length)
+            {
+                throw new InvalidOperationException(
+                    "The selected Call Graph context did not preserve its "
+                    + "distinct package coordinates.");
+            }
+            BrowserInspectionScope scope = resolution.Scope;
+            BrowserPackageCoordinate rootCoordinate =
+                scope.Coordinate(resolution.RequestedCoordinates[rootIndex]);
+            BrowserMemberResolution.Resolved resolved =
+                BrowserMemberResolution.ResolveImplementationMember(
+                    scope,
+                    rootCoordinate,
+                    assemblyName,
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken);
+            BrowserWorkspaceParticipant participant = resolved.ImplementationParticipant;
+            Analysis.CallGraphMemberResolution memberResolution = resolved.Member;
 
-        MemberCallGraphView view = scope.UseImplementation(group =>
-        {
-            using var session = new MemberCallGraphSession(
-                group,
-                participant.Assembly,
-                memberResolution.BodyToken);
-            return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
-        });
+            MemberCallGraphView view = scope.UseImplementation(group =>
+            {
+                using var session = new MemberCallGraphSession(
+                    group,
+                    participant.Assembly,
+                    memberResolution.BodyToken);
+                return session.HasCrossLibraryScope ? session.CrossLibrary() : session.Callers();
+            });
 
-        BrowserCallGraph graph =
-            BrowserCallGraphWireProjection.Project(
+            graph = BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Project(scope, view));
+        }
+
+        // Keep JSON return provenance outside async cleanup for the generated typed facade.
         return JsonSerializer.Serialize(
             graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
