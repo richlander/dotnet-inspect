@@ -427,15 +427,15 @@ internal static class CliRowSelectionRouteEnvelope
                             occurrence,
                             prefixLength))
                 .ToArray();
-        CliRowSelectionArgumentFailure? argumentFailure =
-            result.ArgumentFailure is not null
-                && result.ArgumentFailure.Position >= prefixLength
-                ? new(
-                    result.ArgumentFailure.Reason,
-                    result.ArgumentFailure.OccurrenceKind,
-                    result.ArgumentFailure.Position
-                        - prefixLength)
-                : null;
+        CliRowSelectionArgumentFailure[] argumentFailures =
+            result.ArgumentFailures
+                .Where(failure => failure.Position >= prefixLength)
+                .Select(failure =>
+                    new CliRowSelectionArgumentFailure(
+                        failure.Reason,
+                        failure.OccurrenceKind,
+                        failure.Position - prefixLength))
+                .ToArray();
         int[] requiredValuePositions =
             result.RequiredValuePositions
                 .Where(position => position >= prefixLength)
@@ -452,10 +452,6 @@ internal static class CliRowSelectionRouteEnvelope
             && selectedCommandPosition >= prefixLength
                 ? selectedCommandPosition - prefixLength
                 : null;
-        CliRowSelectionLoweringResult<string> loweringResult =
-            CliRowSelectionLowerer.Lower(
-                occurrences,
-                CliRowSelectionCapabilities.All);
         bool[] declaredKinds =
             Enum.GetValues<CliRowSelectionOccurrenceKind>()
                 .Select(
@@ -473,10 +469,9 @@ internal static class CliRowSelectionRouteEnvelope
                 result.ParseResult.CommandResult.Command,
                 candidate.ExpectedCommand),
             occurrences,
-            argumentFailure,
+            argumentFailures,
             requiredValuePositions,
             unexpectedCommandPosition,
-            loweringResult,
             declaredKinds);
     }
 
@@ -484,54 +479,53 @@ internal static class CliRowSelectionRouteEnvelope
         CommonArgumentFailure(
             IReadOnlyList<CandidateObservation> observations)
     {
-        CliRowSelectionArgumentFailure? first =
-            observations[0].ArgumentFailure;
-        if (first is null)
+        foreach (CliRowSelectionArgumentFailure failure in observations[0].ArgumentFailures)
         {
-            return null;
+            if (observations.Skip(1).All(
+                    observation => observation.ArgumentFailures.Any(
+                        candidateFailure => Same(failure, candidateFailure))))
+            {
+                return failure;
+            }
         }
 
-        return observations.All(
-            observation =>
-                Same(
-                    first,
-                    observation.ArgumentFailure))
-            ? first
-            : null;
+        return null;
     }
 
     private static CliRowSelectionLoweringResult<string>?
         CommonLoweringFailure(
             IReadOnlyList<CandidateObservation> observations)
     {
-        CliRowSelectionLoweringResult<string> first =
-            observations[0].LoweringResult;
-        if (first.IsSuccess)
+        CliRowSelectionOccurrence<string>[] common =
+            observations[0].Occurrences
+                .Where(occurrence =>
+                    observations.Skip(1).All(observation =>
+                        observation.Occurrences.Any(candidateOccurrence =>
+                            Same(occurrence, candidateOccurrence))))
+                .ToArray();
+        CliRowSelectionLoweringResult<string> lowering =
+            CliRowSelectionLowerer.Lower(
+                common,
+                CliRowSelectionCapabilities.All);
+        if (lowering.IsSuccess)
         {
             return null;
         }
 
-        // A shared prefix can prove a bad value or a completed conflict,
-        // but missing-count absence requires evidence through end of argv.
-        if (first.Failure!.Reason
+        // Shared occurrences prove present-token failures. Count absence
+        // additionally requires complete, count-free evidence in every route.
+        if (lowering.Failure!.Reason
                 == CliRowSelectionFailureReason.ModifierRequiresCount
             && observations.Any(
-                observation => !observation.HasCompleteOccurrences))
+                observation =>
+                    !observation.HasCompleteOccurrences
+                    || observation.Occurrences.Any(occurrence =>
+                        occurrence.Kind == CliRowSelectionOccurrenceKind.Limit)))
         {
             return null;
         }
 
-        return observations
-            .Skip(1)
-            .Select(observation => observation.LoweringResult)
-            .All(
-                result =>
-                    !result.IsSuccess
-                    && Same(
-                        first.Failure!,
-                        result.Failure!))
-            ? first
-            : null;
+        return lowering;
     }
 
     private static RequestScan ScanRequests(
@@ -668,11 +662,10 @@ internal static class CliRowSelectionRouteEnvelope
                         CliRowSelectionOccurrenceKind.Lines
                         or CliRowSelectionOccurrenceKind.TailLines
                     && !observations[index].LineSelection
-                    && observations[index].ArgumentFailure is { } failure
-                    && failure.Position <= position)
+                    && observations[index].ArgumentFailures.FirstOrDefault(
+                        candidateFailure => candidateFailure.Position == position) is { } failure)
                 {
-                    // Extraction stops at an arity failure; missing later
-                    // line evidence does not establish a semantic count unit.
+                    // A failed line modifier cannot establish the count unit.
                     lineSelectionDeferred = true;
                     deferredPositions.Add(failure.Position);
                 }
@@ -732,15 +725,6 @@ internal static class CliRowSelectionRouteEnvelope
         && expected.Reason == actual.Reason
         && expected.OccurrenceKind == actual.OccurrenceKind
         && expected.Position == actual.Position;
-
-    private static bool Same(
-        CliRowSelectionFailure expected,
-        CliRowSelectionFailure actual) =>
-        expected.Reason == actual.Reason
-        && expected.OccurrenceKind == actual.OccurrenceKind
-        && expected.Position == actual.Position
-        && expected.MissingCapabilities
-            == actual.MissingCapabilities;
 
     private static bool Same(
         IReadOnlyList<CliRowSelectionOccurrence<string>> expected,
@@ -843,21 +827,19 @@ internal static class CliRowSelectionRouteEnvelope
             bool expectedCommandSelected,
             IReadOnlyList<CliRowSelectionOccurrence<string>>
                 occurrences,
-            CliRowSelectionArgumentFailure? argumentFailure,
+            IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
             IReadOnlyList<int> requiredValuePositions,
             int? unexpectedCommandPosition,
-            CliRowSelectionLoweringResult<string> loweringResult,
             bool[] declaredKinds)
         {
             Candidate = candidate;
             ParseResult = parseResult;
             ExpectedCommandSelected = expectedCommandSelected;
             Occurrences = occurrences;
-            ArgumentFailure = argumentFailure;
+            ArgumentFailures = argumentFailures;
             RequiredValuePositions = requiredValuePositions;
             UnexpectedCommandPosition =
                 unexpectedCommandPosition;
-            LoweringResult = loweringResult;
             DeclaredKinds = declaredKinds;
         }
 
@@ -873,21 +855,16 @@ internal static class CliRowSelectionRouteEnvelope
         public IReadOnlyList<CliRowSelectionOccurrence<string>>
             Occurrences { get; }
 
-        public CliRowSelectionArgumentFailure? ArgumentFailure
+        public IReadOnlyList<CliRowSelectionArgumentFailure> ArgumentFailures
         {
             get;
         }
 
-        public bool HasCompleteOccurrences => ArgumentFailure is null;
+        public bool HasCompleteOccurrences => ArgumentFailures.Count == 0;
 
         public IReadOnlyList<int> RequiredValuePositions { get; }
 
         public int? UnexpectedCommandPosition { get; }
-
-        public CliRowSelectionLoweringResult<string> LoweringResult
-        {
-            get;
-        }
 
         private bool[] DeclaredKinds { get; }
 

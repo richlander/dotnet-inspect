@@ -722,6 +722,76 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void LaterCommonArgumentFailuresSurviveCandidateSpecificErrors()
+    {
+        CandidateFixture first =
+            new("first", parentName: "scope", extraOptionName: "--only-in-first");
+        CandidateFixture second = new("second");
+        (string[] Suffix, CliRowSelectionOccurrenceKind Kind,
+            CliRowSelectionArgumentFailureReason Reason)[] cases =
+        [
+            (["--rows"], CliRowSelectionOccurrenceKind.Rows,
+                CliRowSelectionArgumentFailureReason.MissingValue),
+            (["--head=true"], CliRowSelectionOccurrenceKind.Head,
+                CliRowSelectionArgumentFailureReason.AttachedValueOnModifier),
+            (["--rows", "--head=true"], CliRowSelectionOccurrenceKind.Rows,
+                CliRowSelectionArgumentFailureReason.MissingValue),
+            (["--head=true", "--rows"], CliRowSelectionOccurrenceKind.Head,
+                CliRowSelectionArgumentFailureReason.AttachedValueOnModifier)
+        ];
+        foreach (var scenario in cases)
+        {
+            string[] arguments = ["Target", "-n", "--only-in-first", .. scenario.Suffix];
+            CliRowSelectionRouteEnvelopeResult result = Evaluate(arguments, first, second);
+            CliRowSelectionRouteEnvelopeResult reversed = Evaluate(arguments, second, first);
+
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure, result.Outcome);
+            Assert.Equal(result.Outcome, reversed.Outcome);
+            Assert.Equal(scenario.Reason, result.ArgumentFailure!.Reason);
+            Assert.Equal(result.ArgumentFailure.Reason, reversed.ArgumentFailure!.Reason);
+            Assert.Equal(scenario.Kind, result.RequestKind);
+            Assert.Equal(result.RequestKind, reversed.RequestKind);
+            Assert.Equal(3, result.Position);
+            Assert.Equal(result.Position, reversed.Position);
+        }
+    }
+
+    [Fact]
+    public void LaterCommonLoweringFailuresSurviveCandidateSpecificErrors()
+    {
+        CandidateFixture first =
+            new("first", extraOptionName: "--only-in-first");
+        CandidateFixture second = new("second");
+        (string[] Suffix, CliRowSelectionOccurrenceKind Kind, int Position,
+            CliRowSelectionFailureReason Reason)[] cases =
+        [
+            (["--rows", "bad"], CliRowSelectionOccurrenceKind.Rows, 3,
+                CliRowSelectionFailureReason.InvalidWindowForm),
+            (["--head", "--tail"], CliRowSelectionOccurrenceKind.Tail, 4,
+                CliRowSelectionFailureReason.ConflictingDirection),
+            (["--rows", "1..2", "--rows", "2..3"], CliRowSelectionOccurrenceKind.Rows, 5,
+                CliRowSelectionFailureReason.RepeatedGesture),
+            (["--rows", "bad", "--head", "--tail"], CliRowSelectionOccurrenceKind.Rows, 3,
+                CliRowSelectionFailureReason.InvalidWindowForm)
+        ];
+        foreach (var scenario in cases)
+        {
+            string[] arguments = ["Target", "-n", "--only-in-first", .. scenario.Suffix];
+            CliRowSelectionRouteEnvelopeResult result = Evaluate(arguments, first, second);
+            CliRowSelectionRouteEnvelopeResult reversed = Evaluate(arguments, second, first);
+
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.LoweringFailure, result.Outcome);
+            Assert.Equal(result.Outcome, reversed.Outcome);
+            Assert.Equal(scenario.Reason, result.Failure!.Reason);
+            Assert.Equal(result.Failure.Reason, reversed.Failure!.Reason);
+            Assert.Equal(scenario.Kind, result.RequestKind);
+            Assert.Equal(result.RequestKind, reversed.RequestKind);
+            Assert.Equal(scenario.Position, result.Position);
+            Assert.Equal(result.Position, reversed.Position);
+        }
+    }
+
+    [Fact]
     public void CandidateSpecificArityDoesNotTruncateLineUnitEvidence()
     {
         CandidateFixture ownsFollowingOption =
@@ -999,6 +1069,90 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void MissingCanonicalAliasesRemainExplicitRequests()
+    {
+        static CandidateFixture Renamed(string name) =>
+            new(
+                name,
+                limitName: "--limit",
+                rowsName: "--window",
+                topName: "--rank",
+                orderByName: "--sort",
+                headName: "--first",
+                tailName: "--last",
+                linesName: "--text",
+                tailLinesName: "--last-text");
+
+        CandidateFixture first = Renamed("first");
+        CandidateFixture second = Renamed("second");
+        CandidateFixture canonical = new("canonical");
+        (string Token, string? Value, CliRowSelectionOccurrenceKind Kind)[] options =
+        [
+            ("-n", "2", CliRowSelectionOccurrenceKind.Limit),
+            ("--rows", "1..2", CliRowSelectionOccurrenceKind.Rows),
+            ("--top", "2", CliRowSelectionOccurrenceKind.Top),
+            ("--order-by", "name", CliRowSelectionOccurrenceKind.OrderBy),
+            ("--head", null, CliRowSelectionOccurrenceKind.Head),
+            ("--tail", null, CliRowSelectionOccurrenceKind.Tail),
+            ("--lines", null, CliRowSelectionOccurrenceKind.Lines),
+            ("--tail-lines", null, CliRowSelectionOccurrenceKind.TailLines)
+        ];
+        foreach (var option in options)
+        {
+            string[][] forms = option.Value is { } value
+                ?
+                [
+                    ["Target", option.Token, value],
+                    ["Target", $"{option.Token}={value}"],
+                    ["Target", $"{option.Token}:{value}"]
+                ]
+                :
+                [
+                    ["Target", option.Token],
+                    ["Target", $"{option.Token}=true"],
+                    ["Target", $"{option.Token}:true"]
+                ];
+            foreach (string[] arguments in forms)
+            {
+                CliRowSelectionRouteEnvelopeResult unsupported =
+                    Evaluate(arguments, first, second);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability,
+                    unsupported.Outcome);
+                Assert.Equal(option.Kind, unsupported.RequestKind);
+                Assert.Equal(1, unsupported.Position);
+
+                CliRowSelectionRouteEnvelopeResult mixed =
+                    Evaluate(arguments, canonical, first);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(arguments, first, canonical);
+                Assert.Equal(
+                    CliRowSelectionRouteEnvelopeOutcome.ExplicitCommandRequired,
+                    mixed.Outcome);
+                Assert.Equal(mixed.Outcome, reversed.Outcome);
+                Assert.Equal(option.Kind, mixed.RequestKind);
+                Assert.Equal(mixed.RequestKind, reversed.RequestKind);
+                Assert.Equal(1, mixed.Position);
+                Assert.Equal(mixed.Position, reversed.Position);
+            }
+        }
+
+        CliRowSelectionRouteEnvelopeResult compact =
+            Evaluate(["Target", "-n2"], first, second);
+        Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability, compact.Outcome);
+        Assert.Equal(CliRowSelectionOccurrenceKind.Limit, compact.RequestKind);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.NoRequest,
+            Evaluate(["Target", "-2"], first, second).Outcome);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.NoRequest,
+            Evaluate(["Target", "--", "-n", "2"], first, second).Outcome);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.Success,
+            Evaluate(["Target", "--limit", "2", "--window", "1..2"], first, second).Outcome);
+    }
+
+    [Fact]
     public void CanonicalValueSpellingsRequireMatchingBindings()
     {
         (string Canonical, string Renamed, string Value,
@@ -1147,10 +1301,15 @@ public sealed class CliRowSelectionRouterPreflightTests
             bool omitTopOrderBindings = false,
             string rowsName = "--rows",
             string topName = "--top",
-            string orderByName = "--order-by")
+            string orderByName = "--order-by",
+            string limitName = "-n",
+            string headName = "--head",
+            string tailName = "--tail",
+            string linesName = "--lines",
+            string tailLinesName = "--tail-lines")
         {
             Option<string[]> limit =
-                RowValueOption("-n");
+                RowValueOption(limitName);
             Option<string[]> rows =
                 RowValueOption(rowsName);
             Option<string[]>? top =
@@ -1162,13 +1321,13 @@ public sealed class CliRowSelectionRouterPreflightTests
                     ? null
                     : RowValueOption(orderByName);
             Option<bool> head =
-                ModifierOption("--head");
+                ModifierOption(headName);
             Option<bool> tail =
-                ModifierOption("--tail");
+                ModifierOption(tailName);
             Option<bool> lines =
-                ModifierOption("--lines");
+                ModifierOption(linesName);
             Option<bool> tailLines =
-                ModifierOption("--tail-lines");
+                ModifierOption(tailLinesName);
             var required =
                 new Option<string?>("--required")
                 {

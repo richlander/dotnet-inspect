@@ -79,6 +79,7 @@ internal sealed class CliRowSelectionArgumentResult
 {
     private readonly ReadOnlyCollection<string> _arguments;
     private readonly ReadOnlyCollection<ParseError> _parseErrors;
+    private readonly ReadOnlyCollection<CliRowSelectionArgumentFailure> _argumentFailures;
     private readonly ReadOnlyCollection<int> _requiredValuePositions;
     private readonly ReadOnlyCollection<
         CliRowSelectionOccurrence<string>> _occurrences;
@@ -89,13 +90,14 @@ internal sealed class CliRowSelectionArgumentResult
         IReadOnlyList<ParseError> parseErrors,
         IReadOnlyList<int> requiredValuePositions,
         IReadOnlyList<CliRowSelectionOccurrence<string>> occurrences,
-        CliRowSelectionArgumentFailure? argumentFailure,
+        IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
         CliRowSelectionLoweringResult<string>? loweringResult,
         int? selectedCommandPosition)
     {
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(parseResult);
         ArgumentNullException.ThrowIfNull(parseErrors);
+        ArgumentNullException.ThrowIfNull(argumentFailures);
         ArgumentNullException.ThrowIfNull(requiredValuePositions);
         ArgumentNullException.ThrowIfNull(occurrences);
 
@@ -103,12 +105,13 @@ internal sealed class CliRowSelectionArgumentResult
             Array.AsReadOnly((string[])arguments.Clone());
         _parseErrors =
             Array.AsReadOnly(parseErrors.ToArray());
+        _argumentFailures =
+            Array.AsReadOnly(argumentFailures.ToArray());
         _requiredValuePositions =
             Array.AsReadOnly(requiredValuePositions.ToArray());
         _occurrences =
             Array.AsReadOnly(occurrences.ToArray());
         ParseResult = parseResult;
-        ArgumentFailure = argumentFailure;
         LoweringResult = loweringResult;
         SelectedCommandPosition = selectedCommandPosition;
     }
@@ -129,7 +132,11 @@ internal sealed class CliRowSelectionArgumentResult
     public IReadOnlyList<int> RequiredValuePositions =>
         _requiredValuePositions;
 
-    public CliRowSelectionArgumentFailure? ArgumentFailure { get; }
+    public IReadOnlyList<CliRowSelectionArgumentFailure> ArgumentFailures =>
+        _argumentFailures;
+
+    public CliRowSelectionArgumentFailure? ArgumentFailure =>
+        _argumentFailures.FirstOrDefault();
 
     public CliRowSelectionLoweringResult<string>? LoweringResult { get; }
 
@@ -138,6 +145,19 @@ internal sealed class CliRowSelectionArgumentResult
 
 internal static class CliRowSelectionArgumentAdapter
 {
+    private static readonly (string Alias, CliRowSelectionOccurrenceKind Kind)[]
+        CanonicalOptions =
+        [
+            ("-n", CliRowSelectionOccurrenceKind.Limit),
+            ("--rows", CliRowSelectionOccurrenceKind.Rows),
+            ("--top", CliRowSelectionOccurrenceKind.Top),
+            ("--order-by", CliRowSelectionOccurrenceKind.OrderBy),
+            ("--head", CliRowSelectionOccurrenceKind.Head),
+            ("--tail", CliRowSelectionOccurrenceKind.Tail),
+            ("--lines", CliRowSelectionOccurrenceKind.Lines),
+            ("--tail-lines", CliRowSelectionOccurrenceKind.TailLines)
+        ];
+
     private static readonly ParserConfiguration
         ExplicitParserConfiguration =
             new()
@@ -222,8 +242,8 @@ internal static class CliRowSelectionArgumentAdapter
                     .IdentifierToken);
         ParseError[] parseErrors =
             authoritativeParse.Errors.ToArray();
-        CliRowSelectionArgumentFailure? argumentFailure =
-            FindArgumentFailure(
+        CliRowSelectionArgumentFailure[] argumentFailures =
+            FindArgumentFailures(
                 authoritativeParse,
                 authoritativeArguments,
                 normalized,
@@ -231,7 +251,7 @@ internal static class CliRowSelectionArgumentAdapter
 
         if (!preserveRowEvidenceAcrossParseErrors
             && (parseErrors.Length > 0
-                || argumentFailure is not null))
+                || argumentFailures.Length > 0))
         {
             return new(
                 normalized.Arguments,
@@ -240,7 +260,7 @@ internal static class CliRowSelectionArgumentAdapter
                 requiredValuePositions,
                 Array.Empty<
                     CliRowSelectionOccurrence<string>>(),
-                argumentFailure,
+                argumentFailures,
                 null,
                 selectedCommandPosition);
         }
@@ -250,16 +270,16 @@ internal static class CliRowSelectionArgumentAdapter
                 authoritativeArguments,
                 normalized,
                 bindings,
-                preserveRowEvidenceAcrossParseErrors
-                    ? argumentFailure?.Position
-                    : null);
+                argumentFailures
+                    .Select(failure => failure.Position)
+                    .ToHashSet());
         return new(
             normalized.Arguments,
             authoritativeParse,
             parseErrors,
             requiredValuePositions,
             occurrences,
-            argumentFailure,
+            argumentFailures,
             CliRowSelectionLowerer.Lower(
                 occurrences,
                 capabilities),
@@ -290,20 +310,15 @@ internal static class CliRowSelectionArgumentAdapter
             return true;
         }
 
-        if (MatchesCanonicalValueOption(
-                token,
-                "--top"))
+        foreach (var canonical in CanonicalOptions)
         {
-            kind = CliRowSelectionOccurrenceKind.Top;
-            return true;
-        }
-
-        if (MatchesCanonicalValueOption(
-                token,
-                "--order-by"))
-        {
-            kind = CliRowSelectionOccurrenceKind.OrderBy;
-            return true;
+            if (MatchesCanonicalOption(token, canonical.Alias)
+                || canonical.Kind == CliRowSelectionOccurrenceKind.Limit
+                && IsCompactShortLimitToken(token, canonical.Alias))
+            {
+                kind = canonical.Kind;
+                return true;
+            }
         }
 
         kind = default;
@@ -331,7 +346,7 @@ internal static class CliRowSelectionArgumentAdapter
         return false;
     }
 
-    private static bool MatchesCanonicalValueOption(
+    private static bool MatchesCanonicalOption(
         string token,
         string alias) =>
         token.Equals(
@@ -870,13 +885,14 @@ internal static class CliRowSelectionArgumentAdapter
         }
     }
 
-    private static CliRowSelectionArgumentFailure?
-        FindArgumentFailure(
+    private static CliRowSelectionArgumentFailure[]
+        FindArgumentFailures(
             ParseResult parseResult,
             IReadOnlyList<ParsedArgument> parsedArguments,
             NormalizedArguments normalized,
             CliRowSelectionOptionBindings bindings)
     {
+        var failures = new List<CliRowSelectionArgumentFailure>();
         BoundOption[] boundOptions =
             BoundOptions(bindings);
         for (int index = 0;
@@ -902,9 +918,11 @@ internal static class CliRowSelectionArgumentAdapter
                         bound.Option,
                         bindings.Limit))
                 {
-                    return MissingValueFailure(
-                        bound.Kind,
-                        normalized.Positions[index]);
+                    failures.Add(
+                        MissingValueFailure(
+                            bound.Kind,
+                            normalized.Positions[index]));
+                    break;
                 }
 
                 if (!bound.HasValue
@@ -916,14 +934,16 @@ internal static class CliRowSelectionArgumentAdapter
                         parsedArguments[index],
                         alias!))
                 {
-                    return AttachedModifierFailure(
-                        bound.Kind,
-                        normalized.Positions[index]);
+                    failures.Add(
+                        AttachedModifierFailure(
+                            bound.Kind,
+                            normalized.Positions[index]));
+                    break;
                 }
             }
         }
 
-        return null;
+        return [.. failures];
     }
 
     private static bool IsMissingValue(
@@ -1121,7 +1141,7 @@ internal static class CliRowSelectionArgumentAdapter
             IReadOnlyList<ParsedArgument> parsedArguments,
             NormalizedArguments normalized,
             CliRowSelectionOptionBindings bindings,
-            int? stopBeforePosition = null)
+            IReadOnlySet<int> invalidPositions)
     {
         var occurrences =
             new List<CliRowSelectionOccurrence<string>>();
@@ -1140,10 +1160,9 @@ internal static class CliRowSelectionArgumentAdapter
 
             int position =
                 normalized.Positions[index];
-            if (stopBeforePosition is not null
-                && position >= stopBeforePosition.Value)
+            if (invalidPositions.Contains(position))
             {
-                break;
+                continue;
             }
 
             foreach (BoundOption bound in boundOptions)
