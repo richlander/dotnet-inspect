@@ -120,14 +120,34 @@ public class RuntimeAsyncAwaiterPassTests
     }
 
     [Fact]
-    public void CompiledLegacyAsyncLocalFunction_WrapsUnsafeExpressionBody()
+    public void CompiledLegacyAsyncLocalFunction_UsesUnsafeSignature()
     {
         var function = RaisedAsyncFixture("AwaitWithUnsafeLocalFunction");
         var output = CSharpPrinter.Print(function).Output;
 
         Assert.False(function.UsesUpdatedMemorySafetyRules);
-        Assert.Contains("int Read(int* pointer)\n{\n    unsafe", output);
+        Assert.Contains("static unsafe int Read(int* pointer)", output);
         Assert.DoesNotContain("int Read(int* pointer) => *pointer;", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void CompiledLegacyAsyncLocalFunction_CompilesBack()
+    {
+        string assembly = AsyncFixtureAssemblyPath();
+        var compileBack = Assert.Single(ReturnToSender.CompileBackTargets(
+            assembly,
+            [new ReturnToSender.RequestedTarget(
+                AsyncFixtureType,
+                "AwaitWithUnsafeLocalFunction",
+                Overload: 0)]));
+        Assert.Contains("static unsafe int Read(int* pointer)", compileBack.Source);
+        Assert.True(
+            compileBack.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"Expected compile-checkable runtime-async source, got "
+                + $"{compileBack.Status}: {compileBack.Detail}");
     }
 
     [Theory]
@@ -371,15 +391,7 @@ public class RuntimeAsyncAwaiterPassTests
 
     static IrFunction RaisedAsyncFixture(string methodName)
     {
-        string configuration =
-            new DirectoryInfo(AppContext.BaseDirectory).Name;
-        string path = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory,
-            "..",
-            "..",
-            "ILInspector.Decompiler.Fixtures.RuntimeAsync",
-            configuration,
-            "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll"));
+        string path = AsyncFixtureAssemblyPath();
         using var source = MetadataSource.Open(path);
         var function = IrImporter.Import(source, AsyncFixtureType, methodName);
         Assert.NotNull(function);
@@ -390,6 +402,19 @@ public class RuntimeAsyncAwaiterPassTests
                 method => IrImporter.Import(source, method)));
         function.CheckInvariant();
         return function;
+    }
+
+    static string AsyncFixtureAssemblyPath()
+    {
+        string configuration =
+            new DirectoryInfo(AppContext.BaseDirectory).Name;
+        return Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync",
+            configuration,
+            "ILInspector.Decompiler.Fixtures.RuntimeAsync.dll"));
     }
 
     public enum SyntheticBreak

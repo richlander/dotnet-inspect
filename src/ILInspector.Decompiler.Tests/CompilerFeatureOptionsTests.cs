@@ -301,6 +301,235 @@ public class CompilerFeatureOptionsTests
     }
 
     [Fact]
+    public void UpdatedNestedUnsafeLambdaBesideAwait_RemainsReconstructable()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public unsafe delegate int Callback(int* value);
+
+            public static class C
+            {
+                static int Consume(int value, Callback callback) => value;
+
+                public static async Task<int> M(Task<int> task)
+                    => Consume(
+                        await task,
+                        value =>
+                        {
+                            unsafe
+                            {
+                                return *value;
+                            }
+                        });
+            }
+            """,
+            options,
+            assemblyName: "UpdatedNestedUnsafeLambdaAwait");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"updated-nested-unsafe-lambda-await-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{output}\n{string.Join('\n', result.Diagnostics)}");
+            Assert.Contains("await", output);
+            Assert.Contains("unsafe", output);
+            Assert.DoesNotContain("await", FirstUnsafeBlockBody(output));
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public unsafe delegate int Callback(int* value);
+
+                public static class D
+                {
+                    static int Consume(int value, Callback callback) => value;
+
+                    public static async Task<int> M(Task<int> task)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                options,
+                assemblyName: "UpdatedNestedUnsafeLambdaAwaitRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LegacyPointerForLoopBeforeAwait_RemainsReconstructable()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Latest)
+            .WithFeatures([
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                public static async Task<int> M(Task task, int[] values)
+                {
+                    int sum = 0;
+                    unsafe
+                    {
+                        fixed (int* start = values)
+                        {
+                            for (int* pointer = start;
+                                pointer != start + values.Length;
+                                pointer++)
+                            {
+                                sum += *pointer;
+                            }
+                        }
+                    }
+
+                    await task;
+                    return sum;
+                }
+            }
+            """,
+            options,
+            assemblyName: "LegacyPointerForLoopAwait");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"legacy-pointer-for-loop-await-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{output}\n{string.Join('\n', result.Diagnostics)}");
+            Assert.Contains("await task", output);
+            Assert.DoesNotContain("await", FirstUnsafeBlockBody(output));
+            using var recompiled = Compile(
+                $$"""
+                using System.Threading.Tasks;
+
+                public static class D
+                {
+                    public static async Task<int> M(Task task, int[] values)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                options,
+                assemblyName: "LegacyPointerForLoopAwaitRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void LegacyPointerForLoopWithEscapingReference_DeclinesVisibly()
+    {
+        var options = new CSharpParseOptions(LanguageVersion.Latest)
+            .WithFeatures([
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                public static async Task<int> M(Task task, int[] values)
+                {
+                    int sum = 0;
+                    int steps;
+                    unsafe
+                    {
+                        fixed (int* start = values)
+                        {
+                            int* pointer;
+                            for (pointer = start;
+                                pointer != start + values.Length;
+                                pointer++)
+                            {
+                                sum += *pointer;
+                            }
+                            steps = (int)(pointer - start);
+                        }
+                    }
+
+                    await task;
+                    return sum + steps;
+                }
+            }
+            """,
+            options,
+            assemblyName: "LegacyPointerForLoopEscape");
+        using var source = MetadataSource.OpenFromPrefetchedImage(
+            "legacy-pointer-for-loop-escape.dll",
+            ImmutableArray.Create(compiled.Image));
+        var function = IrImporter.Import(source, "C", "M");
+        Assert.NotNull(function);
+        IrPasses.Run(
+            function,
+            IrPasses.Default,
+            PassContext.ForImport(
+                method => IrImporter.Import(source, method)));
+        function.CheckInvariant();
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.Contains(
+            function.Descendants.OfType<UnsupportedNode>(),
+            node => node.Opcode == "unsafe await boundary"
+                && node.Reason.Contains(
+                    "legacy pointer lifetime cannot be scoped outside await",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void LegacyRuntimeAsyncPointerOperations_UseAwaitFreeUnsafeBlocks()
     {
         var options = new CSharpParseOptions(LanguageVersion.Latest)

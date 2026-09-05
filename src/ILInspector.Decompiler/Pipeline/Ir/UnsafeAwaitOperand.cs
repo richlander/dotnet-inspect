@@ -35,7 +35,7 @@ internal static class UnsafeAwaitOperand
         bool skipLocalsInit)
     {
         var evidence = new List<ConsumedMemberEvidence>();
-        foreach (var node in root.Descendants.Prepend(root))
+        foreach (var node in root.DescendantsAndSelfOutsideNestedFunctions)
         {
             if (node is CallIndirect
                 or StackAllocate
@@ -145,24 +145,33 @@ internal static class UnsafeAwaitOperand
         IrNode store,
         Func<IrNode, bool> isReference)
     {
-        if (store.Parent is not Block block || store.ChildIndex < 0)
+        if (!TryGetDirectBlockChild(
+                store,
+                out var block,
+                out var storeStatement,
+                out int storeIndex))
             return false;
 
         var references = function.DescendantsOutsideNestedFunctions
             .Where(isReference)
             .ToList();
-        int lastReference = store.ChildIndex;
+        if (!ReferenceEquals(storeStatement, store)
+            && references.Any(reference => !IsInside(reference, storeStatement)))
+        {
+            return false;
+        }
+        int lastReference = storeIndex;
         foreach (var reference in references)
         {
             int statementIndex = DirectChildIndex(block, reference);
-            if (statementIndex < store.ChildIndex)
+            if (statementIndex < storeIndex)
                 return false;
             lastReference = Math.Max(lastReference, statementIndex);
         }
 
         var range = block.Children
-            .Skip(store.ChildIndex)
-            .Take(lastReference - store.ChildIndex + 1)
+            .Skip(storeIndex)
+            .Take(lastReference - storeIndex + 1)
             .ToList();
         return !range.Any(ContainsAwait)
             && !range.SelectMany(
@@ -171,6 +180,37 @@ internal static class UnsafeAwaitOperand
                     or ConditionalBranch
                     or SwitchBranch
                     or Leave);
+    }
+
+    static bool TryGetDirectBlockChild(
+        IrNode node,
+        out Block block,
+        out IrNode statement,
+        out int childIndex)
+    {
+        for (var current = node; current.Parent is not null; current = current.Parent)
+        {
+            if (current.Parent is not Block parent || current.ChildIndex < 0)
+                continue;
+            block = parent;
+            statement = current;
+            childIndex = current.ChildIndex;
+            return true;
+        }
+        block = null!;
+        statement = null!;
+        childIndex = -1;
+        return false;
+    }
+
+    static bool IsInside(IrNode node, IrNode ancestor)
+    {
+        for (IrNode? current = node; current is not null; current = current.Parent)
+        {
+            if (ReferenceEquals(current, ancestor))
+                return true;
+        }
+        return false;
     }
 
     static int DirectChildIndex(Block block, IrNode node)

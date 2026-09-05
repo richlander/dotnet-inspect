@@ -413,7 +413,9 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 body.UsesUpdatedMemorySafetyRules,
                 body.SkipLocalsInit,
                 container,
-                method.RequiresUnsafe));
+                UnsafeAwaitOperand.MethodRequiresUnsafe(
+                    method,
+                    body.UsesUpdatedMemorySafetyRules)));
             // Merge the raised body's resolved type info into the enclosing
             // function. The body was imported from a separate method, so the
             // host never materialized shapes/enum members/underlying types/

@@ -3071,14 +3071,15 @@ public sealed partial class CSharpPrinter
     };
 
     bool HasUnsafeOperation(IrNode? node)
-        => node is not null && (IsUnsafeOperation(node) || node.Descendants.Any(IsUnsafeOperation));
+        => node is not null
+            && node.DescendantsAndSelfOutsideNestedFunctions.Any(IsUnsafeOperation);
 
     bool HasRequiredUnsafeOperation(IrNode? node)
         => node is not null
             && (HasUnsafeOperation(node)
                 || !_newMemorySafetyRules
-                    && (IsLegacyPointerOperation(node)
-                        || node.Descendants.Any(IsLegacyPointerOperation)));
+                    && node.DescendantsAndSelfOutsideNestedFunctions
+                        .Any(IsLegacyPointerOperation));
 
     bool EmitsUnsafeBlocks => _newMemorySafetyRules || _containsAwaitSyntax;
 

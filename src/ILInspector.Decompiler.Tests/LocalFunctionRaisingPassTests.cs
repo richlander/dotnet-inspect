@@ -190,6 +190,7 @@ public class LocalFunctionRaisingPassTests
         };
         var function = FunctionReturningCall(method, s_int);
         var body = LocalFunctionBody(method, s_int);
+        body.UsesUpdatedMemorySafetyRules = true;
         var context = new PassContext(
             new Stepper(enabled: false),
             importMethodBody: m => m == method ? body : null);

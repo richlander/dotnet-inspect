@@ -369,6 +369,49 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void UnsafeBodyModifierFact_LegacyNestedLambdaOperationRequiresMemberContext()
+    {
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var pointer = TypeRef.Pointer(int32);
+        var callback = TypeRef.Definition(
+            "Synthetic",
+            "Synthetic",
+            "Callback");
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new Return(new LoadIndirect(
+            int32,
+            new LoadArgument(0, "pointer", pointer))));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var block = new Block();
+        block.Add(new Return(new Lambda(
+            callback,
+            [new Parameter("pointer", pointer)],
+            [],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Synthetic", "Owner"),
+            new MethodSignature(
+                callback,
+                [],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var result = CSharpPrinter.Print(function);
+
+        Assert.True(result.RequiresUnsafeBodyModifier);
+        Assert.DoesNotContain("unsafe\n{", result.Output);
+    }
+
+    [Fact]
     public void UnsafeBodyModifierFact_ExcludesStructThisInitialization()
     {
         var structType = TypeRef.Definition(
