@@ -183,6 +183,7 @@ import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMethodBodyComparisonCoordinator,
   createMethodBodyDiffState,
+  isMethodBodyToken,
   methodBodyComparisonPackageId,
   type MethodBodyComparisonContext,
   type MethodBodyDiffState,
@@ -3411,6 +3412,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const activeScope = scope();
+  const methodBodyPageContext = activeScope === "member";
   const sourcePageKind =
     activeScope === "type" && state.lens === "source"
       ? "type"
@@ -3484,6 +3486,10 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     app.focus({ preventScroll: true });
   }
   const applicationModalOpen = state.settings || state.keyboardHelp;
+  const methodBodyFocusedId = document.activeElement instanceof HTMLElement
+    && document.activeElement.closest("#method-body-diff-modal")
+    ? document.activeElement.id
+    : "";
   app.innerHTML = `
     <div class="workbench"${state.memberAnnotatedModal || applicationModalOpen || state.methodBodyDiff.open ? " inert" : ""}>
       ${workbenchShellHtml({
@@ -3491,8 +3497,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
-          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: methodBodyPageContext || annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
+          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : sourcePageKind ? "Source actions" : "Member actions"}">
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
@@ -3511,7 +3517,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
                     escapeHtml,
                   })
                 : ""}
-              ${sourcePageKind === "member" || annotatedPageContext
+              ${methodBodyPageContext
                 ? renderMethodBodyComparisonAction(
                     methodBodyComparisonAvailability(),
                     escapeHtml)
@@ -3624,7 +3630,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
-  restoreMethodBodyDiffFocus();
+  restoreMethodBodyDiffFocus(methodBodyFocusedId);
   graphExplorer.afterRender(graphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
@@ -6405,7 +6411,7 @@ function methodBodyComparisonAvailability(): MethodBodyComparisonAvailability {
     ?? bodyTarget?.metadataToken
     ?? overload.metadataToken
     ?? 0;
-  if (!metadataToken) {
+  if (!isMethodBodyToken(metadataToken)) {
     return {
       available: false,
       reason:
@@ -6428,7 +6434,7 @@ function methodBodyComparisonContext(): MethodBodyComparisonContext | null {
     ?? bodyTarget?.metadataToken
     ?? overload.metadataToken
     ?? 0;
-  if (!metadataToken) return null;
+  if (!isMethodBodyToken(metadataToken)) return null;
   const pkg = currentPackage();
   return {
     packageId: methodBodyComparisonPackageId(pkg),
@@ -6450,7 +6456,7 @@ function methodBodyComparisonContext(): MethodBodyComparisonContext | null {
 let methodBodyDiffFocusIntent: "chooser" | "none" = "none";
 let methodBodyDiffFilterCaret: number | null = null;
 
-function restoreMethodBodyDiffFocus() {
+function restoreMethodBodyDiffFocus(previousId = "") {
   if (!state.methodBodyDiff.open) {
     methodBodyDiffFocusIntent = "none";
     methodBodyDiffFilterCaret = null;
@@ -6467,7 +6473,14 @@ function restoreMethodBodyDiffFocus() {
     methodBodyDiffFilterCaret = null;
     return;
   }
-  if (methodBodyDiffFocusIntent !== "chooser") return;
+  if (methodBodyDiffFocusIntent !== "chooser") {
+    const previous = document.getElementById(previousId);
+    const target = previous?.matches(":disabled")
+      ? document.getElementById("method-body-diff-title")
+      : previous;
+    target?.focus({ preventScroll: true });
+    return;
+  }
   const chooser = document.querySelector<HTMLElement>(
     METHOD_BODY_DIFF_CHOOSER_SELECTOR);
   if (chooser) {

@@ -42,6 +42,10 @@ export function methodBodyComparisonPackageId(
   return pkg.isRuntimePack ? "" : pkg.id;
 }
 
+export function isMethodBodyToken(token: number): boolean {
+  return (token & 0xff000000) === 0x06000000 && (token & 0x00ffffff) !== 0;
+}
+
 export interface MethodBodyDiffState {
   open: boolean;
   context: MethodBodyComparisonContext | null;

@@ -148,21 +148,20 @@ public static partial class SourceExports
         BrowserManagedOperationId id = BrowserManagedOperationId.From(operationId);
         return TypeSourceOperations.RunAsync<T, string, string, object>(
             id, null,
-            async (token, _) =>
+            (token, _) =>
             {
-                using BrowserSourceOperationLease operation =
-                    await BrowserSourceOperationCoordinator.BeginAsync(
-                        token, reason => TypeSourceOperations.RequestCancellation(id, reason));
                 token.ThrowIfCancellationRequested();
+                BrowserManagedOperationBodyResult<T, string, string> result;
                 try
                 {
-                    return new BrowserManagedOperationBodyResult<T, string, string>.Succeeded(query(token));
+                    result = new BrowserManagedOperationBodyResult<T, string, string>.Succeeded(query(token));
                 }
                 catch (MethodBodyUnavailableException error)
                 {
-                    return new BrowserManagedOperationBodyResult<T, string, string>.Failed(
+                    result = new BrowserManagedOperationBodyResult<T, string, string>.Failed(
                         error.Message, error.ToString());
                 }
+                return Task.FromResult(result);
             },
             error => new(error.Message, error.ToString()));
     }

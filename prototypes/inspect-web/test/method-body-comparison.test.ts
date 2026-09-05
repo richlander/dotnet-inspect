@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   createMethodBodyComparisonCoordinator,
   createMethodBodyDiffState,
+  isMethodBodyToken,
   methodBodyComparisonPackageId,
   filterMethodBodyChoices,
   methodBodyChoices,
@@ -21,6 +22,12 @@ import type {
 } from "../src/facades/inspect-web-source.d.ts";
 import type { OperationId } from "../src/operation-authority.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
+
+test("method actions require a MethodDef, not a property or field token", () => {
+  assert.equal(isMethodBodyToken(0x06000001), true);
+  for (const token of [0, 0x06000000, 0x04000001, 0x17000001])
+    assert.equal(isMethodBodyToken(token), false);
+});
 
 function selection(
   overrides: Partial<BrowserMethodBodySelection> = {},

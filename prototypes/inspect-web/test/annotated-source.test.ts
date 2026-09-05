@@ -748,10 +748,10 @@ test("Annotated Source composition requires a concrete overload and validated se
     /class="contextual-actions annotated-contextual-actions"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{packageDependenciesWorkingSurface \? "Dependency graph actions" : callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : sourcePageKind \? "Source actions" : "Member actions"\}"/);
   assert.match(
     appSource,
     /detail-scroll\$\{annotatedWorkingSurface \? " annotated-working-surface" : ""\}/);

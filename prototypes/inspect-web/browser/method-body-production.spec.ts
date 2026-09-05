@@ -115,7 +115,7 @@ test.describe("published Method Body Diff", () => {
 
   test("compiled reference package reaches the real comparison and accessor paths", async ({ page }, testInfo) => {
     test.skip(!fixturePackage, "Set INSPECT_WEB_METHOD_BODY_FIXTURE to the catalog package asset.");
-    await page.route("**/v3-flatcontainer/inspectweb.methodbodyfixtures/1.0.0/*.nupkg",
+    await page.route("**/inspectweb.methodbodyfixtures*.nupkg",
       route => route.fulfill({
         path: fixturePackage!,
         contentType: "application/octet-stream",
@@ -215,15 +215,18 @@ test.describe("published Method Body Diff", () => {
     await expect(after).toBeFocused();
     await expect(compare).toBeDisabled();
 
-    async function choose(method: string): Promise<void> {
+    async function choose(
+      method: string, type = "Microsoft.Extensions.Primitives.StringSegment",
+    ): Promise<void> {
       const option = after.locator("option").filter({
         hasText: new RegExp(`\\b${method}\\s*\\(`),
-      });
+      }).filter({ hasText: `${type} /` });
       await expect(option).toHaveCount(1);
       const label = await option.textContent();
       if (label === null)
         throw new Error(`No label for the product-issued ${method} selection.`);
       await after.selectOption({ label });
+      await expect(after).toBeFocused();
       await expect(dialog.locator("[data-method-body-comparison-outcome]")).toHaveCount(0);
     }
     async function submit(): Promise<void> {
@@ -249,7 +252,7 @@ test.describe("published Method Body Diff", () => {
     await expect(csharp.locator('[data-method-body-exact="true"]')).toBeVisible();
     await expect(il.locator('[data-method-body-exact="true"]')).toBeVisible();
 
-    await choose("RegisterChangeCallback");
+    await choose("RegisterChangeCallback", "Microsoft.Extensions.Primitives.IChangeToken");
     await submit();
     for (const lane of [csharp, il]) {
       await expect(lane.locator(
@@ -269,5 +272,7 @@ test.describe("published Method Body Diff", () => {
     await expect(action).toBeFocused();
     expect(page.url()).toBe(beforeUrl);
     expect(await page.evaluate(() => history.length)).toBe(beforeHistory);
+    await expect(page.getByRole("group", { name: "Source actions" })
+      .getByRole("button", { name: "Copy", exact: true })).toBeEnabled({ timeout: 60_000 });
   });
 });

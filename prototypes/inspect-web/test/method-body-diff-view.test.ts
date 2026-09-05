@@ -388,7 +388,7 @@ test("the app hosts the action, dialog and its release points", () => {
 
   assert.match(
     source,
-    /sourcePageKind === "member" \|\| annotatedPageContext\s*\?\s*renderMethodBodyComparisonAction\(/);
+    /methodBodyPageContext\s*\?\s*renderMethodBodyComparisonAction\(/);
   assert.match(source, /renderMethodBodyDiffModal\(\{\s*state: state\.methodBodyDiff/);
   assert.match(
     source,

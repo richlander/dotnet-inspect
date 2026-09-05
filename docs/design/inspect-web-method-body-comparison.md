@@ -168,6 +168,13 @@ retained workspaces to another realm. Future placement changes consume the
 [Worker runtime](inspect-web-worker-runtime.md) owner without changing pair
 meaning or adding feature-owned lifetime machinery.
 
+Inventory and comparison read already-retained inputs, so they use the keyed
+managed bridge without entering the Source acquisition coordinator. That
+coordinator's supersession is for acquiring Source; opening a local comparison
+must not cancel the member's ongoing Source request. The Release
+`BothExportsPreserveSourceAcquisitionAndReleaseOwnOperation` cases and real
+dialog acceptance gate this coexistence.
+
 Managed/transport failure or cancellation remains distinct from a query
 result. Successfully transporting a query outcome does not mean the comparison
 is exact or even completed. Research completed accounting can contain native

@@ -198,22 +198,27 @@ public sealed class BrowserMethodBodyOperationTests
     [Theory]
     [InlineData(false, "user")]
     [InlineData(true, "disposed")]
-    public async Task BothExportsUseExistingCancellationAndRelease(bool compare, string reason)
+    public async Task BothExportsPreserveSourceAcquisitionAndReleaseOwnOperation(bool compare, string reason)
     {
+        using Fixture fixture = await Fixture.Open();
+        BrowserMethodBodyTargets targets = await fixture.Targets();
         using BrowserSourceOperationLease holder = await BrowserSourceOperationCoordinator.BeginAsync();
         string id = Guid.NewGuid().ToString();
         Task<string> pending = compare
-            ? SourceExports.QueryMethodBodyComparison(id, "{}")
+            ? SourceExports.QueryMethodBodyComparison(id,
+                JsonSerializer.Serialize(Request(targets, targets.Before),
+                    BrowserSourceJsonContext.Default.BrowserMethodBodyComparisonRequest))
             : SourceExports.QueryMethodBodyComparisonTargets(
-                id, "not-resident", "1.0.0", Framework, AssemblyName, "Left", "Compute", "selector", 0);
-        Assert.False(pending.IsCompleted);
+                id, targets.PackageId, targets.Version, targets.Framework, targets.Assembly,
+                targets.Before.TypeIdentity, targets.Before.MemberName,
+                targets.Before.SelectorKey, targets.Before.MetadataToken);
+        using JsonDocument result = JsonDocument.Parse(await pending);
+        Assert.Equal("Succeeded", result.RootElement.GetProperty("kind").GetString());
+        Assert.False(holder.CancellationToken.IsCancellationRequested);
         BrowserTypeSourceCancellation cancel = JsonSerializer.Deserialize(
             SourceExports.CancelMethodBodyComparison(id, reason),
             BrowserSourceJsonContext.Default.BrowserTypeSourceCancellation)!;
-        Assert.Equal(BrowserTypeSourceCancellationKind.Requested, cancel.Kind);
-        using JsonDocument result = JsonDocument.Parse(await pending);
-        Assert.Equal("Canceled", result.RootElement.GetProperty("kind").GetString());
-        Assert.Equal(reason, result.RootElement.GetProperty("reason").GetString());
+        Assert.Equal(BrowserTypeSourceCancellationKind.NotActive, cancel.Kind);
         Assert.Equal(BrowserTypeSourceCancellationKind.NotActive, JsonSerializer.Deserialize(
             SourceExports.CancelTypeSourceQuery(id, "user"),
             BrowserSourceJsonContext.Default.BrowserTypeSourceCancellation)!.Kind);
