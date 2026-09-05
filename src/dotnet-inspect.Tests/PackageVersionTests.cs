@@ -427,149 +427,52 @@ public class PackageVersionTests
         Assert.Equal(1, document.RootElement.GetArrayLength());
     }
 
-    [Fact]
-    public async Task Versions_ValuedSelectorReportsReplacement()
-    {
-        string[][] cases =
-        [
-            [
-                "package",
-                "System.CommandLine",
-                "--versions",
-                "2"
-            ],
-            [
-                "package",
-                "--versions",
-                "2",
-                "System.CommandLine"
-            ],
-            [
-                "System.CommandLine",
-                "--versions",
-                "2"
-            ],
-            [
-                "package",
-                "System.CommandLine",
-                "--versions=2"
-            ],
-            [
-                "package",
-                "System.CommandLine",
-                "--versions-with-feed",
-                "2"
-            ],
-            [
-                "package",
-                "System.CommandLine",
-                "--versions",
-                "2147483648"
-            ],
-            ["package", "-n1", "--versions", "2"],
-            ["package", "-n1", "--versions=2"],
-            ["package", "-n1", "--versions:2147483648"],
-            ["package", "-n1", "--versions-with-feed", "2"],
-            ["package", "-n1", "--versions-with-feed=2"],
-            ["-n1", "--versions", "2"],
-            ["-n1", "--versions-with-feed", "2"]
-        ];
-
-        foreach (string[] arguments in cases)
-        {
-            var (exit, output, error) =
-                await RunAppAsync(arguments);
-
-            Assert.Equal(1, exit);
-            Assert.Empty(output);
-            Assert.Contains(" -n N'.", error, StringComparison.Ordinal);
-        }
-    }
-
-    [Fact]
-    public async Task PackageSearch_ValuedVersionSelectorDoesNotReportAdoptedReplacement()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "package",
-            "--versions",
-            "2",
-            "search",
-            "json");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.DoesNotContain(
-            "no longer accepts a count",
-            error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "--versions is not available with package search",
-            error,
-            StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task UnadoptedCommand_ValuedVersionSelectorDoesNotReportAdoptedReplacement()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library",
-            "System.Console",
-            "--versions=2");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.DoesNotContain(
-            "no longer accepts a count",
-            error,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "Unrecognized command or argument '--versions=2'",
-            error,
-            StringComparison.Ordinal);
-    }
-
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Versions_ValuedSelectorHonorsRequiredValueOwnership(bool compactCount)
+    [InlineData("--versions", "2")]
+    [InlineData("--versions", "2147483648")]
+    [InlineData("--versions-with-feed", "2")]
+    [InlineData("--versions-with-feed", "2147483648")]
+    public void Versions_SelectorLeavesNumericInputAsPackageArgument(
+        string selector,
+        string packageName)
     {
         var root = CommandLineBuilder.CreateRootCommand();
-        string[] args =
-        [
-            "package",
-            .. compactCount ? new[] { "-n1" } : Array.Empty<string>(),
-            "--out",
-            "--versions",
-            "2"
-        ];
+        var package = root.Subcommands.Single(command => command.Name == "package");
+        var option = Assert.IsType<Option<bool>>(
+            package.Options.Single(option => option.Name == selector));
+        var packageArgument = Assert.IsType<Argument<string[]>>(
+            Assert.Single(package.Arguments));
+        string[] args = ["package", selector, packageName];
 
         Assert.False(
             CommandLineBuilder.TryGetStaleArgumentError(
                 args,
                 root,
                 out _));
-        Assert.Empty(root.Parse(args).Errors);
+        var result = root.Parse(args);
+        Assert.Empty(result.Errors);
+        Assert.True(result.GetValue(option));
+        Assert.Equal(
+            [packageName],
+            Assert.IsType<string[]>(result.GetValue(packageArgument)));
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership(bool compactCount)
+    [InlineData("--versions", "2")]
+    [InlineData("--versions-with-feed", "2")]
+    [InlineData("--versions=2")]
+    [InlineData("--versions:2")]
+    [InlineData("--versions-with-feed=2")]
+    [InlineData("--versions-with-feed:2")]
+    public async Task Versions_AdditionalPackageUsesMultiPackageValidation(
+        params string[] selectorArguments)
     {
-        var root = CommandLineBuilder.CreateRootCommand();
-        string[] args =
-        [
-            .. compactCount ? new[] { "-n1" } : Array.Empty<string>(),
-            "--out",
-            "--versions",
-            "2"
-        ];
+        var (exit, output, error) = await RunAppAsync(
+            ["package", "System.CommandLine", .. selectorArguments]);
 
-        Assert.False(
-            CommandLineBuilder.TryGetStaleArgumentError(
-                args,
-                root,
-                out _));
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Multiple package inspection cannot be combined", error, StringComparison.Ordinal);
     }
 
     [Theory]

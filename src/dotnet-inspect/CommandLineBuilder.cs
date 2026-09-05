@@ -60,9 +60,7 @@ public static class CommandLineBuilder
         => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
 
     /// <summary>
-    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleArgumentError"/>. This is the
-    /// pre-parse choke point the entry point calls, so a removed spelling is answered with its
-    /// replacement rather than with a bare "Unrecognized option".
+    /// Reports stale direction syntax using the active command's count unit.
     /// </summary>
     public static bool TryGetStaleArgumentError(string[] args, out string? error)
         => TryGetStaleArgumentError(
@@ -76,16 +74,10 @@ public static class CommandLineBuilder
         out string? error)
     {
         ParseResult rawParse = rootCommand.Parse(args);
-        bool isExplicitPackageVersionCommand =
-            rawParse.CommandResult.Command.Name
-                == PackageCommand.Name;
         bool isImplicitPackageVersionCandidate =
             ArgumentPreprocessor.IsImplicitPackageCandidate(
                 args,
                 UsesImplicitVersionDirectionPresence(args, rootCommand));
-        bool supportsValuedVersionSelectorGuidance =
-            isExplicitPackageVersionCommand
-            || isImplicitPackageVersionCandidate;
         string[] ownershipArgs = args;
         ParseResult ownershipParse = rawParse;
         if (isImplicitPackageVersionCandidate)
@@ -94,12 +86,11 @@ public static class CommandLineBuilder
             ownershipParse = rootCommand.Parse(ownershipArgs);
         }
 
-        return ArgumentPreprocessor.TryGetStaleArgumentError(
+        return ArgumentPreprocessor.TryGetStaleDirectionFlagError(
             ownershipArgs,
-            ownershipParse,
-            supportsValuedVersionSelectorGuidance,
-            requireOwnedVersionSelector:
-                supportsValuedVersionSelectorGuidance,
+            CliRowSelectionCommandRegistry.OwnsShortLimit(
+                ownershipParse,
+                ownershipArgs),
             out error);
     }
 

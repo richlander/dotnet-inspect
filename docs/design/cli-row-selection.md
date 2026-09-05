@@ -533,6 +533,10 @@ present.
 Guidance names only behavior available on its declared command. Shared guidance
 does not anticipate adoption.
 
+The plural package-version selectors use ordinary zero-arity parsing, without
+recognizing former count spellings or providing migration diagnostics.
+A following numeric token is ordinary positional package input, not a count.
+
 ## Mock demo
 
 The first proposed command adoption is the finite `demo list` catalog:
@@ -603,7 +607,8 @@ The plural package-version adoption is enforced by:
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
 | `Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy` | Removed valued-direction syntax recommends `-n` rather than unsupported row counts for both explicit and implicit plural lenses, and the corrected command succeeds. |
 | `PackageVersionListing_DirectionPreservesBooleanPackageInput`, `PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection`, and `PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue` | Explicit and options-first implicit plural lenses preserve Boolean-shaped package names after either direction modifier and select the correct row; required selector-shaped values and explicit search retain legacy direction binding. |
-| `Versions_ValuedSelectorReportsReplacement`, `Versions_ValuedSelectorHonorsRequiredValueOwnership`, `Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership`, `PackageSearch_ValuedVersionSelectorDoesNotReportAdoptedReplacement`, and `UnadoptedCommand_ValuedVersionSelectorDoesNotReportAdoptedReplacement` | Both zero-arity selectors reject their former valued spelling, including overflow and after compact counts, before routing can reinterpret the number as a package target, while explicit and implicit required option values, package search, and unadopted commands do not receive guidance for an unselected lens. |
+| `PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget` and `PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues` | Implicit routing leaves Boolean-shaped package input after presence-only flags while preserving separated Boolean values on ordinary options. |
+| `Versions_SelectorLeavesNumericInputAsPackageArgument` and `Versions_AdditionalPackageUsesMultiPackageValidation` | Both zero-arity selectors leave numeric input to normal package parsing; an additional package uses ordinary multi-package validation rather than a former-count diagnostic. |
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |
 | `FeedCoordinateSemanticSingleVersion_PreservesFeedRowIdentity` | Pinned, `@latest`, and range coordinates keep the feed-attributed row identity through semantic single-row selection. |

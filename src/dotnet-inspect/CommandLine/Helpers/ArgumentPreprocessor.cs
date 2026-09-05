@@ -41,7 +41,7 @@ public static class ArgumentPreprocessor
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
         => TryGetStaleDirectionFlagError(args, usesSemanticCount: false, out error);
 
-    private static bool TryGetStaleDirectionFlagError(
+    internal static bool TryGetStaleDirectionFlagError(
         string[] args,
         bool usesSemanticCount,
         out string? error)
@@ -74,92 +74,10 @@ public static class ArgumentPreprocessor
         return false;
     }
 
-    /// <summary>
-    /// Answers raw-token questions that must be resolved before parsing: spellings the product
-    /// used to accept and no longer does. The parser can only say "Unrecognized option", which
-    /// is true but leaves the caller to find the replacement themselves.
-    /// </summary>
-    public static bool TryGetStaleArgumentError(
-        string[] args,
-        ParseResult rawParse,
-        bool supportsValuedVersionSelectorGuidance,
-        bool requireOwnedVersionSelector,
-        out string? error)
-    {
-        bool usesSemanticCount = supportsValuedVersionSelectorGuidance
-            && CliRowSelectionCommandRegistry.OwnsShortLimit(rawParse, args);
-        if (TryGetStaleDirectionFlagError(args, usesSemanticCount, out error))
-            return true;
-
-        return supportsValuedVersionSelectorGuidance
-            && TryGetValuedVersionSelectorError(
-                args,
-                rawParse,
-                requireOwnedVersionSelector,
-                out error);
-    }
-
-    private static bool TryGetValuedVersionSelectorError(
-        string[] args,
-        ParseResult rawParse,
-        bool requireOwnedVersionSelector,
-        out string? error)
-    {
-        error = null;
-        var end = Array.IndexOf(args, "--");
-        if (end < 0)
-            end = args.Length;
-
-        for (var index = 0; index < end; index++)
-        {
-            string token = args[index];
-            string? option = token switch
-            {
-                "--versions" or "--versions-with-feed" => token,
-                _ when token.StartsWith("--versions=", StringComparison.Ordinal)
-                    || token.StartsWith("--versions:", StringComparison.Ordinal) =>
-                    "--versions",
-                _ when token.StartsWith("--versions-with-feed=", StringComparison.Ordinal)
-                    || token.StartsWith("--versions-with-feed:", StringComparison.Ordinal) =>
-                    "--versions-with-feed",
-                _ => null
-            };
-            if (option is null)
-                continue;
-            if (requireOwnedVersionSelector
-                && !CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
-                    rawParse,
-                    args,
-                    index,
-                    option))
-            {
-                continue;
-            }
-
-            bool hasInlineValue = token.Length > option.Length;
-            bool hasSeparatedNumericValue =
-                !hasInlineValue
-                && index + 1 < end
-                && IsAsciiDecimal(args[index + 1]);
-            if (!hasInlineValue && !hasSeparatedNumericValue)
-                continue;
-
-            error =
-                $"'{option}' no longer accepts a count. "
-                + $"Use '{option} -n N'.";
-            return true;
-        }
-
-        return false;
-    }
-
     private static bool IsBareShorthand(string value) =>
         value.Length > 1
         && value[0] == '-'
         && IsAsciiDecimal(value.AsSpan(1));
-
-    private static bool IsAsciiDecimal(string value) =>
-        IsAsciiDecimal(value.AsSpan());
 
     private static bool IsAsciiDecimal(ReadOnlySpan<char> value)
     {

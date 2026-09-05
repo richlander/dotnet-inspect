@@ -957,6 +957,35 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public void PreprocessArgs_ZeroArityVersionFlagsPreserveBooleanTarget(string option)
+    {
+        string[] args = option is "--versions" or "--versions-with-feed"
+            ? [option, "false"]
+            : ["--versions", "-n", "1", option, "false"];
+
+        Assert.Equal(
+            ["router", "false", .. args[..^1]],
+            CommandLineBuilder.PreprocessArgs(args));
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void PreprocessArgs_AdoptedDirectionRetainsOtherBooleanOptionValues(string direction)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            ["--json", "false", "--versions", direction, "true", "-n", "1"]);
+
+        Assert.Equal(
+            ["router", "true", "--json", "false", "--versions", direction, "-n", "1"],
+            result);
+    }
+
+    [Theory]
     [InlineData("--head", "true")]
     [InlineData("--head", "false")]
     [InlineData("--tail", "true")]

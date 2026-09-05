@@ -926,22 +926,13 @@ public sealed class CliRowSelectionArgumentAdapterTests
     {
         Fixture fixture = new();
         string[] arguments = ["demo", "-n1", "--required", "--head", "--tail"];
-        ParseResult result = fixture.Parse(arguments);
+        CliRowSelectionArgumentResult result = fixture.Success(arguments);
 
-        Assert.Empty(result.Errors);
-        Assert.False(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
-            result, arguments, 3, "--head"));
-        Assert.True(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
-            result, arguments, 4, "--tail"));
-
-        fixture.Required.Aliases.Add("-r");
-        string[] compactRequiredArguments = ["demo", "-r--head", "--tail"];
-        ParseResult compactRequired = fixture.Parse(compactRequiredArguments);
-
-        Assert.Empty(compactRequired.Errors);
-        Assert.Equal("--head", compactRequired.GetValue(fixture.Required));
-        Assert.True(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
-            compactRequired, compactRequiredArguments, 2, "--tail"));
+        Assert.Equal("--head", result.ParseResult.GetValue(fixture.Required));
+        Assert.NotNull(result.LoweringResult);
+        Assert.Equal(
+            RowSelectionStageKind.Tail,
+            Assert.Single(result.LoweringResult.Value!.SemanticIntent.Operations).Kind);
     }
 
     private sealed class Fixture
