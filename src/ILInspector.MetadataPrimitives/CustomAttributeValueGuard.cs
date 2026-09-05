@@ -1,63 +1,83 @@
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Bounds custom-attribute value blobs before they are handed to
-/// <c>System.Reflection.Metadata</c>'s <c>CustomAttributeDecoder</c>.
+/// The owned custom-attribute value decoder (issue #5288 slice 2).
 ///
-/// SRM reads a declared <c>Int32</c> SZArray count or <c>UInt16</c> named-argument
-/// count and allocates <c>ImmutableArray.CreateBuilder</c> from that count
-/// <b>before</b> reading any element and before any
-/// <see cref="ICustomAttributeTypeProvider{TType}"/> callback. Four attacker
-/// bytes can therefore request a gigabyte-scale builder. The blob-length charge
-/// on the value heap does not see that amplification.
+/// A custom-attribute value blob is not self-describing: the value bytes carry
+/// only data, and the separate constructor signature says how wide each value
+/// is. Decoding one therefore reads two attacker-supplied structures together.
+/// Before slice 2 this component only <em>walked</em> the blob to bound it and
+/// then handed it to <c>System.Reflection.Metadata</c>'s
+/// <c>CustomAttribute.DecodeValue</c>; the two walkers had to agree on every
+/// byte. That relationship is now inverted: this decoder is the single owner
+/// of the walk and materializes SRM's public
+/// <see cref="CustomAttributeValue{TType}"/> shape directly, so there is no
+/// second walk to keep aligned. See
+/// <c>docs/design/custom-attribute-value-decoding.md</c>.
 ///
-/// This guard walks the constructor MethodSig and the whole value blob —
-/// fixed arguments <b>and</b> each named argument's <c>FieldOrPropType</c>,
-/// name, and value — refusing decode when a declared count exceeds the
-/// remaining bytes or when boxed / SZArray nesting exceeds
-/// <see cref="MaxSerializedDepth"/>. Declared slots and materialized
-/// <c>SerString</c> payload bytes are charged through
-/// <c>beforeMaterialize</c> so hostile metadata becomes typed truncation
-/// rather than a swallowed <c>OutOfMemoryException</c>.
-/// <c>CustomAttributeValueGuardTests</c>'s
-/// <c>AssemblyQualifiedNamedEnum_SeesFollowingArrayCount</c> gate covers both
-/// charges. The walk uses an explicit heap work-stack, never the native stack,
-/// matching
-/// <see cref="SignatureBlobGuard"/>: the depth cap is a policy limit, not a
-/// stack-safety limit. Enum argument widths come from
-/// <see cref="EnumUnderlyingPrimitive"/> so the skip stays aligned with SRM's
-/// provider.
+/// The decode is all-or-nothing (D2): a blob whose <em>structure</em> cannot
+/// be followed yields a refusal, never a partial value and never a guess about
+/// where the next element begins. No allocation is ever sized from a declared
+/// count that exceeds the remaining bytes (D1). Enum widths that no structural,
+/// local, trusted, or caller path can resolve default to
+/// <see cref="PrimitiveTypeCode.Int32"/>, and that default is reported
+/// out-of-band through the detailed decode result rather than hidden inside the
+/// value (D2's "visibly" clause).
+///
+/// The value walk uses an explicit heap work-stack rather than native
+/// recursion, so a deeply nested blob cannot overflow the native stack before
+/// <see cref="MaxSerializedDepth"/> is consulted;
+/// <c>CustomAttributeValueGuardTests.DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe</c>
+/// is that gate. Enum argument widths come from
+/// <see cref="EnumUnderlyingPrimitive"/> and the shared type-definition index.
 /// </summary>
 public static class CustomAttributeValueGuard
 {
     /// <summary>
-    /// Conservative decode-work charge for one SRM
-    /// <c>CustomAttributeTypedArgument</c> / named-argument builder slot.
+    /// Legacy conservative decode-work charge for one materialized
+    /// <c>CustomAttributeTypedArgument</c> / <c>CustomAttributeNamedArgument</c>
+    /// builder slot, reported through the caller's observer before the slot is
+    /// allocated. It is a <em>proxy for decode work per declared slot</em>, not
+    /// exact retained-byte accounting: once boxing is included the retained
+    /// output is <c>O(B + S*(C+N))</c> (D1), which #5755 owns the representation
+    /// evidence for. The value <c>16</c> is preserved from the paired-walker era
+    /// because roughly twenty observer consumers budget against it, and slice 2
+    /// deliberately does not retune them; #5733 owns the D1 cost gate that would.
+    /// The non-materializing <see cref="IsSafeToDecode"/> bridge reports the
+    /// equivalent prospective charge without allocating output.
     /// </summary>
     public const int DeclaredSlotCharge = 16;
 
     /// <summary>
-    /// Maximum boxed / SZArray nesting allowed while skipping a value blob.
-    /// Matches <see cref="SignatureBlobGuard.DefaultMaxDepth"/>: far above legal
-    /// attributes, far below a default managed thread stack.
+    /// Maximum boxed / SZArray nesting depth admitted while decoding a value
+    /// blob. Matches <see cref="SignatureBlobGuard.DefaultMaxDepth"/>: far above
+    /// legal attributes, far below a default managed thread stack. Nesting past
+    /// this depth is refused.
     /// </summary>
     public const int MaxSerializedDepth = SignatureBlobGuard.DefaultMaxDepth;
 
     /// <summary>
-    /// Returns <see langword="true"/> when the value blob is safe to hand to
-    /// <c>DecodeValue</c>. Truncated or unrecognized blobs return
-    /// <see langword="true"/> so SRM's catchable failure remains the decoder
-    /// result. Returns <see langword="false"/> when a declared count would
-    /// allocate more slots than the remaining bytes can describe, or when
-    /// serialized nesting exceeds <see cref="MaxSerializedDepth"/>. A caller
-    /// <paramref name="enumUnderlyingType"/> is bound to the same
-    /// local-TypeDef-first, <see cref="EnumUnderlyingPrimitive.Normalize"/>
-    /// oracle <c>DecodeValue</c> uses, so a direct skip cannot diverge. A
-    /// TypeDef-index failure during that bind is <see langword="false"/>, not
-    /// a swallowed blob-format success: the walk never finished, so a later
-    /// <c>DecodeValue</c> with a different provider must not run.
+    /// Temporary, inverted-semantics source-compatibility bridge over the owned
+    /// decoder. Returns <see langword="true"/> when the blob decodes to a value
+    /// and <see langword="false"/> when its structure cannot be followed —
+    /// including truncation, a jagged fixed argument, a generic method header,
+    /// an <c>MVAR</c>, a <c>TypeSpec</c>-typed enum, an unknown code, over-depth
+    /// nesting, or a declared count exceeding the remaining bytes. This is the
+    /// exact inverse of the pre-slice-2 guard, which deferred those cases to
+    /// SRM by returning <see langword="true"/>.
+    ///
+    /// It runs the <em>same</em> decoder as <see cref="AttributeDecoder"/> in a
+    /// non-materializing configuration and discards the value, so it is not on
+    /// the production <c>TryDecode</c> path and never leaves production with a
+    /// second walk. It preserves the prospective observer charge stream without
+    /// allocating value or defaulted-width arrays. A caller
+    /// <paramref name="beforeMaterialize"/> observer or
+    /// <paramref name="enumUnderlyingType"/> resolver that throws propagates
+    /// unchanged; only malformed-input structure yields
+    /// <see langword="false"/>.
     /// </summary>
     public static bool IsSafeToDecode(
         MetadataReader reader,
@@ -67,1288 +87,692 @@ public static class CustomAttributeValueGuard
     {
         try
         {
-            if (enumUnderlyingType is not null)
-            {
-                enumUnderlyingType = AttributeDecoder.BindEnumWidthResolver(
-                    reader,
-                    beforeMaterialize,
-                    enumUnderlyingType);
-            }
-
-            return Check(
-                    reader,
-                    attribute,
-                    beforeMaterialize,
-                    enumUnderlyingType)
-                != Result.Unsafe;
-        }
-        catch (AttributeDecoder.TypeDefinitionIndexException)
-        {
-            return false;
-        }
-        catch (BadImageFormatException)
-        {
-            return true;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return true;
-        }
-    }
-
-    static Result Check(
-        MetadataReader reader,
-        CustomAttribute attribute,
-        Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
-    {
-        if (!TryGetConstructorSignature(reader, attribute.Constructor, out var signatureHandle))
-            return Result.Safe;
-        if (!SignatureBlobGuard.IsSafeToDecode(
+            return Decode(
                 reader,
-                signatureHandle,
-                SignatureBlobGuard.Kind.Method))
-            return Result.Unsafe;
-
-        var signature = reader.GetBlobReader(signatureHandle);
-        var header = signature.ReadSignatureHeader();
-        if (header.IsGeneric)
-            signature.ReadCompressedInteger();
-        int parameterCount = signature.ReadCompressedInteger();
-        if (parameterCount < 0)
-            return Result.Unsafe;
-
-        var signatureSkip = new Stack<SignatureSkipItem>();
-        if (!TrySkipSignatureType(ref signature, signatureSkip))
-            return Result.Safe;
-
-        var value = reader.GetBlobReader(attribute.Value);
-        if (value.RemainingBytes < 2)
-            return Result.Safe;
-        if (value.ReadUInt16() != 1)
-            return Result.Safe;
-
-        var walk = new WalkState(
-            reader,
-            attribute.Constructor,
-            beforeMaterialize,
-            enumUnderlyingType,
-            signature,
-            value,
-            signatureSkip);
-        walk.Push(WorkItem.NamedHeader());
-        if (parameterCount > 0)
-            walk.Push(WorkItem.FixedArgs(parameterCount, depth: 1));
-        return walk.Run();
+                attribute,
+                preserveSerializedTypeNames: false,
+                materialize: false,
+                captureDefaultedWidths: false,
+                beforeMaterialize,
+                AttributeDecoder.LegacyResolver(enumUnderlyingType),
+                out _,
+                out _,
+                out _);
+        }
+        catch (AttributeDecoder.CallerCallbackException ex)
+        {
+            ex.Rethrow();
+            throw;
+        }
     }
 
     /// <summary>
-    /// Value-blob work lives on this heap stack. Wide arrays keep a remaining
-    /// count rather than one item per element, so a legal 4k-int argument
-    /// cannot amplify into thousands of frames.
-    /// <c>CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe</c>
-    /// is the gate that this walk does not recurse on the native stack.
+    /// The single owned decode. Returns <see langword="true"/> and a
+    /// materialized <paramref name="value"/> when <paramref name="materialize"/>
+    /// is set, <see langword="true"/> with a default value when only validating,
+    /// and <see langword="false"/> when the blob is refused. Caller-callback
+    /// failures are raised as <see cref="AttributeDecoder.CallerCallbackException"/>
+    /// so the public edge can rethrow the original unchanged; only
+    /// malformed-input exceptions become a refusal.
     /// </summary>
-    sealed class WalkState(
+    internal static bool Decode(
+        MetadataReader reader,
+        CustomAttribute attribute,
+        bool preserveSerializedTypeNames,
+        bool materialize,
+        bool captureDefaultedWidths,
+        Action<int>? beforeMaterialize,
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType,
+        out CustomAttributeValue<string> value,
+        out ImmutableArray<bool> fixedArgumentWidthDefaulted,
+        out ImmutableArray<bool> namedArgumentWidthDefaulted)
+    {
+        value = default;
+        fixedArgumentWidthDefaulted = default;
+        namedArgumentWidthDefaulted = default;
+
+        try
+        {
+            // Constructor access reads and validates metadata too.
+            var decoder = new Decoder(
+                reader,
+                attribute.Constructor,
+                preserveSerializedTypeNames,
+                materialize,
+                captureDefaultedWidths,
+                beforeMaterialize,
+                enumUnderlyingType);
+            return decoder.Run(
+                attribute,
+                out value,
+                out fixedArgumentWidthDefaulted,
+                out namedArgumentWidthDefaulted);
+        }
+        catch (Exception ex) when (
+            ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            // Malformed structure — including truncation, a bad signature, and
+            // a definition-index failure — is a decode outcome, not a laundered
+            // exception. A caller callback failure is wrapped in
+            // CallerCallbackException, which is not one of these types, so it
+            // escapes here and is rethrown at the public edge. Resource
+            // exhaustion (OutOfMemoryException) and every other internal failure
+            // also propagate: this filter is exact, never a bare catch.
+            value = default;
+            fixedArgumentWidthDefaulted = default;
+            namedArgumentWidthDefaulted = default;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// One decode of one attribute value. Fixed arguments are read from the
+    /// constructor signature interleaved with their values from the value blob,
+    /// exactly once each (matching SRM's <c>CustomAttributeDecoder</c>); the
+    /// value tree beneath each argument is walked iteratively on
+    /// <see cref="_work"/> so nesting cannot overflow the native stack.
+    /// </summary>
+    sealed class Decoder(
         MetadataReader reader,
         EntityHandle constructor,
+        bool preserveSerializedTypeNames,
+        bool materialize,
+        bool captureDefaultedWidths,
         Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType,
-        BlobReader signature,
-        BlobReader value,
-        Stack<SignatureSkipItem> signatureSkip)
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
     {
         readonly MetadataReader _reader = reader;
         readonly EntityHandle _constructor = constructor;
+        readonly bool _materialize = materialize;
+        readonly bool _captureDefaultedWidths = captureDefaultedWidths;
         readonly Action<int>? _beforeMaterialize = beforeMaterialize;
-        readonly Func<string, PrimitiveTypeCode>? _enumUnderlyingType = enumUnderlyingType;
-        readonly Stack<WorkItem> _work = new();
-        readonly Stack<SignatureSkipItem> _signatureSkip = signatureSkip;
-        readonly Stack<SrmSkipItem> _srmSkip = new();
-        Stack<SignatureFrame>? _frames;
-        BlobReader _signature = signature;
-        BlobReader _value = value;
-        bool _substituteGenerics = true;
-        string? _memoEnumName;
-        PrimitiveTypeCode _memoEnumWidth;
-        EntityHandle _memoEnumHandle;
-        PrimitiveTypeCode _memoEnumHandleWidth;
-        EntityHandle _memoSystemTypeHandle;
-        bool _memoIsSystemType;
-        bool _memoSpecResolved;
-        Result _memoSpecResult;
-        bool _memoSpecFound;
-        BlobReader _memoSpecArguments;
-        int _memoSpecArgumentCount;
-        int _memoArgumentIndex = -1;
-        int _memoArgumentOffset;
+        readonly Classifier _classifier = new(
+            reader,
+            preserveSerializedTypeNames,
+            beforeMaterialize,
+            enumUnderlyingType);
+        readonly Stack<ValueJob> _work = new();
 
-        public void Push(WorkItem item) => _work.Push(item);
+        BlobReader _value;
+        bool _currentArgumentDefaulted;
+        CustomAttributeTypedArgument<string> _rootResult;
 
-        /// <summary>
-        /// Resolves an enum SerString to its width, reusing the previous
-        /// answer when the name repeats. Every element of a typed enum array
-        /// carries the same name, so without this the walk re-parses and
-        /// re-projects that name once per declared element — allocation
-        /// proportional to an attacker-chosen count, inside the guard whose
-        /// purpose is to bound exactly that. The resolver is a frozen table
-        /// and the projection is pure, so a repeated name has a repeated
-        /// answer and guard/SRM alignment is unaffected.
-        /// </summary>
-        PrimitiveTypeCode ResolveEnumNameMemoized(string? enumName)
+        public bool Run(
+            CustomAttribute attribute,
+            out CustomAttributeValue<string> value,
+            out ImmutableArray<bool> fixedDefaulted,
+            out ImmutableArray<bool> namedDefaulted)
         {
-            if (enumName is not null
-                && _memoEnumName is not null
-                && string.Equals(_memoEnumName, enumName, StringComparison.Ordinal))
+            value = default;
+            fixedDefaulted = default;
+            namedDefaulted = default;
+
+            if (!TryGetConstructorSignature(
+                    _reader,
+                    _constructor,
+                    out BlobHandle signatureHandle))
             {
-                return _memoEnumWidth;
+                return false;
             }
 
-            PrimitiveTypeCode width = ResolveEnumName(
-                _reader,
-                enumName,
-                _enumUnderlyingType);
-            if (enumName is not null)
+            var signature = _reader.GetBlobReader(signatureHandle);
+            _value = _reader.GetBlobReader(attribute.Value);
+
+            if (_value.ReadUInt16() != 1)
+                throw new BadImageFormatException();
+
+            var header = signature.ReadSignatureHeader();
+            if (header.Kind != SignatureKind.Method || header.IsGeneric)
+                throw new BadImageFormatException();
+
+            int parameterCount = signature.ReadCompressedInteger();
+            if (parameterCount < 0)
+                throw new BadImageFormatException();
+            if (signature.ReadSignatureTypeCode() != SignatureTypeCode.Void)
+                throw new BadImageFormatException();
+
+            BlobReader genericContext = ResolveGenericContext();
+
+            // Never size the fixed-argument builder from a declared count that
+            // exceeds the remaining value bytes: every fixed argument consumes
+            // at least one value byte, so this cannot reject a legal attribute.
+            if (parameterCount > _value.RemainingBytes)
+                throw new BadImageFormatException();
+
+            ChargeSlots(parameterCount);
+            var fixedArguments = _materialize
+                ? ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(
+                    parameterCount)
+                : null;
+            var fixedFlags = _captureDefaultedWidths
+                ? ImmutableArray.CreateBuilder<bool>(parameterCount)
+                : null;
+
+            for (int i = 0; i < parameterCount; i++)
             {
-                _memoEnumName = enumName;
-                _memoEnumWidth = width;
+                _currentArgumentDefaulted = false;
+                ArgumentType info = DecodeFixedArgumentType(
+                    ref signature,
+                    genericContext,
+                    isElementType: false,
+                    depth: 1);
+                CustomAttributeTypedArgument<string> argument =
+                    DecodeArgument(info, depth: 1);
+                fixedArguments?.Add(argument);
+                fixedFlags?.Add(_currentArgumentDefaulted);
             }
 
-            return width;
-        }
-
-        /// <summary>
-        /// Resolves a signature-named enum handle to its width, reusing the
-        /// previous answer when the handle repeats. This is the handle-typed
-        /// twin of <see cref="ResolveEnumNameMemoized"/> and exists for the
-        /// same reason: every element of a typed enum array re-parses the same
-        /// element type, so without this the walk resolves that handle once per
-        /// attacker-chosen element. Resolving a reference scans the definition
-        /// table, which would make the scan itself the amplification the guard
-        /// is meant to bound. The width is a pure function of the reader and
-        /// the handle, so a repeated handle has a repeated answer and
-        /// guard/SRM alignment is unaffected.
-        /// </summary>
-        PrimitiveTypeCode ResolveEnumHandleMemoized(EntityHandle handle)
-        {
-            if (!handle.IsNil && handle == _memoEnumHandle)
-                return _memoEnumHandleWidth;
-
-            PrimitiveTypeCode width = ResolveEnum(
-                _reader,
-                handle,
-                _beforeMaterialize,
-                _enumUnderlyingType);
-            if (!handle.IsNil)
-            {
-                _memoEnumHandle = handle;
-                _memoEnumHandleWidth = width;
-            }
-
-            return width;
-        }
-
-        /// <summary>
-        /// Skips a signature-typed named argument, matching SRM. SRM
-        /// special-cases only a rendered name of "System.Type"
-        /// (ArgTypeProvider.IsSystemType); structural ns+name checks miss
-        /// TypeRef {ns="", name="System.Type"} and nested System+Type, both
-        /// of which SRM consumes as a SerString.
-        /// </summary>
-        Result SkipNamedType(EntityHandle handle)
-        {
-            if (IsSrmSystemTypeMemoized(handle))
-                return SkipSerString(ref _value, _beforeMaterialize);
-            return SkipBytes(
-                ref _value,
-                EnumUnderlyingPrimitive.ByteSize(
-                    ResolveEnumHandleMemoized(handle)));
-        }
-
-        /// <summary>
-        /// Reports whether the handle renders as "System.Type", reusing the
-        /// previous answer when the handle repeats. Every element of a
-        /// signature-typed array of a named type carries the same handle, so
-        /// without this the walk renders that name once per declared element
-        /// — allocation proportional to an attacker-chosen count, inside the
-        /// guard whose purpose is to bound exactly that. The rendered name is
-        /// a pure function of the reader and the handle, so a repeated handle
-        /// has a repeated answer and guard/SRM alignment is unaffected.
-        /// </summary>
-        bool IsSrmSystemTypeMemoized(EntityHandle handle)
-        {
-            if (!handle.IsNil && handle == _memoSystemTypeHandle)
-                return _memoIsSystemType;
-
-            bool isSystemType = IsSrmSystemType(_reader, handle);
-            if (!handle.IsNil)
-            {
-                _memoSystemTypeHandle = handle;
-                _memoIsSystemType = isSystemType;
-            }
-
-            return isSystemType;
-        }
-
-        public Result Run()
-        {
-            while (_work.Count > 0)
-            {
-                Result result = Dispatch(_work.Pop());
-                if (result != Result.Safe)
-                    return result;
-            }
-
-            return Result.Safe;
-        }
-
-        Result Dispatch(WorkItem item)
-        {
-            switch (item.Op)
-            {
-                case Op.FixedArgs:
-                    return TakeNext(item, ProcessFixedArg);
-                case Op.NamedHeader:
-                    return ProcessNamedHeader();
-                case Op.NamedArgs:
-                    return TakeNext(item, ProcessNamedArg);
-                case Op.SzArrayElements:
-                    return ProcessSzArrayElements(item);
-                case Op.TypedArrayElements:
-                    return ProcessTypedArrayElements(item);
-                case Op.Boxed:
-                    return ProcessBoxed(item.Depth);
-                case Op.PopFrame:
-                    return PopFrame();
-                case Op.RestoreSignature:
-                    _signature.Offset = item.SignatureEnd;
-                    return Result.Safe;
-                default:
-                    return Result.Unsafe;
-            }
-        }
-
-        Result TakeNext(WorkItem item, Func<int, Result> process)
-        {
-            if (item.Remaining <= 0)
-                return Result.Safe;
-            if (item.Remaining > 1)
-            {
-                _work.Push(
-                    item.Op == Op.FixedArgs
-                        ? WorkItem.FixedArgs(item.Remaining - 1, item.Depth)
-                        : WorkItem.NamedArgs(item.Remaining - 1, item.Depth));
-            }
-
-            return process(item.Depth);
-        }
-
-        Result ProcessNamedHeader()
-        {
-            if (_value.RemainingBytes < 2)
-                return Result.Truncated;
             int namedCount = _value.ReadUInt16();
-            Charge(_beforeMaterialize, namedCount);
             if (namedCount > _value.RemainingBytes)
-                return Result.Unsafe;
-            if (namedCount > 0)
-                _work.Push(WorkItem.NamedArgs(namedCount, depth: 1));
-            return Result.Safe;
-        }
+                throw new BadImageFormatException();
 
-        Result ProcessFixedArg(int depth)
-        {
-            if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (!TryReadElementType(ref _signature, out byte code))
-                return Result.Safe;
-            while (code is ElementTypeCmodReqd or ElementTypeCmodOpt)
+            ChargeSlots(namedCount);
+            var namedArguments = _materialize
+                ? ImmutableArray.CreateBuilder<CustomAttributeNamedArgument<string>>(
+                    namedCount)
+                : null;
+            var namedFlags = _captureDefaultedWidths
+                ? ImmutableArray.CreateBuilder<bool>(namedCount)
+                : null;
+
+            for (int i = 0; i < namedCount; i++)
             {
-                _signature.ReadTypeHandle();
-                if (!TryReadElementType(ref _signature, out code))
-                    return Result.Safe;
-            }
-
-            return code switch
-            {
-                ElementTypeBoolean or ElementTypeI1 or ElementTypeU1
-                    => SkipBytes(ref _value, 1),
-                ElementTypeChar or ElementTypeI2 or ElementTypeU2
-                    => SkipBytes(ref _value, 2),
-                ElementTypeI4 or ElementTypeU4 or ElementTypeR4
-                    => SkipBytes(ref _value, 4),
-                ElementTypeI8 or ElementTypeU8 or ElementTypeR8
-                    => SkipBytes(ref _value, 8),
-                ElementTypeString => SkipSerString(
-                    ref _value,
-                    _beforeMaterialize),
-                ElementTypeObject => ProcessBoxed(depth),
-                ElementTypeSzArray => ProcessSzArray(depth),
-                ElementTypeClass or ElementTypeValueType => SkipNamedType(
-                    _signature.ReadTypeHandle()),
-                ElementTypeVar or ElementTypeMVar => _substituteGenerics
-                    ? ProcessGenericParameter(
-                        depth,
-                        methodParameter: code == ElementTypeMVar)
-                    : Result.Unsafe,
-                _ => Result.Unsafe,
-            };
-        }
-
-        Result ProcessSzArray(int depth)
-        {
-            if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (_value.RemainingBytes < 4)
-                return Result.Truncated;
-            // Rewind to the element TYPE, not to its custom modifiers.
-            // Modifiers are a prefix of the type, not part of the value
-            // grammar, so re-reading them per element buys nothing while
-            // multiplying work by an attacker-chosen count on input the guard
-            // accepts. SRM never spends that cost: its decoder has no case for
-            // CMOD_REQD/CMOD_OPT in an argument type and rejects the blob
-            // outright, so the guard would burn the entire multiplied scan
-            // before the decode it is screening for ever fails.
-            SkipCustomModifiers(ref _signature);
-            int elementStart = _signature.Offset;
-            if (!TrySkipSignatureType(ref _signature, _signatureSkip))
-                return Result.Safe;
-            int elementEnd = _signature.Offset;
-            int count = _value.ReadInt32();
-            if (count == -1)
-                return Result.Safe;
-            if (count < 0)
-                return Result.Unsafe;
-            Charge(_beforeMaterialize, count);
-            if ((uint)count > (uint)_value.RemainingBytes)
-                return Result.Unsafe;
-            if (count > 0)
-            {
-                _work.Push(
-                    WorkItem.SzArrayElements(
-                        count,
-                        elementStart,
-                        elementEnd,
-                        depth + 1));
-            }
-
-            return Result.Safe;
-        }
-
-        /// <summary>
-        /// Advances past any leading custom modifiers, leaving the reader on
-        /// the modified type. Returns with the reader unmoved when the blob
-        /// ends; the caller's own read reports that truncation.
-        /// </summary>
-        static void SkipCustomModifiers(ref BlobReader signature)
-        {
-            while (true)
-            {
-                int start = signature.Offset;
-                if (!TryReadElementType(ref signature, out byte code))
-                    return;
-                if (code is not (ElementTypeCmodReqd or ElementTypeCmodOpt))
+                _currentArgumentDefaulted = false;
+                var kind = (CustomAttributeNamedArgumentKind)
+                    _value.ReadSerializationTypeCode();
+                if (kind != CustomAttributeNamedArgumentKind.Field
+                    && kind != CustomAttributeNamedArgumentKind.Property)
                 {
-                    signature.Offset = start;
-                    return;
+                    throw new BadImageFormatException();
                 }
 
-                signature.ReadTypeHandle();
+                ArgumentType info = DecodeNamedArgumentType(
+                    isElementType: false,
+                    depth: 1);
+                string? name = ReadSerializedString(
+                    wantValue: _materialize);
+                CustomAttributeTypedArgument<string> argument =
+                    DecodeArgument(info, depth: 1);
+                namedArguments?.Add(
+                    new CustomAttributeNamedArgument<string>(
+                        name,
+                        kind,
+                        argument.Type,
+                        argument.Value));
+                namedFlags?.Add(_currentArgumentDefaulted);
             }
+
+            if (_materialize)
+            {
+                value = new CustomAttributeValue<string>(
+                    fixedArguments!.MoveToImmutable(),
+                    namedArguments!.MoveToImmutable());
+            }
+
+            if (_captureDefaultedWidths)
+            {
+                fixedDefaulted = fixedFlags!.MoveToImmutable();
+                namedDefaulted = namedFlags!.MoveToImmutable();
+            }
+            return true;
         }
 
-        Result ProcessSzArrayElements(WorkItem item)
+        BlobReader ResolveGenericContext()
         {
-            if (item.Remaining <= 0)
+            if (_constructor.Kind != HandleKind.MemberReference)
+                return default;
+            EntityHandle parent = _reader.GetMemberReference(
+                (MemberReferenceHandle)_constructor).Parent;
+            if (parent.Kind != HandleKind.TypeSpecification)
+                return default;
+
+            var spec = _reader.GetTypeSpecification(
+                (TypeSpecificationHandle)parent);
+            if (spec.Signature.IsNil)
+                return default;
+
+            var context = _reader.GetBlobReader(spec.Signature);
+            if (context.ReadSignatureTypeCode()
+                != SignatureTypeCode.GenericTypeInstance)
             {
-                _signature.Offset = item.SignatureEnd;
-                return Result.Safe;
+                // Some other TypeSpec. Do not resolve generic parameters from a
+                // broken blob; a VAR in the signature then refuses.
+                return default;
             }
 
-            if (_value.RemainingBytes == 0)
+            int kind = context.ReadCompressedInteger();
+            if (kind != (int)SignatureTypeKind.Class
+                && kind != (int)SignatureTypeKind.ValueType)
             {
-                _signature.Offset = item.SignatureEnd;
-                return Result.Truncated;
+                throw new BadImageFormatException();
             }
 
-            _signature.Offset = item.SignatureStart;
-            if (item.Remaining > 1)
-            {
-                _work.Push(
-                    WorkItem.SzArrayElements(
-                        item.Remaining - 1,
-                        item.SignatureStart,
-                        item.SignatureEnd,
-                        item.Depth));
-            }
-            else
-            {
-                _work.Push(WorkItem.RestoreSignature(item.SignatureEnd));
-            }
-
-            return ProcessFixedArg(item.Depth);
+            context.ReadTypeHandle();
+            // Positioned at "GenArgCount Type Type*".
+            return context;
         }
 
-        Result ProcessNamedArg(int depth)
-        {
-            if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (!TryReadElementType(ref _value, out byte kind))
-                return Result.Truncated;
-            if (kind is not (SerializedField or SerializedProperty))
-                return Result.Unsafe;
-
-            Result type = ReadFieldOrPropType(
-                ref _value,
-                depth,
-                _beforeMaterialize,
-                out byte leaf,
-                out int arrayDepth,
-                out string? enumName);
-            if (type != Result.Safe)
-                return type;
-
-            Result name = SkipSerString(
-                ref _value,
-                _beforeMaterialize);
-            if (name != Result.Safe)
-                return name;
-
-            return ProcessTypedValue(leaf, arrayDepth, enumName, depth);
-        }
-
-        Result ProcessTypedValue(
-            byte code,
-            int arrayDepth,
-            string? enumName,
+        // Reads one fixed-argument type from the constructor signature. Renders
+        // the type name and resolves any enum width exactly once; array element
+        // types are read here once and the value loop never re-reads them.
+        ArgumentType DecodeFixedArgumentType(
+            ref BlobReader signature,
+            BlobReader genericContext,
+            bool isElementType,
             int depth)
         {
             if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (arrayDepth > 0)
+                throw new BadImageFormatException();
+
+            SignatureTypeCode code = signature.ReadSignatureTypeCode();
+            switch (code)
             {
-                if (_value.RemainingBytes < 4)
-                    return Result.Truncated;
-                int count = _value.ReadInt32();
-                if (count == -1)
-                    return Result.Safe;
-                if (count < 0)
-                    return Result.Unsafe;
-                Charge(_beforeMaterialize, count);
-                if ((uint)count > (uint)_value.RemainingBytes)
-                    return Result.Unsafe;
-                if (count > 0)
+                case SignatureTypeCode.Boolean:
+                case SignatureTypeCode.Char:
+                case SignatureTypeCode.SByte:
+                case SignatureTypeCode.Byte:
+                case SignatureTypeCode.Int16:
+                case SignatureTypeCode.UInt16:
+                case SignatureTypeCode.Int32:
+                case SignatureTypeCode.UInt32:
+                case SignatureTypeCode.Int64:
+                case SignatureTypeCode.UInt64:
+                case SignatureTypeCode.Single:
+                case SignatureTypeCode.Double:
+                case SignatureTypeCode.String:
+                    return ArgumentType.Scalar(
+                        _classifier.GetPrimitiveType((PrimitiveTypeCode)code),
+                        (SerializationTypeCode)code);
+
+                case SignatureTypeCode.Object:
+                    return ArgumentType.Scalar(
+                        _classifier.GetPrimitiveType(PrimitiveTypeCode.Object),
+                        SerializationTypeCode.TaggedObject);
+
+                case SignatureTypeCode.TypeHandle:
                 {
-                    _work.Push(
-                        WorkItem.TypedArrayElements(
-                            code,
-                            arrayDepth - 1,
-                            enumName,
-                            count,
-                            depth + 1));
+                    EntityHandle handle = signature.ReadTypeHandle();
+                    string type = _classifier.GetTypeFromHandle(handle);
+                    if (_classifier.IsSystemType(type))
+                        return ArgumentType.Scalar(type, SerializationTypeCode.Type);
+                    var underlying = (SerializationTypeCode)
+                        ResolveEnumWidth(type);
+                    return ArgumentType.Scalar(type, underlying);
                 }
 
-                return Result.Safe;
+                case SignatureTypeCode.SZArray:
+                {
+                    if (isElementType)
+                        throw new BadImageFormatException(); // jagged, refused
+                    ArgumentType element = DecodeFixedArgumentType(
+                        ref signature,
+                        genericContext,
+                        isElementType: true,
+                        depth + 1);
+                    return ArgumentType.Array(
+                        _classifier.GetSZArrayType(element.Type),
+                        element);
+                }
+
+                case SignatureTypeCode.GenericTypeParameter:
+                {
+                    if (genericContext.Length == 0)
+                        throw new BadImageFormatException();
+                    int parameterIndex = signature.ReadCompressedInteger();
+                    if (parameterIndex < 0)
+                        throw new BadImageFormatException();
+                    BlobReader arguments = genericContext;
+                    int genericParameterCount = arguments.ReadCompressedInteger();
+                    if (parameterIndex >= genericParameterCount)
+                        throw new BadImageFormatException();
+                    for (int skip = 0; skip < parameterIndex; skip++)
+                    {
+                        if (!SrmType.TrySkip(ref arguments))
+                            throw new BadImageFormatException();
+                    }
+
+                    // Substitute once, then decode with an empty generic
+                    // context so a self-referential VAR cannot recurse.
+                    return DecodeFixedArgumentType(
+                        ref arguments,
+                        default,
+                        isElementType,
+                        depth + 1);
+                }
+
+                default:
+                    // GenericMethodParameter (MVAR), custom modifiers, and every
+                    // other code are refused.
+                    throw new BadImageFormatException();
+            }
+        }
+
+        // Reads one named-argument (or boxed / object[]-element) type inline
+        // from the value blob.
+        ArgumentType DecodeNamedArgumentType(bool isElementType, int depth)
+        {
+            if (depth > MaxSerializedDepth)
+                throw new BadImageFormatException();
+
+            SerializationTypeCode code = _value.ReadSerializationTypeCode();
+            switch (code)
+            {
+                case SerializationTypeCode.Boolean:
+                case SerializationTypeCode.Char:
+                case SerializationTypeCode.SByte:
+                case SerializationTypeCode.Byte:
+                case SerializationTypeCode.Int16:
+                case SerializationTypeCode.UInt16:
+                case SerializationTypeCode.Int32:
+                case SerializationTypeCode.UInt32:
+                case SerializationTypeCode.Int64:
+                case SerializationTypeCode.UInt64:
+                case SerializationTypeCode.Single:
+                case SerializationTypeCode.Double:
+                case SerializationTypeCode.String:
+                    return ArgumentType.Scalar(
+                        _classifier.GetPrimitiveType((PrimitiveTypeCode)code),
+                        code);
+
+                case SerializationTypeCode.Type:
+                    return ArgumentType.Scalar(
+                        _classifier.GetSystemType(),
+                        SerializationTypeCode.Type);
+
+                case SerializationTypeCode.TaggedObject:
+                    return ArgumentType.Scalar(
+                        _classifier.GetPrimitiveType(PrimitiveTypeCode.Object),
+                        SerializationTypeCode.TaggedObject);
+
+                case SerializationTypeCode.SZArray:
+                {
+                    if (isElementType)
+                        throw new BadImageFormatException(); // jagged, refused
+                    ArgumentType element = DecodeNamedArgumentType(
+                        isElementType: true,
+                        depth + 1);
+                    return ArgumentType.Array(
+                        _classifier.GetSZArrayType(element.Type),
+                        element);
+                }
+
+                case SerializationTypeCode.Enum:
+                {
+                    string? name = ReadSerializedString(wantValue: true);
+                    if (name is null)
+                        throw new BadImageFormatException();
+                    string type = _classifier.GetTypeFromSerializedName(name);
+                    var underlying = (SerializationTypeCode)ResolveEnumWidth(type);
+                    return ArgumentType.Scalar(type, underlying);
+                }
+
+                default:
+                    throw new BadImageFormatException();
+            }
+        }
+
+        // Iteratively decodes the value tree rooted at one argument. Runs the
+        // work-stack to completion so a top-level argument fully materializes
+        // before the next one begins; native recursion is never used.
+        CustomAttributeTypedArgument<string> DecodeArgument(
+            ArgumentType info,
+            int depth)
+        {
+            _work.Push(ValueJob.Decode(info, depth, container: null));
+            while (_work.Count > 0)
+            {
+                ValueJob job = _work.Pop();
+                if (job.Kind == ValueJobKind.ArrayLoop)
+                    ProcessArrayLoop(job.Container!);
+                else
+                    ProcessDecode(job.Info, job.Depth, job.Container);
+            }
+
+            return _rootResult;
+        }
+
+        void ProcessDecode(ArgumentType info, int depth, ArrayContainer? container)
+        {
+            if (depth > MaxSerializedDepth)
+                throw new BadImageFormatException();
+
+            if (info.Code == SerializationTypeCode.TaggedObject)
+            {
+                // The boxing is itself one nesting level, so charge depth for
+                // it before reading the boxed type. A boxed object whose boxed
+                // type is again a boxed object (0x51 0x51) is refused here just
+                // as SRM refuses it: DecodeNamedArgumentType yields TaggedObject
+                // and the value switch below has no case for it.
+                depth++;
+                if (depth > MaxSerializedDepth)
+                    throw new BadImageFormatException();
+                info = DecodeNamedArgumentType(isElementType: false, depth);
+            }
+
+            switch (info.Code)
+            {
+                case SerializationTypeCode.SZArray:
+                    ProcessArray(info, depth, container);
+                    return;
+
+                case SerializationTypeCode.String:
+                {
+                    object? text = ReadSerializedStringObject(wantValue: _materialize);
+                    Deliver(new CustomAttributeTypedArgument<string>(info.Type, text), container);
+                    return;
+                }
+
+                case SerializationTypeCode.Type:
+                {
+                    string? name = ReadSerializedString(wantValue: true);
+                    object? value = _materialize && name is not null
+                        ? _classifier.GetTypeFromSerializedName(name)
+                        : null;
+                    Deliver(new CustomAttributeTypedArgument<string>(info.Type, value), container);
+                    return;
+                }
+
+                default:
+                {
+                    object? value = ReadScalar(info.Code);
+                    Deliver(new CustomAttributeTypedArgument<string>(info.Type, value), container);
+                    return;
+                }
+            }
+        }
+
+        void ProcessArray(ArgumentType info, int depth, ArrayContainer? container)
+        {
+            int count = _value.ReadInt32();
+            if (count == -1)
+            {
+                // A null array. SRM materializes a null value.
+                Deliver(new CustomAttributeTypedArgument<string>(info.Type, null), container);
+                return;
+            }
+
+            if (count == 0)
+            {
+                object? empty = _materialize
+                    ? ImmutableArray<CustomAttributeTypedArgument<string>>.Empty
+                    : null;
+                Deliver(new CustomAttributeTypedArgument<string>(info.Type, empty), container);
+                return;
+            }
+
+            if (count < 0)
+                throw new BadImageFormatException();
+
+            if ((uint)count > (uint)_value.RemainingBytes)
+                throw new BadImageFormatException(); // refuse before allocating
+
+            ChargeSlots(count);
+            var child = new ArrayContainer(
+                _materialize
+                    ? ImmutableArray.CreateBuilder<CustomAttributeTypedArgument<string>>(count)
+                    : null,
+                info.Type,
+                info.Element,
+                depth + 1,
+                count,
+                container);
+            _work.Push(ValueJob.ArrayLoop(child));
+        }
+
+        void ProcessArrayLoop(ArrayContainer container)
+        {
+            if (container.Remaining == 0)
+            {
+                object? array = _materialize
+                    ? container.Builder!.MoveToImmutable()
+                    : null;
+                Deliver(
+                    new CustomAttributeTypedArgument<string>(container.Type, array),
+                    container.Parent);
+                return;
+            }
+
+            if (_value.RemainingBytes == 0)
+                throw new BadImageFormatException(); // truncated mid-array
+
+            container.Remaining--;
+            _work.Push(ValueJob.ArrayLoop(container));
+            _work.Push(
+                ValueJob.Decode(container.Element, container.ElementDepth, container));
+        }
+
+        void Deliver(
+            CustomAttributeTypedArgument<string> argument,
+            ArrayContainer? container)
+        {
+            if (!_materialize)
+                return;
+            if (container is null)
+                _rootResult = argument;
+            else
+                container.Builder!.Add(argument);
+        }
+
+        object? ReadScalar(SerializationTypeCode code)
+        {
+            if (!_materialize)
+            {
+                SkipBytes(ScalarWidth(code));
+                return null;
             }
 
             return code switch
             {
-                ElementTypeBoolean or ElementTypeI1 or ElementTypeU1
-                    => SkipBytes(ref _value, 1),
-                ElementTypeChar or ElementTypeI2 or ElementTypeU2
-                    => SkipBytes(ref _value, 2),
-                ElementTypeI4 or ElementTypeU4 or ElementTypeR4
-                    => SkipBytes(ref _value, 4),
-                ElementTypeI8 or ElementTypeU8 or ElementTypeR8
-                    => SkipBytes(ref _value, 8),
-                ElementTypeString or SerializedType => SkipSerString(
-                    ref _value,
-                    _beforeMaterialize),
-                ElementTypeObject or SerializedBoxed => ProcessBoxed(depth),
-                SerializedEnum => SkipBytes(
-                    ref _value,
-                    EnumUnderlyingPrimitive.ByteSize(
-                        ResolveEnumNameMemoized(enumName))),
-                _ => Result.Unsafe,
+                SerializationTypeCode.Boolean => _value.ReadBoolean(),
+                SerializationTypeCode.Byte => _value.ReadByte(),
+                SerializationTypeCode.SByte => _value.ReadSByte(),
+                SerializationTypeCode.Char => _value.ReadChar(),
+                SerializationTypeCode.Int16 => _value.ReadInt16(),
+                SerializationTypeCode.UInt16 => _value.ReadUInt16(),
+                SerializationTypeCode.Int32 => _value.ReadInt32(),
+                SerializationTypeCode.UInt32 => _value.ReadUInt32(),
+                SerializationTypeCode.Int64 => _value.ReadInt64(),
+                SerializationTypeCode.UInt64 => _value.ReadUInt64(),
+                SerializationTypeCode.Single => _value.ReadSingle(),
+                SerializationTypeCode.Double => _value.ReadDouble(),
+                _ => throw new BadImageFormatException(),
             };
         }
 
-        Result ProcessTypedArrayElements(WorkItem item)
+        static int ScalarWidth(SerializationTypeCode code) => code switch
         {
-            if (item.Remaining <= 0)
-                return Result.Safe;
-            if (_value.RemainingBytes == 0)
-                return Result.Truncated;
-            if (item.Remaining > 1)
+            SerializationTypeCode.Boolean or SerializationTypeCode.Byte
+                or SerializationTypeCode.SByte => 1,
+            SerializationTypeCode.Char or SerializationTypeCode.Int16
+                or SerializationTypeCode.UInt16 => 2,
+            SerializationTypeCode.Int32 or SerializationTypeCode.UInt32
+                or SerializationTypeCode.Single => 4,
+            SerializationTypeCode.Int64 or SerializationTypeCode.UInt64
+                or SerializationTypeCode.Double => 8,
+            _ => throw new BadImageFormatException(),
+        };
+
+        // Reads a serialized string, charging its byte length. When
+        // wantValue is false the payload is skipped rather than decoded.
+        string? ReadSerializedString(bool wantValue)
+        {
+            if (_value.RemainingBytes < 1)
+                throw new BadImageFormatException();
+            int offset = _value.Offset;
+            if (_value.ReadByte() == 0xFF)
+                return null;
+            _value.Offset = offset;
+            int length = _value.ReadCompressedInteger();
+            if (length < 0 || _value.RemainingBytes < length)
+                throw new BadImageFormatException();
+            Observe(length);
+            if (wantValue)
+                return _value.ReadUTF8(length);
+            _value.Offset += length;
+            return null;
+        }
+
+        object? ReadSerializedStringObject(bool wantValue)
+        {
+            if (_value.RemainingBytes < 1)
+                throw new BadImageFormatException();
+            int offset = _value.Offset;
+            if (_value.ReadByte() == 0xFF)
+                return null; // a null string value
+            _value.Offset = offset;
+            int length = _value.ReadCompressedInteger();
+            if (length < 0 || _value.RemainingBytes < length)
+                throw new BadImageFormatException();
+            Observe(length);
+            if (wantValue)
+                return _value.ReadUTF8(length);
+            _value.Offset += length;
+            return null;
+        }
+
+        void SkipBytes(int count)
+        {
+            if (count < 0 || _value.RemainingBytes < count)
+                throw new BadImageFormatException();
+            _value.Offset += count;
+        }
+
+        PrimitiveTypeCode ResolveEnumWidth(string type)
+        {
+            PrimitiveTypeCode width = _classifier.GetUnderlyingEnumType(type);
+            if (_classifier.LastResolutionDefaulted)
+                _currentArgumentDefaulted = true;
+            return width;
+        }
+
+        // Charges the caller's observer for a declared count of materialized
+        // slots, saturating so a hostile count cannot overflow the charge.
+        void ChargeSlots(int count)
+        {
+            if (count <= 0)
+                return;
+            int charge = count <= int.MaxValue / DeclaredSlotCharge
+                ? count * DeclaredSlotCharge
+                : int.MaxValue;
+            Observe(charge);
+        }
+
+        // Invokes the caller observer, wrapping any failure in the provenance
+        // sentinel so it is never misclassified as a malformed blob.
+        void Observe(int amount)
+        {
+            if (_beforeMaterialize is null || amount <= 0)
+                return;
+            try
             {
-                _work.Push(
-                    WorkItem.TypedArrayElements(
-                        item.Code,
-                        item.ArrayDepth,
-                        item.EnumName,
-                        item.Remaining - 1,
-                        item.Depth));
+                _beforeMaterialize(amount);
             }
-
-            return ProcessTypedValue(
-                item.Code,
-                item.ArrayDepth,
-                item.EnumName,
-                item.Depth);
-        }
-
-        Result ProcessBoxed(int depth)
-        {
-            if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (!TryReadElementType(ref _value, out byte code))
-                return Result.Truncated;
-            return ProcessSerialized(code, depth);
-        }
-
-        Result ProcessSerialized(byte code, int depth)
-        {
-            if (depth > MaxSerializedDepth)
-                return Result.Unsafe;
-            switch (code)
+            catch (Exception ex)
             {
-                case ElementTypeBoolean:
-                case ElementTypeI1:
-                case ElementTypeU1:
-                    return SkipBytes(ref _value, 1);
-                case ElementTypeChar:
-                case ElementTypeI2:
-                case ElementTypeU2:
-                    return SkipBytes(ref _value, 2);
-                case ElementTypeI4:
-                case ElementTypeU4:
-                case ElementTypeR4:
-                    return SkipBytes(ref _value, 4);
-                case ElementTypeI8:
-                case ElementTypeU8:
-                case ElementTypeR8:
-                    return SkipBytes(ref _value, 8);
-                case ElementTypeString:
-                case SerializedType:
-                    return SkipSerString(
-                        ref _value,
-                        _beforeMaterialize);
-                case SerializedBoxed:
-                    _work.Push(WorkItem.Boxed(depth + 1));
-                    return Result.Safe;
-                case SerializedEnum:
-                {
-                    Result name = TryReadSerString(
-                        ref _value,
-                        _beforeMaterialize,
-                        out string? enumName);
-                    return name != Result.Safe
-                        ? name
-                        : SkipBytes(
-                            ref _value,
-                            EnumUnderlyingPrimitive.ByteSize(
-                                ResolveEnumNameMemoized(enumName)));
-                }
-                case ElementTypeSzArray:
-                {
-                    // SRM's DecodeNamedArgumentType(isElementType: true)
-                    // consumes the element type — including an ENUM
-                    // SerString and further SZARRAY wrappers — before
-                    // DecodeArrayArgument reads the Int32 count. Reuse
-                    // the named-argument type walk so the count is read
-                    // from the same offset and per-element skips do not
-                    // re-read the enum name.
-                    Result type = ReadFieldOrPropType(
-                        ref _value,
-                        depth + 1,
-                        _beforeMaterialize,
-                        out byte leaf,
-                        out int arrayDepth,
-                        out string? enumName);
-                    return type != Result.Safe
-                        ? type
-                        : ProcessTypedValue(
-                            leaf,
-                            arrayDepth + 1,
-                            enumName,
-                            depth + 1);
-                }
-                default:
-                    return Result.Unsafe;
+                throw new AttributeDecoder.CallerCallbackException(
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex));
             }
         }
-
-        Result ProcessGenericParameter(int depth, bool methodParameter)
-        {
-            if (_signature.RemainingBytes < 1)
-                return Result.Safe;
-            int parameterIndex = _signature.ReadCompressedInteger();
-            if (methodParameter || parameterIndex < 0)
-                return Result.Unsafe;
-
-            Result located = LocateGenericArgument(
-                parameterIndex,
-                out bool found,
-                out BlobReader instantiation);
-            if (located != Result.Safe || !found)
-                return located;
-
-            // SRM substitutes once, then recurses with an empty generic
-            // context. Re-entering this method on the same TypeSpec is a
-            // stack overflow; a substituted VAR/MVAR is therefore Unsafe.
-            _frames ??= new Stack<SignatureFrame>();
-            _frames.Push(new SignatureFrame(_signature, _substituteGenerics));
-            _work.Push(WorkItem.PopFrame());
-            _signature = instantiation;
-            _substituteGenerics = false;
-            return ProcessFixedArg(depth + 1);
-        }
-
-        /// <summary>
-        /// Locates the generic argument a VAR substitutes to, reusing the work
-        /// when the index repeats. The constructor -- and so its TypeSpec -- is
-        /// fixed for the whole walk, so validating that blob and stepping to an
-        /// argument is the same work every time. A typed array rewinds and
-        /// re-reads its element type once per element, so without this the walk
-        /// re-validates the entire TypeSpec once per declared element:
-        /// allocation proportional to an attacker-chosen count, inside the
-        /// guard whose purpose is to bound exactly that. SRM resolves the
-        /// element type once before it loops over values, so resolving once
-        /// here is also what matches the decoder.
-        /// </summary>
-        Result LocateGenericArgument(
-            int parameterIndex,
-            out bool found,
-            out BlobReader instantiation)
-        {
-            instantiation = default;
-            found = false;
-            if (!_memoSpecResolved)
-            {
-                _memoSpecResolved = true;
-                _memoSpecResult = ResolveConstructorInstantiation(
-                    out _memoSpecFound,
-                    out _memoSpecArguments,
-                    out _memoSpecArgumentCount);
-            }
-
-            if (_memoSpecResult != Result.Safe || !_memoSpecFound)
-                return _memoSpecResult;
-            if (parameterIndex >= _memoSpecArgumentCount)
-                return Result.Unsafe;
-
-            instantiation = _memoSpecArguments;
-            if (_memoArgumentIndex == parameterIndex)
-            {
-                instantiation.Offset = _memoArgumentOffset;
-                found = true;
-                return Result.Safe;
-            }
-
-            for (int index = 0; index < parameterIndex; index++)
-            {
-                // Match SRM CustomAttributeDecoder.SkipType, including its
-                // CLASS/VALUETYPE recurse-as-type-code, so the remaining
-                // argument is the one DecodeValue will decode.
-                if (!TrySkipSrmAttributeType(ref instantiation, depth: 1, _srmSkip))
-                    return Result.Unsafe;
-            }
-
-            _memoArgumentIndex = parameterIndex;
-            _memoArgumentOffset = instantiation.Offset;
-            found = true;
-            return Result.Safe;
-        }
-
-        /// <summary>
-        /// Validates the constructor's TypeSpec once and positions a reader on
-        /// its first generic argument. <paramref name="found"/> is false when
-        /// the blob ends early, which the walk treats as safe rather than
-        /// hostile.
-        /// </summary>
-        Result ResolveConstructorInstantiation(
-            out bool found,
-            out BlobReader arguments,
-            out int argumentCount)
-        {
-            found = false;
-            arguments = default;
-            argumentCount = 0;
-            if (!TryGetConstructorTypeSpec(_reader, _constructor, out var spec))
-                return Result.Unsafe;
-            if (!SignatureBlobGuard.IsSafeToDecode(
-                    _reader,
-                    spec.Signature,
-                    SignatureBlobGuard.Kind.TypeSpecification))
-            {
-                return Result.Unsafe;
-            }
-
-            var instantiation = _reader.GetBlobReader(spec.Signature);
-            if (!TryReadElementType(ref instantiation, out byte code))
-                return Result.Safe;
-            while (code is ElementTypeCmodReqd or ElementTypeCmodOpt)
-            {
-                instantiation.ReadTypeHandle();
-                if (!TryReadElementType(ref instantiation, out code))
-                    return Result.Safe;
-            }
-
-            if (code != ElementTypeGenericInst)
-                return Result.Unsafe;
-            if (!TryReadElementType(ref instantiation, out byte genericKind))
-                return Result.Safe;
-            if (genericKind is not (ElementTypeClass or ElementTypeValueType))
-                return Result.Unsafe;
-            instantiation.ReadTypeHandle();
-            if (instantiation.RemainingBytes < 1)
-                return Result.Safe;
-            argumentCount = instantiation.ReadCompressedInteger();
-            arguments = instantiation;
-            found = true;
-            return Result.Safe;
-        }
-
-        Result PopFrame()
-        {
-            if (_frames is null || _frames.Count == 0)
-                return Result.Unsafe;
-            var frame = _frames.Pop();
-            _signature = frame.Signature;
-            _substituteGenerics = frame.SubstituteGenerics;
-            return Result.Safe;
-        }
-    }
-
-    static Result ReadFieldOrPropType(
-        ref BlobReader value,
-        int depth,
-        Action<int>? beforeMaterialize,
-        out byte leaf,
-        out int arrayDepth,
-        out string? enumName)
-    {
-        leaf = 0;
-        arrayDepth = 0;
-        enumName = null;
-        int typeDepth = depth;
-        while (true)
-        {
-            if (typeDepth > MaxSerializedDepth)
-                return Result.Unsafe;
-            if (!TryReadElementType(ref value, out byte code))
-                return Result.Truncated;
-            if (code == ElementTypeSzArray)
-            {
-                arrayDepth++;
-                typeDepth++;
-                continue;
-            }
-
-            leaf = code;
-            if (code == SerializedEnum)
-                return TryReadSerString(
-                    ref value,
-                    beforeMaterialize,
-                    out enumName);
-            return code is ElementTypeBoolean or ElementTypeChar
-                or ElementTypeI1 or ElementTypeU1
-                or ElementTypeI2 or ElementTypeU2
-                or ElementTypeI4 or ElementTypeU4
-                or ElementTypeI8 or ElementTypeU8
-                or ElementTypeR4 or ElementTypeR8
-                or ElementTypeString or ElementTypeObject
-                or SerializedType or SerializedBoxed
-                ? Result.Safe
-                : Result.Unsafe;
-        }
-    }
-
-    static PrimitiveTypeCode ResolveEnum(
-        MetadataReader reader,
-        EntityHandle handle,
-        Action<int>? beforeMaterialize,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
-    {
-        // A handle-typed enum is resolved from the definition the signature
-        // named, never from its rendered name, and the decoder resolves the
-        // same handle through the same function. Distinct definitions can
-        // render to one string -- a nested type joins its declaring type with
-        // '.', exactly as a namespace joins a type name -- so any name-keyed
-        // index must drop one of them, and a reference carries a resolution
-        // scope that a flattened spelling discards. Routing this side through a
-        // name, or through a caller's resolver, would let the two sides select
-        // different definitions and skip different widths.
-        if (EnumUnderlyingPrimitive.TryResolveDefinition(
-                reader,
-                handle,
-                out TypeDefinitionHandle definition))
-        {
-            return EnumUnderlyingPrimitive.FromDefinition(reader, definition);
-        }
-
-        if (enumUnderlyingType is not null)
-        {
-            string? name = TypeResolver.GetTypeName(
-                reader,
-                handle,
-                context: null,
-                beforeMaterialize);
-            return name is null
-                ? PrimitiveTypeCode.Int32
-                : EnumUnderlyingPrimitive.Normalize(
-                    enumUnderlyingType(name));
-        }
-
-        return EnumUnderlyingPrimitive.FromHandle(reader, handle);
-    }
-
-    static PrimitiveTypeCode ResolveEnumName(
-        MetadataReader reader,
-        string? enumName,
-        Func<string, PrimitiveTypeCode>? enumUnderlyingType)
-    {
-        if (enumName is null)
-            return PrimitiveTypeCode.Int32;
-        string projected = AttributeDecoder.ProjectSerializedEnumName(
-            enumUnderlyingType,
-            enumName);
-        return enumUnderlyingType is not null
-            ? EnumUnderlyingPrimitive.Normalize(enumUnderlyingType(projected))
-            : EnumUnderlyingPrimitive.FromSerializedName(reader, projected);
-    }
-
-    static Result SkipSerString(
-        ref BlobReader blob,
-        Action<int>? beforeMaterialize)
-    {
-        Result result = TryReadSerStringLength(
-            ref blob,
-            out int? length);
-        if (result != Result.Safe || length is not { } value)
-            return result;
-
-        beforeMaterialize?.Invoke(value);
-        blob.Offset += value;
-        return Result.Safe;
-    }
-
-    static Result TryReadSerString(
-        ref BlobReader blob,
-        Action<int>? beforeMaterialize,
-        out string? text)
-    {
-        text = null;
-        Result result = TryReadSerStringLength(
-            ref blob,
-            out int? length);
-        if (result != Result.Safe || length is not { } value)
-            return result;
-
-        beforeMaterialize?.Invoke(value);
-        text = blob.ReadUTF8(value);
-        return Result.Safe;
-    }
-
-    static Result TryReadSerStringLength(
-        ref BlobReader blob,
-        out int? length)
-    {
-        length = null;
-        if (blob.RemainingBytes < 1)
-            return Result.Truncated;
-        int offset = blob.Offset;
-        if (blob.ReadByte() == 0xFF)
-            return Result.Safe;
-        blob.Offset = offset;
-        int value = blob.ReadCompressedInteger();
-        if (blob.RemainingBytes < value)
-            return Result.Truncated;
-        length = value;
-        return Result.Safe;
-    }
-
-    static Result SkipBytes(ref BlobReader blob, int count)
-    {
-        if (count < 0)
-            return Result.Unsafe;
-        if (blob.RemainingBytes < count)
-            return Result.Truncated;
-        blob.Offset += count;
-        return Result.Safe;
-    }
-
-    static bool TrySkipSignatureType(
-        ref BlobReader signature,
-        Stack<SignatureSkipItem> work)
-    {
-        work.Clear();
-        work.Push(SignatureSkipItem.Type());
-        while (work.Count > 0)
-        {
-            var item = work.Pop();
-            switch (item.Op)
-            {
-                case SignatureSkipOp.Type:
-                    if (!TrySkipOneSignatureType(ref signature, work))
-                        return false;
-                    break;
-                case SignatureSkipOp.Types:
-                    if (item.Remaining <= 0)
-                        break;
-                    if (item.Remaining > 1)
-                        work.Push(SignatureSkipItem.Types(item.Remaining - 1));
-                    if (!TrySkipOneSignatureType(ref signature, work))
-                        return false;
-                    break;
-                case SignatureSkipOp.ArrayShape:
-                    if (!TrySkipArrayShape(ref signature))
-                        return false;
-                    break;
-                case SignatureSkipOp.FnPtr:
-                    if (!TrySeedFnPtrSkip(ref signature, work))
-                        return false;
-                    break;
-                case SignatureSkipOp.FnPtrParams:
-                    if (!TrySkipFnPtrParams(ref signature, item, work))
-                        return false;
-                    break;
-            }
-        }
-
-        return true;
-    }
-
-    static bool TrySkipOneSignatureType(
-        ref BlobReader signature,
-        Stack<SignatureSkipItem> work)
-    {
-        if (!TryReadElementType(ref signature, out byte code))
-            return false;
-        switch (code)
-        {
-            case ElementTypeCmodReqd:
-            case ElementTypeCmodOpt:
-                signature.ReadTypeHandle();
-                work.Push(SignatureSkipItem.Type());
-                return true;
-            case ElementTypeByRef:
-            case ElementTypePtr:
-            case ElementTypeSzArray:
-            case ElementTypePinned:
-                work.Push(SignatureSkipItem.Type());
-                return true;
-            case ElementTypeClass:
-            case ElementTypeValueType:
-                signature.ReadTypeHandle();
-                return true;
-            case ElementTypeGenericInst:
-                if (!TryReadElementType(ref signature, out _))
-                    return false;
-                signature.ReadTypeHandle();
-                int arguments = signature.ReadCompressedInteger();
-                if (arguments < 0)
-                    return false;
-                if (arguments > 0)
-                    work.Push(SignatureSkipItem.Types(arguments));
-                return true;
-            case ElementTypeArray:
-                work.Push(SignatureSkipItem.ArrayShape());
-                work.Push(SignatureSkipItem.Type());
-                return true;
-            case ElementTypeVar:
-            case ElementTypeMVar:
-                signature.ReadCompressedInteger();
-                return true;
-            case ElementTypeFnPtr:
-                work.Push(SignatureSkipItem.FnPtr());
-                return true;
-            default:
-                return true;
-        }
-    }
-
-    static bool TrySkipArrayShape(ref BlobReader signature)
-    {
-        signature.ReadCompressedInteger();
-        int sizes = signature.ReadCompressedInteger();
-        for (int index = 0; index < sizes; index++)
-            signature.ReadCompressedInteger();
-        int bounds = signature.ReadCompressedInteger();
-        for (int index = 0; index < bounds; index++)
-            signature.ReadCompressedSignedInteger();
-        return true;
-    }
-
-    static bool TrySeedFnPtrSkip(
-        ref BlobReader signature,
-        Stack<SignatureSkipItem> work)
-    {
-        if (signature.RemainingBytes < 1)
-            return false;
-        var header = signature.ReadSignatureHeader();
-        if (header.IsGeneric)
-        {
-            if (signature.RemainingBytes < 1)
-                return false;
-            signature.ReadCompressedInteger();
-        }
-
-        if (signature.RemainingBytes < 1)
-            return false;
-        int parameterCount = signature.ReadCompressedInteger();
-        if (parameterCount < 0
-            || (long)parameterCount + 1 > signature.RemainingBytes)
-            return false;
-
-        if (parameterCount > 0)
-        {
-            work.Push(
-                SignatureSkipItem.FnPtrParams(
-                    parameterCount,
-                    header.CallingConvention == SignatureCallingConvention.VarArgs,
-                    sentinelSeen: false));
-        }
-
-        work.Push(SignatureSkipItem.Type());
-        return true;
-    }
-
-    static bool TrySkipFnPtrParams(
-        ref BlobReader signature,
-        SignatureSkipItem item,
-        Stack<SignatureSkipItem> work)
-    {
-        if (item.Remaining <= 0)
-            return true;
-
-        bool sentinelSeen = item.SentinelSeen;
-        if (signature.RemainingBytes > 0)
-        {
-            int offset = signature.Offset;
-            if (signature.ReadByte() == ElementTypeSentinel)
-            {
-                if (!item.AllowsSentinel || sentinelSeen)
-                    return false;
-                sentinelSeen = true;
-            }
-            else
-            {
-                signature.Offset = offset;
-            }
-        }
-
-        if (item.Remaining > 1)
-        {
-            work.Push(
-                SignatureSkipItem.FnPtrParams(
-                    item.Remaining - 1,
-                    item.AllowsSentinel,
-                    sentinelSeen));
-        }
-
-        work.Push(SignatureSkipItem.Type());
-        return true;
-    }
-
-    /// <summary>
-    /// Skips one Type the way SRM <c>CustomAttributeDecoder.SkipType</c>
-    /// does when walking earlier generic-attribute arguments. That helper
-    /// treats a CLASS/VALUETYPE token's TypeDefOrRef coded index as another
-    /// type code, so a TypeDef row 4 (coded 16 / BYREF) or TypeRef row 4
-    /// (coded 17 / VALUETYPE) consumes the next official argument.
-    /// </summary>
-    static bool TrySkipSrmAttributeType(
-        ref BlobReader signature,
-        int depth,
-        Stack<SrmSkipItem> work)
-    {
-        work.Clear();
-        work.Push(SrmSkipItem.Type(depth));
-        while (work.Count > 0)
-        {
-            var item = work.Pop();
-            switch (item.Op)
-            {
-                case SrmSkipOp.Types:
-                    if (item.Remaining <= 0)
-                        continue;
-                    if (item.Remaining > 1)
-                        work.Push(SrmSkipItem.Types(item.Remaining - 1, item.Depth));
-                    work.Push(SrmSkipItem.Type(item.Depth));
-                    continue;
-                case SrmSkipOp.ArrayShape:
-                    if (!TrySkipSrmArrayShape(ref signature))
-                        return false;
-                    continue;
-                case SrmSkipOp.GenericInstArgs:
-                    try
-                    {
-                        int arguments = signature.ReadCompressedInteger();
-                        if (arguments < 0 || arguments > signature.RemainingBytes)
-                            return false;
-                        if (arguments > 0)
-                            work.Push(SrmSkipItem.Types(arguments, item.Depth));
-                        continue;
-                    }
-                    catch (BadImageFormatException)
-                    {
-                        return false;
-                    }
-                    catch (ArgumentOutOfRangeException)
-                    {
-                        return false;
-                    }
-            }
-
-            if (!TrySkipOneSrmAttributeType(ref signature, item.Depth, work))
-                return false;
-        }
-
-        return true;
-    }
-
-    static bool TrySkipOneSrmAttributeType(
-        ref BlobReader signature,
-        int depth,
-        Stack<SrmSkipItem> work)
-    {
-        if (depth > MaxSerializedDepth)
-            return false;
-        try
-        {
-            if (signature.RemainingBytes < 1)
-                return false;
-            int typeCode = signature.ReadCompressedInteger();
-            switch (typeCode)
-            {
-                case ElementTypeVoid:
-                case ElementTypeBoolean:
-                case ElementTypeChar:
-                case ElementTypeI1:
-                case ElementTypeU1:
-                case ElementTypeI2:
-                case ElementTypeU2:
-                case ElementTypeI4:
-                case ElementTypeU4:
-                case ElementTypeI8:
-                case ElementTypeU8:
-                case ElementTypeR4:
-                case ElementTypeR8:
-                case ElementTypeString:
-                case ElementTypeObject:
-                case ElementTypeTypedByRef:
-                case ElementTypeI:
-                case ElementTypeU:
-                    return true;
-                case ElementTypePtr:
-                case ElementTypeByRef:
-                case ElementTypePinned:
-                case ElementTypeSzArray:
-                    work.Push(SrmSkipItem.Type(depth + 1));
-                    return true;
-                case ElementTypeFnPtr:
-                    return TrySeedSrmFnPtrSkip(ref signature, depth + 1, work);
-                case ElementTypeArray:
-                    work.Push(SrmSkipItem.ArrayShape());
-                    work.Push(SrmSkipItem.Type(depth + 1));
-                    return true;
-                case ElementTypeCmodReqd:
-                case ElementTypeCmodOpt:
-                    signature.ReadTypeHandle();
-                    work.Push(SrmSkipItem.Type(depth + 1));
-                    return true;
-                case ElementTypeGenericInst:
-                    work.Push(SrmSkipItem.GenericInstArgs(depth + 1));
-                    work.Push(SrmSkipItem.Type(depth + 1));
-                    return true;
-                case ElementTypeVar:
-                    signature.ReadCompressedInteger();
-                    return true;
-                case ElementTypeClass:
-                case ElementTypeValueType:
-                    work.Push(SrmSkipItem.Type(depth + 1));
-                    return true;
-                default:
-                    return false;
-            }
-        }
-        catch (BadImageFormatException)
-        {
-            return false;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return false;
-        }
-    }
-
-    static bool TrySkipSrmArrayShape(ref BlobReader signature)
-    {
-        try
-        {
-            signature.ReadCompressedInteger();
-            int sizes = signature.ReadCompressedInteger();
-            if (sizes < 0 || sizes > signature.RemainingBytes)
-                return false;
-            for (int index = 0; index < sizes; index++)
-                signature.ReadCompressedInteger();
-            int bounds = signature.ReadCompressedInteger();
-            if (bounds < 0 || bounds > signature.RemainingBytes)
-                return false;
-            for (int index = 0; index < bounds; index++)
-                signature.ReadCompressedSignedInteger();
-            return true;
-        }
-        catch (BadImageFormatException)
-        {
-            return false;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return false;
-        }
-    }
-
-    static bool TrySeedSrmFnPtrSkip(
-        ref BlobReader signature,
-        int depth,
-        Stack<SrmSkipItem> work)
-    {
-        if (signature.RemainingBytes < 1)
-            return false;
-        var header = signature.ReadSignatureHeader();
-        if (header.IsGeneric)
-        {
-            if (signature.RemainingBytes < 1)
-                return false;
-            signature.ReadCompressedInteger();
-        }
-
-        if (signature.RemainingBytes < 1)
-            return false;
-        int parameterCount = signature.ReadCompressedInteger();
-        if (parameterCount < 0
-            || (long)parameterCount + 1 > signature.RemainingBytes)
-            return false;
-        work.Push(SrmSkipItem.Types(parameterCount + 1, depth));
-        return true;
-    }
-
-    static bool TryGetConstructorTypeSpec(
-        MetadataReader reader,
-        EntityHandle constructor,
-        out TypeSpecification spec)
-    {
-        spec = default;
-        if (constructor.Kind != HandleKind.MemberReference)
-            return false;
-        EntityHandle parent = reader.GetMemberReference(
-            (MemberReferenceHandle)constructor).Parent;
-        if (parent.Kind != HandleKind.TypeSpecification)
-            return false;
-        spec = reader.GetTypeSpecification((TypeSpecificationHandle)parent);
-        return !spec.Signature.IsNil;
     }
 
     static bool TryGetConstructorSignature(
@@ -1372,219 +796,522 @@ public static class CustomAttributeValueGuard
         }
     }
 
-    static bool IsSrmSystemType(MetadataReader reader, EntityHandle handle)
+    /// <summary>Rendered type and (for arrays) element type of one argument.</summary>
+    readonly struct ArgumentType
     {
-        // Match ArgTypeProvider.IsSystemType (rendered name == "System.Type").
-        // Do not charge through the observer: ResolveEnum already charges when
-        // the product path supplies a name oracle, and this check must not
-        // double-count or shift declared-slot charges.
-        string? name = handle.Kind == HandleKind.TypeDefinition
-            ? TypeResolver.GetTypeNameFromDefinition(
-                reader,
-                (TypeDefinitionHandle)handle)
-            : TypeResolver.GetTypeName(reader, handle);
-        return name == "System.Type";
-    }
+        public string Type { get; }
+        public SerializationTypeCode Code { get; }
+        public string ElementType { get; }
+        public SerializationTypeCode ElementCode { get; }
 
-    static bool TryReadElementType(ref BlobReader blob, out byte code)
-    {
-        if (blob.RemainingBytes < 1)
+        ArgumentType(
+            string type,
+            SerializationTypeCode code,
+            string elementType,
+            SerializationTypeCode elementCode)
         {
-            code = 0;
-            return false;
-        }
-
-        code = blob.ReadByte();
-        return true;
-    }
-
-    static void Charge(Action<int>? beforeMaterialize, int count)
-    {
-        if (beforeMaterialize is null || count <= 0)
-            return;
-        int charge = count <= int.MaxValue / DeclaredSlotCharge
-            ? count * DeclaredSlotCharge
-            : int.MaxValue;
-        beforeMaterialize(charge);
-    }
-
-    enum Result : byte
-    {
-        Safe,
-        Unsafe,
-        Truncated,
-    }
-
-    enum Op : byte
-    {
-        FixedArgs,
-        NamedHeader,
-        NamedArgs,
-        SzArrayElements,
-        TypedArrayElements,
-        Boxed,
-        PopFrame,
-        RestoreSignature,
-    }
-
-    readonly struct SignatureFrame(BlobReader signature, bool substituteGenerics)
-    {
-        public BlobReader Signature { get; } = signature;
-        public bool SubstituteGenerics { get; } = substituteGenerics;
-    }
-
-    readonly struct WorkItem
-    {
-        public Op Op { get; }
-        public int Depth { get; }
-        public int Remaining { get; }
-        public int SignatureStart { get; }
-        public int SignatureEnd { get; }
-        public byte Code { get; }
-        public int ArrayDepth { get; }
-        public string? EnumName { get; }
-
-        WorkItem(
-            Op op,
-            int depth = 0,
-            int remaining = 0,
-            int signatureStart = 0,
-            int signatureEnd = 0,
-            byte code = 0,
-            int arrayDepth = 0,
-            string? enumName = null)
-        {
-            Op = op;
-            Depth = depth;
-            Remaining = remaining;
-            SignatureStart = signatureStart;
-            SignatureEnd = signatureEnd;
+            Type = type;
             Code = code;
-            ArrayDepth = arrayDepth;
-            EnumName = enumName;
+            ElementType = elementType;
+            ElementCode = elementCode;
         }
 
-        public static WorkItem FixedArgs(int remaining, int depth)
-            => new(Op.FixedArgs, depth, remaining);
+        public ArgumentType Element =>
+            new(ElementType, ElementCode, string.Empty, default);
 
-        public static WorkItem NamedHeader() => new(Op.NamedHeader);
+        public static ArgumentType Scalar(string type, SerializationTypeCode code)
+            => new(type, code, string.Empty, default);
 
-        public static WorkItem NamedArgs(int remaining, int depth)
-            => new(Op.NamedArgs, depth, remaining);
-
-        public static WorkItem SzArrayElements(
-            int remaining,
-            int signatureStart,
-            int signatureEnd,
-            int depth)
-            => new(
-                Op.SzArrayElements,
-                depth,
-                remaining,
-                signatureStart,
-                signatureEnd);
-
-        public static WorkItem RestoreSignature(int signatureEnd)
-            => new(Op.RestoreSignature, signatureEnd: signatureEnd);
-
-        public static WorkItem TypedArrayElements(
-            byte code,
-            int arrayDepth,
-            string? enumName,
-            int remaining,
-            int depth)
-            => new(
-                Op.TypedArrayElements,
-                depth,
-                remaining,
-                code: code,
-                arrayDepth: arrayDepth,
-                enumName: enumName);
-
-        public static WorkItem Boxed(int depth) => new(Op.Boxed, depth);
-
-        public static WorkItem PopFrame() => new(Op.PopFrame);
+        public static ArgumentType Array(string type, ArgumentType element)
+            => new(type, SerializationTypeCode.SZArray, element.Type, element.Code);
     }
 
-    enum SignatureSkipOp : byte
+    sealed class ArrayContainer(
+        ImmutableArray<CustomAttributeTypedArgument<string>>.Builder? builder,
+        string type,
+        ArgumentType element,
+        int elementDepth,
+        int remaining,
+        ArrayContainer? parent)
     {
-        Type,
-        Types,
-        ArrayShape,
-        FnPtr,
-        FnPtrParams,
+        public ImmutableArray<CustomAttributeTypedArgument<string>>.Builder? Builder { get; }
+            = builder;
+        public string Type { get; } = type;
+        public ArgumentType Element { get; } = element;
+        public int ElementDepth { get; } = elementDepth;
+        public int Remaining { get; set; } = remaining;
+        public ArrayContainer? Parent { get; } = parent;
     }
 
-    readonly struct SignatureSkipItem
+    enum ValueJobKind : byte
     {
-        public SignatureSkipOp Op { get; }
-        public int Remaining { get; }
-        public bool AllowsSentinel { get; }
-        public bool SentinelSeen { get; }
-
-        SignatureSkipItem(
-            SignatureSkipOp op,
-            int remaining = 0,
-            bool allowsSentinel = false,
-            bool sentinelSeen = false)
-        {
-            Op = op;
-            Remaining = remaining;
-            AllowsSentinel = allowsSentinel;
-            SentinelSeen = sentinelSeen;
-        }
-
-        public static SignatureSkipItem Type() => new(SignatureSkipOp.Type);
-
-        public static SignatureSkipItem Types(int remaining)
-            => new(SignatureSkipOp.Types, remaining);
-
-        public static SignatureSkipItem ArrayShape()
-            => new(SignatureSkipOp.ArrayShape);
-
-        public static SignatureSkipItem FnPtr() => new(SignatureSkipOp.FnPtr);
-
-        public static SignatureSkipItem FnPtrParams(
-            int remaining,
-            bool allowsSentinel,
-            bool sentinelSeen)
-            => new(
-                SignatureSkipOp.FnPtrParams,
-                remaining,
-                allowsSentinel,
-                sentinelSeen);
+        Decode,
+        ArrayLoop,
     }
 
-    enum SrmSkipOp : byte
+    readonly struct ValueJob
     {
-        Type,
-        Types,
-        ArrayShape,
-        GenericInstArgs,
-    }
-
-    readonly struct SrmSkipItem
-    {
-        public SrmSkipOp Op { get; }
+        public ValueJobKind Kind { get; }
+        public ArgumentType Info { get; }
         public int Depth { get; }
-        public int Remaining { get; }
+        public ArrayContainer? Container { get; }
 
-        SrmSkipItem(SrmSkipOp op, int depth, int remaining = 0)
+        ValueJob(
+            ValueJobKind kind,
+            ArgumentType info,
+            int depth,
+            ArrayContainer? container)
         {
-            Op = op;
+            Kind = kind;
+            Info = info;
             Depth = depth;
-            Remaining = remaining;
+            Container = container;
         }
 
-        public static SrmSkipItem Type(int depth) => new(SrmSkipOp.Type, depth);
+        public static ValueJob Decode(
+            ArgumentType info,
+            int depth,
+            ArrayContainer? container)
+            => new(ValueJobKind.Decode, info, depth, container);
 
-        public static SrmSkipItem Types(int remaining, int depth)
-            => new(SrmSkipOp.Types, depth, remaining);
+        public static ValueJob ArrayLoop(ArrayContainer container)
+            => new(ValueJobKind.ArrayLoop, default, 0, container);
+    }
 
-        public static SrmSkipItem ArrayShape() => new(SrmSkipOp.ArrayShape, 0);
+    /// <summary>
+    /// Renders argument type names and resolves enum widths for the owned
+    /// decoder. Handle-typed enums resolve directly from the handle the
+    /// signature named (a rendered name cannot carry the identity that
+    /// distinguishes two definitions or an external reference from a local
+    /// type); serialized-name enums resolve by projected name through the
+    /// shared type-definition index, then a caller resolver, then the
+    /// <see cref="PrimitiveTypeCode.Int32"/> default. This is the resolution
+    /// and rendering that formerly lived in <c>ArgTypeProvider</c>; it no longer
+    /// implements <c>ICustomAttributeTypeProvider</c> because there is no SRM
+    /// decode to drive it. Type-name rendering and index construction retain
+    /// their existing observer charges, while the value walk owns declared-slot
+    /// and serialized-string charges.
+    /// </summary>
+    internal sealed class Classifier(
+        MetadataReader reader,
+        bool preserveSerializedTypeNames,
+        Action<int>? beforeMaterialize,
+        AttributeDecoder.EnumWidthResolver? enumUnderlyingType)
+    {
+        readonly MetadataReader _reader = reader;
+        readonly bool _preserveSerializedTypeNames = preserveSerializedTypeNames;
+        readonly Action<int>? _beforeMaterialize = beforeMaterialize;
+        readonly AttributeDecoder.EnumWidthResolver? _enumUnderlyingType =
+            enumUnderlyingType;
+        readonly AttributeDecoder.MaterializationContext? _materializationContext =
+            beforeMaterialize?.Target as AttributeDecoder.MaterializationContext;
 
-        public static SrmSkipItem GenericInstArgs(int depth)
-            => new(SrmSkipOp.GenericInstArgs, depth);
+        Dictionary<string, TypeDefinitionHandle>? _typeDefinitionsByName;
+        bool _lastNameFromBlob;
+        TypeDefinitionHandle _pendingDefinition;
+        TypeReferenceHandle _pendingReference;
+        MetadataReader? _pendingReader;
+
+        /// <summary>
+        /// Whether the most recent <see cref="GetUnderlyingEnumType"/> reached
+        /// the <see cref="PrimitiveTypeCode.Int32"/> default because no
+        /// structural, local, or caller path resolved the width.
+        /// </summary>
+        public bool LastResolutionDefaulted { get; private set; }
+
+        public string GetPrimitiveType(PrimitiveTypeCode code) => code switch
+        {
+            PrimitiveTypeCode.Boolean => "bool",
+            PrimitiveTypeCode.Char => "char",
+            PrimitiveTypeCode.SByte => "sbyte",
+            PrimitiveTypeCode.Byte => "byte",
+            PrimitiveTypeCode.Int16 => "short",
+            PrimitiveTypeCode.UInt16 => "ushort",
+            PrimitiveTypeCode.Int32 => "int",
+            PrimitiveTypeCode.UInt32 => "uint",
+            PrimitiveTypeCode.Int64 => "long",
+            PrimitiveTypeCode.UInt64 => "ulong",
+            PrimitiveTypeCode.Single => "float",
+            PrimitiveTypeCode.Double => "double",
+            PrimitiveTypeCode.String => "string",
+            _ => "object",
+        };
+
+        public string GetSystemType() => "System.Type";
+
+        public bool IsSystemType(string type) => type == "System.Type";
+
+        public string GetSZArrayType(string elementType) => elementType + "[]";
+
+        public string GetTypeFromHandle(EntityHandle handle) => handle.Kind switch
+        {
+            HandleKind.TypeDefinition => GetTypeFromDefinition(
+                _reader,
+                (TypeDefinitionHandle)handle,
+                0),
+            HandleKind.TypeReference => GetTypeFromReference(
+                _reader,
+                (TypeReferenceHandle)handle,
+                0),
+            _ => throw new BadImageFormatException(),
+        };
+
+        public string GetTypeFromDefinition(
+            MetadataReader r,
+            TypeDefinitionHandle handle,
+            byte rawTypeKind)
+        {
+            // Remember the definition itself, not just its rendered name, and
+            // the reader it belongs to: a definition-typed enum resolves its
+            // width straight from this handle, because distinct definitions can
+            // render to the same string.
+            _lastNameFromBlob = false;
+            _pendingDefinition = handle;
+            _pendingReference = default;
+            _pendingReader = r;
+            return TypeResolver.GetTypeNameFromDefinition(
+                r,
+                handle,
+                ObserveBeforeMaterialize);
+        }
+
+        public string GetTypeFromReference(
+            MetadataReader r,
+            TypeReferenceHandle handle,
+            byte rawTypeKind)
+        {
+            // A reference carries a resolution scope its flattened spelling
+            // discards, so remember the reference and resolve it structurally.
+            _lastNameFromBlob = false;
+            _pendingDefinition = default;
+            _pendingReference = handle;
+            _pendingReader = r;
+            return TypeResolver.GetTypeName(
+                r,
+                handle,
+                context: null,
+                beforeMaterialize: ObserveBeforeMaterialize) ?? "object";
+        }
+
+        public string GetTypeFromSerializedName(string name)
+        {
+            // Record that the most recent name came from the blob so a later
+            // handle-derived occurrence of the same spelling is not resolved as
+            // reflection syntax.
+            _lastNameFromBlob = true;
+            _pendingDefinition = default;
+            _pendingReference = default;
+            _pendingReader = null;
+            return _preserveSerializedTypeNames
+                ? name
+                : EnumUnderlyingPrimitive.WithoutAssemblyQualification(name);
+        }
+
+        public PrimitiveTypeCode GetUnderlyingEnumType(string type)
+        {
+            bool fromBlob = _lastNameFromBlob;
+            TypeDefinitionHandle pending = _pendingDefinition;
+            TypeReferenceHandle pendingReference = _pendingReference;
+            MetadataReader? pendingReader = _pendingReader;
+            _lastNameFromBlob = false;
+            _pendingDefinition = default;
+            _pendingReference = default;
+            _pendingReader = null;
+            LastResolutionDefaulted = false;
+
+            if (pendingReader is not null)
+            {
+                if (!pending.IsNil)
+                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, pending);
+                if (!pendingReference.IsNil
+                    && EnumUnderlyingPrimitive.TryResolveDefinition(
+                        pendingReader,
+                        pendingReference,
+                        out TypeDefinitionHandle referenced))
+                {
+                    return EnumUnderlyingPrimitive.FromDefinition(pendingReader, referenced);
+                }
+            }
+
+            if (!fromBlob && TypeDefinitionsByName.TryGetValue(type, out var exact))
+                return EnumUnderlyingPrimitive.FromDefinition(_reader, exact);
+
+            string normalized = EnumUnderlyingPrimitive.NormalizeSerializedName(type);
+            if (TypeDefinitionsByName.TryGetValue(normalized, out var handle))
+                return EnumUnderlyingPrimitive.FromDefinition(_reader, handle);
+
+            if (_enumUnderlyingType is not null
+                && Invoke(_enumUnderlyingType, normalized, out PrimitiveTypeCode width))
+            {
+                return EnumUnderlyingPrimitive.Normalize(width);
+            }
+
+            LastResolutionDefaulted = true;
+            return PrimitiveTypeCode.Int32;
+        }
+
+        static bool Invoke(
+            AttributeDecoder.EnumWidthResolver resolver,
+            string name,
+            out PrimitiveTypeCode width)
+        {
+            try
+            {
+                return resolver(name, out width);
+            }
+            catch (Exception ex)
+            {
+                throw new AttributeDecoder.CallerCallbackException(
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex));
+            }
+        }
+
+        Dictionary<string, TypeDefinitionHandle> TypeDefinitionsByName =>
+            _materializationContext?.GetOrCreateTypeDefinitionsByName(
+                BuildTypeDefinitionIndex)
+            ?? (_typeDefinitionsByName ??= BuildTypeDefinitionIndex());
+
+        Dictionary<string, TypeDefinitionHandle> BuildTypeDefinitionIndex()
+        {
+            ObserveBeforeMaterialize(_reader.TypeDefinitions.Count);
+            var result = new Dictionary<string, TypeDefinitionHandle>(
+                _reader.TypeDefinitions.Count,
+                StringComparer.Ordinal);
+            foreach (var handle in _reader.TypeDefinitions)
+            {
+                string name;
+                try
+                {
+                    name = TypeResolver.GetTypeNameFromDefinition(
+                        _reader,
+                        handle,
+                        ObserveBeforeMaterialize);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException or ArgumentOutOfRangeException)
+                {
+                    throw new AttributeDecoder.TypeDefinitionIndexException(
+                        MetadataTypeNameFailure.Malformed(handle, ex.Message));
+                }
+
+                result.TryAdd(name, handle);
+            }
+
+            return result;
+        }
+
+        void ObserveBeforeMaterialize(int amount)
+        {
+            if (_beforeMaterialize is null || amount <= 0)
+                return;
+            try
+            {
+                _beforeMaterialize(amount);
+            }
+            catch (Exception ex)
+            {
+                throw new AttributeDecoder.CallerCallbackException(
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Skips one type the way SRM's <c>CustomAttributeDecoder.SkipType</c> does
+    /// while walking earlier generic-attribute arguments. Iterative on an
+    /// explicit stack so a hostile TypeSpec cannot overflow the native stack.
+    /// A CLASS/VALUETYPE token's TypeDefOrRef coded index is treated as another
+    /// type code, matching SRM.
+    /// </summary>
+    static class SrmType
+    {
+        public static bool TrySkip(ref BlobReader signature)
+        {
+            var work = new Stack<Item>();
+            work.Push(Item.Type(1));
+            while (work.Count > 0)
+            {
+                Item item = work.Pop();
+                switch (item.Op)
+                {
+                    case Op.Types:
+                        if (item.Remaining <= 0)
+                            continue;
+                        if (item.Remaining > 1)
+                            work.Push(Item.Types(item.Remaining - 1, item.Depth));
+                        work.Push(Item.Type(item.Depth));
+                        continue;
+                    case Op.ArrayShape:
+                        if (!TrySkipArrayShape(ref signature))
+                            return false;
+                        continue;
+                    case Op.GenericInstArgs:
+                        try
+                        {
+                            int arguments = signature.ReadCompressedInteger();
+                            if (arguments < 0 || arguments > signature.RemainingBytes)
+                                return false;
+                            if (arguments > 0)
+                                work.Push(Item.Types(arguments, item.Depth));
+                            continue;
+                        }
+                        catch (Exception ex) when (
+                            ex is BadImageFormatException or ArgumentOutOfRangeException)
+                        {
+                            return false;
+                        }
+                }
+
+                if (!TrySkipOne(ref signature, item.Depth, work))
+                    return false;
+            }
+
+            return true;
+        }
+
+        static bool TrySkipOne(ref BlobReader signature, int depth, Stack<Item> work)
+        {
+            if (depth > MaxSerializedDepth)
+                return false;
+            try
+            {
+                if (signature.RemainingBytes < 1)
+                    return false;
+                int typeCode = signature.ReadCompressedInteger();
+                switch (typeCode)
+                {
+                    case ElementTypeVoid:
+                    case ElementTypeBoolean:
+                    case ElementTypeChar:
+                    case ElementTypeI1:
+                    case ElementTypeU1:
+                    case ElementTypeI2:
+                    case ElementTypeU2:
+                    case ElementTypeI4:
+                    case ElementTypeU4:
+                    case ElementTypeI8:
+                    case ElementTypeU8:
+                    case ElementTypeR4:
+                    case ElementTypeR8:
+                    case ElementTypeString:
+                    case ElementTypeObject:
+                    case ElementTypeTypedByRef:
+                    case ElementTypeI:
+                    case ElementTypeU:
+                        return true;
+                    case ElementTypePtr:
+                    case ElementTypeByRef:
+                    case ElementTypePinned:
+                    case ElementTypeSzArray:
+                        work.Push(Item.Type(depth + 1));
+                        return true;
+                    case ElementTypeFnPtr:
+                        return TrySeedFnPtr(ref signature, depth + 1, work);
+                    case ElementTypeArray:
+                        work.Push(Item.ArrayShape());
+                        work.Push(Item.Type(depth + 1));
+                        return true;
+                    case ElementTypeCmodReqd:
+                    case ElementTypeCmodOpt:
+                        signature.ReadTypeHandle();
+                        work.Push(Item.Type(depth + 1));
+                        return true;
+                    case ElementTypeGenericInst:
+                        work.Push(Item.GenericInstArgs(depth + 1));
+                        work.Push(Item.Type(depth + 1));
+                        return true;
+                    case ElementTypeVar:
+                        signature.ReadCompressedInteger();
+                        return true;
+                    case ElementTypeClass:
+                    case ElementTypeValueType:
+                        work.Push(Item.Type(depth + 1));
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
+        static bool TrySkipArrayShape(ref BlobReader signature)
+        {
+            try
+            {
+                signature.ReadCompressedInteger();
+                int sizes = signature.ReadCompressedInteger();
+                if (sizes < 0 || sizes > signature.RemainingBytes)
+                    return false;
+                for (int index = 0; index < sizes; index++)
+                    signature.ReadCompressedInteger();
+                int bounds = signature.ReadCompressedInteger();
+                if (bounds < 0 || bounds > signature.RemainingBytes)
+                    return false;
+                for (int index = 0; index < bounds; index++)
+                    signature.ReadCompressedSignedInteger();
+                return true;
+            }
+            catch (Exception ex) when (
+                ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
+        static bool TrySeedFnPtr(ref BlobReader signature, int depth, Stack<Item> work)
+        {
+            if (signature.RemainingBytes < 1)
+                return false;
+            var header = signature.ReadSignatureHeader();
+            if (header.IsGeneric)
+            {
+                if (signature.RemainingBytes < 1)
+                    return false;
+                signature.ReadCompressedInteger();
+            }
+
+            if (signature.RemainingBytes < 1)
+                return false;
+            int parameterCount = signature.ReadCompressedInteger();
+            if (parameterCount < 0
+                || (long)parameterCount + 1 > signature.RemainingBytes)
+                return false;
+            work.Push(Item.Types(parameterCount + 1, depth));
+            return true;
+        }
+
+        enum Op : byte
+        {
+            Type,
+            Types,
+            ArrayShape,
+            GenericInstArgs,
+        }
+
+        readonly struct Item
+        {
+            public Op Op { get; }
+            public int Depth { get; }
+            public int Remaining { get; }
+
+            Item(Op op, int depth, int remaining)
+            {
+                Op = op;
+                Depth = depth;
+                Remaining = remaining;
+            }
+
+            public static Item Type(int depth) => new(Op.Type, depth, 0);
+            public static Item Types(int remaining, int depth)
+                => new(Op.Types, depth, remaining);
+            public static Item ArrayShape() => new(Op.ArrayShape, 0, 0);
+            public static Item GenericInstArgs(int depth)
+                => new(Op.GenericInstArgs, depth, 0);
+        }
     }
 
     const byte ElementTypeVoid = 0x01;
@@ -1611,17 +1338,10 @@ public static class CustomAttributeValueGuard
     const byte ElementTypeTypedByRef = 0x16;
     const byte ElementTypeI = 0x18;
     const byte ElementTypeU = 0x19;
-    const byte ElementTypeObject = 0x1c;
     const byte ElementTypeFnPtr = 0x1b;
+    const byte ElementTypeObject = 0x1c;
     const byte ElementTypeSzArray = 0x1d;
-    const byte ElementTypeMVar = 0x1e;
     const byte ElementTypeCmodReqd = 0x1f;
     const byte ElementTypeCmodOpt = 0x20;
-    const byte ElementTypeSentinel = 0x41;
     const byte ElementTypePinned = 0x45;
-    const byte SerializedType = 0x50;
-    const byte SerializedBoxed = 0x51;
-    const byte SerializedField = 0x53;
-    const byte SerializedProperty = 0x54;
-    const byte SerializedEnum = 0x55;
 }

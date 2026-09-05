@@ -17,9 +17,12 @@ companion
 The generated multi-facade Browser/Wasm canary also gates authenticated
 nonterminal callback shape, ordered progress and durable event delivery,
 terminal-after-events settlement, callback-failure rejection, and callback
-closure after release. Shared-producer attachment, epoch-work leases, and the
-remaining complete browser-host gate cases named below remain required before
-an implementation may claim those corresponding behaviors.
+closure after release. Terminal-bounded shared-producer attachment is implemented
+by `BrowserManagedSharedProducer` and `BrowserManagedOperationBridge.RunSharedAsync`,
+gated by `BrowserManagedSharedProducerTests` in the Release browser-engine suite.
+Its generated Browser/Wasm exercise, epoch-work leases, and the remaining complete
+browser-host gate cases named below remain required before an implementation may
+claim those corresponding behaviors.
 
 ## Decision
 
@@ -556,6 +559,52 @@ The companion model checks `OneWaiterDoesNotStopSharedProducer` and
 `OutlivingProducerHasEpochWorkLease`. Concrete broker keys, network behavior,
 cache publication, and last-waiter policy remain gated by their feature
 owners.
+
+### Terminal-bounded implementation slice
+
+The first shared-waiter slice supports only `another waiter remains` and
+`producer terminal`. A canceled non-final waiter releases independently.
+The final waiter closes its callback but remains represented until physical
+producer completion, including asynchronous finalization. This is an intentional
+restriction: cancellation does not promise prompt final-wrapper quiescence.
+The slice cannot leave detached background work without a lease.
+
+The feature supplies a producer factory and may supply a last-detach stop callback.
+The first attachment starts the factory once, after operation admission and
+subscription installation, so even its synchronous events use a scoped sink.
+Without a stop policy, the final waiter waits for natural completion. Cooperative
+producer cancellation is recognized only after this policy requests stop and the
+failure carries the supplied, canceled **producer** token. Operation tokens
+never become producer tokens. An unexplained producer cancellation or late fault
+missed by a canceled waiter remains a visible release failure; stop-policy failure
+cannot skip physical drain or later operation cleanup. A failure already observed
+by the operation remains its feature outcome rather than a duplicate cleanup error.
+A producer-originated cancellation is not a canceled subscription wait: if the
+operation observes it, it remains an unexpected feature failure even when the
+operation also received cancellation. Classification preserves the original
+producer exception for feature diagnostics.
+
+Final detach seals this producer's waiter admission before invoking feature code.
+A feature broker must choose a new producer instance for later requests; key
+selection and cache-result reuse stay feature-owned. Events are scoped to current
+attachments, with no bridge-owned replay of events emitted before attachment.
+`BrowserManagedSharedProducerTests` gates this restricted contract through the
+real managed bridge in Release, alongside the existing lifecycle tests.
+
+The named immediate consumer is the inspect-web managed bridge and its Release
+engine harness. The four remaining adoption steps tracked in
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419), under the overall
+[#4937](https://github.com/richlander/dotnet-inspect/issues/4937) and
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095) composition, are:
+
+1. terminal-bounded managed waiter attachment and release (this slice);
+2. shared-waiter exercise through the generated Browser/Wasm boundary;
+3. epoch-work sender and final-waiter lease handoff; and
+4. first production feature adoption through #5420 with the #5418 Worker host.
+
+The existing six-step [migration plan](#migration) owns feature-coordinator
+retirement. This browser-host-only slice does not change production features,
+Worker placement, or worker-owned liveness types.
 
 ## Epoch-work lease handoff
 
