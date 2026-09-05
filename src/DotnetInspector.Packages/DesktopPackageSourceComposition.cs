@@ -424,6 +424,52 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         return GetOrCreateAuthority(source, authorityKey, isGallery);
     }
 
+    /// <summary>
+    /// Acquires one exact manifest through the desktop transport and authentication policy
+    /// while preserving the configured authority's owner-issued association.
+    /// </summary>
+    public async Task<PackageSourceOperationResult<PackageSourceManifest>>
+        GetManifestAsync(
+            ConfiguredPackageAuthority authority,
+            PackageSourceCoordinate coordinate,
+            CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(coordinate);
+
+        bool isGallery =
+            authority.Key.IsNuGetOrg
+            && authority.Source.Credential is null;
+        using AuthorityEntry runtime = CreateAuthorityEntry(
+            authority,
+            isGallery);
+        PackageSourceOperationResult<PackageSourceManifest> outcome =
+            await runtime.Client.GetManifestAsync(
+                coordinate.PackageId,
+                coordinate.Version,
+                cancellationToken,
+                operationContext).ConfigureAwait(false);
+
+        if (outcome.Failure is { } failure)
+        {
+            RequireAuthorityIdentity(failure.Source, runtime);
+        }
+        else
+        {
+            PackageSourceManifest value =
+                outcome.Value
+                ?? throw new InvalidOperationException(
+                    "The package source manifest operation returned neither a value nor a failure.");
+            RequireAuthorityIdentity(value.Source, runtime);
+        }
+
+        return outcome;
+    }
+
     private AuthorityEntry GetOrCreateAuthority(
         PackageSource source,
         ConfiguredPackageAuthorityKey key,
@@ -440,6 +486,21 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         }
 
         var configuredAuthority = new ConfiguredPackageAuthority(source);
+        PackageSourceAssociation association = configuredAuthority.Association;
+        AuthorityEntry authority = CreateAuthorityEntry(
+            configuredAuthority,
+            isGallery);
+        _authorities.Add(key, authority);
+        _authoritiesByAssociation.Add(association, authority);
+        return authority;
+    }
+
+    private AuthorityEntry CreateAuthorityEntry(
+        ConfiguredPackageAuthority configuredAuthority,
+        bool isGallery)
+    {
+        PackageSource source = configuredAuthority.Source;
+        ConfiguredPackageAuthorityKey key = configuredAuthority.Key;
         PackageSourceAssociation association = configuredAuthority.Association;
         PluginAuthenticationContextOwner? owner = null;
         HttpMessageHandler? transport = null;
@@ -462,7 +523,9 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 }
                 else
                 {
-                    if (source.Credential is null)
+                    if (source.Credential is null
+                        && PluginAuthenticationContext.CanScopeProviderQuery(
+                            key.HttpEndpoint!))
                     {
                         owner = PluginAuthenticationContextOwner.Create(
                             association,
@@ -478,11 +541,10 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 }
             }
 
-            var authority =
-                new AuthorityEntry(configuredAuthority, owner, client);
-            _authorities.Add(key, authority);
-            _authoritiesByAssociation.Add(association, authority);
-            return authority;
+            return new AuthorityEntry(
+                configuredAuthority,
+                owner,
+                client);
         }
         catch (Exception creationFailure)
         {
@@ -528,6 +590,20 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         {
             throw new InvalidOperationException(
                 "The package source result belongs to an unknown or retired configured authority.");
+        }
+
+        RequireAuthorityIdentity(resultSource, expected);
+    }
+
+    private static void RequireAuthorityIdentity(
+        PackageSourceResultIdentity resultSource,
+        AuthorityEntry expected)
+    {
+        if (!ReferenceEquals(resultSource.Association, expected.Association)
+            || !ReferenceEquals(resultSource, expected.Client.Source))
+        {
+            throw new InvalidOperationException(
+                "The package source result does not belong to the configured authority runtime.");
         }
     }
 
