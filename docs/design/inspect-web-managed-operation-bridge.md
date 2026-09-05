@@ -20,9 +20,10 @@ terminal-after-events settlement, callback-failure rejection, and callback
 closure after release. Terminal-bounded shared-producer attachment is implemented
 by `BrowserManagedSharedProducer` and `BrowserManagedOperationBridge.RunSharedAsync`,
 gated by `BrowserManagedSharedProducerTests` in the Release browser-engine suite.
-Its generated Browser/Wasm exercise, epoch-work leases, and the remaining complete
-browser-host gate cases named below remain required before an implementation may
-claim those corresponding behaviors.
+The managed-operation Browser/Wasm canary also gates the
+[generated shared-waiter cases](#generated-shared-waiter-evidence) below.
+Epoch-work leases and the remaining complete browser-host gate cases named below
+remain required before an implementation may claim those corresponding behaviors.
 
 ## Decision
 
@@ -591,20 +592,50 @@ attachments, with no bridge-owned replay of events emitted before attachment.
 `BrowserManagedSharedProducerTests` gates this restricted contract through the
 real managed bridge in Release, alongside the existing lifecycle tests.
 
-The named immediate consumer is the inspect-web managed bridge and its Release
-engine harness. The four remaining adoption steps tracked in
+The named immediate consumers are the inspect-web managed bridge, its Release
+engine harness, and the generated managed-operation Browser/Wasm canary. The
+four-step production-host adoption path tracked in
 [#5419](https://github.com/richlander/dotnet-inspect/issues/5419), under the overall
 [#4937](https://github.com/richlander/dotnet-inspect/issues/4937) and
 [#5095](https://github.com/richlander/dotnet-inspect/issues/5095) composition, are:
 
-1. terminal-bounded managed waiter attachment and release (this slice);
-2. shared-waiter exercise through the generated Browser/Wasm boundary;
+1. terminal-bounded managed waiter attachment and release (implemented);
+2. shared-waiter exercise through the generated Browser/Wasm boundary (implemented);
 3. epoch-work sender and final-waiter lease handoff; and
 4. first production feature adoption through #5420 with the #5418 Worker host.
 
 The existing six-step [migration plan](#migration) owns feature-coordinator
 retirement. This browser-host-only slice does not change production features,
 Worker placement, or worker-owned liveness types.
+
+### Generated shared-waiter evidence
+
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` exercises the actual
+`RunSharedAsync` and `BrowserManagedSharedProducer` through generated exports
+under Mono and CoreCLR. Six controlled producers and eight operation calls cover:
+
+- canceling one waiter while its neighbor continues receiving events and succeeds;
+- rejecting a throwing JavaScript observer without stopping its healthy neighbor;
+- canceling the final waiter while awaiting natural producer completion;
+- feature-approved producer stop with asynchronous finalization still pending;
+- rejecting a late producer fault during canceled-waiter release; and
+- preserving unexpected producer cancellation when its synchronous event first
+  reenters the cancellation export with a valid waiter cancellation.
+
+The harness supplies physical work and holds its asynchronous `finally` open.
+Generated snapshot calls observe the actual producer task, bridge-returned tasks,
+active entries, and represented waiters. JavaScript also observes the returned
+Promises and callback sequences. Phase polling has a failure deadline; elapsed
+time does not establish quiescence. Each settled scenario probes event closure
+and requires physical completion and empty waiter/operation state before removing
+its fixture. Typed managed receipts account for the original lifecycle scenarios
+first, then the shared scenarios, so both phases remain independently enforced.
+
+Negative controls split the supposedly shared neighbor onto another producer,
+release physical finalization before observing its pending state, or omit the
+final-waiter natural-completion scenario. Each must fail for its expected reason.
+This is Node-hosted Browser/Wasm boundary evidence, not a real-browser, Worker,
+DOM-responsiveness, prompt-final-cancellation, or epoch-work lease claim.
 
 ## Epoch-work lease handoff
 

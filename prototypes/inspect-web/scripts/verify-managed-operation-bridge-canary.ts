@@ -20,13 +20,21 @@ interface ExerciseModule {
     readonly skipExpectedFailure?: boolean;
     readonly skipRetainedProgress?: boolean;
   }): Promise<unknown>;
+  exerciseSharedBridge(options?: {
+    readonly splitNeighbor?: boolean;
+    readonly finishEarly?: boolean;
+    readonly skipFinalNatural?: boolean;
+  }): Promise<unknown>;
 }
 
 type Scenario =
   | "baseline"
   | "wrong-cancellation-target"
   | "skip-expected-failure"
-  | "skip-retained-progress";
+  | "skip-retained-progress"
+  | "split-shared-neighbor"
+  | "early-shared-finalization"
+  | "skip-final-natural";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -37,7 +45,9 @@ function isInitializer(value: unknown): value is CanaryInitializer {
 }
 
 function isExerciseModule(value: unknown): value is ExerciseModule {
-  return isRecord(value) && typeof value.exerciseManagedBridge === "function";
+  return isRecord(value)
+    && typeof value.exerciseManagedBridge === "function"
+    && typeof value.exerciseSharedBridge === "function";
 }
 
 function isRuntimeRegistry(value: unknown): value is RuntimeRegistry {
@@ -69,7 +79,8 @@ async function main(): Promise<void> {
       "Usage: verify-managed-operation-bridge-canary.ts "
         + "<published-wwwroot> "
         + "[baseline|wrong-cancellation-target|skip-expected-failure"
-        + "|skip-retained-progress]",
+        + "|skip-retained-progress|split-shared-neighbor"
+        + "|early-shared-finalization|skip-final-natural]",
     );
   }
   if (
@@ -77,6 +88,9 @@ async function main(): Promise<void> {
     && scenarioArgument !== "wrong-cancellation-target"
     && scenarioArgument !== "skip-expected-failure"
     && scenarioArgument !== "skip-retained-progress"
+    && scenarioArgument !== "split-shared-neighbor"
+    && scenarioArgument !== "early-shared-finalization"
+    && scenarioArgument !== "skip-final-natural"
   ) {
     throw new Error(
       `Unknown managed-operation bridge scenario: ${scenarioArgument}`,
@@ -130,6 +144,29 @@ async function main(): Promise<void> {
     malformedInputFailures: 3,
     otherBoundaryFailures: 0,
   });
+  const sharedReceipt = await exercise.exerciseSharedBridge({
+    splitNeighbor: scenario === "split-shared-neighbor",
+    finishEarly: scenario === "early-shared-finalization",
+    skipFinalNatural: scenario === "skip-final-natural",
+  });
+  assert.deepEqual(sharedReceipt, {
+    status: "managed-operation-bridge:shared-ok",
+    producerStarts: 6,
+    waiterCalls: 8,
+    succeededWaiters: 2,
+    canceledWaiters: 3,
+    failedWaiters: 1,
+    observerFailures: 1,
+    cleanupFailures: 1,
+    otherBoundaryFailures: 0,
+    stopRequests: 1,
+    releasedProducers: 6,
+  });
+  console.log(
+    "Shared-waiter boundary: 6 producers, 8 waiters; "
+      + "independent cancellation and observer isolation; natural and stopped "
+      + "finalization drained; late failure rejected; producer cancellation stayed Failed.",
+  );
 
   console.log(
     "Managed-operation bridge Browser/Wasm canary passed "
