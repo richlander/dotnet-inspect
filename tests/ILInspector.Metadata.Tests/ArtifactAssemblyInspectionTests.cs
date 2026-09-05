@@ -346,6 +346,7 @@ public sealed class ArtifactAssemblyInspectionTests
     [InlineData("malformed")]
     [InlineData("unsupported")]
     [InlineData("unauthorized")]
+    [InlineData("overflow")]
     [InlineData("cancelled")]
     public void QueryValidation_PreservesProducerExceptionsAndDisposesSession(string kind)
     {
@@ -358,6 +359,7 @@ public sealed class ArtifactAssemblyInspectionTests
             "malformed" => new BadImageFormatException("producer"),
             "unsupported" => new UnsupportedMetadataFormatException(),
             "unauthorized" => new UnauthorizedAccessException("producer"),
+            "overflow" => new OverflowException("producer"),
             _ => new OperationCanceledException(cancellation.Token),
         };
         AssemblyInspectionSession? borrowed = null;

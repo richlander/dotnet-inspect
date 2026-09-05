@@ -49,7 +49,8 @@ public static class ArtifactAssemblyInspection
             {
                 return RejectProjection(ArtifactAssemblyProjectionFailureKind.UnsupportedWindowsMetadata);
             }
-            catch (BadImageFormatException)
+            catch (Exception exception) when (
+                exception is BadImageFormatException or OverflowException)
             {
                 return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
             }
@@ -99,7 +100,8 @@ public static class ArtifactAssemblyInspection
             {
                 return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.UnsupportedWindowsMetadata);
             }
-            catch (BadImageFormatException)
+            catch (Exception exception) when (
+                exception is BadImageFormatException or OverflowException)
             {
                 return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
             }

@@ -310,16 +310,14 @@ is the immediate typed boundary the assembly query consumes:
 public readonly ref struct ArtifactAdmissionContentView
 {
     internal ArtifactAdmissionContentView(
-        ArtifactGenerationIdentity generation,
         ArtifactIdentity artifact,
         ReadOnlySpan<byte> content)
     {
-        Generation = generation;
         Artifact = artifact;
         Content = content;
     }
 
-    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactGenerationIdentity Generation => Artifact.Generation;
     public ArtifactIdentity Artifact { get; }
     public ReadOnlySpan<byte> Content { get; }
 }
@@ -327,16 +325,14 @@ public readonly ref struct ArtifactAdmissionContentView
 public readonly ref struct ArtifactQueryContentView
 {
     internal ArtifactQueryContentView(
-        ArtifactGenerationIdentity generation,
         ArtifactIdentity artifact,
         ReadOnlySpan<byte> content)
     {
-        Generation = generation;
         Artifact = artifact;
         Content = content;
     }
 
-    public ArtifactGenerationIdentity Generation { get; }
+    public ArtifactGenerationIdentity Generation => Artifact.Generation;
     public ArtifactIdentity Artifact { get; }
     public ReadOnlySpan<byte> Content { get; }
 }
@@ -486,6 +482,10 @@ assembly:
 | Malformed PE or metadata | `Rejected(MalformedMetadata)` | Required context admission fails visibly. |
 | Managed assembly with an empty MVID | `Rejected(EmptyModuleVersionId)` | Required context admission fails visibly. |
 | Foreign, revoked, disposed, or ended admission authority | `Rejected(AdmissionUnauthorized)` | The callback is not invoked and no assembly facts are minted. |
+
+Structural arithmetic failures during reader construction are malformed
+metadata. Arithmetic failures from a query producer remain exceptional rather
+than becoming a Metadata rejection.
 
 `NotAssembly` is a positive classification, not successful assembly
 projection. Whether a non-assembly artifact is allowed to remain in a broader
