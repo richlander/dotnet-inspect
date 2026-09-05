@@ -104,7 +104,7 @@ public static partial class CatalogExports
             ((EcosystemDemoSelectionResult.Known)selectionResult).Selection.Scenario;
         BrowserHomeDemoRunPlan plan =
             BrowserProductHomeDemos.ToRunPlan(resolved);
-        BrowserScopeResolution resolution =
+        await using BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 deadline => BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
                     plan.Requests,

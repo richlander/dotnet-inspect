@@ -507,6 +507,10 @@ four-entry pressure, awaited reclamation, stale activation, and cleanup-failure
 quarantine. They also preserve the existing multi-package and Platform cases.
 `BrowserTypeSourceOperationTests` covers the managed source consumer's release
 through success, expected failure, and unexpected failure.
+`HomeDemo_ReleasesScopeAfterQuery` and
+`QueryMemberCallGraph_RejectsCollapsedContextCoordinates` gate release of the
+resolved scope at the Catalog and Call Graph facade boundaries: after success
+or rejection, archive pressure can reclaim the completed query's resources.
 
 `eng/test-inspect-web-package-adoption-gate.sh` runs the public generated
 Package and Analysis facades against the published production engine in

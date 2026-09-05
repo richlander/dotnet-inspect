@@ -9,6 +9,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Xml;
 using System.Text.Json;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -2623,13 +2624,13 @@ public sealed class BrowserEngineBoundaryTests
             "Root.Order.B",
             Package(secondImage, "lib/net11.0/Root.Order.B.dll"));
 
-        BrowserScopeResolution first = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
+        await using BrowserScopeResolution first = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
         [
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
         ],
         TestContext.Current.CancellationToken);
-        BrowserScopeResolution second = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
+        await using BrowserScopeResolution second = await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(
         [
             new BrowserPackageRequest("Root.Order.B", "1.0.0", "net11.0"),
             new BrowserPackageRequest("Root.Order.A", "1.0.0", "net11.0"),
@@ -2749,6 +2750,56 @@ public sealed class BrowserEngineBoundaryTests
             "distinct package coordinates",
             failure.Message,
             StringComparison.Ordinal);
+
+        using var pressure =
+            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"call-graph.after-failure.{Guid.NewGuid():N}@1.0.0",
+                128L * MiB);
+        Assert.Equal(128L * MiB, BrowserPackageWorkspace.Stats().ResidentBytes);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HomeDemo_ReleasesScopeAfterQuery(bool missingType)
+    {
+        byte[] image = File.ReadAllBytes(
+            missingType
+                ? typeof(BrowserEngineBoundaryTests).Assembly.Location
+                : typeof(JsonSerializer).Assembly.Location);
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                "System.Text.Json",
+                "10.0.0",
+                Package(image, "lib/net10.0/System.Text.Json.dll"),
+                fromCache: false));
+
+        if (missingType)
+        {
+            InvalidOperationException failure =
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer));
+            Assert.Contains(
+                "resolved to 0 browser surface rows",
+                failure.Message,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            BrowserHomeDemoRunResult result =
+                Assert.IsType<BrowserHomeDemoRunResult>(
+                    JsonSerializer.Deserialize(
+                        await CatalogExports.RunHomeDemo(ProductDemoIds.StjSerializer),
+                        BrowserCatalogJsonContext.Default.BrowserHomeDemoRunResult));
+            Assert.True(result.Found);
+            Assert.Equal("System.Text.Json", Assert.Single(result.Packages).Package);
+        }
+
+        using var pressure =
+            await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                $"home-demo.after-query.{Guid.NewGuid():N}@1.0.0",
+                128L * MiB);
+        Assert.Equal(128L * MiB, BrowserPackageWorkspace.Stats().ResidentBytes);
     }
 
     [Fact]

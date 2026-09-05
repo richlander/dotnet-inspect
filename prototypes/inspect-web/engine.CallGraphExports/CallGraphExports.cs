@@ -51,7 +51,7 @@ public static partial class CallGraphExports
                 targetFramework,
                 workspaceJson);
 
-        BrowserScopeResolution resolution =
+        await using BrowserScopeResolution resolution =
             await BrowserPackageWorkspace.ResolveAndOpenScopeAsync(requests);
         if (resolution.RequestedCoordinates.Length != requests.Length)
         {
