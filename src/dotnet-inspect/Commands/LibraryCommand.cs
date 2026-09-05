@@ -134,30 +134,25 @@ public class LibraryCommand
 
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
-        if (LibraryScannerSelection.Resolve(options.Scanner, out var scanner) is { } scannerError)
+        if (options.IntegrationQuery.HasFilter
+            && (options.BodyKindQuery.HasFilter || options.PerformanceTriage.HasFilters
+                || options.PerformanceTriage.HasRanking))
         {
-            CommandError.Write(scannerError);
+            CommandError.Write(
+                "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
             return 1;
         }
-        if (scanner is not null
-            && (options.ILOffsetsPath is not null || options.ExtractResources is not null))
+        if (options.IntegrationQuery.HasFilter
+            && (options.ILOffsetParameter is not null || options.ILOffsetsPath is not null
+                || options.HeapParameter is not null || options.ExtractResources is not null
+                || options.Print || options.Value || options.Urls || options.Paths))
         {
-            CommandError.Write("--scanner cannot be combined with --il-offsets or --extract-resources.");
+            CommandError.Write(
+                "Integration ecosystem queries support section rows, columns, and counts, not coordinate or extraction operations.");
             return 1;
-        }
-        if (scanner is not null && options.Discover is null)
-        {
-            if (options.Select is null && options.IncludeSections is null)
-                options = options with { Select = [IntegrationSectionNames.Scan], SelectDefault = false };
-            if (options.Value || options.Urls || options.Paths)
-            {
-                CommandError.Write(
-                    "Integration Scan supports section rows, columns, and counts, not --value, --urls, or --paths.");
-                return 1;
-            }
         }
         var assemblyPath = options.AssemblyName;
-        var catalog = LibrarySections.CreateCatalog(scanner);
+        var catalog = LibrarySections.CreateCatalog();
         var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
@@ -302,15 +297,27 @@ public class LibraryCommand
             };
         }
 
-        if (scanner is not null && options.Discover is null
-            && options.IncludeSections?.Contains(IntegrationSectionNames.Scan) != true)
-        {
-            CommandError.Write("--scanner requires the Integration Scan section. Omit -S or include -S \"Integration Scan\".");
-            return 1;
-        }
-
         if (options.Discover is null || fullEffectiveDiscovery)
         {
+            if (options.IntegrationQuery.HasFilter)
+            {
+                string[] integrationSections =
+                    [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities];
+                if (options.IncludeSections is not { Count: > 0 })
+                {
+                    options = options with
+                    {
+                        IncludeSections = [.. integrationSections],
+                        FixedOverview = false,
+                    };
+                }
+                else if (!options.IncludeSections.Overlaps(integrationSections))
+                {
+                    CommandError.Write(
+                        "--where ecosystem=... targets Integrations. Omit -S or include an Integration section.");
+                    return 1;
+                }
+            }
             bool bodyShapesSelected =
                 options.IncludeSections?.Contains(SectionNames.BodyShapes) == true;
             if (options.BodyKindQuery.HasFilter
@@ -559,7 +566,6 @@ public class LibraryCommand
         if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
             discoveryExecutionScope = [.. sections.BaseSectionNames];
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
-            && scanner is null
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
             && !HasILOffsetCoordinate(options)
@@ -754,7 +760,6 @@ public class LibraryCommand
                     queryPlan: queryPlan,
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
-                    integrationScanEntry: integrations?.ScanEntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
@@ -1120,7 +1125,6 @@ public class LibraryCommand
                     queryPlan: queryPlan,
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
-                    integrationScanEntry: integrations?.ScanEntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
@@ -1252,10 +1256,6 @@ public class LibraryCommand
 
         return inspections.Any(inspection =>
         {
-            if (options.IncludeSections.Contains(IntegrationSectionNames.Scan)
-                && inspection.IntegrationScan?.Error is not null)
-                return true;
-
             var empty = pipeline.GetEmptySections(
                 inspection,
                 options.Verbosity,
@@ -2625,7 +2625,8 @@ public class LibraryCommand
             allEffective = pipeline.GetDiscoverableSections(inspection);
         }
 
-        var schemaMap = CreateDiscoverySchema(pipeline);
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
         // Cheap discovery never content-probes fields. Full discovery may narrow dynamic field
         // schemas after the selected producers have run.
@@ -2694,18 +2695,6 @@ public class LibraryCommand
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
-    }
-
-    private static DocumentSchema CreateDiscoverySchema(
-        SectionPipeline<LibraryInspection> pipeline)
-    {
-        var schema = MetadataSectionNames.AugmentSchema(
-            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
-        return pipeline.SelectableSectionNames.Contains(IntegrationSectionNames.Scan)
-            ? schema
-            : DiscoverOutput.RestrictSchemaToSections(
-                schema,
-                schema.SectionNames.Where(name => name != IntegrationSectionNames.Scan).ToArray());
     }
 
     private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, string contentHash, bool hasSourceLink)
@@ -2988,6 +2977,10 @@ public class LibraryCommand
             return true;
         }
 
+        if (options.IntegrationQuery.HasFilter
+            && section.StartsWith(IntegrationSectionNames.Prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
         CommandError.WriteLine($"This section ({emptySection}) produced no output.");
         return true;
     }
@@ -3141,8 +3134,6 @@ public class LibraryCommand
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
-                    integrationScanEntry:
-                        integrations?.ScanEntryFor(targetPath),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(targetPath),
                     discoveryOnly: discoveryOnly,

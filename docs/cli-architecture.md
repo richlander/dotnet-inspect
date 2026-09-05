@@ -277,52 +277,65 @@ remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
 
-### Explicit Integration scanner selection
+### Integration ecosystem queries
 
-`library --scanner <ecosystem-id>` selects one canonical pack identity through
-the static application catalog. The CLI reports malformed, unknown, and
-known-but-unavailable selections before source acquisition; it never substitutes
-another binding or infers an identity from a title.
+`library --where "ecosystem=ecosystem.aspire"` narrows ordinary Integration
+results. All integrations remain enabled without that predicate; normal section
+disclosure still determines which results are requested and shown. There is no
+separate scanner opt-in or scanner-only section.
 
-The explicit mode adds an `Integration Scan` section to the command's catalog
-and selects that section when `-S` is omitted. An explicit `-S` must include it.
-Ordinary discovery, including `--schema`, does not expose that optional section
-without scanner selection.
-The same file, platform, package, and TFM source paths remain available.
-An input that cannot form a readable managed participant fails before the
-selected operation; failures after admission remain per-participant outcomes.
-Structural discovery can describe this mode without invoking the binding.
-Resource extraction and IL-coordinate batch output are separate operations and
-cannot be combined with `--scanner`.
-The section supports row/column selection and counting, not payload printing
-or `--value`, `--urls`, and `--paths` extraction.
+The CLI owns an explicit binding from a canonical ecosystem-pack identity to
+existing Integration concepts. It consumes typed pack and concept identities,
+not display-name inference or a claim that every pack has an Integration
+mapping. The initial supported value is `ecosystem.aspire`. Malformed, unknown,
+and known-but-unbound IDs fail before source acquisition. Exactly one ecosystem
+equality predicate is supported; Body Shapes predicates and Performance Triage
+filters/rankings cannot be combined with it.
 
-The selected section demands its own typed operation over the realized group.
-It does not use the full-scan definition or cache. The Integration owner retains
-decoding, invocation, ordered evidence, and participant outcomes; the host
-retains acquisition and output policy. Repeating an operation executes again.
+Without `-S`, the predicate requests the Integration family. Explicit selection
+must include an Integration section; other explicitly selected sections are
+unchanged. Integration evidence and opportunity rows are narrowed by their
+owner-issued concept association. An unmatched selected table is empty, not
+an error or a request to run another scanner. Assembly-wide presence, counts,
+and the authoritative Census/outcomes remain unchanged. A filtered empty result
+does not assert that the library has no integrations.
 
-The selected result stays separate from ordinary full-library presence,
-focused Integration sections, and Census results. Existing library presence
-work is unchanged. A successful empty scan means no currency from that selected
-scanner, not absence of all Integration support. Failed participants remain
-failures and cause nonzero exit status.
+The existing full Integration query remains the producer. Decode, acquisition,
+and admitted participant failures remain visible and produce the existing
+nonzero failure result. The same file, platform, package, and TFM source paths
+remain available. Resource extraction, IL-coordinate operations, payload
+printing, and value/URL/path extraction are not Integration query operations
+and cannot consume the predicate.
 
-Markdown document context and structured JSON retain the canonical scanner
-identity and completion status. Default table rows also carry scanner identity
-beside the ordinary Integration, kind, name, and shape. Explicit column,
-row, and count projections lower that scoped result through the existing
-section/Markout pipeline; they do not change its scope into a complete Census.
-Tabular streams contain only their table rows, without a document-context
-preamble; row windows count signals rather than context fields.
-Existing multi-TFM format restrictions remain: all-TFM output uses Markdown,
-structured JSON, or aggregate counts, not concatenated tabular streams.
+`library -Q Integrations` describes the family binding without a target.
+Concrete Integration sections expose the same facet; ordinary `-D` remains
+schema discovery, while effective discovery observes the narrowed results.
+The descriptor supplies only supported CLI values, not every catalog pack.
+The existing query-discovery owner retains mode separation and format rules.
 
-This is CLI adoption #5985, step 4 of the six-step scanner path in #5728.
-The [scanner owner](design/integration-scanner-binding.md#adoption-and-retirement)
-tracks browser adoption and eventual compatibility retirement. The
-[pack owner](design/ecosystem-packs.md#integration-scanner-binding) owns the
-manifest and exact binding selection, not this command grammar.
+Existing section tables and typed JSON remain the rendering contract. Plain
+`--json` retains the full typed-library document, with narrowed Integration
+properties: `-S` scopes producer demand, not JSON member selection. Row,
+column, and count projections apply to the narrowed tables. Heterogeneous
+Integration sections still require Markdown/JSON; select a concrete section
+for tabular output. Existing all-TFM format restrictions remain unchanged.
+
+The consumer is the CLI, through focused adoption #5985 and parent disclosure
+tracker #6002. The user approved replacing the scanner-only UX with this
+narrowing contract. The six-step scanner path in #5728 still tracks the
+Integration contract, substrate, catalog, CLI adoption, browser adoption, and
+compatibility retirement. This CLI projection does not claim to replace the
+full-scan producer or complete scanner compatibility retirement. The
+[scanner owner](design/integration-scanner-binding.md#adoption-and-retirement)
+retains that work; the
+[pack owner](design/ecosystem-packs.md#integration-scanner-binding) retains
+catalog and binding semantics.
+
+The Release `LibraryIntegrationQueryTests` gate compares unfiltered and
+narrowed ordinary results, including mixed concepts, empty results, retained
+failure evidence, structural discovery, machine-readable projection, and
+malformed/unsupported predicates. `QueryDiscoveryTests` covers acquisition-free
+facet disclosure from the same binding.
 
 ## Lifetime and failure
 

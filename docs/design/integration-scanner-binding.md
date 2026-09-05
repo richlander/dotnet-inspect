@@ -293,11 +293,12 @@ non-normative end-to-end tracker. This scanner track has **six steps**:
    the pack owner's existing static selection contract. During migration,
    reuse the owner-side Aspire interpretation through a compatibility adapter
    rather than maintain two independently edited semantic policies.
-4. **CLI adoption (#5985):** `library --scanner <ecosystem-id>` uses the ordinary
-   selected Integration operation and section/Markout lowering. Its
-   [host contract](../cli-architecture.md#explicit-integration-scanner-selection)
-   keeps selected results separate from the unchanged complete library/presence
-   path until those callers have an equivalent replacement.
+4. **CLI adoption (#5985):** the user-approved
+   [ecosystem query](../cli-architecture.md#integration-ecosystem-queries)
+   narrows ordinary Integration results while retaining the complete
+   library/presence producer. This does not claim adoption of the selected
+   scanner operation or retire its compatibility path; that producer adoption
+   remains distinct from the delivered query/disclosure UX.
 5. **Browser adoption:** wire the same selection through
    `InspectWeb.Engine.CatalogExports`; browser infrastructure carries the
    Integration-owned value and results, not the application catalog. Its

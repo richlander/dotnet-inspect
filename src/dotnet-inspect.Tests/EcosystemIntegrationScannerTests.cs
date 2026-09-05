@@ -491,8 +491,7 @@ public class EcosystemIntegrationScannerTests
         bool includeMalformedExtension = false,
         bool includeAdditionalOverload = false,
         bool includeConfigurationParameter = false,
-        bool includeAspire = false,
-        string aspireMethodName = "AddSample")
+        bool includeAspire = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationVisibilityFixture"),
@@ -570,7 +569,7 @@ public class EcosystemIntegrationScannerTests
                 TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
             aspireExtensions.SetCustomAttribute(extensionAttribute);
             MethodBuilder add = aspireExtensions.DefineMethod(
-                aspireMethodName,
+                "AddSample",
                 MethodAttributes.Public | MethodAttributes.Static,
                 builder,
                 [applicationBuilder]);
@@ -597,7 +596,7 @@ public class EcosystemIntegrationScannerTests
         }
     }
 
-    private static MemoryStream BuildCloudClientAssembly()
+    internal static MemoryStream BuildCloudClientAssembly()
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationOpportunityFixture"),

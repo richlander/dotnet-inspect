@@ -51,13 +51,13 @@ internal static class LibraryInspectionDisplay
 public class LibraryInspection
 {
     [JsonIgnore]
+    internal IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
+
+    [JsonIgnore]
     internal IReadOnlyList<AssemblyReferenceIdentity>? AssemblyReferenceIdentities { get; set; }
 
     [JsonIgnore]
     public AssemblyIntegrationsEntry? AssemblyIntegrationsEntry { get; set; }
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public LibraryIntegrationScan? IntegrationScan { get; set; }
 
     [JsonIgnore]
     public AssemblyIntegrationOpportunitiesEntry?
@@ -864,13 +864,6 @@ public class LibraryInspection
             }
             AddFailure(failures, "Extension Methods", ExtensionMemberInspection);
             AddFailure(failures, LibraryIntegrationCatalog.RollupName, EcosystemIntegrationInspection);
-            if (IntegrationScan?.Error is { } scanError)
-            {
-                failures.Add(new LibraryInspectionFailureJson(
-                    IntegrationSectionNames.Scan,
-                    "SelectedIntegrationScan",
-                    $"{IntegrationScan.Scanner}: {scanError}"));
-            }
             AddFailure(failures, EcosystemIntegrationNames.OpenTelemetry, OpenTelemetryInspection);
             AddFailure(failures, "Resources", ResourceInspection);
             AddFailure(failures, "Custom Attributes", AssemblyAttributeInspection);

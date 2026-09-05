@@ -302,11 +302,6 @@ public static class InspectionCommandDefinitions
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
         var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
-        var scannerOption = new Option<string?>("--scanner")
-        {
-            Description = "Run one ecosystem scanner in the Integration Scan section (e.g., ecosystem.aspire)",
-            Arity = ArgumentArity.ExactlyOne,
-        };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var ilOffsetOption = new Option<string?>("--il-offset") { Description = "MethodDef token + IL offset for coordinate-scoped sections (e.g., 0x06000001+0x5)" };
@@ -326,7 +321,6 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
         assemblyCommand.Options.Add(asmTfmOption);
-        assemblyCommand.Options.Add(scannerOption);
         assemblyCommand.Options.Add(typeFilterOption);
         assemblyCommand.Options.Add(ilOffsetOption);
         assemblyCommand.Options.Add(ilOffsetsOption);
@@ -347,11 +341,23 @@ public static class InspectionCommandDefinitions
 
         assemblyCommand.SetAction(async (parseResult, ct) =>
         {
-            var scanner = parseResult.GetValue(scannerOption);
-            if (DotnetInspector.Inspectors.LibraryScannerSelection.Resolve(
-                    scanner, out _) is { } scannerError)
+            if (!IntegrationQueryOptions.TryExtract(
+                    parseResult.GetValue(opts.RowWhere) ?? [],
+                    out var integrationQuery,
+                    out var nonIntegrationWhere,
+                    out var integrationError))
             {
-                CommandError.Write(scannerError);
+                CommandError.Write(integrationError);
+                return 1;
+            }
+            var independentTriage = opts.ParsePerformanceTriageOptions(parseResult, []);
+            if (integrationQuery.HasFilter
+                && (nonIntegrationWhere.Length > 0
+                    || independentTriage.HasFilters
+                    || independentTriage.HasRanking))
+            {
+                CommandError.Write(
+                    "Integration ecosystem queries cannot be combined with Body Shapes or Performance Triage predicates/ranking.");
                 return 1;
             }
             var source = parseResult.GetValue(assemblyPathArg);
@@ -420,9 +426,8 @@ public static class InspectionCommandDefinitions
             var select = opts.ParseSelect(parseResult);
             var selectDefault = opts.ParseSelectDefault(parseResult);
             bool hasExplicitSelect = select is { Length: > 0 } || selectDefault;
-            var whereExpressions = parseResult.GetValue(opts.RowWhere) ?? [];
             if (!BodyKindQueryOptions.TryExtract(
-                    whereExpressions,
+                    nonIntegrationWhere,
                     out var bodyKindQuery,
                     out var performanceWhere,
                     out var bodyKindError))
@@ -491,7 +496,7 @@ public static class InspectionCommandDefinitions
                 PlatformFramework = requestedFramework,
                 PlatformVersion = requestedPlatformVersion,
                 Tfm = parseResult.GetValue(asmTfmOption),
-                Scanner = scanner,
+                IntegrationQuery = integrationQuery,
                 TypeFilter = typeFilter,
                 ILOffsetParameter = parseResult.GetValue(ilOffsetOption),
                 ILOffsetsPath = parseResult.GetValue(ilOffsetsOption),

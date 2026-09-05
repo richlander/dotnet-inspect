@@ -12,36 +12,27 @@ using Markout;
 
 namespace DotnetInspector.Views;
 
-[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 9, FieldLayout = FieldLayout.Inline)]
+[MarkoutSerializable(TitleProperty = nameof(FileName), TitleContextProperty = nameof(Tfm), AutoFieldsCount = 7, FieldLayout = FieldLayout.Inline)]
 public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
     private readonly bool _topFieldsOnly;
-    private readonly bool _includeScannerContext;
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
-    public LibraryInspectionView(
-        LibraryInspection data, bool topFieldsOnly = false, bool includeScannerContext = true)
+    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
     {
         _data = data;
         _topFieldsOnly = topFieldsOnly;
-        _includeScannerContext = includeScannerContext;
     }
 
     [MarkoutIgnore]
     public string? Tfm => _topFieldsOnly ? null : LibraryViewText.Contain(_data.Tfm);
 
-    [MarkoutSection(Name = IntegrationSectionNames.Scan)]
-    public List<IntegrationScanRow>? IntegrationScanSection =>
-        _data.IntegrationScan?.Signals.Select(signal => new IntegrationScanRow(
-            signal.Scanner, signal.Integration, signal.Kind,
-            MarkoutInline.Code(signal.Name), signal.Shape)).ToList();
-
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("File")]
     public string FileName => LibraryViewText.Contain(_data.FileName);
 
-    // ===== Compact context fields and explicit scanner scope =====
+    // ===== Top fields (first 7 auto-fields, rendered inline for -v:q compact summary) =====
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSkipNull]
@@ -71,15 +62,6 @@ public class LibraryInspectionView
 
     [MarkoutSkipNull]
     public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
-
-    [MarkoutSkipNull]
-    public string? Scanner => _includeScannerContext
-        ? LibraryViewText.Contain(_data.IntegrationScan?.Scanner)
-        : null;
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Scan Status")]
-    public string? ScanStatus => _includeScannerContext ? _data.IntegrationScan?.Status : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Library")]
@@ -2149,21 +2131,6 @@ public record IntegrationSignalRow(
 
     /// <inheritdoc cref="LibraryViewText"/>
     public string Type { get; init; } = LibraryViewText.Contain(Type);
-}
-
-[MarkoutSerializable]
-public sealed record IntegrationScanRow(
-    string Scanner,
-    string Integration,
-    string Kind,
-    string Name,
-    string Shape)
-{
-    public string Scanner { get; init; } = LibraryViewText.Contain(Scanner);
-    public string Integration { get; init; } = LibraryViewText.Contain(Integration);
-    public string Kind { get; init; } = LibraryViewText.Contain(Kind);
-    public string Name { get; init; } = LibraryViewText.Contain(Name);
-    public string Shape { get; init; } = LibraryViewText.Contain(Shape);
 }
 
 [MarkoutSerializable]

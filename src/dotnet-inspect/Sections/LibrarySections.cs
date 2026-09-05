@@ -43,35 +43,6 @@ public static class LibrarySections
     /// </summary>
     public static LibrarySectionCatalog CreateCatalog() => Catalog;
 
-    internal static LibrarySectionCatalog CreateCatalog(
-        EcosystemIntegrationScannerBinding? scanner)
-    {
-        if (scanner is null)
-            return Catalog;
-
-        var groups = GroupQueryCatalog.ToBuilder()
-            .Add(
-                LibraryScannerSelection.Query,
-                group => AssemblyContextIntegrationScanQuery.Execute(group, scanner))
-            .Compile();
-        var sections = CreatePipeline(
-                query => groups.Contains(query)
-                    ? groups.CostOf(query)
-                    : QueryCatalog.CostOf(query))
-            .Add<IntegrationScan>(LibraryScannerSelection.Query)
-            .Compile();
-        return new(sections, QueryCatalog, groups);
-    }
-
-    public sealed class IntegrationScan : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => IntegrationSectionNames.Scan;
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static bool CanRender(LibraryInspection model) =>
-            model.IntegrationScan?.Entry is AssemblyIntegrationsEntry.Selected;
-    }
-
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
         => CreatePipeline(

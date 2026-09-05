@@ -18,24 +18,19 @@ internal sealed class AssemblyContextIntegrationsBatch
             string Path,
             ResolvedAssemblyReference? Assembly,
             AssemblyIntegrationsEntry? IntegrationsEntry,
-            AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry,
-            AssemblyIntegrationsEntry? ScanEntry)> entries)
+            AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry)> entries)
     {
         _resultByPath = entries.ToDictionary(
             entry => System.IO.Path.GetFullPath(entry.Path),
             entry => new ParticipantResult(
                 entry.Assembly,
                 entry.IntegrationsEntry,
-                entry.OpportunitiesEntry,
-                entry.ScanEntry),
+                entry.OpportunitiesEntry),
             StringComparer.OrdinalIgnoreCase);
     }
 
     internal AssemblyIntegrationsEntry? EntryFor(string path)
         => ResultFor(path).IntegrationsEntry;
-
-    internal AssemblyIntegrationsEntry? ScanEntryFor(string path)
-        => ResultFor(path).ScanEntry;
 
     internal AssemblyIntegrationOpportunitiesEntry?
         OpportunitiesEntryFor(string path)
@@ -55,8 +50,7 @@ internal sealed class AssemblyContextIntegrationsBatch
     sealed record ParticipantResult(
         ResolvedAssemblyReference? Assembly,
         AssemblyIntegrationsEntry? IntegrationsEntry,
-        AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry,
-        AssemblyIntegrationsEntry? ScanEntry);
+        AssemblyIntegrationOpportunitiesEntry? OpportunitiesEntry);
 }
 
 internal static class AssemblyContextIntegrationsRunner
@@ -92,12 +86,6 @@ internal static class AssemblyContextIntegrationsRunner
                 Input: input,
                 Assembly: TryCreateManagedParticipant(input)))
             .ToArray();
-        if (requested.Contains(LibraryScannerSelection.Query)
-            && candidates.FirstOrDefault(candidate => candidate.Assembly is null).Input is { } invalid)
-        {
-            throw new InspectionQueryException(
-                $"Selected Integration scanning requires a readable managed assembly: '{invalid.Path}'.");
-        }
         var roots = candidates
             .Where(candidate => candidate.Assembly is not null)
             .Select(candidate => candidate.Assembly!)
@@ -110,8 +98,7 @@ internal static class AssemblyContextIntegrationsRunner
                     Assembly: (ResolvedAssemblyReference?)null,
                     IntegrationsEntry: (AssemblyIntegrationsEntry?)null,
                     OpportunitiesEntry:
-                        (AssemblyIntegrationOpportunitiesEntry?)null,
-                    ScanEntry: (AssemblyIntegrationsEntry?)null)));
+                        (AssemblyIntegrationOpportunitiesEntry?)null)));
         }
 
         var sourcePolicies = roots
@@ -137,14 +124,8 @@ internal static class AssemblyContextIntegrationsRunner
         InspectionQueryResults queryResults = plan.Run(
             group,
             recordExecution);
-        queryResults.TryGet(
-            AssemblyContextIntegrationsQuery.Definition,
-            out AssemblyContextIntegrationsResult? integrationsResult);
-        queryResults.TryGet(
-            LibraryScannerSelection.Query,
-            out AssemblyContextIntegrationScanResult? scanResult);
-        var outcomes = integrationsResult?.Assemblies ?? scanResult?.Assemblies
-            ?? throw new InspectionQueryException("No Integration operation produced a result.");
+        AssemblyContextIntegrationsResult integrationsResult = queryResults.Get(
+            AssemblyContextIntegrationsQuery.Definition);
         AssemblyContextIntegrationOpportunitiesResult? opportunitiesResult =
             queryResults.TryGet(
                 AssemblyContextIntegrationOpportunitiesQuery.Definition,
@@ -153,8 +134,9 @@ internal static class AssemblyContextIntegrationsRunner
                 ? producedOpportunities
                 : null;
         ResolvedAssemblyReference?[] retainedAssemblies = roots
-            .Select(
-                (root, index) => outcomes[index]
+            .Zip(
+                integrationsResult.Assemblies,
+                (root, entry) => entry
                     is AssemblyIntegrationsEntry.Rejected
                         ? null
                         : RetainAcquiredAssembly(group, root))
@@ -172,8 +154,7 @@ internal static class AssemblyContextIntegrationsRunner
                         IntegrationsEntry:
                             (AssemblyIntegrationsEntry?)null,
                         OpportunitiesEntry:
-                            (AssemblyIntegrationOpportunitiesEntry?)null,
-                        ScanEntry: (AssemblyIntegrationsEntry?)null);
+                            (AssemblyIntegrationOpportunitiesEntry?)null);
                 }
 
                 int index = managedIndex++;
@@ -182,13 +163,11 @@ internal static class AssemblyContextIntegrationsRunner
                     Assembly: (ResolvedAssemblyReference?)
                         retainedAssemblies[index],
                     IntegrationsEntry: (AssemblyIntegrationsEntry?)
-                        integrationsResult?.Assemblies[index],
+                        integrationsResult.Assemblies[index],
                     OpportunitiesEntry:
                         opportunitiesResult is null
                             ? null
-                            : opportunitiesResult.Assemblies[index],
-                    ScanEntry: (AssemblyIntegrationsEntry?)
-                        scanResult?.Assemblies[index]);
+                            : opportunitiesResult.Assemblies[index]);
             }));
     }
 

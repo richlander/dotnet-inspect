@@ -47,26 +47,9 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null,
-        AssemblyIntegrationsEntry? integrationScanEntry = null)
+        Sections.InspectionTrace? trace = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
-        LibraryIntegrationScan? selectedScan = integrationScanEntry is null
-            ? null
-            : new(
-                options.Scanner
-                    ?? throw new InspectionQueryException("Selected scan scope is missing."),
-                integrationScanEntry);
-        if (selectedScan?.Error is { } scanError)
-        {
-            logger.LogWarning(
-                $"Integration scanner '{selectedScan.Scanner}' failed for '{path}': {scanError}");
-            return new LibraryInspection
-            {
-                FileName = Path.GetFileName(path),
-                IntegrationScan = selectedScan,
-            };
-        }
 
         try
         {
@@ -220,10 +203,10 @@ internal static class LibraryMetadataService
                         FindingSubjectFor(path)),
                 PerformanceTriageOptions = options.PerformanceTriage,
                 BodyKindQueryOptions = options.BodyKindQuery,
+                IntegrationQuery = options.IntegrationQuery,
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
-            inspection.IntegrationScan = selectedScan;
 
             // Populate cheap presence flags for fast -s discovery
             PresenceFlags presenceFlags = integrationsEntry switch
@@ -3102,10 +3085,13 @@ internal static class LibraryMetadataService
         switch (entry)
         {
             case AssemblyIntegrationOpportunitiesEntry.Available available:
+                List<IntegrationOpportunityInfo> opportunities = available.Opportunities.IsDefaultOrEmpty
+                    ? []
+                    : available.Opportunities
+                        .Where(opportunity => inspection.IntegrationQuery.Matches(opportunity.GetConcept()))
+                        .ToList();
                 inspection.IntegrationOpportunities =
-                    available.Opportunities.IsDefaultOrEmpty
-                        ? null
-                        : [.. available.Opportunities];
+                    opportunities.Count == 0 ? null : opportunities;
                 break;
 
             case AssemblyIntegrationOpportunitiesEntry.Rejected rejected:

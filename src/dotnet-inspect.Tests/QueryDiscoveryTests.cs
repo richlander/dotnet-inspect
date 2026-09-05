@@ -155,6 +155,31 @@ public class QueryDiscoveryTests
         Assert.Empty(described.GetProperty("facets").EnumerateArray());
     }
 
+    [Theory]
+    [InlineData("Integrations")]
+    [InlineData("Integration: Aspire")]
+    [InlineData("Integration: Opportunities")]
+    public async Task IntegrationQuery_ExposesOnlyItsExecutableEcosystemBinding(string section)
+    {
+        var result = await Run("library", "--package", "/missing/query-discovery.nupkg",
+            "-Q", section, "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement described = Assert.Single(json.RootElement.GetProperty("sections").EnumerateArray());
+        JsonElement facet = Assert.Single(described.GetProperty("facets").EnumerateArray());
+        Assert.Equal("ecosystem", facet.GetProperty("name").GetString());
+        Assert.Equal(["--where"], facet.GetProperty("operators").EnumerateArray()
+            .Select(value => value.GetString()));
+        Assert.Equal(["="], facet.GetProperty("comparisons").EnumerateArray()
+            .Select(value => value.GetString()));
+        Assert.Equal(["ecosystem.aspire"], facet.GetProperty("values").EnumerateArray()
+            .Select(value => value.GetString()));
+        foreach (string value in IntegrationQueryOptions.QueryFacet.Values)
+            Assert.True(IntegrationQueryOptions.TryExtract(
+                [$"ecosystem={value}"], out _, out _, out var error), error.ToString());
+    }
+
     [Fact]
     public async Task PackageProfileQueryDiscovery_IsInertAndDoesNotAdvertiseUnwiredFacets()
     {
