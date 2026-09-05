@@ -179,7 +179,7 @@ Release .NET 11.0.0-preview.7.26381.103 runtime compared:
   SHA-256 was
   `9b75cc0044d6a55c5776b4728e1154e8d45dc17b5c56b8b2d4fb4539e745a3f9`.
 
-These samples predate the advertised-link escaping correction below. They
+These samples predate the advertised-link corrections below. They
 characterize the index/page route; the corrected revision was not re-timed.
 
 The coordinates, in order, were `Microsoft.AspNetCore.App@2.2.8`,
@@ -410,6 +410,8 @@ exceeded page bound is indeterminate, not absence. The existing source loop
 may try an equivalent advertised endpoint; it does not borrow a lower
 source's facts after an indeterminate higher source. A page response must
 contain leaves, not another link to recursively traverse.
+A page link rejected by the preserving HTTP transport's URI validation is
+also indeterminate.
 
 The index admits at most 128 page descriptors. Existing bounded HTTP reads,
 request deadlines, credential-origin scoping, and failure disclosure also

@@ -998,8 +998,11 @@ public class PackageMetadataServiceTests : IDisposable
                 .Select(request => request.Uri.AbsolutePath));
     }
 
-    [Fact]
-    public async Task FetchAllMetadataAsync_MalformedRegistrationUsesEquivalentEndpoint()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FetchAllMetadataAsync_MalformedRegistrationUsesEquivalentEndpoint(
+        bool malformedPageLink)
     {
         const string source = "https://private.example/v3/index.json";
         var handler = new RoutingHandler(request =>
@@ -1014,7 +1017,10 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration-a/private.package/index.json" => Json("{"),
+                "/registration-a/private.package/index.json" => malformedPageLink
+                    ? Json(RegistrationIndex(LinkedRegistrationPage(
+                        "../pages/page%GG.json", "1.0.0", "1.0.0")))
+                    : Json("{"),
                 "/registration-b/private.package/index.json" =>
                     SingleVersionRegistration(
                         "Private.Package",
@@ -2268,11 +2274,18 @@ public class PackageMetadataServiceTests : IDisposable
                 StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task FetchAllMetadataAsync_IgnoresMalformedRegistrationPageLink()
+    [Theory]
+    [InlineData("http://[::1")]
+    [InlineData("https://private.example/pages/page%GG.json")]
+    [InlineData("../pages/page%2.json")]
+    [InlineData("../pages/{id}.json")]
+    [InlineData("../pages/page-\u00fc.json")]
+    public async Task FetchAllMetadataAsync_IgnoresMalformedRegistrationPageLink(
+        string pageReference)
     {
         const string source = "https://private.example/v3/index.json";
         int registrationRequests = 0;
+        var log = new List<string>();
         var handler = new RoutingHandler(request =>
             request.RequestUri!.AbsolutePath switch
             {
@@ -2290,13 +2303,16 @@ public class PackageMetadataServiceTests : IDisposable
                     "A malformed registration page link must not be requested."),
             });
         using var client = new HttpClient(handler);
-        var options = new NuGetSourceOptions { Sources = [source] };
+        var options = new NuGetSourceOptions
+        {
+            Sources = [source, "https://lower.example/v3/index.json"],
+        };
 
         PackageMetadata first = await PackageMetadataService.FetchAllMetadataAsync(
             client,
             "Private.Package",
             "1.0.0",
-            log: null,
+            log: log.Add,
             sourceOptions: options);
         PackageMetadata second = await PackageMetadataService.FetchAllMetadataAsync(
             client,
@@ -2313,13 +2329,21 @@ public class PackageMetadataServiceTests : IDisposable
             "\u0405ystem.Fixed",
             second.Deprecation!.AlternatePackageId);
         Assert.True(registrationRequests > 1);
+        Assert.Contains(
+            log,
+            message => message.StartsWith(
+                "Invalid registration metadata",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.Uri.Host == "lower.example");
 
         HttpResponseMessage Registration()
         {
             registrationRequests++;
             return registrationRequests == 1
                 ? Json(RegistrationIndex(LinkedRegistrationPage(
-                    "http://[::1",
+                    pageReference,
                     "1.0.0",
                     "1.0.0")))
                 : SingleVersionRegistration(

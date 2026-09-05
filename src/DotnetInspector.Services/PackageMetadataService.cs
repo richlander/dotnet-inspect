@@ -648,9 +648,10 @@ public static class PackageMetadataService
                     throw new JsonException("Registration page has no link.");
 
                 string pageUrl = ResolveReference(indexUrl, pageId.GetString()!);
-                if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out Uri? uri)
-                    || uri.Scheme is not ("http" or "https"))
-                    throw new JsonException("Registration page link must use HTTP or HTTPS.");
+                if (!NuGetFetch.NuGetHttpRequest.TryCreatePreservingPathAndQuery(
+                    pageUrl, out _))
+                    throw new JsonException(
+                        "Registration page link must be a well-formed HTTP or HTTPS URI.");
 
                 log?.Invoke(
                     "Fetching registration page: "
