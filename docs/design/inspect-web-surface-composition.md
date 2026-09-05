@@ -322,6 +322,20 @@ section.
 Call graph and Facts retain their owned result semantics and use the same
 full-area scroller.
 
+Member Facts begins with a compact `Analysis summary` that separates static
+analysis values and supporting IL offsets from subject identity. The subject
+path and quiet member header retain declaring type, member kind, and overload
+ordinal; the summary does not repeat them. The metadata token follows the
+summary as compact identity, before the unchanged detail sections.
+
+Summary rows preserve every existing signal, including explicit zero and
+`no` values. IL offsets remain non-interactive evidence, not Finding-navigation
+links or runtime measurements. The summary retains a readable measure; when
+the detail pane narrows, supporting offsets move below their value. Long
+values and evidence wrap within their row without widening the member
+scroller. Loading and failure retain the member header and remain visibly
+distinct from a successful zero-valued summary.
+
 #### Graph Explore
 
 Member Call graph retains its inline default and exposes `Explore` in the
