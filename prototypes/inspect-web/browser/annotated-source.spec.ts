@@ -313,10 +313,9 @@ test("bundled Prism tokenizes the C# source", async ({ page }) => {
     .toBeVisible();
 });
 
-// The static check in `scripts/check-no-cross-origin-subresources.ts` reads markup, so it
-// cannot see a library fetched by `import("https://cdn.example/lib.js")`. This observes
-// the requests the browser actually issues, which covers that gap.
-test("rendering the page issues no cross-origin requests", async ({ page }) => {
+// This observes only the annotated-source fixture's load through highlighting readiness,
+// not every application route, later interaction, or possible resource type.
+test("loading the annotated-source fixture uses only same-origin requests", async ({ page }) => {
   const external: string[] = [];
   await page.route("**", route => {
     const url = new URL(route.request().url());

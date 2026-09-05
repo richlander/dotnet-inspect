@@ -823,6 +823,31 @@ own assembly, and exercises build identity plus `asyncLoweringCanary()`, a
 genuinely awaited operation with a fixed typed result and no network,
 package-cache, server-API, or user-data dependency.
 
+The same generated facade set also bootstraps in a dedicated module Worker.
+The publish step binds `runtime-loader.js` to the SDK's fingerprinted runtime
+module, so Worker startup does not depend on the document's import map.
+`src/engine-worker-client.ts` is a separately published entry: its explicit
+diagnostic probe drives the existing managed async-lowering canary through the
+Worker core and operation authority. It does not move current UI features off
+the main thread.
+
+After a Release publish, run the native binding gate:
+
+```bash
+dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  -c Release --output artifacts/inspect-web-publish
+cd prototypes/inspect-web
+npm run inspect-web-worker-browser-binding
+```
+
+The existing frontend build must precede the publish. Set
+`INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
+The gate uses Firefox and the complete published artifact, covering cold and
+warm managed calls, restart, bootstrap rejection, and input during stalled
+Wasm initialization. It does not yet prove responsiveness during managed CPU
+work or complete the Worker lifecycle gate; those and source-feature adoption
+remain focused follow-on slices under #5418 and #5420.
+
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
 deliberately use the same namespace, declaring-type names, method names,
@@ -1118,8 +1143,8 @@ CSS is not linted. Adopting Stylelint is tracked separately.
 
 ### Protections the linters cannot provide
 
-Everything above reads source text at build time. Two properties matter here that
-no amount of reading source text can establish.
+Everything above reads source text at build time. Browser response policy and
+runtime dependency delivery need separate controls.
 
 The first is what a browser is allowed to do with the page once it ships.
 
@@ -1148,81 +1173,30 @@ under `/api/*`, which carry whatever headers the function sets for itself. The
 MSDL proxy is such a function, so these four headers do not cover its responses.
 Giving the proxy its own headers is tracked in #5119.
 
-The second property is that the documents load nothing from another origin at
-all. `require-sri` enforces that a cross-origin subresource *carries* a digest,
-and that is the whole of what a linter can see.
-`scripts/check-no-cross-origin-subresources.ts` enforces the stronger property
-that there is no such subresource to carry one.
+Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and
+DOMPurify. `src/prism-csharp.ts` registers the clike and C# grammars in order;
+the application and annotated-source fixture import its typed instance instead
+of depending on CDN scripts in their documents. This removes Prism's runtime
+CDN dependency without changing its pinned version.
 
-That check replaced a weekly one. The site used to load Prism from jsDelivr, so
-the open question was whether the committed digests still described what the CDN
-served — a fact about the network, not about the source tree, which changed
-without any commit here. Answering it meant re-fetching each pinned URL, which
-meant running on a schedule, because an unreachable jsDelivr is not a defect in
-somebody's pull request. Prism is now an ordinary dependency the bundler
-resolves, so there is no third-party subresource left to drift and no digest
-left to re-pin.
+The weekly SRI freshness workflow and its script are retired with those Prism
+tags. They checked whether the CDN still served bytes matching the committed
+digests; there are no Prism CDN pins left for them to maintain. html-validate's
+standard `require-sri` check remains unchanged. It checks applicable resource
+tags, not arbitrary runtime imports.
 
-What replaced it is stronger rather than weaker, and the difference is worth
-being precise about. Freshness was a maintenance signal: SRI is the security
-control, the browser enforces it, and a stale pin means the browser *refuses*
-the bytes, so nothing unexpected runs. What went wrong was that the subresource
-silently disappeared — on this site, syntax highlighting stopped working — with
-nothing to say why. Containment is a different kind of property: the shipped
-documents reach no origin but their own, so there is no third-party fetch to be
-tampered with, blocked, or observed in the first place. It is also decidable
-offline, so it runs on every pull request through `npm run lint` instead of once
-a week.
+Coverage is deliberately partial. `browser/annotated-source.spec.ts` verifies
+that bundled Prism produces C# keyword and class-name tokens and that loading
+that fixture through highlighting readiness uses only same-origin requests.
+The neighboring copy, annotation, selection, and modal tests exercise the same
+bundled instance. These are bounded regressions, not a general origin-policy
+gate: they do not enumerate every application route, future import, SVG or CSS
+resource, or later interaction. There is no custom static containment checker.
 
-It reads documents with html-validate's own parser — the same parser that lints
-them — rather than with a pattern, so the two cannot disagree about what the
-markup contains. It resolves URLs the way a browser does: against the document's
-effective `<base href>` rather than against the origin, so a base pointing
-elsewhere cannot redirect an innocent-looking relative URL past the check, and
-`//cdn.example/x.js` is caught as readily as an `https://` spelling. It skips
-`<noscript>` and `<template>` content, `data:` and `#fragment` URLs, and
-navigation targets such as `<a href>`, because a browser does not fetch any of
-those on load.
-
-What it examines is every element and attribute the browser *fetches*, which is
-deliberately not the set Subresource Integrity applies to. SRI covers scripts and
-a few link relations because those are the things it can hash; the claim here is
-about every load the document causes, so `<img>`, `<iframe>`, `<object data>`,
-`poster` and the comma-separated candidates inside `srcset` are all read too,
-even though no digest could ever be attached to them. Scoping this check to the
-SRI-eligible elements was the first version's mistake: it described the property
-in terms of a neighbouring tool's reach instead of the property itself, and
-round 1 found ordinary markup that passed while the browser still fetched from
-another origin.
-
-CSS fetches as well — `url()`, `@import` and `@font-face` all reach the network —
-and no markup parse can see through a stylesheet. Rather than grow a CSS parser
-for a project whose stylesheets contain none of those constructs, the check
-asserts their absence, in `.css` files, `<style>` blocks and `style` attributes
-alike. That keeps the claim honest: adding one is then a deliberate change here
-rather than a silent gap.
-
-A check whose passing condition is "found nothing" has to prove it looked.
-Finding no documents, or no subresources in any of them, exits as inconclusive
-rather than as success, because every document here loads at least a stylesheet
-or a module. Without that, a refactor of `index.html` would quietly turn the
-check into a green light for nothing.
-
-Both of those checks read markup, and that is also their limit. `require-sri`
-and the cross-origin check each look at `<script>` and `<link>` elements, so a
-library loaded by `import("https://cdn.example/lib.js")` is invisible to both --
-a dynamic import is not markup. Three runtime libraries used to load exactly
-that way: mermaid, marked, and DOMPurify. They carried no digest, and both
-checks reported clean, because neither could see them. That is a worse failure
-than a missing pin: the report says the CDN surface is fully covered while a
-third of it is unexamined, and the unexamined third included the sanitizer.
-
-The fix is not a third check that knows about dynamic imports. It is removing
-the condition those checks were trying to describe. The three libraries are
-ordinary npm dependencies, and Vite bundles them into same-origin chunks that
-load on demand, so no CDN sits in the runtime path for them at all. Lazy
-loading survives, and mermaid actually splits further: its per-diagram-type
-chunks are only fetched for the diagram kinds a page renders.
+The other three libraries were also moved from CDN imports into ordinary npm
+dependencies. Vite bundles them into same-origin chunks that load on demand.
+Lazy loading survives, and mermaid splits further: its per-diagram-type chunks
+are only fetched for the diagram kinds a page renders.
 
 Moving them into the lockfile is what makes them auditable. A version in a CDN
 URL is checked against nothing; a version in `package-lock.json` is checked
@@ -1271,15 +1245,9 @@ lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
 
-Nothing remains on a CDN. Prism was the last third-party subresource in
-`index.html` and it is now bundled like the other three, so the coverage claim
-and the actual surface describe the same set: the empty one. That is what lets
-`scripts/check-no-cross-origin-subresources.ts` state the property positively
-rather than checking digests on an exception.
-
-A Content-Security-Policy is still outstanding, because the generated
-`<script type="importmap">` needs a per-build hash before `script-src` can be
-strict.
+A Content-Security-Policy remains separate follow-up work for browser-enforced
+resource restrictions. Bundling Prism does not establish such a policy or
+prohibit intentional package, API, or Wasm acquisition traffic.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.

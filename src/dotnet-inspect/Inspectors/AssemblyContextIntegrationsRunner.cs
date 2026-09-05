@@ -204,6 +204,14 @@ internal static class AssemblyContextIntegrationsRunner
             // The owning per-library inspection path reports the artifact
             // failure; it must not prevent valid group participants from
             // producing evidence.
+            //
+            // NotSupportedException is deliberately absent, so an unsupported
+            // participant propagates instead of becoming null. Every current
+            // call site passes exactly one input, and a null-for-every-input
+            // run returns an all-null batch rather than a visible failure.
+            // Catching it here would turn a named rejection into
+            // success-shaped empty output. Revisit if this runner ever takes
+            // multiple inputs, where scoping would matter more than loudness.
             return null;
         }
     }

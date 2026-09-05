@@ -49,7 +49,7 @@ public static class ResearchProducerSession
             request.Population.Operation,
             request.Identity);
         ImmutableArray<ResearchProducerWorkItem> workItems =
-            DeriveWorkItems(session, request.Resolution, producers);
+            DeriveWorkItems(session, request.WorkBases, producers);
         var results = ImmutableArray.CreateBuilder<ResearchProducerWorkResult>(
             workItems.Length);
         var stages = new Dictionary<ResearchComparisonInputId, StageAccess>(
@@ -149,20 +149,19 @@ public static class ResearchProducerSession
 
     static ImmutableArray<ResearchProducerWorkItem> DeriveWorkItems(
         ResearchProducerSessionId session,
-        ResearchTargetResolution resolution,
+        ImmutableArray<ResearchProducerWorkBasis> workBases,
         ImmutableArray<ResearchProducerKind> producers)
     {
         var items = ImmutableArray.CreateBuilder<ResearchProducerWorkItem>(
-            resolution.Correspondences.Length * producers.Length);
-        foreach (ResearchTargetCorrespondenceOutcome correspondence in
-            resolution.Correspondences)
+            workBases.Length * producers.Length);
+        foreach (ResearchProducerWorkBasis basis in workBases)
         {
             foreach (ResearchProducerKind producer in producers)
             {
                 items.Add(
                     new ResearchProducerWorkItem(
                         new ResearchProducerWorkItemId(session),
-                        correspondence,
+                        basis,
                         producer));
             }
         }
@@ -178,9 +177,11 @@ public static class ResearchProducerSession
         List<InputStage> acquired,
         IResearchProducerInvoker invoker)
     {
-        if (item.Correspondence
-            is ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
-                or ResearchTargetCorrespondenceOutcome.DomainUnavailable)
+        if (item.Basis is ResearchProducerWorkBasis.Correspondence
+            {
+                Outcome: ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
+                    or ResearchTargetCorrespondenceOutcome.DomainUnavailable,
+            })
         {
             return new ResearchProducerWorkOutcome.Unavailable(
                 Unavailable(
@@ -190,7 +191,7 @@ public static class ResearchProducerSession
         EndpointPair endpoints = CreateEndpoints(
             population,
             resolution,
-            item.Correspondence,
+            item.Basis,
             stages,
             acquired);
         if (endpoints.Unavailable is { } unavailable)
@@ -263,18 +264,34 @@ public static class ResearchProducerSession
     static EndpointPair CreateEndpoints(
         ResearchAdmittedPopulation population,
         ResearchTargetResolution resolution,
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         Dictionary<ResearchComparisonInputId, StageAccess> stages,
         List<InputStage> acquired)
     {
+        if (basis is ResearchProducerWorkBasis.DesignatedPair designated)
+        {
+            ResearchDesignatedPair pair = designated.Pair;
+            return PairPresent(
+                population,
+                pair.Before,
+                pair.After,
+                Resolved(pair.Before).Anchor.CanonicalSignature,
+                Resolved(pair.After).Anchor.CanonicalSignature,
+                stages,
+                acquired);
+        }
+
+        var correspondence =
+            ((ResearchProducerWorkBasis.Correspondence)basis).Outcome;
         string subject = SubjectIdentity(resolution, correspondence);
         return correspondence switch
         {
             ResearchTargetCorrespondenceOutcome.Paired paired =>
                 PairPresent(
                     population,
-                    paired.Before,
-                    paired.After,
+                    paired.Before.Attempt,
+                    paired.After.Attempt,
+                    subject,
                     subject,
                     stages,
                     acquired),
@@ -282,7 +299,7 @@ public static class ResearchProducerSession
                 Pair(
                     Present(
                         population,
-                        beforeOnly.Before,
+                        beforeOnly.Before.Attempt,
                         subject,
                         stages,
                         acquired),
@@ -296,7 +313,7 @@ public static class ResearchProducerSession
                         "The correspondence key is absent from this side."),
                     Present(
                         population,
-                        afterOnly.After,
+                        afterOnly.After.Attempt,
                         subject,
                         stages,
                         acquired)),
@@ -315,16 +332,17 @@ public static class ResearchProducerSession
 
     static EndpointPair PairPresent(
         ResearchAdmittedPopulation population,
-        ResearchCorrespondingTarget beforeTarget,
-        ResearchCorrespondingTarget afterTarget,
-        string subject,
+        ResearchTargetAttempt beforeTarget,
+        ResearchTargetAttempt afterTarget,
+        string beforeSubject,
+        string afterSubject,
         Dictionary<ResearchComparisonInputId, StageAccess> stages,
         List<InputStage> acquired)
     {
         EndpointAccess before = Present(
             population,
             beforeTarget,
-            subject,
+            beforeSubject,
             stages,
             acquired);
         if (before.Unavailable is { } unavailable)
@@ -335,7 +353,7 @@ public static class ResearchProducerSession
             Present(
                 population,
                 afterTarget,
-                subject,
+                afterSubject,
                 stages,
                 acquired));
     }
@@ -349,14 +367,15 @@ public static class ResearchProducerSession
 
     static EndpointAccess Present(
         ResearchAdmittedPopulation population,
-        ResearchCorrespondingTarget target,
+        ResearchTargetAttempt attempt,
         string subject,
         Dictionary<ResearchComparisonInputId, StageAccess> stages,
         List<InputStage> acquired)
     {
-        ResearchComparisonInputId input = target.Attempt.Request.Input;
-        MetadataMethodAddress? address = target.Target.Address;
-        if (target.Target.Role == ResearchTargetRelationshipRole.None
+        ResearchTargetOutcome.Resolved target = Resolved(attempt);
+        ResearchComparisonInputId input = attempt.Request.Input;
+        MetadataMethodAddress? address = target.Address;
+        if (target.Role == ResearchTargetRelationshipRole.None
             || address is null)
         {
             return EndpointAccess.UnavailableEndpoint(
@@ -371,7 +390,7 @@ public static class ResearchProducerSession
 
         InputStage acquiredStage = stage.Stage!;
         MetadataReader reader = acquiredStage.Source.Reader;
-        if (target.Target.Module
+        if (target.Module
                 != acquiredStage.Occurrence.BodyIndex.ModuleIdentity
             || !address.Value.BelongsTo(reader)
             || address.Value.Handle.IsNil
@@ -389,6 +408,11 @@ public static class ResearchProducerSession
             acquiredStage,
             address.Value.Handle);
     }
+
+    static ResearchTargetOutcome.Resolved Resolved(ResearchTargetAttempt attempt)
+        => attempt.Outcome as ResearchTargetOutcome.Resolved
+            ?? throw new InvalidOperationException(
+                "A present endpoint requires a resolved target attempt.");
 
     static StageAccess GetStage(
         ResearchAdmittedPopulation population,
