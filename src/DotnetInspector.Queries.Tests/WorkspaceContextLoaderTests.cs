@@ -1,7 +1,11 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Net;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -2449,7 +2453,7 @@ public sealed class WorkspaceContextLoaderTests
         IPackageStore store = await CachedStoreAsync(
             Version,
             Archive(
-                ("lib/net10.0/Native.dll", "not a portable executable"u8.ToArray()),
+                ("lib/net10.0/Native.dll", CreateNoMetadataImage()),
                 ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
                     File.ReadAllBytes(TargetPath))));
         using var client = new HttpClient(new FailingHandler());
@@ -2469,6 +2473,221 @@ public sealed class WorkspaceContextLoaderTests
             Path.GetFileNameWithoutExtension(TargetPath),
             Assert.Single(loaded.Group.Participants)
                 .Assembly.Identity.Name);
+    }
+
+    [Fact]
+    public async Task UnsupportedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // A workspace member is not a scan and may not present partial rows,
+        // so a rejected asset denies the whole member even when a healthy
+        // assembly sits beside it. Pinning the blast radius in both directions
+        // is the point: the single-asset gates cannot distinguish scoping from
+        // non-scoping.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Unsupported.dll",
+                    CreateUnsupportedMetadataImage()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPackageAsset_FailsTheMemberBesideHealthyAssets()
+    {
+        // The base swallowed this inside CreateFromStreamIfManaged and loaded
+        // the member as though the package were intact. That success-shaped
+        // skip is what this contract removes, so the change is pinned here.
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(
+                ("lib/net10.0/Malformed.dll",
+                    CreateMalformedMetadataRootImage()),
+                ($"lib/net10.0/{Path.GetFileName(TargetPath)}",
+                    File.ReadAllBytes(TargetPath))));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "MalformedMetadataRoot",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task UnsupportedPackageAsset_CreatesTypedFailure()
+    {
+        byte[] unsupported = CreateUnsupportedMetadataImage();
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(("lib/net10.0/Unsupported.dll", unsupported)));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPackageAsset_PreservesExactReason()
+    {
+        byte[] malformed = CreateMalformedMetadataRootImage();
+        using var workspace = new InspectionWorkspace();
+        IPackageStore store = await CachedStoreAsync(
+            Version,
+            Archive(("lib/net10.0/Malformed.dll", malformed)));
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members = [PackageMember(Version)],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task UnsupportedPlatformAsset_CreatesTypedFailure()
+    {
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ("runtimes/linux-x64/lib/net10.0/Unsupported.dll",
+                        CreateUnsupportedMetadataImage()))),
+            TestContext.Current.CancellationToken);
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new PlatformListingHandler(RuntimePackVersion));
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform("runtime"),
+                        ],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task MalformedPlatformAsset_PreservesExactReason()
+    {
+        byte[] malformed = CreateMalformedMetadataRootImage();
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            RuntimePackPackageId,
+            RuntimePackVersion,
+            Producer(NuGetOrg),
+            new MemoryStream(
+                Archive(
+                    ("runtimes/linux-x64/lib/net10.0/Malformed.dll",
+                        malformed))),
+            TestContext.Current.CancellationToken);
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(
+            new PlatformListingHandler(RuntimePackVersion));
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Framework = Framework,
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Platform("runtime"),
+                        ],
+                    },
+                    Options(client, store),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
+        Assert.Equal(0, GroupCount(workspace));
     }
 
     [Fact]
@@ -2589,7 +2808,7 @@ public sealed class WorkspaceContextLoaderTests
     [Fact]
     public async Task MalformedEmbeddedContent_CreatesNoGroup()
     {
-        byte[] malformed = "not a portable executable"u8.ToArray();
+        byte[] malformed = CreateMalformedMetadataRootImage();
         using var workspace = new InspectionWorkspace();
         using var client = new HttpClient(new FailingHandler());
 
@@ -2606,9 +2825,48 @@ public sealed class WorkspaceContextLoaderTests
                     new StubEmbeddedContent(malformed)),
                 TestContext.Current.CancellationToken);
 
+        WorkspaceContextLoadFailure failure =
+            Assert.Single(Failed(outcome).Failures);
         Assert.Equal(
-            WorkspaceContextLoadFailureKind.InvalidImage,
-            Assert.Single(Failed(outcome).Failures).Kind);
+            WorkspaceContextLoadFailureKind.MalformedMetadataRoot,
+            failure.Kind);
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataDirectory,
+            failure.MetadataRootReason);
+        Assert.Equal(0, GroupCount(workspace));
+    }
+
+    [Fact]
+    public async Task UnsupportedEmbeddedContent_CreatesTypedFailure()
+    {
+        byte[] unsupported = CreateUnsupportedMetadataImage();
+        using var workspace = new InspectionWorkspace();
+        using var client = new HttpClient(new FailingHandler());
+
+        WorkspaceContextLoadFailure failure = Assert.Single(
+            Failed(
+                await WorkspaceContextLoader.LoadAsync(
+                    workspace,
+                    new WorkspaceContextInput
+                    {
+                        Members =
+                        [
+                            WorkspaceMemberCoordinate.Embedded(
+                                "bundle/unsupported.dll",
+                                Digest(unsupported),
+                                "Unsupported"),
+                        ],
+                    },
+                    Options(
+                        client,
+                        new InMemoryPackageStore(),
+                        new StubEmbeddedContent(unsupported)),
+                    TestContext.Current.CancellationToken))
+                .Failures);
+
+        Assert.Equal(
+            "UnsupportedMetadataFormat",
+            failure.Kind.ToString());
         Assert.Equal(0, GroupCount(workspace));
     }
 
@@ -3769,6 +4027,84 @@ public sealed class WorkspaceContextLoaderTests
                 File.ReadAllBytes(CallerPath)),
             ($"runtimes/linux-x64/lib/{Framework}/{Path.GetFileName(TargetPath)}",
                 File.ReadAllBytes(TargetPath)));
+
+    static byte[] CreateMalformedMetadataRootImage()
+    {
+        // A real PE image whose CLI metadata directory size is zeroed, so the
+        // metadata root cannot be mapped. A non-PE byte string is not a
+        // substitute: it has no metadata root at all and is classified as a
+        // descriptor-less image well before admission runs.
+        byte[] image = File.ReadAllBytes(TargetPath);
+        int corHeaderStart;
+        using (var peReader = new PEReader(ImmutableArray.Create(image)))
+        {
+            corHeaderStart = peReader.PEHeaders.CorHeaderStartOffset;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(corHeaderStart + 12, sizeof(int)),
+            0);
+        return image;
+    }
+
+    static byte[] CreateNoMetadataImage()
+    {
+        byte[] image = File.ReadAllBytes(TargetPath);
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+        int directoryBase =
+            peReader.PEHeaders.PEHeaderStartOffset
+            + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+        image.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        return image;
+    }
+
+    static byte[] CreateUnsupportedMetadataImage()
+    {
+        const int fixedMetadataRootPrefixLength = 16;
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            0,
+            metadata.GetOrAddString("Unsupported.dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(
+                metadata,
+                "WindowsRuntime 1.4;CLR v4.0.30319",
+                suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var imageBuilder = new BlobBuilder();
+        peBuilder.Serialize(imageBuilder);
+        byte[] image = imageBuilder.ToArray();
+        using var peReader = new PEReader(ImmutableArray.Create(image));
+        int metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(
+            image.AsSpan(metadataStart + 12, sizeof(int)));
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                peReader.PEHeaders.CorHeaderStartOffset + 12,
+                sizeof(int)),
+            fixedMetadataRootPrefixLength + versionLength);
+        return image;
+    }
 
     static Version? IdentityVersion(string assemblyPath) =>
         ResolvedAssemblyReference.CreateFromPath(

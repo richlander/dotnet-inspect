@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
@@ -10,6 +11,234 @@ namespace DotnetInspector.Tests;
 
 public class EcosystemIntegrationScannerTests
 {
+    static int s_invocations;
+
+    [Fact]
+    public void AspireBinding_PreservesExistingCurrencyWithoutIncludingNeighboringConcepts()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly(includeAspire: true);
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+
+        List<EcosystemIntegrationSignalInfo> selected =
+            session.EcosystemIntegrations(EcosystemIntegrationScanner.AspireBinding);
+        List<EcosystemIntegrationSignalInfo> full = session.EcosystemIntegrations();
+
+        Assert.Equal(
+            [
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.Aspire,
+                    "Resource Builder",
+                    "Aspire.Hosting.TestResourceBuilderExtensions.AddSample(...)",
+                    IntegrationSignalShape.Api),
+                new EcosystemIntegrationSignalInfo(
+                    EcosystemIntegrationNames.Aspire,
+                    "Resource",
+                    "Aspire.Hosting.ApplicationModel.SampleResource"),
+            ],
+            selected);
+        Assert.Equal(
+            full.Where(signal => signal.GetConcept() == IntegrationConceptCatalog.Aspire),
+            selected);
+        Assert.Contains(full, signal =>
+            signal.GetConcept() == IntegrationConceptCatalog.DependencyInjection);
+        Assert.Equal("AddSample", selected[0].GetApiEvidence()?.Member.MemberName);
+        Assert.Equal(
+            "Aspire.Hosting.IDistributedApplicationBuilder",
+            selected[0].GetApiEvidence()?.ReceiverType?.Type.ToMetadataFullName());
+        Assert.Equal(
+            "Aspire.Hosting.ApplicationModel.IResourceBuilder`1",
+            selected[0].GetApiEvidence()?.ReturnType?.Type.ToMetadataFullName());
+    }
+
+    [Fact]
+    public void AspireBinding_DoesNotClassifyNonAspireDependencyInjection()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly();
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        Assert.Empty(session.EcosystemIntegrations(EcosystemIntegrationScanner.AspireBinding));
+        Assert.Equal(2, session.EcosystemIntegrations().Count);
+    }
+
+    [Fact]
+    public void Binding_ConstructionIsInertAndRejectsInstanceOrCombinedCallbacks()
+    {
+        s_invocations = 0;
+        EcosystemIntegrationScannerBinding binding =
+            EcosystemIntegrationScannerBinding.Create(CountAndClassify);
+        Assert.NotNull(binding);
+        Assert.Equal(0, s_invocations);
+
+        int captured = 0;
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemIntegrationScannerBinding.Create(context =>
+            {
+                captured++;
+                return [];
+            }));
+        Func<EcosystemIntegrationObservationContext,
+            ImmutableArray<EcosystemIntegrationClassification>> combined = CountAndClassify;
+        combined += CountAndClassify;
+        Assert.Throws<ArgumentException>(() =>
+            EcosystemIntegrationScannerBinding.Create(combined));
+        Assert.Equal(0, captured);
+        Assert.Equal(0, s_invocations);
+    }
+
+    [Fact]
+    public void SelectedScan_PreservesOrderedRowsAndPresence()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly();
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        s_invocations = 0;
+        var binding = EcosystemIntegrationScannerBinding.Create(CountAndClassify);
+
+        List<EcosystemIntegrationSignalInfo> full = session.EcosystemIntegrations();
+        List<EcosystemIntegrationSignalInfo> selected = session.EcosystemIntegrations(binding);
+
+        Assert.Equal(1, s_invocations);
+        Assert.Equal(full, selected);
+        Assert.Equal(
+            session.EcosystemIntegrationPresence(full),
+            session.EcosystemIntegrationPresence(selected));
+        Assert.Equal(full[0].GetApiEvidenceSet(), selected[0].GetApiEvidenceSet());
+        Assert.Equal(full[1].GetTypeDefinition(), selected[1].GetTypeDefinition());
+        Assert.Same(full[0].GetConcept(), selected[0].GetConcept());
+        Assert.Same(full[0].GetProducerPolicy(), selected[0].GetProducerPolicy());
+    }
+
+    [Fact]
+    public void Observations_PreserveParametersAndOutliveTheReader()
+    {
+        EcosystemIntegrationObservationContext context;
+        using (var stream = BuildDependencyInjectionExtensionAssembly(
+                   includeConfigurationParameter: true))
+        using (var session = AssemblyInspectionSession.OpenPrefetched(stream))
+        {
+            context = session.EcosystemIntegrationObservations();
+        }
+
+        EcosystemIntegrationMethodObservation configure = Assert.Single(
+            context.StarterMethods,
+            method => method.Name == "Configure");
+        Assert.Equal(
+            [
+                "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+                "Microsoft.Extensions.Configuration.IConfiguration",
+            ],
+            configure.ParameterTypes);
+        Assert.Equal("void", configure.ReturnType);
+        Assert.Contains(configure.DeclaringType, context.Types);
+        Assert.Equal(
+            configure.DeclaringType.Definition,
+            configure.Evidence?.DeclaringType);
+        var binding = EcosystemIntegrationScannerBinding.Create(ClassifyConfiguration);
+
+        EcosystemIntegrationSignalInfo signal = Assert.Single(
+            EcosystemIntegrationScanner.Scan(context, binding));
+
+        Assert.Same(IntegrationConceptCatalog.Configuration, signal.GetConcept());
+        Assert.Equal("Options Binding", signal.Kind);
+        Assert.Same(configure.Evidence, signal.GetApiEvidence());
+    }
+
+    [Fact]
+    public void SelectedScan_CoalescesRowsWithoutLosingOverloadEvidence()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly(
+            includeAdditionalOverload: true);
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        EcosystemIntegrationObservationContext context =
+            session.EcosystemIntegrationObservations();
+        var binding = EcosystemIntegrationScannerBinding.Create(CountAndClassify);
+
+        List<EcosystemIntegrationSignalInfo> signals =
+            EcosystemIntegrationScanner.Scan(context, binding);
+
+        Assert.Equal(2, signals.Count);
+        EcosystemIntegrationSignalInfo api = signals[0];
+        Assert.Equal(IntegrationSignalShape.Api, api.Shape);
+        Assert.Equal(2, context.StarterMethods.Length);
+        ImmutableArray<EcosystemIntegrationApiEvidence> evidence = api.GetApiEvidenceSet();
+        Assert.Equal(2, evidence.Length);
+        Assert.NotEqual(evidence[0].Member, evidence[1].Member);
+        Assert.Same(context.StarterMethods[0].Evidence, evidence[0]);
+        Assert.Same(context.StarterMethods[1].Evidence, evidence[1]);
+        Assert.False(api.IsApiEvidenceIncomplete());
+    }
+
+    [Fact]
+    public void Observations_ExcludeReceiverlessAndUndecodableMethods()
+    {
+        using (var stream = BuildDependencyInjectionExtensionAssembly(
+                   includeMalformedExtension: true))
+        using (var session = AssemblyInspectionSession.OpenPrefetched(stream))
+        {
+            Assert.Equal(
+                "AddPublicThing",
+                Assert.Single(session.EcosystemIntegrationObservations().StarterMethods).Name);
+        }
+
+        using var invalidStream = new MemoryStream(
+            BuildAnchorOverBudgetExtensionAssembly(invalidSignature: true),
+            writable: false);
+        using var invalidSession = AssemblyInspectionSession.OpenPrefetched(invalidStream);
+        Assert.Empty(invalidSession.EcosystemIntegrationObservations().StarterMethods);
+        Assert.Empty(invalidSession.EcosystemIntegrations());
+    }
+
+    [Fact]
+    public void SelectedScan_PreservesClassifiedApiWithoutStructuredAnchor()
+    {
+        using var stream = new MemoryStream(
+            BuildAnchorOverBudgetExtensionAssembly(),
+            writable: false);
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        EcosystemIntegrationObservationContext context =
+            session.EcosystemIntegrationObservations();
+        Assert.Null(Assert.Single(context.StarterMethods).Evidence);
+        var binding = EcosystemIntegrationScannerBinding.Create(CountAndClassify);
+
+        EcosystemIntegrationSignalInfo signal = Assert.Single(
+            EcosystemIntegrationScanner.Scan(context, binding));
+
+        Assert.Equal(IntegrationSignalShape.Api, signal.Shape);
+        Assert.Same(IntegrationConceptCatalog.DependencyInjection, signal.GetConcept());
+        Assert.Null(signal.GetApiEvidence());
+        Assert.True(signal.IsApiEvidenceIncomplete());
+    }
+
+    [Fact]
+    public void SelectedScan_DoesNotTreatDefaultClassificationsAsEmptySuccess()
+    {
+        using var stream = BuildDependencyInjectionExtensionAssembly();
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        var binding = EcosystemIntegrationScannerBinding.Create(UninitializedClassifications);
+
+        Assert.Throws<InvalidOperationException>(() => session.EcosystemIntegrations(binding));
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> CountAndClassify(
+        EcosystemIntegrationObservationContext context)
+    {
+        s_invocations++;
+        return EcosystemIntegrationClassifier.Classify(context);
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> ClassifyConfiguration(
+        EcosystemIntegrationObservationContext context) =>
+        [
+            .. context.StarterMethods
+                .Where(method => method.Name == "Configure"
+                    && method.ParameterTypes.Contains(
+                        "Microsoft.Extensions.Configuration.IConfiguration"))
+                .Select(method => method.Classify(
+                    IntegrationConceptCatalog.Configuration,
+                    "Options Binding")),
+        ];
+
+    static ImmutableArray<EcosystemIntegrationClassification> UninitializedClassifications(
+        EcosystemIntegrationObservationContext context) => default;
+
     [Fact]
     public void Scan_ProjectsExactOrderedPublicCurrencyAndPresence()
     {
@@ -259,7 +488,10 @@ public class EcosystemIntegrationScannerTests
     }
 
     private static MemoryStream BuildDependencyInjectionExtensionAssembly(
-        bool includeMalformedExtension = false)
+        bool includeMalformedExtension = false,
+        bool includeAdditionalOverload = false,
+        bool includeConfigurationParameter = false,
+        bool includeAspire = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationVisibilityFixture"),
@@ -281,6 +513,29 @@ public class EcosystemIntegrationScannerTests
 
         DefineExtensionMethod(extensions, "AddPublicThing", MethodAttributes.Public);
         DefineExtensionMethod(extensions, "AddInternalThing", MethodAttributes.Assembly);
+        if (includeAdditionalOverload)
+        {
+            var overload = extensions.DefineMethod(
+                "AddPublicThing",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                [serviceCollectionType, typeof(string)]);
+            overload.SetCustomAttribute(extensionAttribute);
+            overload.GetILGenerator().Emit(OpCodes.Ret);
+        }
+        if (includeConfigurationParameter)
+        {
+            var configuration = module.DefineType(
+                "Microsoft.Extensions.Configuration.IConfiguration",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var configure = extensions.DefineMethod(
+                "Configure",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(void),
+                [serviceCollectionType, configuration.CreateType()]);
+            configure.SetCustomAttribute(extensionAttribute);
+            configure.GetILGenerator().Emit(OpCodes.Ret);
+        }
         if (includeMalformedExtension)
         {
             var malformed = extensions.DefineMethod(
@@ -293,6 +548,36 @@ public class EcosystemIntegrationScannerTests
         }
 
         extensions.CreateType();
+
+        if (includeAspire)
+        {
+            Type applicationBuilder = module.DefineType(
+                "Aspire.Hosting.IDistributedApplicationBuilder",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
+                .CreateType();
+            Type resource = module.DefineType(
+                "Aspire.Hosting.ApplicationModel.SampleResource",
+                TypeAttributes.Public | TypeAttributes.Class)
+                .CreateType();
+            TypeBuilder resourceBuilder = module.DefineType(
+                "Aspire.Hosting.ApplicationModel.IResourceBuilder`1",
+                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            resourceBuilder.DefineGenericParameters("T");
+            Type builder = resourceBuilder.CreateType().MakeGenericType(resource);
+            TypeBuilder aspireExtensions = module.DefineType(
+                "Aspire.Hosting.TestResourceBuilderExtensions",
+                TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+            aspireExtensions.SetCustomAttribute(extensionAttribute);
+            MethodBuilder add = aspireExtensions.DefineMethod(
+                "AddSample",
+                MethodAttributes.Public | MethodAttributes.Static,
+                builder,
+                [applicationBuilder]);
+            add.SetCustomAttribute(extensionAttribute);
+            add.GetILGenerator().Emit(OpCodes.Ldnull);
+            add.GetILGenerator().Emit(OpCodes.Ret);
+            aspireExtensions.CreateType();
+        }
 
         var stream = new MemoryStream();
         assemblyBuilder.Save(stream);
@@ -341,7 +626,8 @@ public class EcosystemIntegrationScannerTests
         public int GetHashCode(IntegrationConceptDescriptor obj) => 0;
     }
 
-    private static byte[] BuildAnchorOverBudgetExtensionAssembly()
+    private static byte[] BuildAnchorOverBudgetExtensionAssembly(
+        bool invalidSignature = false)
     {
         const int ParameterCount = 400;
         const int GenericArity = 2030;
@@ -450,6 +736,8 @@ public class EcosystemIntegrationScannerTests
                 typeSpecificationIndex);
             methodSignature.WriteByte(0x08);
         }
+        if (invalidSignature)
+            methodSignature.Clear();
 
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic,
