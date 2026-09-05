@@ -18,7 +18,7 @@ public static partial class PackageExports
         string targetFramework,
         string platformVersion)
     {
-        using BrowserPlatformScopeResolution resolution =
+        await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 targetFramework,
                 platformVersion);
@@ -36,7 +36,7 @@ public static partial class PackageExports
         string assemblyFileName,
         string pack)
     {
-        using BrowserPlatformScopeResolution resolution =
+        await using BrowserPlatformScopeResolution resolution =
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework,
                 platformVersion,

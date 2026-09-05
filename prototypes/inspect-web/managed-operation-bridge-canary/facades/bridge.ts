@@ -19,6 +19,31 @@ export interface CancellationRequestReceipt {
   readonly reason: OperationCancelReason | null;
 }
 
+export interface EpochVerificationReceipt {
+  readonly status: string;
+  readonly registrations: number;
+  readonly producerStarts: number;
+  readonly waiterCalls: number;
+  readonly canceledWaiters: number;
+  readonly boundaryFailures: number;
+  readonly startAttempts: number;
+  readonly finishAttempts: number;
+  readonly completedObservations: number;
+  readonly failedObservations: number;
+  readonly drainFailures: number;
+  readonly unregistrations: number;
+  readonly releasedProducers: number;
+}
+
+export interface EpochWorkSnapshot {
+  readonly lastSequence: number;
+  readonly activeLeases: number;
+  readonly faultRecords: number;
+  readonly pendingCallouts: number;
+  readonly admissionStopped: boolean;
+  readonly registered: boolean;
+}
+
 export interface OperationResultEnvelope {
   readonly kind: OperationResultKind;
   readonly value: string | null;
@@ -75,9 +100,14 @@ type $ManagedExports = {
         readonly "Exports": {
           readonly "CompleteOperation.91425100": (operationId: string) => boolean;
           readonly "CompleteSharedProducer.91425100": (producerId: string) => boolean;
+          readonly "CreateLeasedSharedProducer.677461511": (producerId: string, mode: string) => void;
           readonly "CreateSharedProducer.677461511": (producerId: string, mode: string) => void;
+          readonly "DrainEpochReporter.1731052262": () => Promise<void>;
           readonly "FinishSharedFinalization.91425100": (producerId: string) => boolean;
+          readonly "GetEpochWorkSnapshot.1310674786": () => string;
           readonly "GetSharedSnapshot.304094707": (producerId: string) => string;
+          readonly "ObserveLeasedProducer.976702342": (producerId: string) => Promise<string>;
+          readonly "RegisterEpochReporter.1170383003": (allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined) => void;
           readonly "ReleaseSharedProducer.92020726": (producerId: string) => void;
           readonly "ReportRetainedProgress.91425100": (operationId: string) => boolean;
           readonly "ReportSharedProgress.381764023": (producerId: string, sequence: number) => boolean;
@@ -85,7 +115,9 @@ type $ManagedExports = {
           readonly "RunOperation.2048416469": (operationId: string, mode: string, progressCallback: (arg0: number, arg1: string, arg2: boolean) => undefined, retainProgress: boolean) => Promise<string>;
           readonly "RunSharedOperation.1965950847": (operationId: string, producerId: string, progressCallback: (arg0: number, arg1: string, arg2: boolean) => undefined) => Promise<string>;
           readonly "RunWithoutProgress.976702342": (operationId: string) => Promise<string>;
+          readonly "UnregisterEpochReporter.19325221": () => void;
           readonly "VerifyBaseline.1310674786": () => string;
+          readonly "VerifyEpochBaseline.1310674786": () => string;
           readonly "VerifySharedBaseline.1310674786": () => string;
         };
       };
@@ -163,9 +195,31 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ManagedOperationBridge");
     value = $ownDataProperty(value, "BrowserCanary");
     value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "CreateLeasedSharedProducer.677461511");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.CreateLeasedSharedProducer.677461511\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
     value = $ownDataProperty(value, "CreateSharedProducer.677461511");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.CreateSharedProducer.677461511\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "DrainEpochReporter.1731052262");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.DrainEpochReporter.1731052262\u0027 is not callable.");
     }
   }
   {
@@ -185,9 +239,42 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ManagedOperationBridge");
     value = $ownDataProperty(value, "BrowserCanary");
     value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "GetEpochWorkSnapshot.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.GetEpochWorkSnapshot.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
     value = $ownDataProperty(value, "GetSharedSnapshot.304094707");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.GetSharedSnapshot.304094707\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "ObserveLeasedProducer.976702342");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.ObserveLeasedProducer.976702342\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "RegisterEpochReporter.1170383003");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.RegisterEpochReporter.1170383003\u0027 is not callable.");
     }
   }
   {
@@ -273,9 +360,31 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ManagedOperationBridge");
     value = $ownDataProperty(value, "BrowserCanary");
     value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "UnregisterEpochReporter.19325221");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.UnregisterEpochReporter.19325221\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
     value = $ownDataProperty(value, "VerifyBaseline.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.VerifyBaseline.1310674786\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "InspectWeb");
+    value = $ownDataProperty(value, "ManagedOperationBridge");
+    value = $ownDataProperty(value, "BrowserCanary");
+    value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "VerifyEpochBaseline.1310674786");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027InspectWeb.ManagedOperationBridge.BrowserCanary.Exports.VerifyEpochBaseline.1310674786\u0027 is not callable.");
     }
   }
   {
@@ -334,18 +443,40 @@ export function completeSharedProducer(producerId: string): boolean {
   return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["CompleteSharedProducer.91425100"](producerId);
 }
 
+export function createLeasedSharedProducer(producerId: string, mode: string): void {
+  return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["CreateLeasedSharedProducer.677461511"](producerId, mode);
+}
+
 export function createSharedProducer(producerId: string, mode: string): void {
   return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["CreateSharedProducer.677461511"](producerId, mode);
+}
+
+export async function drainEpochReporter(): Promise<void> {
+  return await $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["DrainEpochReporter.1731052262"]();
 }
 
 export function finishSharedFinalization(producerId: string): boolean {
   return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["FinishSharedFinalization.91425100"](producerId);
 }
 
+export function getEpochWorkSnapshot(): EpochWorkSnapshot {
+  const $result = $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["GetEpochWorkSnapshot.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as EpochWorkSnapshot;
+}
+
 export function getSharedSnapshot(producerId: string): SharedProducerSnapshot {
   const $result = $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["GetSharedSnapshot.304094707"](producerId);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as SharedProducerSnapshot;
+}
+
+export async function observeLeasedProducer(producerId: string): Promise<string> {
+  return await $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["ObserveLeasedProducer.976702342"](producerId);
+}
+
+export function registerEpochReporter(allowance: string, started: (arg0: number, arg1: string) => undefined, finished: (arg0: number) => undefined): void {
+  return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["RegisterEpochReporter.1170383003"](allowance, started, finished);
 }
 
 export function releaseSharedProducer(producerId: string): void {
@@ -384,10 +515,20 @@ export async function runWithoutProgress(operationId: string): Promise<Operation
   return $parsed as OperationResultEnvelope;
 }
 
+export function unregisterEpochReporter(): void {
+  return $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["UnregisterEpochReporter.19325221"]();
+}
+
 export function verifyBaseline(): VerificationReceipt {
   const $result = $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["VerifyBaseline.1310674786"]();
   const $parsed: unknown = JSON.parse($result);
   return $parsed as VerificationReceipt;
+}
+
+export function verifyEpochBaseline(): EpochVerificationReceipt {
+  const $result = $requireManagedExports()["InspectWeb"]["ManagedOperationBridge"]["BrowserCanary"]["Exports"]["VerifyEpochBaseline.1310674786"]();
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as EpochVerificationReceipt;
 }
 
 export function verifySharedBaseline(): SharedVerificationReceipt {
