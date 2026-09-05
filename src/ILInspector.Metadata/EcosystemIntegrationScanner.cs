@@ -155,6 +155,23 @@ public record EcosystemIntegrationPresence
 /// </summary>
 public static class EcosystemIntegrationScanner
 {
+    /// <summary>Existing Aspire interpretation for staged application-catalog adoption.</summary>
+    public static EcosystemIntegrationScannerBinding AspireBinding { get; } =
+        EcosystemIntegrationScannerBinding.Create(EcosystemIntegrationClassifier.ClassifyAspire);
+
+    /// <summary>
+    /// Runs one selected interpretation over owner-produced observations.
+    /// The returned rows do not constitute full-library presence or a Census.
+    /// </summary>
+    public static List<EcosystemIntegrationSignalInfo> Scan(
+        EcosystemIntegrationObservationContext context,
+        EcosystemIntegrationScannerBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(binding);
+        return EcosystemIntegrationProjection.Project(binding.Scan(context));
+    }
+
     public static List<EcosystemIntegrationSignalInfo> Scan(PEReader peReader)
     {
         if (!peReader.HasMetadata)
