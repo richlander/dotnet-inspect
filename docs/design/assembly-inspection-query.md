@@ -485,7 +485,8 @@ assembly:
 
 Structural arithmetic failures during reader construction are malformed
 metadata. Arithmetic failures from a query producer remain exceptional rather
-than becoming a Metadata rejection.
+than becoming a Metadata rejection. An image that declares a CLR header but
+has no readable managed metadata is malformed, not a native image.
 
 `NotAssembly` is a positive classification, not successful assembly
 projection. Whether a non-assembly artifact is allowed to remain in a broader

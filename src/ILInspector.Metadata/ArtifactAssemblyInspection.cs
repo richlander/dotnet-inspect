@@ -26,7 +26,11 @@ public static class ArtifactAssemblyInspection
             try
             {
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
+                {
+                    if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
+                        return RejectProjection(ArtifactAssemblyProjectionFailureKind.MalformedMetadata);
                     return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
+                }
                 MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                 if (!reader.IsAssembly)
                     return new ArtifactAssemblyProjectionOutcome.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
@@ -79,7 +83,11 @@ public static class ArtifactAssemblyInspection
             try
             {
                 if (!MetadataFormatAdmission.AdmitImage(peReader))
+                {
+                    if (MetadataFormatAdmission.HasDeclaredClrHeader(peReader))
+                        return RejectQuery<TResult>(ArtifactAssemblyQueryFailureKind.MalformedMetadata);
                     return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.NativeImage);
+                }
                 MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                 if (!reader.IsAssembly)
                     return new ArtifactAssemblyQueryOutcome<TResult>.NotAssembly(ArtifactNonAssemblyKind.ManagedModule);
