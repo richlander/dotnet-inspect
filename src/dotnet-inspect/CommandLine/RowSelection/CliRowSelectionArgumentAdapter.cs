@@ -1550,6 +1550,9 @@ internal static class CliRowSelectionArgumentAdapter
         }
     }
 
+    private static bool IsShortAlias(string alias) =>
+        alias is ['-', not '-'];
+
     private readonly record struct NormalizedArguments(
         string[] Arguments,
         int[] Positions);
