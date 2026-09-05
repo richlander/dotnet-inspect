@@ -4,7 +4,7 @@
 // importing a module performs no managed work, and that only the host module's
 // `runEntryPoint()` reaches the runtime.
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -197,8 +197,8 @@ for (const facade of facades) {
 
   const imports = [...source.matchAll(/^import\s[^;]*?from\s+"([^"]+)";$/gm)]
     .map(match => match[1]);
-  assert.deepEqual(imports, ["./_framework/dotnet.js"],
-    `${facade.module}.js must acquire the runtime through the one shared SDK module`);
+  assert.deepEqual(imports, ["./runtime-loader.js"],
+    `${facade.module}.js must acquire the runtime through the one shared loader module`);
 
   const acquired = [...source.matchAll(/getAssemblyExports\("([^"]+)"\)/g)]
     .map(match => match[1]);
@@ -222,17 +222,15 @@ for (const facade of facades) {
   });
 }
 
-const frameworkDirectory = resolve(resolvedDirectory, "_framework");
 const statePath = resolve(resolvedDirectory, "probe-state.js");
-const runtimePath = resolve(frameworkDirectory, "dotnet.js");
-mkdirSync(frameworkDirectory, { recursive: true });
+const runtimePath = resolve(resolvedDirectory, "runtime-loader.js");
 writeFileSync(statePath, "export const calls = [];\n");
 
 // One runtime for the whole set, the way the SDK behaves: a repeated `create()` call
 // returns the completed runtime instead of building a second one.
 writeFileSync(
   runtimePath,
-  `import { calls } from "../probe-state.js";
+  `import { calls } from "./probe-state.js";
 const managedAssemblies = ${JSON.stringify(managedAssemblies)};
 const assemblies = new Map(managedAssemblies.map(entry => [entry.assembly, {
   [entry.root]: Object.fromEntries(entry.operations.map(operation => [
