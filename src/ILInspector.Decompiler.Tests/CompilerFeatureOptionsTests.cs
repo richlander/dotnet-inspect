@@ -387,6 +387,94 @@ public class CompilerFeatureOptionsTests
     }
 
     [Fact]
+    public void UpdatedVoidUnsafeLambdaBesideAwait_RemainsReconstructable()
+    {
+        string oracleAssembly =
+            typeof(ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures).Assembly.Location;
+        var options = CompilerFeatureOptions.ParseOptions(oracleAssembly)
+            .WithFeatures([
+                new KeyValuePair<string, string>(
+                    "updated-memory-safety-rules",
+                    "true"),
+                new KeyValuePair<string, string>("runtime-async", "on"),
+            ]);
+        using var compiled = Compile(
+            """
+            using System;
+            using System.Threading.Tasks;
+
+            public static class C
+            {
+                static unsafe void Risky() { }
+
+                public static async Task M(Task task)
+                {
+                    Action action = () =>
+                    {
+                        unsafe
+                        {
+                            Risky();
+                        }
+                    };
+                    action();
+                    await task;
+                }
+            }
+            """,
+            options,
+            assemblyName: "UpdatedVoidUnsafeLambdaAwait");
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"updated-void-unsafe-lambda-await-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, compiled.Image);
+        try
+        {
+            using var source = MetadataSource.OpenWithoutSymbols(path);
+            var function = IrImporter.Import(source, "C", "M");
+            Assert.NotNull(function);
+            IrPasses.Run(
+                function,
+                IrPasses.Default,
+                PassContext.ForImport(
+                    method => IrImporter.Import(source, method)));
+            function.CheckInvariant();
+
+            var result = CSharpPrinter.Print(function);
+            string output = Assert.IsType<string>(result.Output);
+
+            Assert.True(
+                result.Fidelity == DecompilationFidelity.Full,
+                $"{output}\n{string.Join('\n', result.Diagnostics)}");
+            Assert.Contains("await", output);
+            Assert.Contains("unsafe", output);
+            Assert.Contains("Risky();", output);
+            Assert.DoesNotContain("return Risky();", output);
+            Assert.DoesNotContain("await", FirstUnsafeBlockBody(output));
+            using var recompiled = Compile(
+                $$"""
+                using System;
+                using System.Threading.Tasks;
+
+                public static class D
+                {
+                    static unsafe void Risky() { }
+
+                    public static async Task M(Task task)
+                    {
+                {{output}}
+                    }
+                }
+                """,
+                options,
+                assemblyName: "UpdatedVoidUnsafeLambdaAwaitRoundTrip");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void LegacyPointerForLoopBeforeAwait_RemainsReconstructable()
     {
         var options = new CSharpParseOptions(LanguageVersion.Latest)

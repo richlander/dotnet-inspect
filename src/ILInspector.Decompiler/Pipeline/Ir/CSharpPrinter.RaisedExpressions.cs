@@ -132,8 +132,11 @@ public sealed partial class CSharpPrinter
                 && EmitsUnsafeBlocks
                 && HasRequiredUnsafeOperation(expr))
             {
+                string statementText = lambda.ReturnsVoid
+                    ? $"{expressionText};"
+                    : $"return {expressionText};";
                 string bodyText =
-                    $"unsafe\n{{\n    return {expressionText};\n}}";
+                    $"unsafe\n{{\n    {statementText}\n}}";
                 return LambdaConversionText(
                     lambda,
                     LambdaBlockText(parameters, bodyText));
