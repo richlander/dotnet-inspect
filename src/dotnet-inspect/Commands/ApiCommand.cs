@@ -468,7 +468,8 @@ public class ApiCommand
                 or InspectionCatalogIdentity.ApiMemberOverload
                 or InspectionCatalogIdentity.ApiMemberDetail
                 ? ApiInspectionCatalogRegistry.CreateMemberPipeline(
-                    resolvedPlan.Selection.Catalog)
+                    resolvedPlan.Selection.Catalog,
+                    resolvedPlan.Intent.Members.OverloadIndex)
                 : ApiMemberSectionDescriptors.CreatePipeline();
         bool singleTypeMode =
             resolvedPlan.Selection.Catalog
@@ -606,6 +607,15 @@ public class ApiCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+        (options, string? findingCensusSelectionError) =
+            NormalizeFindingCensusSelection(
+                options,
+                memberPipeline.SelectableSectionNames);
+        if (findingCensusSelectionError is not null)
+        {
+            CommandError.Write(findingCensusSelectionError);
+            return (null!, 1);
         }
         if (options is
             {
@@ -747,6 +757,64 @@ public class ApiCommand
         };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    private static (ApiOptions Options, string? Error) NormalizeFindingCensusSelection(
+        ApiOptions options,
+        IReadOnlyList<string> memberSections)
+    {
+        if (options.IncludeSections?.Contains(SectionNames.FindingCensus) != true
+            || options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true)
+        {
+            return (options, null);
+        }
+
+        bool hasNonExactFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count == 1
+                       && matches[0].Equals(
+                           SectionNames.FindingCensus,
+                           StringComparison.OrdinalIgnoreCase);
+            }) == true;
+        if (hasNonExactFindingCensusSelector)
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' requires an exact -S selector.");
+        }
+
+        bool hasBroadFindingCensusSelector =
+            options.Select?.Any(selector =>
+            {
+                if (selector.StartsWith('@'))
+                    return false;
+                var (matches, _) = SelectResolver.ResolveSingle(
+                    selector,
+                    memberSections);
+                return matches.Count > 1
+                       && matches.Contains(
+                           SectionNames.FindingCensus,
+                           StringComparer.OrdinalIgnoreCase);
+            }) == true;
+        if (!SelectResolver.IsAllSelector(options.Select)
+            && !hasBroadFindingCensusSelector)
+        {
+            return (
+                options,
+                $"section '{SectionNames.FindingCensus}' cannot be selected through a category.");
+        }
+
+        var sections = new HashSet<string>(
+            options.IncludeSections,
+            StringComparer.OrdinalIgnoreCase);
+        sections.Remove(SectionNames.FindingCensus);
+        return (options with { IncludeSections = sections }, null);
     }
 
     internal static string? ApplyBodyShapeSelectionRequirements(
@@ -2394,6 +2462,29 @@ public class ApiCommand
                 $"section '{SectionNames.AnnotatedSourceDocument}' must be the only selected section under --json.");
             return 1;
         }
+        if (IsInvalidFindingCensusJsonSelection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' must be the only selected section under --json.");
+            return 1;
+        }
+        if (IsInvalidFindingCensusProjection(options))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' is an indivisible document payload; "
+                + "use Markdown/plaintext or exact singleton --json without row, column, count, or payload projection.");
+            return 1;
+        }
+        bool findingCensusExplicitlySelected =
+            HasExplicitFindingCensusSelector(options);
+        if (findingCensusExplicitlySelected
+            && (type.Members.Count != 1
+                || !type.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked)))
+        {
+            CommandError.Write(
+                $"section '{SectionNames.FindingCensus}' requires one selected body-backed member.");
+            return 1;
+        }
 
         if (options is TypeOptions { ShapeOutput: true } typeOptions && !options.Count)
         {
@@ -2431,6 +2522,7 @@ public class ApiCommand
         }
 
         bool sourceDocumentJson = IsAnnotatedSourceDocumentJson(options);
+        bool findingCensusJson = IsFindingCensusJson(options);
         bool barePayloadRenderer =
             options.Bare && !options.Count && !options.JsonOutput;
         bool sourceSectionExplicitlySelected =
@@ -2476,7 +2568,8 @@ public class ApiCommand
             return 1;
         }
 
-        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options) && !sourceDocumentJson)
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options)
+            && !sourceDocumentJson && !findingCensusJson)
         {
             if (GetRequestedMemberSections(type, options)
                     .Contains(SectionNames.PerformanceTriage)
@@ -2706,6 +2799,29 @@ public class ApiCommand
                 sourceDocument,
                 Decompiler.AnnotatedSourceDocumentJsonContext.Default.AnnotatedSourceDocument,
                 Decompiler.AnnotatedSourceDocumentCompactJsonContext.Default.AnnotatedSourceDocument,
+                options.CompactJson);
+            return 0;
+        }
+
+        if (findingCensusExplicitlySelected
+            && view.MemberCode?.FindingCensus is null)
+        {
+            CommandError.Write(FindingCensusError(view.MemberCode));
+            return 1;
+        }
+
+        if (findingCensusJson)
+        {
+            if (view.MemberCode?.FindingCensus is not { } findingCensus)
+            {
+                CommandError.Write(FindingCensusError(view.MemberCode));
+                return 1;
+            }
+
+            JsonOutputHelper.Write(
+                findingCensus,
+                MemberFindingCensusJsonContext.Default.MemberFindingCensusEnvelope,
+                MemberFindingCensusCompactJsonContext.Default.MemberFindingCensusEnvelope,
                 options.CompactJson);
             return 0;
         }
@@ -3199,6 +3315,7 @@ public class ApiCommand
         {
             SectionNames.DecompiledSource => view.MemberCode?.DecompiledSourceCode.Content ?? "",
             SectionNames.AnnotatedSource => view.MemberCode?.AnnotatedSourceCode.Content ?? "",
+            SectionNames.FindingCensus => view.MemberCode?.FindingCensusCode.Content ?? "",
             SectionNames.CostOverlay => view.MemberCode?.CostOverlayCode.Content ?? "",
             SectionNames.SemanticsOverlay => view.MemberCode?.SemanticsOverlayCode.Content ?? "",
             SectionNames.PdbSource => view.MemberCode?.PdbSourceCode.Content ?? "",
@@ -3339,7 +3456,7 @@ public class ApiCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap(),
+            sectionCategories: ApiMemberSectionPipelines.GetCategoryMap(memberPipeline),
             projection: options);
     }
 
@@ -3862,6 +3979,60 @@ public class ApiCommand
             SectionNames.AnnotatedSourceDocument,
             StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsFindingCensusJson(ApiOptions options)
+        => options.JsonOutput
+           && !options.Count
+           && !IsProjectionRequested(options)
+           && !IsColumnProjectionRequested(options)
+           && options.Limit is null
+           && !IsLineLimitRequested()
+           && options.Rows is null
+           && options.IncludeSections is { Count: 1 } sections
+           && sections.Contains(SectionNames.FindingCensus)
+           && HasOnlyExplicitFindingCensusSelectors(options);
+
+    private static bool IsInvalidFindingCensusJsonSelection(ApiOptions options)
+        => options.JsonOutput
+           && options.IncludeSections is { Count: > 0 } sections
+           && sections.Contains(SectionNames.FindingCensus)
+           && HasExplicitFindingCensusSelector(options)
+           && (sections.Count != 1
+               || !HasOnlyExplicitFindingCensusSelectors(options));
+
+    private static bool IsInvalidFindingCensusProjection(ApiOptions options)
+        => options.IncludeSections?.Contains(SectionNames.FindingCensus) == true
+           && HasExplicitFindingCensusSelector(options)
+           && (options.Count
+               || options.Tabular
+               || options.Tsv
+               || options.Jsonl
+               || IsProjectionRequested(options)
+               || IsColumnProjectionRequested(options)
+               || options.Limit is not null
+               || IsLineLimitRequested()
+               || options.Rows is not null);
+
+    private static bool IsLineLimitRequested()
+        => ArgumentPreprocessor.HeadLines is not null
+           || ArgumentPreprocessor.TailLines is not null;
+
+    private static bool HasOnlyExplicitFindingCensusSelectors(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections is { Count: 1 } exactSections
+              && exactSections.Contains(SectionNames.FindingCensus)
+            : options.Select is { Length: > 0 } selectors
+              && selectors.All(IsExplicitFindingCensusSelector);
+
+    private static bool HasExplicitFindingCensusSelector(ApiOptions options)
+        => options is MemberOptions { MemberSectionsPreResolved: true }
+            ? options.ExactIncludeSections?.Contains(SectionNames.FindingCensus) == true
+            : options.Select?.Any(IsExplicitFindingCensusSelector) == true;
+
+    private static bool IsExplicitFindingCensusSelector(string selector)
+        => selector.Equals(
+            SectionNames.FindingCensus,
+            StringComparison.OrdinalIgnoreCase);
+
     private static bool HasExplicitPerformanceTriageSelector(ApiOptions options)
         => options is MemberOptions { MemberSectionsPreResolved: true }
             ? options.ExactIncludeSections?.Contains(
@@ -3886,6 +4057,10 @@ public class ApiCommand
                 "; ",
                 failure.Diagnostics.Select(diagnostic => diagnostic.ToString()))
             : $"section '{SectionNames.AnnotatedSourceDocument}' produced no payload.";
+
+    internal static string FindingCensusError(MemberCodeView? memberCode)
+        => memberCode?.FindingCensusFailure
+            ?? $"section '{SectionNames.FindingCensus}' produced no payload.";
 
     private static readonly HashSet<string> SemanticFactSections = new(StringComparer.OrdinalIgnoreCase)
     {

@@ -166,6 +166,7 @@ public sealed class InspectionPlanningTests
     [Theory]
     [InlineData("Signature")]
     [InlineData("Original Source")]
+    [InlineData("Finding Census")]
     [InlineData("*Source*")]
     [InlineData("@Source")]
     public void SectionDemandIndex_PromotesExactMemberSelectors(
@@ -217,6 +218,21 @@ public sealed class InspectionPlanningTests
             InspectionTargetRequirement.MemberSet,
             result.RequiredTarget);
         Assert.Empty(result.MatchedSections);
+    }
+
+    [Fact]
+    public void MemberInspectionCatalogs_OmitFindingCensusFromCategories()
+    {
+        foreach (ApiInspectionCatalog catalog in
+                 ApiInspectionCatalogRegistry.All.Where(catalog =>
+                     catalog.Identity != InspectionCatalogIdentity.ApiType))
+        {
+            Assert.All(
+                catalog.Categories.Values,
+                sections => Assert.DoesNotContain(
+                    SectionNames.FindingCensus,
+                    sections));
+        }
     }
 
     [Fact]
