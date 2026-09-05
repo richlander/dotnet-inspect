@@ -4,7 +4,8 @@ Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
 The [page-facing engine client](#page-facing-engine-client) is **design-only,
 not implemented**, preparing the single-runtime Worker cutover for
-[#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
+[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
+consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
 
 This is the owning document for the inspect-web production facade partition:
 which existing browser-host exports belong together, how independently
@@ -550,6 +551,9 @@ updates credit only after a synchronous successful grant.
 requires synchronous share encode/decode today. These consumers need focused
 adoption before the production switch, not type assertions that pretend their
 existing synchronous contracts already support a Worker.
+In particular, share/copy must not assume that transient user activation
+survives an awaited engine call; its navigation owner retains that interaction
+constraint.
 
 ### Adoption and evidence
 
