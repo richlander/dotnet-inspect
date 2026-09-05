@@ -192,19 +192,19 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "fixtures/*"))
-        {
-            state.Code = true;
-        }
         else if (BytePattern.MatchesAny(
             path,
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
             "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*",
-            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/*",
+            "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
             "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*"))
         {
             state.Code = true;
             state.Web = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
+        {
+            state.Code = true;
         }
         else if (BytePattern.Matches(path, "tests/*"))
         {
@@ -276,6 +276,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-ts-jsexport-typescript.sh",
             "eng/generate-inspect-web-multi-facade-canary.sh",
             "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",

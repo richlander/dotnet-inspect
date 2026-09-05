@@ -302,7 +302,7 @@ export function focusApplicationMenuButton(document: Document): boolean {
 
 export function trapModalTab(modal: HTMLElement, event: KeyboardEvent): void {
   const focusable = [...modal.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
+    'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), '
       + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
   )].filter(element => !element.hidden && element.getClientRects().length > 0);
   const first = focusable[0];

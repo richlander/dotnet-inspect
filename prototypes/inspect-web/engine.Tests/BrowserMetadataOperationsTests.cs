@@ -1,4 +1,5 @@
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -68,6 +69,49 @@ public sealed class BrowserMetadataOperationsTests
 
         Assert.Equal("v4.0.30319", result.MetadataVersion);
         Assert.True(result.MetadataVersionTruncated);
+    }
+
+    [Fact]
+    public void MetadataOverview_ProjectsManagedReadyToRunHeader()
+    {
+        using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace);
+        MetadataImageOverview overview = Assert.IsType<
+            AssemblyContextEntry<MetadataImageOverview>.Available>(
+                Assert.Single(
+                    AssemblyContextMetadataImageQuery.Execute(group)
+                        .Assemblies))
+            .Value;
+        MetadataCorHeaderSummary cor = Assert.IsType<MetadataCorHeaderSummary>(
+            overview.Headers.Cor);
+        var readyToRun = new MetadataImageOverview(
+            overview.MetadataVersion,
+            overview.Kind,
+            overview.IsAssembly,
+            overview.MetadataOffset,
+            overview.MetadataSize,
+            overview.Heaps,
+            overview.Tables,
+            new MetadataImageHeaders(
+                overview.Headers.Machine,
+                overview.Headers.ImageCharacteristics,
+                overview.Headers.Subsystem,
+                overview.Headers.DllCharacteristics,
+                overview.Headers.IsPE32Plus,
+                new MetadataCorHeaderSummary(
+                    cor.MajorRuntimeVersion,
+                    cor.MinorRuntimeVersion,
+                    cor.Flags,
+                    cor.EntryPointTokenOrRelativeVirtualAddress,
+                    new DirectoryEntry(0x1234, 96))));
+
+        BrowserAssemblyMetadata result =
+            MetadataExports.ProjectMetadataAssembly(
+                "ReadyToRun.dll",
+                readyToRun);
+
+        Assert.Equal(0x1234, result.Headers.ManagedNativeHeaderRva);
+        Assert.Equal(96, result.Headers.ManagedNativeHeaderSize);
     }
 
     [Fact]

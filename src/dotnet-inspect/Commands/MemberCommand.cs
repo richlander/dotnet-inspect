@@ -127,7 +127,9 @@ public static class MemberCommand
 
         try
         {
-            var loaded = ApiServices.LoadFullApi(
+            var loaded = options.RouterDeferredTypeOrMember
+                ? ApiServices.LoadTypeApi(source, options)
+                : ApiServices.LoadFullApi(
                 searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
                 apiSource, source.ApiVersion, selectedTfm, logger, options,
                 source.PackageExtractPath);
