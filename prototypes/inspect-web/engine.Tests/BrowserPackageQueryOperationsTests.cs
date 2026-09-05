@@ -221,10 +221,12 @@ public sealed class BrowserPackageQueryOperationsTests
     public async Task Coordinator_SupersedesAndCancelsSourceWork()
     {
         using BrowserPackageQueryOperationLease first =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync();
+            await BrowserPackageQueryOperationCoordinator.BeginAsync(
+                initialMatchCredit: 20);
 
         ValueTask<BrowserPackageQueryOperationLease> secondPending =
-            BrowserPackageQueryOperationCoordinator.BeginAsync();
+            BrowserPackageQueryOperationCoordinator.BeginAsync(
+                initialMatchCredit: 20);
         Assert.True(first.CancellationToken.IsCancellationRequested);
 
         first.Dispose();
@@ -233,6 +235,27 @@ public sealed class BrowserPackageQueryOperationsTests
 
         BrowserPackageQueryOperationCoordinator.CancelCurrent();
         Assert.True(second.CancellationToken.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task Coordinator_AddsMatchCreditOnlyToTheCurrentOperation()
+    {
+        using BrowserPackageQueryOperationLease operation =
+            await BrowserPackageQueryOperationCoordinator.BeginAsync(
+                initialMatchCredit: 1);
+
+        await operation.MatchCredit.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.True(
+            BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(2));
+        await operation.MatchCredit.WaitAsync(
+            TestContext.Current.CancellationToken);
+        await operation.MatchCredit.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        operation.Dispose();
+        Assert.False(
+            BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(1));
     }
 
     [Fact]
@@ -245,6 +268,7 @@ public sealed class BrowserPackageQueryOperationsTests
                 maximumCandidates: 200,
                 maximumMatches: 100,
                 includePrerelease: false,
+                matchCredit: null,
                 _ => { },
                 TestContext.Current.CancellationToken));
 
@@ -284,6 +308,7 @@ public sealed class BrowserPackageQueryOperationsTests
         BrowserPackageQueryEvent returned =
             await BrowserPackageQueryOperations.PumpAsync(
                 Events(progress, failure, completed),
+                matchCredit: null,
                 emitted.Add,
                 TestContext.Current.CancellationToken);
 
@@ -323,11 +348,213 @@ public sealed class BrowserPackageQueryOperationsTests
             await Assert.ThrowsAsync<InvalidOperationException>(
                 () => BrowserPackageQueryOperations.PumpAsync(
                     Events(completed, lateProgress),
+                    matchCredit: null,
                     emitted.Add,
                     TestContext.Current.CancellationToken));
 
         Assert.Contains("after completion", error.Message);
         Assert.Empty(emitted);
+    }
+
+    [Fact]
+    public async Task PumpAsync_PausesMatchDeliveryUntilCreditIsReplenished()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 2);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        int established = 0;
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageQueryOperations.PumpAsync(
+                CountedMatchEvents(() => established++),
+                matchCredit,
+                emitted.Add,
+                TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(() => established == 3);
+        Assert.Equal(2, emitted.Count);
+        Assert.False(pumping.IsCompleted);
+
+        Assert.True(matchCredit.TryAdd(1));
+        BrowserPackageQueryEvent completed = await pumping;
+
+        Assert.Equal(3, emitted.Count);
+        Assert.All(
+            emitted,
+            item => Assert.Equal(
+                BrowserPackageQueryEventKind.Match,
+                item.Kind));
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, completed.Kind);
+    }
+
+    [Fact]
+    public async Task PumpAsync_ReadsCompletionWithoutAdditionalMatchCredit()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+
+        BrowserPackageQueryEvent completed =
+            await BrowserPackageQueryOperations.PumpAsync(
+                Events(MatchEvent("Contoso.One"), CompletedEvent()),
+                matchCredit,
+                emitted.Add,
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(emitted);
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, completed.Kind);
+    }
+
+    [Fact]
+    public async Task PumpAsync_CancellationReleasesAWaitingMatch()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        int established = 0;
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageQueryOperations.PumpAsync(
+                CountedMatchEvents(() => established++),
+                matchCredit,
+                emitted.Add,
+                cancellation.Token);
+
+        await WaitUntilAsync(() => established == 2);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => pumping);
+        Assert.Equal(
+            ["Contoso.1", "Contoso.2"],
+            emitted.Select(item => item.Row!.PackageId));
+    }
+
+    [Fact]
+    public async Task PumpAsync_ConsumerWaitOutlivesActiveWorkBudget()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() => { }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+        Assert.Single(emitted);
+        await Task.Delay(1200, TestContext.Current.CancellationToken);
+        Assert.False(pumping.IsCompleted);
+        Assert.Single(emitted);
+
+        Assert.True(matchCredit.TryAdd(2));
+        BrowserPackageQueryEvent completed = await pumping;
+        Assert.Equal(3, emitted.Count);
+        Assert.Equal(BrowserPackageQueryEventKind.Completed, completed.Kind);
+    }
+
+    [Fact]
+    public async Task PumpAsync_ActiveWorkExpiryDoesNotPublishUncreditedMatch()
+    {
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        using var callerCancellation = new CancellationTokenSource();
+        var emitted = new List<BrowserPackageQueryEvent>();
+        int established = 0;
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() =>
+                    {
+                        if (++established == 2)
+                        {
+                            while (!deadline.HasExpired)
+                                Thread.SpinWait(100);
+                        }
+                    }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromMilliseconds(100),
+                callerCancellation.Token));
+
+        Assert.Equal(2, established);
+        Assert.Single(emitted);
+        Assert.False(callerCancellation.IsCancellationRequested);
+    }
+
+    [Fact]
+    public async Task PumpAsync_CallerCancellationStillReleasesBudgetPausedWait()
+    {
+        using var callerCancellation = new CancellationTokenSource();
+        using var matchCredit = new BrowserPackageQueryMatchCredit(
+            initialMatchCredit: 1);
+        var emitted = new List<BrowserPackageQueryEvent>();
+        Task<BrowserPackageQueryEvent> pumping =
+            BrowserPackageWorkspace.RunPackageOperationAsync(
+                deadline => BrowserPackageQueryOperations.PumpAsync(
+                    CountedMatchEvents(() => { }),
+                    matchCredit,
+                    emitted.Add,
+                    deadline.Token,
+                    deadline),
+                TimeSpan.FromSeconds(1),
+                callerCancellation.Token);
+
+        Assert.Single(emitted);
+        callerCancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pumping);
+        Assert.Equal(
+            ["Contoso.1", "Contoso.2"],
+            emitted.Select(item => item.Row!.PackageId));
+    }
+
+    [Fact]
+    public async Task PackageOperation_ConsumerWaitDoesNotResetSpentBudget()
+    {
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => BrowserPackageWorkspace.RunPackageOperationAsync<int>(
+                async deadline =>
+                {
+                    while (deadline.Remaining > TimeSpan.FromMilliseconds(500))
+                        Thread.SpinWait(100);
+                    TimeSpan remaining = deadline.Remaining;
+
+                    await deadline.WaitForConsumerAsync(token =>
+                        new ValueTask(Task.Delay(1200, token)));
+
+                    Assert.True(deadline.Remaining <= remaining);
+                    Assert.False(deadline.Token.IsCancellationRequested);
+                    await Task.Delay(Timeout.InfiniteTimeSpan, deadline.Token);
+                    return 0;
+                },
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken));
+    }
+
+    static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (int attempt = 0; attempt < 100 && !condition(); attempt++)
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        Assert.True(condition());
+    }
+
+    static async IAsyncEnumerable<PackageQueryEvent> CountedMatchEvents(
+        Action established)
+    {
+        for (int index = 1; index <= 3; index++)
+        {
+            established();
+            yield return MatchEvent($"Contoso.{index}");
+        }
+        yield return CompletedEvent(matches: 3);
+        await Task.CompletedTask;
     }
 
     static async IAsyncEnumerable<PackageQueryEvent> Events(
@@ -336,6 +563,47 @@ public sealed class BrowserPackageQueryOperationsTests
         await Task.CompletedTask;
         foreach (PackageQueryEvent queryEvent in events)
             yield return queryEvent;
+    }
+
+    static PackageQueryEvent MatchEvent(string packageId)
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        var package = new PackageProfileMatch(
+            packageId,
+            "1.0.0",
+            [],
+            TotalDownloads: 42,
+            Verified: false,
+            source.Source,
+            Manifest(packageId, "1.0.0", isToolPackage: false));
+        return new PackageQueryEvent.Match(
+            new PackageQueryMatch(
+                package,
+                PackageQueryFacetTier.Nuspec,
+                [
+                    new PackageQueryEvidence(
+                        "package.query.source-verified",
+                        new InertString(TextPolicy.Prose, "Matched.")),
+                ]));
+    }
+
+    static PackageQueryEvent CompletedEvent(int matches = 1)
+    {
+        using IPackageSourceClient source =
+            PackageSourceClientFactory.CreateGallery(
+                PackageSourceAssociation.Create());
+        return new PackageQueryEvent.Completed(
+            new PackageQuerySummary(
+                new InertString(TextPolicy.Field, "Contoso."),
+                source.Source,
+                CandidateLimit: 20,
+                MatchLimit: 20,
+                Candidates: matches,
+                Matches: matches,
+                Failures: 0,
+                PackageQueryCompletionKind.Exhausted));
     }
 
     static PackageManifestFacts Manifest(

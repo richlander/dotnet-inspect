@@ -1026,9 +1026,9 @@ public static class FixtureCatalog
             "ILInspector.Decompiler.Fixtures.UnsafeChainB" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainB",
             "ILInspector.Decompiler.Fixtures.UnsafeChainC" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.UnsafeChainC",
             "ILInspector.Decompiler.Fixtures.VbFinalizer" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.VbFinalizer",
-            "ILInspector.Research.TargetFixtures" => "src/ILInspector.Research.TargetFixtures",
-            "ResearchTargetCorrespondenceFixtures.V1" => "src/ResearchTargetCorrespondenceFixtures.V1",
-            "ResearchTargetCorrespondenceFixtures.V2" => "src/ResearchTargetCorrespondenceFixtures.V2",
+            "ILInspector.Research.TargetFixtures" => "fixtures/research/ILInspector.Research.TargetFixtures",
+            "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
+            "ResearchTargetCorrespondenceFixtures.V2" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V2",
             "RunFaster.AllocationFixture" => "src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture",
             _ => throw new ArgumentException(
                 $"Unknown fixture project '{projectName}'.",

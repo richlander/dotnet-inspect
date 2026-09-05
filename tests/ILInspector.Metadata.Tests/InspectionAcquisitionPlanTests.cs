@@ -157,6 +157,9 @@ public class InspectionAcquisitionPlanTests
         string invalid = Path.GetTempFileName();
         try
         {
+            // A file with no PE signature has no metadata root, so admission
+            // never sees it and it stays descriptor-less rather than being
+            // reported as a malformed metadata root.
             Assert.Null(
                 ResolvedAssemblyReference.CreateFromPathIfManaged(
                     invalid,
@@ -276,8 +279,12 @@ public class InspectionAcquisitionPlanTests
             Assert.Equal(
                 CandidateOpenFailureKind.InvalidImage,
                 pathRejected.Failure.Kind);
-            Assert.Null(
-                ResolvedAssemblyReference.CreateFromPathIfManaged(
+            // Selection carries the typed failure in its result; the
+            // descriptor-or-null shape has no failure arm, so the mechanism is
+            // thrown rather than collapsing into a null that reads as "not a
+            // managed assembly".
+            Assert.Throws<MalformedMetadataRootException>(
+                () => ResolvedAssemblyReference.CreateFromPathIfManaged(
                     path,
                     AssemblyResolutionProvenance.Local("test")));
 
@@ -291,8 +298,8 @@ public class InspectionAcquisitionPlanTests
             Assert.Equal(
                 CandidateOpenFailureKind.InvalidImage,
                 streamRejected.Failure.Kind);
-            Assert.Null(
-                ResolvedAssemblyReference.CreateFromStreamIfManaged(
+            Assert.Throws<MalformedMetadataRootException>(
+                () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
                     () => new MemoryStream(
                         malformed,
                         writable: false),
@@ -475,6 +482,34 @@ public class InspectionAcquisitionPlanTests
     }
 
     [Fact]
+    public void CreateFromStreamIfManaged_UnsupportedMetadataDisposesStreamOnce()
+    {
+        byte[] image = BuildUnsupportedMetadataAssembly();
+        DisposeCountingMemoryStream? opened = null;
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => opened = new DisposeCountingMemoryStream(image),
+                AssemblyResolutionProvenance.Local("test")));
+
+        // The stream must not be leaked when admission rejects the image.
+        // The exact count is the acquisition owner's concern: the PEReader and
+        // the calling scope both dispose it, which is idempotent.
+        Assert.True(opened!.DisposeCount >= 1);
+    }
+
+    [Fact]
+    public void CreateFromStreamIfManaged_CleanupCannotReplaceUnsupportedFailure()
+    {
+        byte[] image = BuildUnsupportedMetadataAssembly();
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => ResolvedAssemblyReference.CreateFromStreamIfManaged(
+                () => new ThrowingDisposeMemoryStream(image),
+                AssemblyResolutionProvenance.Local("test")));
+    }
+
+    [Fact]
     public void ArtifactDescriptor_PreservesRegistrationAndBindsNonEmptyMvid()
     {
         Guid mvid = Guid.NewGuid();
@@ -574,12 +609,23 @@ public class InspectionAcquisitionPlanTests
                 AssemblyResolutionProvenance.Local("test")));
 
         byte[] malformed = [0x01, 0x02, 0x03];
-        Assert.Null(
-            ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                RegisterArtifact(
-                    () => new MemoryStream(malformed, writable: false)),
-                () => new MemoryStream(malformed, writable: false),
-                AssemblyResolutionProvenance.Local("test")));
+        var malformedException =
+            Assert.Throws<MalformedMetadataRootException>(
+                () => ResolvedAssemblyReference.CreateFromArtifactIfManaged(
+                    RegisterArtifact(
+                        () => new MemoryStream(
+                            malformed,
+                            writable: false)),
+                    () => new MemoryStream(
+                        malformed,
+                        writable: false),
+                    AssemblyResolutionProvenance.Local("test")));
+        Assert.Contains(
+            nameof(
+                MetadataRootMalformedReason
+                    .UnmappableMetadataDirectory),
+            malformedException.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -691,7 +737,7 @@ public class InspectionAcquisitionPlanTests
                 artifactRegistration,
                 descriptor.Registration.ArtifactRegistration);
             Assert.Null(descriptor.Registration.ModuleVersionId);
-            Assert.Throws<BadImageFormatException>(
+            Assert.ThrowsAny<BadImageFormatException>(
                 () => AssemblyImage.Open(descriptor));
             Assert.Null(descriptor.Registration.ModuleVersionId);
         }
@@ -2191,6 +2237,41 @@ public class InspectionAcquisitionPlanTests
     static int AlignTo4(int value)
         => (value + 3) & ~3;
 
+    static byte[] BuildUnsupportedMetadataAssembly()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Unsupported.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Unsupported"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddAssemblyReference(
+            metadata.GetOrAddString("mscorlib"),
+            new Version(4, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        metadata.AddTypeDefinition(
+            TypeAttributes.NotPublic,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        return Serialize(
+            metadata,
+            "WindowsRuntime 1.4;CLR v4.0.30319");
+    }
+
     static byte[] BuildManyTypesAssembly(int typeCount)
     {
         var metadata = new MetadataBuilder();
@@ -2231,11 +2312,16 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
-    static byte[] Serialize(MetadataBuilder metadata)
+    static byte[] Serialize(
+        MetadataBuilder metadata,
+        string? metadataVersion = null)
     {
         var pe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
-            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new MetadataRootBuilder(
+                metadata,
+                metadataVersion,
+                suppressValidation: true),
             new BlobBuilder(),
             flags: CorFlags.ILOnly);
         var image = new BlobBuilder();
@@ -2367,6 +2453,30 @@ public class InspectionAcquisitionPlanTests
                 _disposed = true;
                 disposed();
             }
+            base.Dispose(disposing);
+        }
+    }
+
+    sealed class DisposeCountingMemoryStream(byte[] image)
+        : MemoryStream(image, writable: false)
+    {
+        bool _innerDisposed;
+
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeCount++;
+                if (!_innerDisposed)
+                {
+                    _innerDisposed = true;
+                    base.Dispose(disposing);
+                }
+                return;
+            }
+
             base.Dispose(disposing);
         }
     }

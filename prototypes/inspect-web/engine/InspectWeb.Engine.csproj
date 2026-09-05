@@ -61,7 +61,11 @@
     <Copy SourceFiles="@(_HtmlPublishCandidates)" DestinationFiles="@(_HtmlPublishCandidates->'$(PublishDir)wwwroot/index.html')" />
   </Target>
 
-  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebFrontendIndex">
+  <Target Name="PublishInspectWebRuntimeLoader" AfterTargets="PublishInspectWebFrontendIndex">
+    <Exec Command="node &quot;../scripts/publish-runtime-loader.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
+  </Target>
+
+  <Target Name="VerifyPublishedInspectWebSite" AfterTargets="PublishInspectWebRuntimeLoader">
     <Exec Command="node &quot;../scripts/verify-site-artifact.ts&quot; &quot;$(PublishDir)wwwroot&quot;" WorkingDirectory="$(MSBuildProjectDirectory)" />
   </Target>
 

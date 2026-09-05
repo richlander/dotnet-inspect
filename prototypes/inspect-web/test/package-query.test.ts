@@ -230,6 +230,74 @@ test("controller run() streams pages into state and applies final completion", a
   assert.ok(updates > 0);
 });
 
+test("controller replenishes only near the granted match-window edge", async () => {
+  const state = initialQueryState();
+  const requested: number[] = [];
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore(additionalMatchCredit) {
+      requested.push(additionalMatchCredit);
+      return true;
+    },
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("Microsoft."));
+
+  publish(Array.from({ length: 14 }, (_, index) => row(`P${index}`)));
+  controller.requestMore();
+  assert.deepEqual(requested, []);
+
+  publish([row("P14")]);
+  controller.requestMore();
+  controller.requestMore();
+  assert.deepEqual(requested, [10]);
+
+  publish(Array.from({ length: 10 }, (_, index) => row(`Q${index}`)));
+  controller.requestMore();
+  assert.deepEqual(requested, [10, 10]);
+
+  finish({ kind: "exhausted" });
+  await running;
+  controller.requestMore();
+  assert.deepEqual(requested, [10, 10]);
+});
+
+test("controller does not count rejected replenishment as granted credit", async () => {
+  const state = initialQueryState();
+  let requests = 0;
+  let publish!: (rows: readonly QueryResultRow[]) => void;
+  let finish!: (completion: TerminalQueryCompletion) => void;
+  const source: PackageQueryDataSource = {
+    initialMatchCredit: 20,
+    requestMore() {
+      requests++;
+      return false;
+    },
+    async run(_request, onPage) {
+      publish = onPage;
+      return await new Promise<TerminalQueryCompletion>(
+        resolve => { finish = resolve; });
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const running = controller.run(createQueryRequest("Microsoft."));
+
+  publish(Array.from({ length: 15 }, (_, index) => row(`P${index}`)));
+  controller.requestMore();
+  controller.requestMore();
+
+  assert.equal(requests, 2);
+  finish({ kind: "cancelled" });
+  await running;
+});
+
 test("controller publishes progress without clearing streamed rows", async () => {
   const state = initialQueryState();
   const source: PackageQueryDataSource = {

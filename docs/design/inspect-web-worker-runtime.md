@@ -7,11 +7,15 @@ This document defines the target worker-runtime host and protocol for
 The user approved its inspect-web-only host scope on 2026-09-02. Implementation
 under [issue #5418](https://github.com/richlander/dotnet-inspect/issues/5418)
 is dependency-ordered and partial. The descriptor-safe two-stage wire codec,
-fake-worker runtime core, host authority, and complete base TypeScript protocol
+shared runtime core, host authority, and complete base TypeScript protocol
 gate are implemented under `inspect-web-worker-envelope-validation` and
-`inspect-web-worker-protocol`. Real browser `Worker` and .NET binding, browser
-lifecycle integration, responsiveness evidence, and the remaining browser
-gates named below are still required.
+`inspect-web-worker-protocol`. The browser binding additionally connects a real
+module `Worker`, the current generated facade set, and native lifecycle inputs
+under `inspect-web-worker-browser-binding`. Its explicit diagnostic consumer
+uses the existing managed async-lowering canary. It does not route current UI
+features through the Worker. Feature adoption, managed epoch-work reporter
+registration, full lifecycle coverage, responsiveness evidence, and the
+remaining browser gates named below are still required.
 
 Its finite state models establish only the abstract properties recorded with
 those models. The engine-to-browser event-stream contract is now defined by
@@ -356,6 +360,35 @@ elapsed time; they preserve the remaining budget rather than grant a fresh one.
 Startup rejection or budget exhaustion closes admission, terminates the
 partial realm, reports unexpected startup failure for every activated held
 producer, quiesces those producers after termination, and closes the epoch.
+
+### Browser binding
+
+The native binding uses a module Worker and retains one exact source binding
+for its message, error, and messageerror listeners. Detachment removes those
+listeners before native termination. A browser `error` event does not prove
+physical destruction: it reports a worker-message failure, and ordinary
+termination remains the destruction barrier.
+
+Both the page and Worker use the same seven generated facade modules and
+consumer-owned bootstrap coordinator. A Worker does not inherit the page's
+import map. The consumer's published runtime loader therefore resolves the
+SDK-selected fingerprinted runtime module directly; it must neither depend on
+document import-map state nor publish an unhashed framework alias. This is
+consumer artifact addressing, not a second facade-generation mechanism or
+runtime initialization policy.
+
+Native active time pauses while any visibility, page-hide, or freeze
+suspension remains in effect. Resume clears only its corresponding suspension.
+A clock read or timer notification that detects a scheduling gap reports
+recovery before the host judges deadlines. That gap preserves the remaining
+startup, command-response, and drain budgets and gives the existing
+post-readiness watchdog its recovery interval.
+
+The initial binding's diagnostic operation invokes the existing generated
+`asyncLoweringCanary` export and declares unbounded managed execution. Its
+registry admits no shared managed producers or epoch-work classes.
+Registering the managed epoch-work reporter and adopting feature operations
+remain later handoffs; the diagnostic operation does not depend on them.
 
 ## Operation adapter
 
@@ -1235,7 +1268,16 @@ deterministic scheduling rather than a real browser worker. It includes:
 - a neighboring browser-native producer proving operation authority does not
   depend on the worker adapter.
 
-`inspect-web-worker-lifecycle` is a Release browser gate and must include:
+`inspect-web-worker-browser-binding` is the first Release browser sub-gate. It
+uses the product-published client, module Worker, seven generated facades, and
+actual .NET runtime. It covers cold and warm managed calls, idle heartbeats,
+explicit replacement with a new epoch, native termination, failed bootstrap,
+and a stalled Wasm initialization while page input remains available. Its
+focused TypeScript cases cover overlapping lifecycle suspensions, initial
+hidden state, scheduling-gap recovery before deadline reads, and subscription
+cleanup. It is not the complete lifecycle or managed CPU responsiveness gate.
+
+`inspect-web-worker-lifecycle` is the complete Release browser gate and must include:
 
 - cold and warm bootstrap through the consumer-owned barrier;
 - responsive JavaScript with permanently stalled .NET initialization;
@@ -1316,10 +1358,10 @@ into the runtime host:
 
 1. introduce the descriptor-safe wire codec under
    `inspect-web-worker-envelope-validation` (**implemented**);
-2. add the fake-worker runtime core, host authority, and complete
+2. add the shared runtime core, host authority, and complete
    `inspect-web-worker-protocol` gate (**implemented**);
 3. adapt the current generated facade bootstrap behind the consumer-owned
-   bootstrap operation;
+   bootstrap operation (**implemented** with the browser-binding sub-gate);
 4. move one long-running source or package inspection through a typed worker
    operation adapter;
 5. connect keyed cancellation, progress, managed settlement, and epoch-work
@@ -1329,6 +1371,15 @@ into the runtime host:
    payload and liveness policy; and
 8. add durable event batches only after #5570 and the relevant #5419 handoff
    supply their remaining prerequisite contracts; #5566 is merged.
+
+These eight production-host adoption steps are tracked by #5418 under #4937
+and #4571, with composition handoffs mapped by #5095. The first feature
+consumer is the existing source operation in
+issue #5420, not a duplicate feature. Step 7 retires each remaining direct
+main-thread feature invocation as its adapter is adopted. The approved
+inspect-web-only scope does not imply a CLI runtime migration. Typed feature
+results continue to reach their existing rendering owners; this binding adds
+no rendering or format-lowering domain.
 
 The implementation starts from the official .NET 11 Web Worker hosting pattern
 but replaces stringly method invocation with the generated inspect-web facade

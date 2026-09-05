@@ -717,8 +717,8 @@ separate workspace admission roles. This is a target change from the current
 parameterless
 `ResolvedAssemblyReference.OpenRead` and public readable `Path`.
 
-`ArtifactContentReference` is the query-time input to a downstream content
-consumer. The artifact owner issues it for one identity in a sealed generation
+`ArtifactContentReference` is the compatibility query-time input to a downstream
+content consumer. The artifact owner issues it for one identity in a sealed generation
 and binds that artifact's descriptor and acquisition registration. Role
 and registration observations and retained-content opens revalidate the query
 lease supplied when the reference was issued. The type makes no claim that the
@@ -730,6 +730,103 @@ reference's guarded content callback to
 registration, decodes assembly identity, and binds a non-empty MVID. It does
 not receive the workspace role set or interpret a lease-scoped path as content
 authority, designation, or trust.
+
+#### Phase-scoped retained byte access
+
+Issue [#5884](https://github.com/richlander/dotnet-inspect/issues/5884) supplies
+the Artifact Acquisition boundary consumed by Metadata admission and query
+validation in
+[#4857](https://github.com/richlander/dotnet-inspect/issues/4857). That consumer's
+[assembly projection contract](assembly-inspection-query.md#admission-scoped-artifact-projection)
+owns classification and assembly facts; this section owns only the retained
+image, authorization, and callback lifetime.
+
+One immutable owner-retained image backs admission, subsequent query callbacks,
+and compatibility streams for an artifact. Scoped access does not reopen the
+source or allocate another full-image copy. The owner transfers its private
+materialized array into immutable storage; a low-level owner supplying an
+`ImmutableArray<byte>` must already have relinquished mutable aliases. This
+follows the existing `AssemblyImageSnapshot` ownership-transfer pattern rather
+than treating trusted in-process owners as hostile. A stream-only retained
+content registration remains a compatibility facility and explicitly rejects
+scoped byte access; arbitrary openers cannot attest an immutable image.
+
+The synchronous callback convention follows .NET span callbacks: two distinct
+`readonly ref struct` views carry the exact opaque `ArtifactIdentity`, its
+generation, and `ReadOnlySpan<byte>`. Only the artifact owner constructs these
+views. `ArtifactAdmissionContentCallback<TResult>` and
+`ArtifactQueryContentCallback<TResult>` take a scoped view and caller
+cancellation token. Their result type cannot be byref-like. The consumer
+finishes image-local work before returning; retaining a view or borrowed span
+across an asynchronous continuation is not an available operation.
+
+`RetainedArtifactContent.WithAdmissionContent` accepts only admission leases;
+`WithQueryContent` accepts only query leases. Each registers access atomically
+with authorization validation, before invoking consumer code. Missing,
+foreign, disposed, revoked, or ended authority produces
+`ArtifactContentAccessOutcome<TResult>.Unauthorized` without invocation.
+`Accessed.Value` is the consumer's result, including any consumer-owned typed
+rejection. Consumer exceptions retain their instance and type, including
+`UnauthorizedAccessException` and `ObjectDisposedException`; they cannot be
+mistaken for owner rejection. Caller cancellation is observed before access
+and after a normally returning callback, and remains cancellation.
+
+Authorization expiry rejects subsequent callbacks, not work already admitted.
+An active callback keeps acquisition leases alive through generation end until
+it unwinds, just as an already-returned compatibility stream does until
+disposal. Callbacks must return; they must not synchronously wait for the
+session's own disposal, which waits for them. No worker thread or background
+execution is required by this contract.
+
+`ArtifactSetSession.SealWithProjectionAsync` is the pre-publication integration
+point. After bounded materialization succeeds, it supplies each artifact in
+catalog order through an admission callback while the catalog remains
+unpublished. The callback returns either no failure or an
+`ArtifactSetAdmissionFailure`. A failure rejects the whole generation and stops
+further projection. An exception aborts and cleans the generation, then
+propagates unchanged with the session's existing ancillary cleanup evidence.
+Projected values collected by the caller remain provisional until `Published`;
+they cannot authorize content and must be discarded on any other completion.
+Publication occurs only after every callback succeeds and caller cancellation
+and session termination are checked. Ordinary `SealAsync` remains the
+compatibility path without projection.
+
+The session's query callback validates current authorization before selecting
+an artifact. A valid lease with an identity outside that session is an explicit
+lookup error, not a request to reacquire or substitute content. After selection,
+the retained-content owner atomically admits the callback, so revocation or
+termination during that handoff can still reject it.
+
+The existing
+[generation-access model](models/artifact-generation-access/README.md) supplies
+the access-registration/quiescent-release design basis. Scoped callbacks reuse
+that protocol; they do not add a second release mechanism or alter the session's
+construction, sealing, publication, and disposal states. The model's recorded
+stream results are not evidence of these new APIs. Release conformance is
+established by the focused product gates:
+
+- `ScopedContent_AdmissionAndQueryKeepExactIdentityAndBytes`
+- `ScopedContent_RejectsAuthorityBeforeInvocation`
+- `ScopedContent_ConsumerExceptionsAreNotAuthorizationFailures`
+- `ScopedContent_CancellationRemainsCancellation`
+- `ScopedContent_RequiresImmutableSnapshot`
+- `ScopedContent_RepeatedQueriesDoNotAllocateFullImage`
+- `ScopedContent_ActiveCallbackPinsRelease`
+- `ArtifactProjection_PrecedesPublicationAndReusesSnapshot`
+- `ArtifactProjection_RejectsAtomicallyAndRetainsDiagnostic`
+- `ArtifactProjection_MaterializationFailureDoesNotInvokeConsumer`
+- `ArtifactProjection_ExceptionAbortsWithoutReclassification`
+- `ArtifactProjection_CancellationOrTerminationPreventsPublication`
+- `ArtifactProjection_QueryRejectsBeforeSelectionAndPinsRelease`
+
+Production-host adoption is tracked by
+[#5766](https://github.com/richlander/dotnet-inspect/issues/5766). Its revised
+path has **13 steps**, inserting this prerequisite before Metadata
+implementation; CLI and Browser/Wasm both adopt the shared query/result
+contract in step 13. Sparse composition (#5843) and explicit-context composition
+(#5053) replace the relevant compatibility reference consumers after #4857.
+General retirement of unrelated stream/descriptor consumers remains outside
+this slice; neither host claims assembly-pattern search from this API alone.
 
 It does not:
 
