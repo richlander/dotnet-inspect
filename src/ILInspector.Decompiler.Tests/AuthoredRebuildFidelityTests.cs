@@ -25,31 +25,29 @@ public sealed class AuthoredRebuildFidelityTests
     [Fact]
     public void BuildContextAssessment_KeepsDeterminismSeparateFromRecordedContext()
     {
-        string runtimePath = typeof(object).Assembly.Location;
-        var assessment = AuthoredRebuildFidelity.AssessBuildContext(
-            isDeterministic: false,
+        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
+            FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
+        var recorded = new RecordedBuildContext(
+            IsDeterministic: false,
             CompleteOptions(
                 new CompilationOptionInfo("optimization", "release"),
                 new CompilationOptionInfo("unsafe", "true")),
-            CompleteReferences(new CompilationReferenceInfo(
-                Path.GetFileName(runtimePath),
-                Aliases: "",
-                CompilationReferenceImageKind.Assembly,
-                EmbedInteropTypes: false,
-                Timestamp: 0,
-                ImageSize: 0,
-                ModuleVersionId: Guid.Empty)),
-            [MetadataReference.CreateFromFile(runtimePath)]);
+            CompleteReferences());
+        var assessment = recorded.Assess(Assert.IsType<RebuildCompilationAttempt>(decompiler.CompilationAttempt));
 
-        Assert.Equal(AuthoredBuildContextStatus.Recorded, assessment.Status);
-        Assert.False(assessment.IsDeterministic);
+        Assert.Equal(AuthoredBuildContextStatus.Incomplete, assessment.Status);
+        Assert.False(recorded.IsDeterministic);
+        Assert.Contains(assessment.Facts, fact =>
+            fact.Name == "optimization" && fact.Status == BuildContextFactStatus.Agree);
     }
 
     [Fact]
     public void BuildContextAssessment_ReportsContextDriftIndependently()
     {
-        var assessment = AuthoredRebuildFidelity.AssessBuildContext(
-            isDeterministic: true,
+        var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
+            FixtureCatalog.DecompilerAuthoredRebuild.AssemblyPath());
+        var recorded = new RecordedBuildContext(
+            IsDeterministic: true,
             CompleteOptions(new CompilationOptionInfo("optimization", "debug")),
             CompleteReferences(new CompilationReferenceInfo(
                 "Missing.Reference.dll",
@@ -58,13 +56,15 @@ public sealed class AuthoredRebuildFidelityTests
                 EmbedInteropTypes: false,
                 Timestamp: 0,
                 ImageSize: 0,
-                ModuleVersionId: Guid.Empty)),
-            []);
+                ModuleVersionId: Guid.Empty)));
+        var assessment = recorded.Assess(Assert.IsType<RebuildCompilationAttempt>(decompiler.CompilationAttempt));
 
         Assert.Equal(AuthoredBuildContextStatus.Drift, assessment.Status);
-        Assert.True(assessment.IsDeterministic);
-        Assert.Contains("optimization=debug", assessment.Detail, StringComparison.Ordinal);
-        Assert.Contains("Missing.Reference.dll", assessment.Detail, StringComparison.Ordinal);
+        Assert.True(recorded.IsDeterministic);
+        Assert.Contains(assessment.Facts, fact =>
+            fact.Name == "optimization" && fact.Status == BuildContextFactStatus.Different);
+        Assert.Contains(assessment.Facts, fact =>
+            fact.Name == "Missing.Reference.dll" && fact.Status == BuildContextFactStatus.Different);
     }
 
     [Fact]
@@ -73,10 +73,10 @@ public sealed class AuthoredRebuildFidelityTests
     {
         var decompiler = ReturnToSender.CompileBackFirstPropertyGetter(
             FixtureCatalog.DiffPair.OldAssemblyPath());
-        var context = new AuthoredBuildContextAssessment(
-            AuthoredBuildContextStatus.Incomplete,
+        var context = new RecordedBuildContext(
             IsDeterministic: true,
-            "test context");
+            CompleteOptions(),
+            CompleteReferences());
 
         var result = AuthoredRebuildFidelity.CompileAuthoredBody(
             decompiler,
@@ -118,10 +118,10 @@ public sealed class AuthoredRebuildFidelityTests
                 "namespace D; public sealed class After { }",
                 directory,
                 "RtsAuthoredDependency");
-            var context = new AuthoredBuildContextAssessment(
-                AuthoredBuildContextStatus.Incomplete,
+            var context = new RecordedBuildContext(
                 IsDeterministic: true,
-                "test context");
+                CompleteOptions(),
+                CompleteReferences());
 
             AuthoredRebuildFidelityResult result =
                 AuthoredRebuildFidelity.CompileAuthoredBody(
