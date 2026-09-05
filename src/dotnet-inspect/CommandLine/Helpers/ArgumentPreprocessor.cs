@@ -214,9 +214,11 @@ public static class ArgumentPreprocessor
         "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
-    internal static bool IsImplicitPackageCandidate(string[] args)
+    internal static bool IsImplicitPackageCandidate(
+        string[] args,
+        bool directionPresence = false)
     {
-        int firstPositional = FindFirstPositionalArgument(args);
+        int firstPositional = FindFirstPositionalArgument(args, directionPresence);
         if (firstPositional < 0
             || KnownCommands.Contains(args[firstPositional]))
         {
@@ -255,6 +257,9 @@ public static class ArgumentPreprocessor
     /// Pre-processes args to handle implicit package command and platform framework shorthands.
     /// </summary>
     public static string[] PreprocessArgs(string[] args)
+        => PreprocessArgs(args, directionPresence: false);
+
+    internal static string[] PreprocessArgs(string[] args, bool directionPresence)
     {
         // Reset HeadLines for each preprocessing call
         HeadLines = null;
@@ -274,7 +279,7 @@ public static class ArgumentPreprocessor
         args = EscapeAtCategoryPathValues(args);
         args = RewriteValuedPlatformForSearchCommands(args);
 
-        int firstPositional = FindFirstPositionalArgument(args);
+        int firstPositional = FindFirstPositionalArgument(args, directionPresence);
         if (firstPositional >= 0 && !KnownCommands.Contains(args[firstPositional]))
         {
             if (CommandLineHelpers.TryClassifyAsFilePath(args[firstPositional], out var dllPath, out var nupkgPath))
@@ -298,7 +303,9 @@ public static class ArgumentPreprocessor
         return args;
     }
 
-    private static int FindFirstPositionalArgument(string[] args)
+    internal static int FindFirstPositionalArgument(
+        string[] args,
+        bool directionPresence = false)
     {
         for (int i = 0; i < args.Length; i++)
         {
@@ -309,7 +316,8 @@ public static class ArgumentPreprocessor
             }
 
             var optionName = token.Split('=', 2)[0];
-            if (TrySkipSeparatedDirectionValue(args, ref i, args.Length))
+            if (!directionPresence
+                && TrySkipSeparatedDirectionValue(args, ref i, args.Length))
             {
                 continue;
             }

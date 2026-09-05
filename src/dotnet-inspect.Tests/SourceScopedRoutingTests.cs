@@ -825,24 +825,33 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--versions", "--head", "false")]
-    [InlineData("--versions", "--tail", "false")]
-    [InlineData("--versions", "--head", "true")]
-    [InlineData("--versions", "--tail", "true")]
-    [InlineData("--versions-with-feed", "--head", "false")]
-    [InlineData("--versions-with-feed", "--tail", "false")]
-    [InlineData("--versions-with-feed", "--head", "true")]
-    [InlineData("--versions-with-feed", "--tail", "true")]
+    [InlineData("--versions", "--head", "false", false)]
+    [InlineData("--versions", "--tail", "false", false)]
+    [InlineData("--versions", "--head", "true", false)]
+    [InlineData("--versions", "--tail", "true", false)]
+    [InlineData("--versions-with-feed", "--head", "false", false)]
+    [InlineData("--versions-with-feed", "--tail", "false", false)]
+    [InlineData("--versions-with-feed", "--head", "true", false)]
+    [InlineData("--versions-with-feed", "--tail", "true", false)]
+    [InlineData("--versions", "--head", "false", true)]
+    [InlineData("--versions", "--tail", "false", true)]
+    [InlineData("--versions", "--head", "true", true)]
+    [InlineData("--versions", "--tail", "true", true)]
+    [InlineData("--versions-with-feed", "--head", "false", true)]
+    [InlineData("--versions-with-feed", "--tail", "false", true)]
+    [InlineData("--versions-with-feed", "--head", "true", true)]
+    [InlineData("--versions-with-feed", "--tail", "true", true)]
     public async Task PackageVersionListing_DirectionPreservesBooleanPackageInput(
         string selector,
         string modifier,
-        string packageName)
+        string packageName,
+        bool implicitCommand)
     {
         var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
             packageName,
             ["1.0.0", "2.0.0"],
             [
-                "package",
+                .. implicitCommand ? Array.Empty<string>() : new[] { "package" },
                 selector,
                 modifier,
                 packageName,

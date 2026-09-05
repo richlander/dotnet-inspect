@@ -159,6 +159,11 @@ This adapter is installed only for the plural package-version lenses. Existing
 rendered-line compatibility behavior for other command surfaces and the
 general implicit-routing envelope remain unchanged.
 
+Existing options-first implicit package routing preserves direction-modifier
+presence arity when a prospective package parse owns the selected plural lens.
+Explicit commands and selector-shaped required values retain their existing
+binding. This does not implement the general route-independent envelope below.
+
 ## Convention and deliberate divergence
 
 GNU `head` and `tail` establish the familiar short count gesture and
@@ -597,7 +602,7 @@ The plural package-version adoption is enforced by:
 | `Versions_ZeroArityFlagsPreserveFollowingPackageInput` | New plural selectors and line modifiers are zero-arity: following Boolean-shaped package input remains positional rather than disabling the flag. |
 | `Versions_ModifierRequiresCountReportsUsableRemedy` | A range does not satisfy a modifier's missing count; its diagnostic requests `-n`, and adding that count succeeds. |
 | `Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy` | Removed valued-direction syntax recommends `-n` rather than unsupported row counts for both explicit and implicit plural lenses, and the corrected command succeeds. |
-| `PackageVersionListing_DirectionPreservesBooleanPackageInput` | Both plural lenses preserve Boolean-shaped package names immediately following either direction modifier and select the correct complete version row. |
+| `PackageVersionListing_DirectionPreservesBooleanPackageInput`, `PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection`, and `PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue` | Explicit and options-first implicit plural lenses preserve Boolean-shaped package names after either direction modifier and select the correct row; required selector-shaped values and explicit search retain legacy direction binding. |
 | `Versions_ValuedSelectorReportsReplacement`, `Versions_ValuedSelectorHonorsRequiredValueOwnership`, `Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership`, `PackageSearch_ValuedVersionSelectorDoesNotReportAdoptedReplacement`, and `UnadoptedCommand_ValuedVersionSelectorDoesNotReportAdoptedReplacement` | Both zero-arity selectors reject their former valued spelling, including overflow and after compact counts, before routing can reinterpret the number as a package target, while explicit and implicit required option values, package search, and unadopted commands do not receive guidance for an unselected lens. |
 | `Versions_ConflictingSelectorsRejectBeforeAcquisition` and `Versions_ValuedSingularSelectorConflictsBeforeAcquisition` | A selected plural package-version lens conflicts visibly with another plural or any bare, separated-valued, or attached-valued singular version selector before acquisition. |
 | `ExplicitCoordinateSemanticSingleVersion_PreservesRequestedRow` | Semantic single-row selection preserves an explicitly pinned package coordinate or `@latest` request without restoring plural source-side limits. |

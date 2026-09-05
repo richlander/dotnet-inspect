@@ -936,6 +936,27 @@ public class CommandLineTests
     }
 
     [Theory]
+    [InlineData("--out")]
+    [InlineData("--nugetconfig")]
+    public void PreprocessArgs_RequiredSelectorValuePreservesLegacyDirection(string option)
+    {
+        string[] result = CommandLineBuilder.PreprocessArgs(
+            [option, "--versions", "--head", "false", "normal", "-n", "1"]);
+
+        Assert.Equal(
+            ["router", "normal", option, "--versions", "--head", "false", "-n", "1"],
+            result);
+    }
+
+    [Fact]
+    public void PreprocessArgs_ExplicitSearchRetainsBooleanDirectionValue()
+    {
+        string[] args = ["--head", "true", "find", "Example", "--versions"];
+
+        Assert.Equal(args, CommandLineBuilder.PreprocessArgs(args));
+    }
+
+    [Theory]
     [InlineData("--head", "true")]
     [InlineData("--head", "false")]
     [InlineData("--tail", "true")]

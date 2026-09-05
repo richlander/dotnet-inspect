@@ -80,7 +80,9 @@ public static class CommandLineBuilder
             rawParse.CommandResult.Command.Name
                 == PackageCommand.Name;
         bool isImplicitPackageVersionCandidate =
-            ArgumentPreprocessor.IsImplicitPackageCandidate(args);
+            ArgumentPreprocessor.IsImplicitPackageCandidate(
+                args,
+                UsesImplicitVersionDirectionPresence(args, rootCommand));
         bool supportsValuedVersionSelectorGuidance =
             isExplicitPackageVersionCommand
             || isImplicitPackageVersionCandidate;
@@ -121,7 +123,9 @@ public static class CommandLineBuilder
         string[] args,
         RootCommand rootCommand)
     {
-        string[] processed = ArgumentPreprocessor.PreprocessArgs(args);
+        string[] processed = ArgumentPreprocessor.PreprocessArgs(
+            args,
+            UsesImplicitVersionDirectionPresence(args, rootCommand));
         ParseResult parseResult = rootCommand.Parse(processed);
         if (processed.FirstOrDefault() == "router"
             || CliRowSelectionCommandRegistry.OwnsShortLimit(
@@ -134,6 +138,27 @@ public static class CommandLineBuilder
         return ArgumentPreprocessor.RewriteLineWindowShorthand(
             parseResult,
             processed);
+    }
+
+    private static bool UsesImplicitVersionDirectionPresence(
+        string[] args,
+        RootCommand rootCommand)
+    {
+        if (args.Length == 0
+            || !args[0].StartsWith('-')
+            || !args.Any(static argument => argument is "--head" or "--tail"))
+            return false;
+
+        int firstPositional = ArgumentPreprocessor.FindFirstPositionalArgument(args);
+        if (firstPositional >= 0 && KnownCommands.Contains(args[firstPositional]))
+            return false;
+        if (!ArgumentPreprocessor.IsImplicitPackageCandidate(args, directionPresence: true))
+            return false;
+
+        string[] packageArgs = [PackageCommand.Name, .. args];
+        return CliRowSelectionCommandRegistry.OwnsShortLimit(
+            rootCommand.Parse(packageArgs),
+            packageArgs);
     }
 
     public static void ApplyParsedLineWindow(
