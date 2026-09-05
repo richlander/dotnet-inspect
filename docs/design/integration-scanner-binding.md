@@ -7,8 +7,10 @@ owned by [Integrations](integrations.md). The observation, binding, and selected
 operation substrate is implemented under
 [#5902](https://github.com/richlander/dotnet-inspect/issues/5902).
 Existing full-library inspection and Census behavior is unchanged.
-Application-catalog registration and CLI/browser selection remain later
-adoption steps; their gates remain planned and unverified.
+Application-catalog registration is implemented under
+[#5935](https://github.com/richlander/dotnet-inspect/issues/5935), reusing the
+Aspire compatibility binding. CLI/browser selection remains later adoption;
+its gates remain planned and unverified.
 
 **Claim:** Integration orchestration supplies an immutable, decoded observation
 context to one selected static semantic scanner and projects its classifications
@@ -286,7 +288,7 @@ non-normative end-to-end tracker. This scanner track has **six steps**:
    scanner facade, add the opaque binding and selected operation, and prove
    parity with the current classifier/projection/presence paths. Existing
    library inspection is the production consumer of the extraction.
-3. **Application catalog adoption:** expose the Aspire scanner binding under
+3. **Application catalog adoption (#5935):** expose the Aspire scanner binding under
    the pack owner's existing static selection contract. During migration,
    reuse the owner-side Aspire interpretation through a compatibility adapter
    rather than maintain two independently edited semantic policies.
@@ -318,7 +320,9 @@ var rows = session.EcosystemIntegrations(
     EcosystemIntegrationScanner.AspireBinding);
 ```
 
-Catalog selection remains a later adoption step. The scenario is:
+Catalog consumers obtain the same binding through the
+[pack selection surface](ecosystem-packs.md#integration-scanner-binding).
+CLI/browser selection remains staged. The scenario is:
 
 ```text
 Select: ecosystem.aspire / Integration

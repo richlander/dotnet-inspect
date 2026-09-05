@@ -1432,8 +1432,9 @@ Implementation proceeds in focused owner order:
 3. The Research completion becomes available to the separately owned rank-5
    direct-member and rank-6 publication efforts; this design specifies neither
    adoption.
-4. Source remains a later dependent producer and body-signal target migration
-   follows
+4. Source remains outside the local catalog; its
+   [authored-source composition](#research-authored-source-comparison) owns
+   its prerequisites. Body-signal target migration follows
    [#4777](https://github.com/richlander/dotnet-inspect/issues/4777)
    independently.
 
@@ -1464,15 +1465,16 @@ This boundary does not define:
 Research delivery step 12 of
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706), advancing
 Slice 4 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
-The independent-population behavior below is **unimplemented and unverified**.
+The independent-population and bounded selected-member behavior below are
+**unimplemented and unverified**.
 `ILInspector.Research` is the single owner.
 
 The claim is:
 
-> Requested authored-source comparison accounts for the selected admitted
-> member population independently of C#/IL change verdicts, preserves each
-> endpoint's verified source evidence or non-success, and never changes what
-> either local mechanism reports.
+> Requested authored-source comparison accounts for its selected member
+> targets independently of C#/IL execution and change verdicts, preserves
+> each endpoint's verified source evidence or non-success, and never changes
+> what either local mechanism reports.
 
 ### Existing behavior and design basis
 
@@ -1483,12 +1485,12 @@ changed-member projection. No local changes means no Source acquisition.
 That is enrichment of known implementation changes, not independent discovery
 of authored changes across two versions.
 
-The smallest sufficient change is to compose Source over the admitted target
-population rather than that changed-row list. Reuse the existing Research
-association, Findings topology, and exact text-line mechanism; do not introduce
-a second member matcher, C# parser, or equivalence oracle. Conventional
-two-revision text diffs are the baseline. Their lines are useful evidence, but
-file names and line alignment do not establish member identity.
+The smallest sufficient change is to compose Source over the requested
+targets rather than that changed-row list. Conventional two-revision text
+comparison is the baseline. Reuse exact member resolution, source acquisition,
+Findings, and the existing text-line mechanism rather than introduce a second
+member matcher, C# parser, or equivalence oracle. File names and line alignment
+do not establish member identity.
 
 The analogous local implementation is the existing PDB-source enrichment,
 including its separately labelled unavailable and failed rows. The
@@ -1498,54 +1500,86 @@ for **one** MethodDef. Its
 [presentation adapter](member-source-diff-presentation.md) aligns those unlike
 representations; that normalization is not a two-version authored-source policy.
 
-### Immediate input and output boundary
+### Bounded selected-member composition
 
-Research consumes the exact admitted operation, its owner-issued target
-correspondence or designated-pair association, and completed local prerequisite
-accounting. It also consumes the side-associated verified source snapshots or
-typed acquisition non-success supplied by acquisition step 11. That acquisition
-contract and runtime remain prerequisites; the current caller-supplied
-`FindingInspection<string>` plus a display subject is not a substitute for
-their exact association.
+The first consumer is one explicitly selected member across two versions of
+the same package. Each successful endpoint resolves the requested metadata
+type and member anchor in its own retained image. Before and After have their
+own physical MethodDef tokens; resolving one does not resolve the other.
+Unresolved or ambiguous selection retains a typed non-success. This bounded
+operation does not discover renamed members, sweep a package, or infer
+cross-version correspondence.
 
-The snapshot boundary must supply enough owner-issued evidence to identify the
-retained source occurrence and physical method, the vouched source unit and
-text, document/checksum provenance, and unavailable or failed acquisition.
-Research consumes that evidence; it does not define how Services constructs,
-verifies, slices, bounds, or retains it. Step 11 must settle the concrete
-contract before step 12 implementation. No URL fetch, Git lookup, PDB reader,
-source reparsing, or host capability policy moves into this composition.
+For this bounded composition, the existing per-context source evidence is a
+sufficient association basis when retained together:
 
-The result retains the selected target association, both side-local source
-outcomes, and the native `text.line` inspection/comparison when applicable.
-Document checksum evidence remains attached to the document from which the
-member text was extracted, not mislabelled as a checksum of normalized text.
-It distinguishes exact byte correspondence from the acquisition owner's
-accepted line-ending-normalized correspondence. Neither establishes repository
-authenticity or proves which physical syntax tree produced the shipped IL.
+- `AssemblyContextSubject` retains the acquisition registration, assembly
+  identity, and provenance without content-opening authority;
+- `AssemblyMemberSourceRequest` retains the metadata type, member anchor, and
+  physical token validated by the source query against that retained image;
+- the product-issued `PdbMemberSourceInspection` retains the mapped member,
+  document, checksum decision, vouched declaration text, and acquisition
+  outcome; and
+- the ordered Before/After association retains which query endpoint supplied
+  each inspection, including when the metadata identities or tokens coincide.
 
-This composition does not add Source to the closed **local** C#/IL catalog or
-redefine local session completion. Successful local prerequisite accounting
-does not mean equal implementations: a completed native producer may contain
-different or unavailable evidence. Source eligibility depends on its exact
-target and source inputs, not a favorable C# or IL verdict. Rejected, failed,
-or cancelled prerequisite operations cannot be promoted into a completed
-Source operation. Their existing outcomes remain visible.
+These are roles of existing owner-issued evidence, not a new Research copy
+of the Queries result algebra. The paired query retains the endpoint context
+around the native text comparison; Research's text-comparison/projection
+primitives need not depend on Queries or Services result types. A bare
+`FindingInspection<string>`, display subject, URL, MVID, or token is not that
+retained association and cannot independently substantiate a verified-source
+claim. In particular, a `ResearchSubjectKey` used for projection is not a
+replacement for either physical endpoint.
 
-### Population and association
+This explicitly replaces #5903's universal requirement for a new step-11
+snapshot boundary, an admitted Research operation, and completed local
+producer accounting **for this bounded selected-member composition**. Existing
+query-owned resolution and acquisition evidence may be composed without
+first migrating generalized comparison execution. It does not grant a caller
+authority to mint `ResearchTargetCorrespondence`, `ResearchDesignatedPair`,
+or `ResearchProducerCompletion`, or weaken those contracts. Comparing two
+selected declarations is not a proof of member correspondence.
 
-The requested population comes from the admitted selection and its complete
-Research target outcomes, before changed-only presentation filtering. Every
-selected target has Source accounting even when C# and IL are exact. A target
-without the prerequisites for acquisition/comparison retains that reason;
-it is not silently dropped. Source not requested is not Source unchanged.
+The public paired query and its typed result remain a Queries-owned adoption,
+not existing behavior supplied by this design. It must reuse the exact-member
+and PDB-acquisition machinery, not treat two ordinary PDB-or-decompiled result
+texts as authored Source. The ordinary query's decompiled fallback and the
+same-member PDB-versus-decompiled comparison remain distinct operations.
+Source-only intent does not request decompilation merely to obtain a PDB
+attempt. No new acquisition store, snapshot lifetime, or checksum policy is
+required by this Research contract.
 
-Each Before and After snapshot stays bound to its side-local source occurrence
-and exact physical target. Cross-version correspondence remains Research-owned;
-an explicit designated pair retains its different identities rather than
-claiming that designation proved correspondence. Matching file names, URLs,
-source text, bare tokens, or line positions cannot supply that association.
-Equal tokens in different images remain different physical endpoints.
+### Prerequisites, population, and outcomes
+
+Source depends on exact endpoint resolution and product-acquired verified
+member source, not on executing C# or IL or obtaining favorable local results.
+It remains outside the closed **local** producer catalog. A Source-only
+request makes no C#/IL claim. When local comparison is also requested, retain
+its native result or failure independently; neither empty local changes nor
+a local producer failure can erase otherwise valid Source evidence.
+
+This independence does not override a failed shared prerequisite: rejected
+image access, invalid target resolution, invalidated query evidence,
+cancellation, or failed cleanup cannot be promoted into successful Source
+comparison. Consume those outcomes under their existing owners; this section
+does not define acquisition, binding-policy, lifetime, or publication protocols.
+An independently retained Source result does not turn a failed enclosing
+operation into a successful one.
+
+Every target in the requested scope has Source accounting before changed-only
+presentation filtering, including unchanged targets and those without usable
+source. Source not requested is not Source unchanged. In the bounded pair,
+failure to resolve an endpoint is not proof that a declaration was removed.
+
+Broader population integration still consumes the admitted selection and
+complete Research target outcomes. Its source evidence must remain bound to
+the side-local admitted occurrence and physical target; a detached bounded-pair
+result cannot establish that association or population completeness.
+Generalized snapshot/admission work remains separately tracked in #4706.
+Cross-version correspondence and positive `SubjectAbsent` proof stay
+Research-owned. This bounded amendment does not implement or retire that
+broader path.
 
 The comparison unit is the source owner's vouched member declaration, not the
 whole repository or every declaration in a fetched file. For an accessor that
@@ -1553,6 +1587,13 @@ unit may be its containing property/event; retain that scope rather than
 labelling the observation an accessor-body-only edit. Research does not expand
 ambiguous, partial, or unsupported source into a plausible member. Missing
 evidence for a compatible comparison unit is unavailable.
+
+The retained result keeps both endpoint outcomes and provenance alongside the
+native `text.line` comparison when applicable. The document checksum remains
+evidence about the document from which the member was extracted, not a checksum
+of normalized member text. Preserve the acquisition owner's distinction between
+exact bytes and accepted line-ending-normalized correspondence. Neither proves
+repository authenticity or identifies the physical syntax tree that produced IL.
 
 ### Text and outcome semantics
 
@@ -1572,13 +1613,15 @@ establish unchanged source.
 
 Missing symbols, mapping, verified bytes, or a vouched declaration for a
 present member mean unavailable Source, not an added/removed declaration.
-Retain native endpoint topology and acquisition reasons; do not project
-one-sided `NoApplicableInput` as an authored edit merely because the other
-side has text. Only Research's positive `SubjectAbsent` proof may support
-one-sided member addition/removal evidence, with verified text on the present
-side. That evidence describes subject topology, not a two-text modification.
-An acquisition or inspection failure stays failed evidence, never unchanged
-or a semantic edit.
+Retain both endpoint outcomes and acquisition reasons, but compare text only
+when both source units are complete and compatible. Do not pass one-sided
+`NoApplicableInput` through generic line comparison and present the resulting
+additions/removals as authored edits. In broader population integration, only
+Research's positive `SubjectAbsent` proof may support one-sided member
+addition/removal evidence, with verified text on the present side. That is
+subject topology, not a two-text modification, and is outside the bounded
+pair's claim. Acquisition or inspection failure stays failed evidence, never
+unchanged or a semantic edit.
 
 Source non-success does not discard completed C#/IL evidence. No combined
 `IsExact` conclusion substitutes for the three mechanism outcomes. Source
@@ -1588,24 +1631,34 @@ the decompiler, compiler, author, or build environment.
 
 ### Consumer adoption and retirement
 
-The consumers are the existing CLI Implementation Diff and the planned
-browser/Wasm workspace comparison. #4706 remains the single counted adoption
-and retirement ledger: **18 delivery steps**, with **13 on each Source-enabled
-host path**. CLI uses steps 1, 2, 3, 4, 5, 18, 6, 7, 8, 11, 12, 13, 14;
-browser uses 9 instead of 8 and 15 instead of 14. These shared steps are not
-summed, and this design is not another delivery step.
+The consumers are the existing CLI Implementation Diff and the browser's
+selected-member two-version Source view under
+[#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706) remains the
+single counted adoption/retirement ledger. Its consumer-first Source route
+follows [#5865](https://github.com/richlander/dotnet-inspect/issues/5865):
+S1 contract alignment, S2 paired Queries operation, S3 CLI adoption, S4 browser
+facade, S5 browser view/state, and S6 scoped cleanup. That is six milestones;
+CLI reaches adoption through S1-S3, browser through S1/S2/S4/S5. Shared work is
+not summed, and this amendment is S1, not another delivery step.
 
-Step 11 supplies acquisition; this section owns Research step 12; Queries
-step 13 supplies public execution/publication; CLI step 14 and browser step 15
-adopt it after their local paths. This is sequencing, not a definition of
-those owners' internals. The user-visible population change lands through
-those host adoptions, not by claiming this documentation changes the command.
+Keep S2 adjacent to its S3 production adopter and S4 adjacent to S5, with
+shared runtime no more than one unmerged PR ahead of its adopting host.
+Research's existing native text mechanisms are the comparison substrate, not
+another standalone producer implementation prerequisite. If implementation
+exposes a necessary additional owner contract or runtime delivery, record and
+recount it before starting. The broader architecture migration and its host
+paths in #4706 remain incomplete, not assumed prerequisites for this bounded
+Source experience. This is sequencing, not a definition of those owners'
+internals or a claim that either host already implements the change.
 
-During migration, replace the old caller-provided Source attachment, including
-`CompareMembersWithPdbSource`, and CLI changed-member-only acquisition. Preserve
-their supported comparisons and typed failures through the new path rather
-than retaining a hidden legacy route. Queries and Research final retirement
-remain steps 16 and 17; this design does not complete them.
+Replace the CLI's changed-member-only attachment for the migrated scope.
+Preserve supported broader comparisons and typed failures while their
+consumers remain unmigrated; inventory them explicitly rather than claim a
+complete cutover. Scoped cleanup removes replaced dispatch and unused
+Source-specific scaffolding, not ordinary single-version Source or same-member
+PDB-versus-decompiled comparison. `CompareMembersWithPdbSource` and generalized
+Queries/Research retirement remain in #4706 until their actual callers move.
 
 Structured endpoint outcomes, native comparisons, and provenance survive to
 presentation. Host adoptions use the shared Markout lowering for ordinary CLI
@@ -1638,8 +1691,10 @@ After adoption:
 
 The neighboring case has equal authored text but different shipped IL: Source
 is unchanged while the IL difference remains. With one endpoint's PDB absent,
-Source is unavailable, not a removed declaration. The browser's corresponding
-two-version selection consumes the same outcome evidence, not CLI output.
+Source is unavailable, not a removed declaration or decompiled substitute.
+The browser's two-version Source selection consumes the same Source evidence,
+not CLI output. In a Source-only request, C# and IL are not requested, not
+reported unchanged.
 
 Planned Release gates below are **unimplemented and unverified**. The existing
 `ResearchDiffTests` Source comparison cases and
@@ -1648,16 +1703,17 @@ cover legacy projection only; they do not prove population independence.
 
 | Gate owner | Required observation |
 | --- | --- |
-| Research step 12 | A real compiler-produced constant-folding pair has exact C#/IL and changed verified Source; the member remains accounted for. |
-| Research step 12 | Equal source with differing IL retains both outcomes; unavailable or failed Source preserves completed local evidence. |
-| Research step 12 | Source request accounts for selected unchanged, changed, and unavailable targets; no request makes no Source claim. |
-| Research step 12 | Present member with one unavailable source has no authored addition/removal; positive member absence retains its distinct topology. |
-| Research step 12 | Two exact methods with the same token in different images retain their own source evidence; a source-unit mismatch stays unavailable. |
-| Research step 12 | Changes to comments, directives, literals, and declaration scope follow retained text semantics rather than decompiler formatting policy. |
-| Queries/CLI/browser steps 13-15 | Public two-version selection demonstrates the same Source-only change and unavailable neighbor with explicit acquisition capability and independent local results. |
+| Queries S2 / CLI S3 | A real compiler-produced constant-folding pair has exact C#/IL and changed verified Source; an empty local change list does not suppress that member. |
+| Queries S2 | Source-only intent acquires the two PDB endpoints without executing local producers. Equal source, unavailable source, and failed source remain distinct. |
+| Queries S2 / CLI S3 | Equal source with differing IL retains both outcomes; local producer failure does not erase valid Source, and Source non-success preserves native local evidence. |
+| Queries S2 | Same-token/different-image requests retain their own acquisition registration, exact member request, and source evidence. Unresolved or ambiguous targets and incompatible source units cannot yield a two-text verdict. |
+| Queries S2 | Unavailable PDB source is not decompiled fallback or an authored addition/removal. Invalidated or cancelled query evidence and cleanup failure cannot produce a successful comparison. |
+| Queries S2 | Comments, directives, literals, and declaration scope follow retained text semantics rather than decompiler formatting policy. |
+| CLI S3 / browser S4-S5 | Explicit two-version selection exposes the same Source-only change and unavailable neighbor through ordinary output/view paths; unrequested local mechanisms make no comparison claim. |
+| Broader Research step 12 | Admitted population accounting includes unchanged, changed, and unavailable targets; positive subject absence remains distinct from unavailable source, and a bounded pair cannot stand in for that population. |
 
-Acquisition fixtures exercise product-owned verification and member extraction,
-not caller-invented success snapshots. A pinned real-package demonstration
+Acquisition fixtures exercise product-owned verification, member extraction,
+and exact query resolution, not caller-invented success snapshots. A pinned real-package demonstration
 supplements the hermetic compiler fixture at host adoption; network availability
 does not become a unit-test oracle. This pure evidence composition adds no
 concurrent protocol requiring a new model. It adds no new platform exception;
