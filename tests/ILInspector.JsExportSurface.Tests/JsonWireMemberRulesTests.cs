@@ -209,6 +209,50 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void JsonIncludedMembersRequireAccessibleSameAssemblyValueTypes()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "HiddenValue"]))
+                .Name;
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Fixture.Dto.HiddenValue",
+            hiddenDefinition);
+        var hiddenType = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Dto.HiddenValue",
+            DefinitionName = hiddenDefinition,
+            Accessibility = "private",
+            Kind = "enum",
+        };
+        ApiMember member = Property();
+        member.HasJsonInclude = true;
+        member.SignatureModel = new ApiSignature
+        {
+            ReturnType = "Fixture.Dto.HiddenValue",
+            ReturnTypeReferences = [hiddenReference],
+        };
+
+        Assert.False(
+            JsonWireMemberRules.IsSerialized(
+                member,
+                assembly,
+                new Dictionary<ApiTypeReferenceIdentity, ApiType>
+                {
+                    [hiddenReference] = hiddenType,
+                }));
+    }
+
+    [Fact]
     public void GetterOnlyDeserializePropertyRequiresConstructorEvidence()
     {
         ApiMember getterOnly = Property();

@@ -2704,6 +2704,22 @@ public sealed class DtsEmitterTests
         Assert.Contains("  readonly IncludedInternalField: string;", dts, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SourceGeneratedJson_OmitsJsonIncludedMembersWithInaccessibleValueTypes()
+    {
+        string json = JsonSerializer.Serialize(
+            new SourceGeneratedJsonIncludeHiddenTypeFixture(),
+            ControlPropertyNameFixtureJsonContext.Default
+                .SourceGeneratedJsonIncludeHiddenTypeFixture);
+
+        Assert.Contains(
+            "\"Public\":\"public\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("hiddenProperty", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("hiddenField", json, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(nameof(InheritedWireDerivedFixture))]
     [InlineData(nameof(NumberHandlingWireFixture))]

@@ -1245,8 +1245,9 @@ public class ApiMember
 
     /// <summary>
     /// True when the member carries <c>[JsonInclude]</c>. Source-generated STJ
-    /// can honor the opt-in only when the generated context can access the
-    /// member or relevant accessor.
+    /// can honor the opt-in for non-public accessors and fields, but
+    /// same-assembly named value types still participate only when the
+    /// generated context can access those types.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool HasJsonInclude { get; set; }

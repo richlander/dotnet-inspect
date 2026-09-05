@@ -1,5 +1,6 @@
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
+using ILInspector.JsExportSurface.TypeScriptFixtures;
 using TsJsExport;
 using TsJsExport.ContextFixtures.Alpha;
 using TsJsExport.ContextFixtures.Host;
@@ -93,6 +94,51 @@ public sealed class TsJsExportCommandTests
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.Equal(existing, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_OmitsJsonIncludedMembersWhoseValueTypesAreInaccessible()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-hidden-jsoninclude-{Guid.NewGuid():N}.ts");
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(TypeScriptFixtureExports).Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Empty(error.ToString());
+
+            string source = File.ReadAllText(outputPath);
+            Assert.Contains(
+                """
+                export interface HiddenTypeJsonIncludeDto {
+                  readonly public: string;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("hiddenProperty", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("hiddenField", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("HiddenValue", source, StringComparison.Ordinal);
         }
         finally
         {

@@ -457,7 +457,10 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member)
+                if (!JsonWireMemberRules.IsSerialized(
+                        member,
+                        surface.AssemblyIdentity,
+                        typesByScopedIdentity)
                     || member.JsonConverterAttributeCount > 0)
                     continue;
                 if (member.SignatureDecodeStatus
@@ -515,6 +518,7 @@ public static class JsExportSurfaceBuilder
             Enums = enums,
             WireDirections = ResolveWireDirections(
                 functions,
+                surface.AssemblyIdentity,
                 typesByScopedIdentity,
                 discovered),
         };
@@ -539,6 +543,7 @@ public static class JsExportSurfaceBuilder
     /// </remarks>
     static Dictionary<ApiType, JsonWireDirection> ResolveWireDirections(
         List<JsExportFunction> functions,
+        ApiAssemblyIdentity? assemblyIdentity,
         Dictionary<ApiTypeReferenceIdentity, ApiType> typesByScopedIdentity,
         HashSet<ApiType> discovered)
     {
@@ -585,7 +590,11 @@ public static class JsExportSurfaceBuilder
 
             foreach (ApiMember member in type.Members)
             {
-                if (!JsonWireMemberRules.IsSerialized(member, direction)
+                if (!JsonWireMemberRules.IsSerialized(
+                        member,
+                        direction,
+                        assemblyIdentity,
+                        typesByScopedIdentity)
                     || member.JsonConverterAttributeCount > 0
                     || member.SignatureModel is null)
                 {

@@ -14,6 +14,22 @@ public static class JsonWireMemberRules
         IsSerialized(member, JsonWireDirection.Both);
 
     /// <summary>
+    /// The direction-independent membership rule, additionally requiring every
+    /// same-assembly named value type to remain accessible to the generated
+    /// serializer context.
+    /// </summary>
+    public static bool IsSerialized(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        IsSerialized(
+            member,
+            JsonWireDirection.Both,
+            assemblyIdentity,
+            typesByScopedIdentity);
+
+    /// <summary>
     /// True when the member appears in the contract for at least one of the
     /// requested <paramref name="directions"/>.
     /// </summary>
@@ -47,6 +63,23 @@ public static class JsonWireMemberRules
     }
 
     /// <summary>
+    /// True when the member appears in the contract for at least one of the
+    /// requested <paramref name="directions"/>, and every same-assembly named
+    /// value type remains accessible to the generated serializer context.
+    /// </summary>
+    public static bool IsSerialized(
+        ApiMember member,
+        JsonWireDirection directions,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            && IsSerialized(member, directions);
+
+    /// <summary>
     /// True when the member's presence differs between serialization and
     /// deserialization, which is exactly when one declaration cannot describe
     /// both directions.
@@ -54,6 +87,27 @@ public static class JsonWireMemberRules
     public static bool IsDirectionSensitive(ApiMember member) =>
         IsSerialized(member, JsonWireDirection.Serialize)
             != IsSerialized(member, JsonWireDirection.Deserialize);
+
+    /// <summary>
+    /// True when the member's presence differs between serialization and
+    /// deserialization after accounting for same-assembly value-type
+    /// accessibility.
+    /// </summary>
+    public static bool IsDirectionSensitive(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        IsSerialized(
+            member,
+            JsonWireDirection.Serialize,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            != IsSerialized(
+                member,
+                JsonWireDirection.Deserialize,
+                assemblyIdentity,
+                typesByScopedIdentity);
 
     /// <summary>
     /// True when deserialization may bind a getter-only property, or a
@@ -98,6 +152,25 @@ public static class JsonWireMemberRules
                 member.Accessibility,
                 member.HasJsonInclude);
     }
+
+    /// <summary>
+    /// True when deserialization may bind the member through a constructor
+    /// shape this projection does not currently model, provided the member's
+    /// value type remains accessible to the generated serializer context.
+    /// </summary>
+    public static bool RequiresConstructorBindingEvidence(
+        ApiType declaringType,
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity) =>
+        HasAccessibleValueType(
+            member,
+            assemblyIdentity,
+            typesByScopedIdentity)
+            && RequiresConstructorBindingEvidence(
+                declaringType,
+                member);
 
     /// <summary>
     /// True when the member carries authentic <c>[JsonIgnore]</c> metadata that
@@ -181,4 +254,97 @@ public static class JsonWireMemberRules
             : memberAccessibility;
         return hasJsonInclude || accessibility is null;
     }
+
+    static bool HasAccessibleValueType(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        if (assemblyIdentity is null)
+            return true;
+
+        IReadOnlyList<ApiTypeReferenceIdentity>? references =
+            member.SignatureModel?.ReturnTypeReferences;
+        if (references is null || references.Count == 0)
+            return true;
+
+        return references.All(reference =>
+            IsAccessibleValueTypeReference(
+                reference,
+                assemblyIdentity,
+                typesByScopedIdentity));
+    }
+
+    static bool IsAccessibleValueTypeReference(
+        ApiTypeReferenceIdentity reference,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        if (!reference.Assembly.Equals(assemblyIdentity))
+            return true;
+
+        return typesByScopedIdentity.TryGetValue(
+                reference,
+                out ApiType? type)
+            && IsAccessibleValueType(
+                type,
+                assemblyIdentity,
+                typesByScopedIdentity);
+    }
+
+    static bool IsAccessibleValueType(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        if (!IsSourceGeneratorTypeAccessible(type.Accessibility))
+            return false;
+
+        if (type.DefinitionName?.Segments.Length is not > 1)
+            return true;
+
+        ApiTypeReferenceIdentity? declaringTypeIdentity =
+            DeclaringTypeIdentity(type, assemblyIdentity);
+        return declaringTypeIdentity is not null
+            && typesByScopedIdentity.TryGetValue(
+                declaringTypeIdentity,
+                out ApiType? declaringType)
+            && IsAccessibleValueType(
+                declaringType,
+                assemblyIdentity,
+                typesByScopedIdentity);
+    }
+
+    static ApiTypeReferenceIdentity? DeclaringTypeIdentity(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity)
+    {
+        if (type.DefinitionName?.Segments.Length is not > 1)
+            return null;
+
+        int separator = type.FullName.LastIndexOf('.');
+        if (separator < 0)
+            return null;
+
+        MetadataTypeDefinitionNameResult parentName =
+            MetadataTypeDefinitionName.Create(
+                type.DefinitionName.Namespace,
+                [.. type.DefinitionName.Segments[..^1]]);
+        return parentName is MetadataTypeDefinitionNameResult.Valid
+            {
+                Name: var definitionName,
+            }
+            ? new ApiTypeReferenceIdentity(
+                assemblyIdentity,
+                type.FullName[..separator],
+                definitionName)
+            : null;
+    }
+
+    static bool IsSourceGeneratorTypeAccessible(
+        string? accessibility) =>
+        accessibility is null or "internal" or "protected internal";
 }

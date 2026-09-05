@@ -89,6 +89,26 @@ internal sealed class SourceGeneratedJsonIncludeAccessibilityFixture
 #pragma warning restore SYSLIB1038
 #pragma warning restore CS0414
 
+#pragma warning disable CS0414
+internal sealed class SourceGeneratedJsonIncludeHiddenTypeFixture
+{
+    public string Public { get; set; } = "public";
+
+    [JsonInclude]
+    private HiddenValue HiddenProperty { get; set; } = HiddenValue.Value;
+
+    [JsonInclude]
+    private HiddenValue HiddenField = HiddenValue.Value;
+
+    enum HiddenValue
+    {
+        Value,
+    }
+
+    public int Read() => (int)HiddenField + (int)HiddenProperty;
+}
+#pragma warning restore CS0414
+
 internal sealed class JsonIgnoreNeverFixture
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
@@ -148,6 +168,7 @@ internal enum ControlPropertyNameEnumFixture
 
 [JsonSerializable(typeof(ControlFieldPropertyNameFixture))]
 [JsonSerializable(typeof(SourceGeneratedJsonIncludeAccessibilityFixture))]
+[JsonSerializable(typeof(SourceGeneratedJsonIncludeHiddenTypeFixture))]
 internal sealed partial class ControlPropertyNameFixtureJsonContext : JsonSerializerContext;
 
 internal sealed partial class ControlPropertyNameFixtureJsonContext
