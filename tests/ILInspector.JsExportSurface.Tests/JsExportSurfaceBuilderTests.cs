@@ -3620,6 +3620,27 @@ public sealed class JsExportSurfaceBuilderTests
     }
 
     [Fact]
+    public void Build_RejectsContextRelativeJsonIncludeValueTypeAccessibility()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(NestedContextJsonIncludeHiddenTypeFixture)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+
+        UnsupportedJsExportSurfaceException ex =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "[JsonInclude] members whose same-assembly value types depend on nested JsonSerializerContext accessibility are unsupported",
+            ex.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Extract_DecodesByteBackedReadCommentHandlingOption()
     {
         using FileStream stream = File.OpenRead(

@@ -32,6 +32,19 @@ public sealed class JsExportSurface
     public IReadOnlyList<ApiType> Enums { get; init; } = [];
 
     /// <summary>
+    /// Complete extracted same-assembly type inventory available when the
+    /// surface came from <see cref="JsExportSurfaceBuilder"/> rather than a
+    /// hand-composed test fixture.
+    /// </summary>
+    /// <remarks>
+    /// Consumers use this only for same-assembly wire-contract decisions that
+    /// must distinguish "not discovered for emission" from "not present in the
+    /// assembly at all".
+    /// </remarks>
+    [JsonIgnore]
+    public IReadOnlyList<ApiType> AllTypes { get; init; } = [];
+
+    /// <summary>
     /// The wire directions each declared type was reached in, keyed by the
     /// <see cref="ApiType"/> instances published in <see cref="Records"/> and
     /// <see cref="Enums"/>.

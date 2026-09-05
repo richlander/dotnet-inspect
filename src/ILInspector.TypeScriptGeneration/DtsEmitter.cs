@@ -47,7 +47,9 @@ static class DtsEmitter
             declaredTypesByScopedIdentity =
                 DeclaredTypesByScopedIdentity(
                     surface,
-                    declarationTypes);
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
         ValidateTypeNames(declarationTypes);
         ValidateWireNames(
             surface.AssemblyIdentity,
@@ -84,7 +86,9 @@ static class DtsEmitter
             declaredTypesByScopedIdentity =
                 DeclaredTypesByScopedIdentity(
                     surface,
-                    declarationTypes);
+                    TypeInventory(
+                        surface,
+                        declarationTypes));
         ValidateTypeNames(declarationTypes, allocatedTypeNames);
         ValidateWireNames(
             surface.AssemblyIdentity,
@@ -127,9 +131,9 @@ static class DtsEmitter
     static IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
         DeclaredTypesByScopedIdentity(
             ILInspector.JsExportSurface.JsExportSurface surface,
-            IEnumerable<ApiType> declarationTypes) =>
+            IEnumerable<ApiType> types) =>
         surface.AssemblyIdentity is { } assembly
-            ? declarationTypes
+            ? types
                 .Select(type => (
                     Identity: new ApiTypeReferenceIdentity(
                         assembly,
@@ -145,6 +149,13 @@ static class DtsEmitter
                     group => group.Key,
                     group => group.First().Type)
             : new Dictionary<ApiTypeReferenceIdentity, ApiType>();
+
+    static IEnumerable<ApiType> TypeInventory(
+        ILInspector.JsExportSurface.JsExportSurface surface,
+        ApiType[] declarationTypes) =>
+        surface.AllTypes.Count > 0
+            ? surface.AllTypes
+            : declarationTypes;
 
     static void EmitWireDeclarations(
         StringBuilder sb,

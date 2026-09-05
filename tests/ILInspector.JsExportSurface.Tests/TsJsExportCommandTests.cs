@@ -1,4 +1,5 @@
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.MemberConverterFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.TypeScriptFixtures;
 using TsJsExport;
@@ -139,6 +140,44 @@ public sealed class TsJsExportCommandTests
             Assert.DoesNotContain("hiddenProperty", source, StringComparison.Ordinal);
             Assert.DoesNotContain("hiddenField", source, StringComparison.Ordinal);
             Assert.DoesNotContain("HiddenValue", source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_PreservesUnsupportedMemberConverterDiagnostic()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-member-converter-{Guid.NewGuid():N}.ts");
+        const string existing = "// existing output\n";
+        try
+        {
+            File.WriteAllText(outputPath, existing);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(MemberConverterFixtureExports).Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "ConverterControlledDto.Value: unsupported custom JsonConverter has no TypeScript mapping.",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existing, File.ReadAllText(outputPath));
         }
         finally
         {

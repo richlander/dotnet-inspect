@@ -173,6 +173,50 @@ public static class JsonWireMemberRules
                 member);
 
     /// <summary>
+    /// True when a <c>[JsonInclude]</c> member references a same-assembly value
+    /// type that ordinary top-level source generation cannot access, but a
+    /// nested serializer context rooted inside the same declaring type could.
+    /// This is a real runtime distinction that the current surface model does
+    /// not project, so callers must fail visibly rather than silently drop the
+    /// member.
+    /// </summary>
+    public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (assemblyIdentity is null
+            || contextDefinitionName is null
+            || !member.HasJsonInclude)
+        {
+            return false;
+        }
+
+        IReadOnlyList<ApiTypeReferenceIdentity>? references =
+            member.SignatureModel?.ReturnTypeReferences;
+        if (references is null || references.Count == 0)
+            return false;
+
+        return references.Any(reference =>
+            reference.Assembly.Equals(assemblyIdentity)
+            && typesByScopedIdentity.TryGetValue(
+                reference,
+                out ApiType? type)
+            && !IsAccessibleValueType(
+                type,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName: null)
+            && IsAccessibleValueType(
+                type,
+                assemblyIdentity,
+                typesByScopedIdentity,
+                contextDefinitionName));
+    }
+
+    /// <summary>
     /// True when the member carries authentic <c>[JsonIgnore]</c> metadata that
     /// cannot be honored: more than one row, or a row whose constructor or
     /// <c>Condition</c> argument could not be read.
@@ -299,8 +343,22 @@ public static class JsonWireMemberRules
         ApiAssemblyIdentity assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             typesByScopedIdentity)
+        => IsAccessibleValueType(
+            type,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName: null);
+
+    static bool IsAccessibleValueType(
+        ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName)
     {
-        if (!IsSourceGeneratorTypeAccessible(type.Accessibility))
+        if (!IsSourceGeneratorTypeAccessible(
+                type,
+                contextDefinitionName))
             return false;
 
         if (type.DefinitionName?.Segments.Length is not > 1)
@@ -315,7 +373,8 @@ public static class JsonWireMemberRules
             && IsAccessibleValueType(
                 declaringType,
                 assemblyIdentity,
-                typesByScopedIdentity);
+                typesByScopedIdentity,
+                contextDefinitionName);
     }
 
     static ApiTypeReferenceIdentity? DeclaringTypeIdentity(
@@ -345,6 +404,39 @@ public static class JsonWireMemberRules
     }
 
     static bool IsSourceGeneratorTypeAccessible(
-        string? accessibility) =>
-        accessibility is null or "internal" or "protected internal";
+        ApiType type,
+        MetadataTypeDefinitionName? contextDefinitionName)
+    {
+        if (type.Accessibility is null or "internal" or "protected internal")
+            return true;
+
+        return type.Accessibility == "private"
+            && contextDefinitionName is not null
+            && type.DefinitionName is { Segments.Length: > 1 } definitionName
+            && contextDefinitionName.Namespace == definitionName.Namespace
+            && ContextIsNestedWithin(
+                contextDefinitionName.Segments,
+                definitionName.Segments[..^1]);
+    }
+
+    static bool ContextIsNestedWithin(
+        IReadOnlyList<string> contextSegments,
+        IReadOnlyList<string> declaringSegments)
+    {
+        if (contextSegments.Count <= declaringSegments.Count)
+            return false;
+
+        for (int index = 0; index < declaringSegments.Count; index++)
+        {
+            if (!string.Equals(
+                    contextSegments[index],
+                    declaringSegments[index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }

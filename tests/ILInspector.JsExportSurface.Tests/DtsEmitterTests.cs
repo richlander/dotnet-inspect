@@ -1265,6 +1265,43 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
+    public void Emit_PreservesMemberConverterDiagnosticsWhenValueTypeIsNotDeclared()
+    {
+        using FileStream stream = File.OpenRead(
+            typeof(ConverterControlledAccessibleEnumFixture)
+                .Assembly.Location);
+        using var peReader = new PEReader(stream);
+        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
+            peReader,
+            includeAll: true);
+        ApiType record = Assert.Single(
+            apiSurface.Types,
+            type => type.Name
+                == nameof(ConverterControlledAccessibleEnumFixture));
+        var diagnostics = new TypeScriptGenerationDiagnostics();
+
+        string dts = DtsEmitter.Emit(
+            new ILInspector.JsExportSurface.JsExportSurface
+            {
+                AssemblyIdentity = apiSurface.AssemblyIdentity,
+                Records = [record],
+                AllTypes = apiSurface.Types,
+            },
+            diagnostics);
+
+        Assert.Contains(
+            "  readonly ConvertedField: unknown;",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            diagnostics.UnmappedTypes,
+            diagnostic =>
+                diagnostic.Location == "ConverterControlledAccessibleEnumFixture.ConvertedField"
+                && diagnostic.CSharpType
+                    == "unsupported custom JsonConverter");
+    }
+
+    [Fact]
     public void Emit_AllowsExactlyOneSupportedStringEnumConverter()
     {
         var enumType = new ApiType
@@ -2718,6 +2755,18 @@ public sealed class DtsEmitterTests
             StringComparison.Ordinal);
         Assert.DoesNotContain("hiddenProperty", json, StringComparison.Ordinal);
         Assert.DoesNotContain("hiddenField", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SourceGeneratedJson_IncludesPrivateValueTypesWhenContextIsNested()
+    {
+        string json =
+            NestedContextJsonIncludeHiddenTypeFixture.SerializeValue();
+
+        Assert.Contains(
+            "\"HiddenField\":0",
+            json,
+            StringComparison.Ordinal);
     }
 
     [Theory]
