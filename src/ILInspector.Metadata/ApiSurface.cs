@@ -800,6 +800,12 @@ public class ApiType
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasUnionAttribute { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiTypeLayout? Layout { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiModuleMemorySafetyFacts? MemorySafety { get; set; }
+
     /// <summary>The C# enum underlying type, captured from the special <c>value__</c> field.</summary>
     public string? EnumUnderlyingType { get; set; }
 
@@ -1130,6 +1136,24 @@ public class ApiMember
     public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }
     public bool IsAsync { get; set; }
+
+    /// <summary>
+    /// Version-aware caller contract and independent signature pointer evidence.
+    /// Null denotes an older or hand-composed surface, not a safe contract.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiMemberMemorySafetyFacts? MemorySafety { get; set; }
+
+    /// <summary>
+    /// Contracts for the accessor MethodDefs represented by this property or
+    /// event, including accessors not exposed as separate API members.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ApiMemberMemorySafetyFacts>? AccessorMemorySafety
+        { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiBackingStorageAssociation? BackingStorage { get; set; }
 
     /// <summary>
     /// Whether this MethodDef has a managed body RVA. Null is retained for

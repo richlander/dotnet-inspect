@@ -109,7 +109,10 @@ public sealed class SignatureSpellability
         new(CanSpell: false, SignatureDecodeStatus.Degraded);
 
     static bool IsDecodeException(Exception ex)
-        => ex is BadImageFormatException or InvalidOperationException or ArgumentException;
+        => ex is (BadImageFormatException
+                and not MalformedMetadataRootException)
+            or InvalidOperationException
+            or ArgumentException;
 
     bool IsInaccessible(MetadataReader reader, TypeReferenceHandle handle)
     {
@@ -133,29 +136,61 @@ public sealed class SignatureSpellability
         var types = new HashSet<string>(StringComparer.Ordinal);
         Stream? stream = null;
         PEReader? pe = null;
+        bool noMetadataEstablished = false;
         try
         {
             stream = resolved.OpenRead();
-            pe = new PEReader(stream);
+            pe = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
             resolved.ValidateArtifactContent(pe);
-            if (pe.HasMetadata)
+            if (MetadataFormatAdmission.AdmitImage(pe))
             {
-                var reader = pe.GetMetadataReader();
+                var reader = MetadataFormatAdmission.GetMetadataReader(pe);
                 foreach (var handle in reader.TypeDefinitions)
                 {
                     if (!IsExternallyVisible(reader, handle))
                         types.Add(reader.GetFullTypeName(reader.GetTypeDefinition(handle)));
                 }
             }
+            else
+            {
+                noMetadataEstablished = true;
+            }
         }
-        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        catch (Exception ex) when (
+            ex is not MalformedMetadataRootException
+                and (IOException
+                    or BadImageFormatException
+                    or UnauthorizedAccessException))
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
             return new NonPublicTypeSet(null);
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref pe,
+                ref stream,
+                ex);
+            throw;
         }
         finally
         {
-            pe?.Dispose();
-            stream?.Dispose();
+            if (noMetadataEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref pe,
+                    ref stream);
+            }
+            else
+            {
+                pe?.Dispose();
+                stream?.Dispose();
+            }
         }
 
         return new NonPublicTypeSet(types);

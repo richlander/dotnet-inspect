@@ -181,16 +181,15 @@ public sealed class PackageIntegrationsWorkspaceTests
     }
 
     [Theory]
-    [InlineData(false, null, "net11.0", "producer", "ref/net11.0/Test.dll", true)]
-    [InlineData(false, null, "net11.0", "producer", "lib/net11.0/Test.dll", true)]
-    [InlineData(true, null, "net11.0", "producer", "lib/net11.0/Test.dll", false)]
-    [InlineData(false, "net11.0", "net11.0", "producer", "lib/net11.0/Test.dll", false)]
-    [InlineData(false, null, null, "producer", "lib/net11.0/Test.dll", false)]
-    [InlineData(false, null, "net11.0", null, "lib/net11.0/Test.dll", false)]
-    [InlineData(false, null, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
-    public void ArtifactBackedSelection_IsTheRemoteDefaultTfmPath(
+    [InlineData(false, "net11.0", "producer", "ref/net11.0/Test.dll", true)]
+    [InlineData(false, "net11.0", "producer", "lib/net11.0/Test.dll", true)]
+    [InlineData(true, "net11.0", "producer", "lib/net11.0/Test.dll", false)]
+    [InlineData(false, null, "producer", "lib/net11.0/Test.dll", false)]
+    [InlineData(false, "net11.0", null, "lib/net11.0/Test.dll", false)]
+    [InlineData(false, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
+    [InlineData(false, "net35-Unity Full v3.5", "producer", "lib/net35-Unity Full v3.5/Test.dll", false)]
+    public void ArtifactBackedSelection_RequiresOneRemoteCompileFramework(
         bool isLocalFile,
-        string? requestedTargetFramework,
         string? selectedTargetFramework,
         string? selectedProducerKey,
         string selectedPackagePath,
@@ -201,10 +200,125 @@ public sealed class PackageIntegrationsWorkspaceTests
             Commands.PackageCommand
                 .ShouldUseArtifactBackedPackageIntegrations(
                     isLocalFile,
-                    requestedTargetFramework,
                     selectedTargetFramework,
                     selectedProducerKey,
                     [selectedPackagePath]));
+    }
+
+    [Theory]
+    [InlineData(null, false, true)]
+    [InlineData("net10.0", false, true)]
+    [InlineData("all", false, false)]
+    [InlineData("net10.0", true, false)]
+    [InlineData("net35-Unity Full v3.5", false, false)]
+    public async Task PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles(
+        string? targetFramework,
+        bool includeReferenceRole,
+        bool artifactBacked)
+    {
+        const string packageName = "Artifact.Command.Sample";
+        const string source = "https://artifact-command.invalid/v3/index.json";
+        string directory = Directory.CreateTempSubdirectory(
+            "package-artifact-command-").FullName;
+        bool wasOffline = Core.HttpClientFactory.IsOffline;
+        try
+        {
+            string staged = Path.Combine(directory, "content");
+            byte[] image = File.ReadAllBytes(
+                typeof(Npgsql.NpgsqlConnection).Assembly.Location);
+            string fixtureFramework = targetFramework is null or "all"
+                ? "net10.0"
+                : targetFramework;
+            foreach (string framework in new[] { fixtureFramework, "net11.0" })
+            {
+                string assets = Path.Combine(staged, "lib", framework);
+                Directory.CreateDirectory(assets);
+                File.WriteAllBytes(Path.Combine(assets, "Npgsql.dll"), image);
+            }
+            if (includeReferenceRole)
+            {
+                string assets = Path.Combine(staged, "ref", fixtureFramework);
+                Directory.CreateDirectory(assets);
+                File.WriteAllBytes(Path.Combine(assets, "Npgsql.dll"), image);
+            }
+            File.WriteAllText(
+                Path.Combine(staged, $"{packageName}.nuspec"),
+                $"""
+                <package><metadata>
+                  <id>{packageName}</id><version>1.0.0</version>
+                  <authors>tests</authors><description>test package</description>
+                </metadata></package>
+                """);
+            string archive = Path.Combine(directory, $"{packageName}.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(staged, archive);
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                Path.Combine(directory, "cache"),
+                skipNuGetCache: true);
+            NuGetCache.CommitPackage(
+                staged, archive, packageName, "1.0.0",
+                NuGetCache.GetSourceKey(source));
+            Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
+            Core.HttpClientFactory.ResetSharedForTesting();
+
+            string[] arguments =
+            [
+                "package", $"{packageName}@1.0.0",
+                "--all-libraries",
+                .. targetFramework is null ? Array.Empty<string>() : ["--tfm", targetFramework],
+                "-S", "Integration: Opportunities",
+                "--source", source,
+                "--markdown", "--verbose", "--tips", "q",
+            ];
+            var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
+            {
+                arguments = CommandLineBuilder.PreprocessArgs(arguments);
+                var parsed = CommandLineBuilder.CreateRootCommand().Parse(arguments);
+                Assert.Empty(parsed.Errors);
+                return await CommandLineBuilder.InvokeAsync(parsed);
+            });
+
+            Assert.True(exit == 0, error);
+            Assert.Contains("## Integration: Opportunities", output);
+            Assert.Contains("Npgsql.NpgsqlConnection", output);
+            Assert.Equal(
+                includeReferenceRole || targetFramework == "all" ? 2 : 1,
+                output.Split(
+                    "| Aspire | `Npgsql.NpgsqlConnection` |",
+                    StringSplitOptions.None).Length - 1);
+            Assert.Equal(
+                artifactBacked,
+                error.Contains(
+                    "Using artifact-backed package Integrations for ",
+                    StringComparison.Ordinal));
+            if (artifactBacked)
+            {
+                Assert.Contains(
+                    $"Using artifact-backed package Integrations for {targetFramework ?? "net11.0"}.",
+                    error);
+            }
+            if (targetFramework == "all")
+            {
+                Assert.Contains("net10.0", output);
+                Assert.Contains("net11.0", output);
+            }
+            else
+            {
+                Assert.Contains(targetFramework ?? "net11.0", output);
+                Assert.DoesNotContain(
+                    targetFramework is null ? "net10.0" : "net11.0",
+                    output);
+            }
+        }
+        finally
+        {
+            Core.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = wasOffline });
+            Core.HttpClientFactory.ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect");
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [Fact]

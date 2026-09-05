@@ -1014,7 +1014,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void OneHugeCustomAttributeArrayCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildCustomAttributeArrayCountImage(
                 attributeCount: 1,
                 elementCount: 100_000_000));
@@ -1023,7 +1023,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void RepeatedNamedArgumentCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildCustomAttributeNamedArgumentCountImage(
                 attributeCount: 64,
                 namedArgumentCount: 65_535));
@@ -1065,7 +1065,7 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void OneHugeNamedArgumentArrayCount_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildNamedArgumentArrayCountImage(elementCount: 100_000_000));
     }
 
@@ -1098,14 +1098,14 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void TypeRefEnumWidthDesync_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildTypeRefEnumDesyncImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void OverDeepEnumFieldModifiers_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildEnumCmodDesyncImage(
                 modifierCount: SignatureBlobGuard.DefaultMaxDepth + 1,
                 elementCount: 100_000_000));
@@ -1114,63 +1114,63 @@ public sealed class ApiSurfaceExtractorBoundsTests
     [Fact]
     public void AssemblyQualifiedNamedEnum_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildAssemblyQualifiedNamedEnumImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void ClassSystemStringFixedArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildClassSystemStringImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void DottedSystemTypeTypeRef_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildDottedSystemTypeImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void StringTypedEnumValue_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildStringTypedEnumImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void BoxedEnumArrayEmptyName_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildBoxedEnumArrayEmptyNameImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void FnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildGenericEarlierThenArrayImage(pointerToFnPtr: false, elementCount: 100_000_000));
     }
 
     [Fact]
     public void PtrFnPtrEarlierGenericArgumentThenArray_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildGenericEarlierThenArrayImage(pointerToFnPtr: true, elementCount: 100_000_000));
     }
 
     [Fact]
     public void ClassTypeDefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildClassTypeDefRow4DesyncImage(elementCount: 100_000_000));
     }
 
     [Fact]
     public void ValueTypeTypeRefRow4EarlierArgument_StopsBeforeLargeAllocationAmplification()
     {
-        AssertTextAmplificationIsBounded(
+        AssertRefusedAttributeDoesNotAmplify(
             BuildValueTypeTypeRefRow4DesyncImage(elementCount: 100_000_000));
     }
 
@@ -1469,6 +1469,31 @@ public sealed class ApiSurfaceExtractorBoundsTests
         Assert.Equal(
             ApiSurfaceExtractionBound.RetainedTextCharacters,
             exceeded.Bound);
+        Assert.True(
+            allocated < 64L * 1024 * 1024,
+            $"bounded extraction allocated {allocated:N0} bytes");
+    }
+
+    static void AssertRefusedAttributeDoesNotAmplify(byte[] image)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var peReader = new PEReader(stream);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+
+        ApiSurfaceExtractionResult result = ApiSurfaceExtractor.ExtractBounded(
+            peReader,
+            ApiSurfaceExtractionScope.Public,
+            new ApiSurfaceExtractionBounds(
+                maxTypes: 100_000,
+                maxMembers: 1_000_000,
+                maxInspectionFailures: 1_024,
+                maxTypeForwarders: 100_000,
+                maxMetadataRows: 250_000,
+                maxRetainedTextCharacters: 8_000_000));
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var extracted = Assert.IsType<ApiSurfaceExtractionResult.Extracted>(result);
+        Assert.NotEmpty(extracted.Surface.Types);
         Assert.True(
             allocated < 64L * 1024 * 1024,
             $"bounded extraction allocated {allocated:N0} bytes");

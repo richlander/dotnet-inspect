@@ -931,7 +931,7 @@ dependency of the typed extractors, so it does not disturb the sibling topology.
 | Signature / blob **content** decode | Projection structure + the existing `SignatureDecoder` / `GuardedSignatureText` / `ILTokenResolver` as cell decoders |
 | Heap dumps + `BlobKind` / `StringKind` tagging | The projection's opt-in **heap enumeration** plus reverse-reference tagging (walk blob-typed columns) |
 | GUID → language / hash, custom-debug-info kinds | The projection's **additive friendly-decode** slot |
-| PE / COFF headers, debug directory, R2R | A **sibling** PE-header projection — not metadata-table facts (out of scope here) |
+| PE / COFF headers, debug directory, R2R | The sibling [ReadyToRun image projection](readytorun-image-projection.md) for the R2R envelope; other PE-header facts remain outside this metadata-table owner |
 | IL disassembly of method bodies | A **sibling** IL projection (Instructions / Analysis layer) |
 | EnC / multi-generation deltas | A **consumer** over per-generation projections + the `EncLog` / `EncMap` tables — a separate feature, today a non-goal |
 

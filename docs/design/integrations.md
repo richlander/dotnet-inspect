@@ -25,10 +25,11 @@ section ordering clusters the whole family together.
 Tracking: [#3629](https://github.com/richlander/dotnet-inspect/issues/3629).
 
 The focused [scanner-binding contract](integration-scanner-binding.md) covers
-the proposed decoded-data handoff to source-authored ecosystem scanners under
-[#5719](https://github.com/richlander/dotnet-inspect/issues/5719). It is
-design-only; the library scanner and incremental Census described here remain
-the current behavior.
+the decoded-data handoff to source-authored ecosystem scanners, designed under
+[#5719](https://github.com/richlander/dotnet-inspect/issues/5719) and implemented
+under [#5902](https://github.com/richlander/dotnet-inspect/issues/5902).
+Catalog and host selection remain later adoption steps; existing full-library
+inspection and Census behavior is unchanged.
 
 ## Authority
 
@@ -196,8 +197,9 @@ metadata inventory.
 ### Scanner implementation boundaries
 
 `EcosystemIntegrationScanner` is the public Metadata facade.
-`EcosystemIntegrationProjection` owns the SRM traversal, guarded signature
-decode, evidence buckets, and row ordering.
+`EcosystemIntegrationObservationReader` owns SRM traversal, guarded signature
+decode, and immutable observation construction.
+`EcosystemIntegrationProjection` owns evidence buckets and row ordering.
 `EcosystemIntegrationClassifier` owns the pure type-name and starter-method
 classification policy, while `EcosystemIntegrationPresenceBuilder` projects
 signals and broader public-type evidence into the legacy presence flags. The
@@ -221,7 +223,7 @@ gates public-method filtering, signal kind and shape, row order, and parity
 between direct and precomputed presence paths.
 
 The [scanner-binding contract](integration-scanner-binding.md) defines the
-target separation between this owner's observation construction and
+separation between this owner's observation construction and
 application-authored interpretation. It does not move SRM traversal,
 projection, or presence aggregation into the application catalog, and it does
 not change the following group-query or Census contracts.

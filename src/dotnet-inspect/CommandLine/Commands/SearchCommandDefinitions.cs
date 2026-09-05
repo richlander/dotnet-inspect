@@ -558,10 +558,12 @@ public static class SearchCommandDefinitions
                 SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
             };
 
-            var exitCode = await DependsCommand.ExecuteTypeDependsAsync(options);
+            var outcome = await DependsCommand.ExecuteTypeDependsAsync(options);
 
-            // A source option makes the positional argument unambiguously a type.
-            if (exitCode == DependsCommand.TypeNotFoundExitCode &&
+            // Type not found — fall back to library mode if the name could be a
+            // library. A source option makes the positional argument
+            // unambiguously a type, so no fallback applies.
+            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode &&
                 !hasExplicitSearchSource &&
                 !targetType!.Contains('<'))
             {
@@ -578,16 +580,25 @@ public static class SearchCommandDefinitions
                     Verbose = parseResult.GetValue(opts.Verbose),
                     SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
                 };
-                return await DependsCommand.ExecuteLibraryDependsAsync(libOptions);
+
+                // Library mode resolves the name itself and never consults the
+                // excluded candidate, so its answer stands on its own. It is
+                // also unreachable while a candidate was excluded: an explicit
+                // source option is what makes exclusion possible, and that same
+                // option suppresses this fallback.
+                return await DependsCommand.ExecuteLibraryDependsAsync(
+                    libOptions);
             }
 
-            if (exitCode == DependsCommand.TypeNotFoundExitCode)
+            if (outcome.ExitCode == DependsCommand.TypeNotFoundExitCode)
             {
                 CommandError.Write($"Type '{targetType}' not found in the specified scope.");
-                return 1;
+                return outcome.Uncertified
+                    ? DependsCommand.UncertifiedScanExitCode
+                    : 1;
             }
 
-            return exitCode;
+            return outcome.ExitCode;
         });
 
         return dependsCommand;

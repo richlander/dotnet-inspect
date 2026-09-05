@@ -8,18 +8,14 @@ import type {
   PreparedOperationProducer,
 } from "./operation-authority.ts";
 import {
-  decodeBoundMainToWorkerEnvelope,
   decodeEpochFailedPayload,
   decodeProgressPayload,
   decodeRejectedPayload,
   decodeSettledPayload,
-  decodeStartPayload,
   decodeStartupFailedPayload,
-  decodeUnboundInitializationEnvelope,
   decodeWorkerToMainEnvelope,
   type BoundedPayloadDecodeResult,
   type BoundedPayloadDecoder,
-  type ManagedOperationSettlement,
   type RawMainToWorkerEnvelope,
   type RawWorkerToMainEnvelope,
   type WorkerEnvelopeDecodeFailure,
@@ -27,6 +23,13 @@ import {
   type WorkerWireOperationReference,
   WORKER_RUNTIME_PROTOCOL_VERSION,
 } from "./worker-runtime-protocol.ts";
+import {
+  sameAllowance,
+  WorkerRuntimeRealm,
+  type WorkerEpochCache as FakeWorkerEpochCache,
+  type WorkerRuntimeRealmOptions,
+  type WorkerRuntimeTaskScheduler,
+} from "./worker-runtime-realm.ts";
 
 declare const workerEpochTokenBrand: unique symbol;
 const workerIdleCompatibleBrand: unique symbol
@@ -105,10 +108,6 @@ export interface WorkerRuntimeLifecycleListeners {
   readonly suspended: () => void;
   readonly resumed: () => void;
   readonly mainLoopRecovered: (gapActiveMilliseconds: number) => void;
-}
-
-interface WorkerRuntimeTaskScheduler {
-  enqueue(task: () => void): void;
 }
 
 interface WorkerRuntimeBootstrapCodec<TBootstrap, TDiagnostic> {
@@ -402,17 +401,6 @@ function validateNonNegativeSafeInteger(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0)
     throw new RangeError(`${name} must be a non-negative safe integer.`);
   return value;
-}
-
-function sameAllowance(
-  left: WorkerLivenessAllowance,
-  right: WorkerLivenessAllowance,
-): boolean {
-  return left.kind === "unbounded"
-    ? right.kind === "unbounded"
-    : right.kind === "bounded"
-      && left.maxSilentActiveMilliseconds
-        === right.maxSilentActiveMilliseconds;
 }
 
 function operationKey(reference: WorkerWireOperationReference): string {
@@ -2650,266 +2638,43 @@ export class WorkerRuntimeHost<TBootstrap, TDiagnostic> {
   }
 }
 
-interface FakeWorkerBootstrapAdapter<TBootstrap> {
-  readonly decoder: BoundedPayloadDecoder<TBootstrap>;
-  readonly bootstrap: (
-    bootstrap: TBootstrap,
-  ) => void | Promise<void>;
-}
+export {
+  WorkerOperationCatalog as FakeWorkerOperationCatalog,
+  type WorkerOperationContext as FakeWorkerOperationContext,
+  type WorkerOperationRegistration as FakeWorkerOperationRegistration,
+  type WorkerEpochCache as FakeWorkerEpochCache,
+} from "./worker-runtime-realm.ts";
 
-export interface FakeWorkerOperationContext {
-  readonly operation: WorkerWireOperationReference;
-  readonly cache: FakeWorkerEpochCache;
-  startEpochWork(
-    producerClass: string,
-    sequence: number,
-    advertisedAllowance?: WorkerLivenessAllowance,
-  ): boolean;
-  finishEpochWork(sequence: number): boolean;
-}
-
-export interface FakeWorkerEpochCache {
-  readonly size: number;
-  get(key: string): unknown;
-  set(key: string, value: unknown): boolean;
-  has(key: string): boolean;
-  delete(key: string): boolean;
-}
-
-class RevocableFakeWorkerEpochCache implements FakeWorkerEpochCache {
-  readonly #entries = new Map<string, unknown>();
-  #active = true;
-
-  get size(): number {
-    return this.#entries.size;
-  }
-
-  get(key: string): unknown {
-    return this.#active ? this.#entries.get(key) : undefined;
-  }
-
-  set(key: string, value: unknown): boolean {
-    if (!this.#active) return false;
-    this.#entries.set(key, value);
-    return true;
-  }
-
-  has(key: string): boolean {
-    return this.#active && this.#entries.has(key);
-  }
-
-  delete(key: string): boolean {
-    return this.#active && this.#entries.delete(key);
-  }
-
-  revoke(): void {
-    this.#active = false;
-    this.#entries.clear();
-  }
-}
-
-export interface FakeWorkerOperationRegistration<
-  TInput,
-  TValue,
-  TError,
-  TOperationDiagnostic,
-> {
-  readonly kind: string;
-  readonly allowance: WorkerLivenessAllowance;
-  readonly input: BoundedPayloadDecoder<TInput>;
-  readonly rejectInvalidPayload: (
-    failure: WorkerEnvelopeDecodeFailure,
-  ) => {
-    readonly error: TError;
-    readonly diagnostic: TOperationDiagnostic;
-  };
-  readonly invoke: (
-    input: TInput,
-    context: FakeWorkerOperationContext,
-  ) => ManagedOperationSettlement<TValue, TError, TOperationDiagnostic>
-    | Promise<
-      ManagedOperationSettlement<TValue, TError, TOperationDiagnostic>
-    >;
-  readonly cancel?: (
-    operation: WorkerWireOperationReference,
-    reason: OperationCancelReason,
-  ) => boolean | Promise<boolean>;
-}
-
-type FakeWorkerCancel = (
-  operation: WorkerWireOperationReference,
-  reason: OperationCancelReason,
-) => boolean | Promise<boolean>;
-
-interface FakeWorkerOperationDispatchHandlers {
-  readonly accepted: (
-    allowance: WorkerLivenessAllowance,
-    cancel: FakeWorkerCancel | null,
-  ) => boolean;
-  readonly rejected: (error: unknown, diagnostic: unknown) => void;
-  readonly settled: (
-    settlement: ManagedOperationSettlement<unknown, unknown, unknown>,
-  ) => void;
-  readonly failed: (error: unknown) => void;
-}
-
-interface ErasedFakeWorkerOperationRegistration {
-  readonly kind: string;
-  readonly dispatch: (
-    envelope: Extract<
-      RawMainToWorkerEnvelope,
-      { readonly kind: "start" }
-    >,
-    context: FakeWorkerOperationContext,
-    handlers: FakeWorkerOperationDispatchHandlers,
-  ) => void;
-}
-
-function eraseSettlement<TValue, TError, TDiagnostic>(
-  settlement: ManagedOperationSettlement<TValue, TError, TDiagnostic>,
-): ManagedOperationSettlement<unknown, unknown, unknown> {
-  if (settlement.kind === "succeeded")
-    return { kind: "succeeded", value: settlement.value };
-  if (settlement.kind === "failed") {
-    return {
-      kind: "failed",
-      failureKind: settlement.failureKind,
-      error: settlement.error,
-      diagnostic: settlement.diagnostic,
-    };
-  }
-  return { kind: "canceled", reason: settlement.reason };
-}
-
-export class FakeWorkerOperationCatalog {
-  readonly #registrations =
-    new Map<string, ErasedFakeWorkerOperationRegistration>();
-
-  register<TInput, TValue, TError, TOperationDiagnostic>(
-    registration: FakeWorkerOperationRegistration<
-      TInput,
-      TValue,
-      TError,
-      TOperationDiagnostic
-    >,
-  ): void {
-    if (this.#registrations.has(registration.kind))
-      throw new Error(`Fake operation ${registration.kind} is duplicated.`);
-    const erased: ErasedFakeWorkerOperationRegistration = {
-      kind: registration.kind,
-      dispatch: (envelope, context, handlers) => {
-        const decoded = decodeStartPayload(envelope, registration.input);
-        if (decoded.kind === "failure") {
-          const rejection = registration.rejectInvalidPayload(
-            decoded.failure,
-          );
-          handlers.rejected(rejection.error, rejection.diagnostic);
-          return;
-        }
-        const cancel = registration.cancel;
-        const accepted = handlers.accepted(
-          registration.allowance,
-          cancel === undefined
-            ? null
-            : (operation, reason) => cancel(operation, reason),
-        );
-        if (!accepted) return;
-        let result:
-          | ManagedOperationSettlement<
-            TValue,
-            TError,
-            TOperationDiagnostic
-          >
-          | Promise<
-            ManagedOperationSettlement<
-              TValue,
-              TError,
-              TOperationDiagnostic
-            >
-          >;
-        try {
-          result = registration.invoke(decoded.value.payload, context);
-        } catch (error: unknown) {
-          handlers.failed(error);
-          return;
-        }
-        Promise.resolve(result).then(
-          settlement => {
-            handlers.settled(eraseSettlement(settlement));
-            return undefined;
-          },
-          (error: unknown) => {
-            handlers.failed(error);
-            return undefined;
-          },
-        );
-      },
-    };
-    this.#registrations.set(registration.kind, erased);
-  }
-
-  dispatch(
-    envelope: Extract<
-      RawMainToWorkerEnvelope,
-      { readonly kind: "start" }
-    >,
-    context: FakeWorkerOperationContext,
-    handlers: FakeWorkerOperationDispatchHandlers,
-  ): boolean {
-    const registration = this.#registrations.get(envelope.operationKind);
-    if (registration === undefined) return false;
-    registration.dispatch(envelope, context, handlers);
-    return true;
-  }
-}
-
-export interface FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic> {
+export interface FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>
+extends Omit<WorkerRuntimeRealmOptions<TBootstrap, TDiagnostic>, "post"> {
   readonly scheduler: WorkerRuntimeTaskScheduler;
-  readonly bootstrap: FakeWorkerBootstrapAdapter<TBootstrap>;
-  readonly diagnostic: (detail: unknown) => TDiagnostic;
-  readonly unknownOperationRejection: (kind: string) => {
-    readonly error: unknown;
-    readonly diagnostic: unknown;
-  };
-  readonly operations: FakeWorkerOperationCatalog;
-  readonly producerClasses: WorkerProducerClassRegistry;
   readonly omitResponse?: (
     kind: "accepted" | "rejected" | "cancel-acknowledged" | "probe-acknowledged",
     correlation: string,
   ) => boolean;
 }
 
-interface FakeActiveOperation {
-  readonly operation: WorkerWireOperationReference;
-  readonly cancel: FakeWorkerCancel | null;
-  settling: boolean;
-}
-
 export class FakeWorkerRuntime<TBootstrap, TDiagnostic>
 implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   readonly source: WorkerRuntimeSource = this;
-  readonly #cache = new RevocableFakeWorkerEpochCache();
   readonly receivedMessages: unknown[] = [];
   readonly emittedMessages: RawWorkerToMainEnvelope[] = [];
   readonly #options: FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>;
-  readonly #active = new Map<string, FakeActiveOperation>();
-  readonly #epochWork = new Map<number, WorkerLivenessAllowance>();
+  readonly #realm: WorkerRuntimeRealm<TBootstrap, TDiagnostic>;
   #handlers: WorkerRuntimeTransportHandlers | null = null;
-  #epochToken: number | null = null;
-  #idleHeartbeatIntervalMilliseconds: number | null = null;
-  #operationHighWater = 0;
-  #workHighWater = 0;
-  #lane: Promise<void> = Promise.resolve();
-  #initialized = false;
-  #ready = false;
-  #failed = false;
-  #terminated = false;
   #terminateCount = 0;
 
-  constructor(
-    options: FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>,
-  ) {
+  constructor(options: FakeWorkerRuntimeOptions<TBootstrap, TDiagnostic>) {
     this.#options = options;
+    this.#realm = new WorkerRuntimeRealm({
+      scheduler: options.scheduler,
+      bootstrap: options.bootstrap,
+      diagnostic: options.diagnostic,
+      unknownOperationRejection: options.unknownOperationRejection,
+      operations: options.operations,
+      producerClasses: options.producerClasses,
+      post: message => this.#post(message),
+    });
   }
 
   get terminateCount(): number {
@@ -2917,19 +2682,19 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   }
 
   get cache(): FakeWorkerEpochCache {
-    return this.#cache;
+    return this.#realm.cache;
   }
 
   get activeOperationCount(): number {
-    return this.#active.size;
+    return this.#realm.activeOperationCount;
   }
 
   get activeEpochWorkCount(): number {
-    return this.#epochWork.size;
+    return this.#realm.activeEpochWorkCount;
   }
 
   get terminated(): boolean {
-    return this.#terminated;
+    return this.#realm.disposed;
   }
 
   bind(handlers: WorkerRuntimeTransportHandlers): () => void {
@@ -2940,38 +2705,20 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
   }
 
   send(message: unknown): void {
-    if (this.#terminated) throw new Error("Fake worker is terminated.");
+    if (this.terminated) throw new Error("Fake worker is terminated.");
     this.receivedMessages.push(message);
-    if (!this.#initialized) {
-      this.#initialized = true;
-      this.#options.scheduler.enqueue(() => {
-        this.#initialize(message);
-      });
-      return;
-    }
-    this.#lane = this.#lane.then(() => this.#processCommand(message));
-    this.#lane.catch((error: unknown) => {
-      this.#declareFailure(error);
-    });
+    this.#realm.receive(message);
   }
 
   terminate(): void {
-    if (this.#terminated) return;
-    this.#terminated = true;
+    if (this.terminated) return;
     this.#terminateCount++;
     this.#handlers = null;
-    this.#active.clear();
-    this.#epochWork.clear();
-    this.#cache.revoke();
+    this.#realm.dispose();
   }
 
   emitHeartbeat(): void {
-    if (!this.#ready || this.#epochToken === null) return;
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#epochToken,
-      kind: "heartbeat",
-    });
+    this.#realm.emitHeartbeat();
   }
 
   emitRaw(data: unknown, source: WorkerRuntimeSource = this): void {
@@ -2994,330 +2741,27 @@ implements WorkerRuntimeTransportBinding, WorkerRuntimeSource {
     sequence: number,
     advertisedAllowance?: WorkerLivenessAllowance,
   ): boolean {
-    if (this.#terminated
-      || !this.#ready
-      || this.#failed
-      || this.#epochToken === null) return false;
-    const registered = this.#options.producerClasses.allowance(producerClass);
-    if (!Number.isSafeInteger(sequence)
-      || sequence <= 0
-      || sequence <= this.#workHighWater
-      || registered === null) {
-      this.#declareFailure({
-        kind: "invalid-epoch-work-start",
-        producerClass,
-        sequence,
-      });
-      return false;
-    }
-    this.#workHighWater = sequence;
-    const advertised = advertisedAllowance ?? registered;
-    if (!sameAllowance(registered, advertised)) {
-      this.#declareFailure({
-        kind: "epoch-work-allowance-mismatch",
-        producerClass,
-        sequence,
-      });
-      return false;
-    }
-    this.#epochWork.set(sequence, registered);
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#epochToken,
-      kind: "epoch-work-started",
-      workSequence: sequence,
-      allowance: registered,
-    });
-    return true;
+    return this.#realm.startEpochWork(
+      producerClass,
+      sequence,
+      advertisedAllowance,
+    );
   }
 
   finishEpochWork(sequence: number): boolean {
-    if (this.#terminated
-      || !this.#ready
-      || this.#epochToken === null) return false;
-    if (!this.#epochWork.delete(sequence)) {
-      if (!this.#failed) {
-        this.#declareFailure({
-          kind: "invalid-epoch-work-finish",
-          sequence,
-        });
-      }
-      return false;
-    }
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#epochToken,
-      kind: "epoch-work-finished",
-      workSequence: sequence,
-    });
-    return true;
+    return this.#realm.finishEpochWork(sequence);
   }
 
-  #initialize(message: unknown): void {
-    if (this.#terminated) return;
-    const decoded = decodeUnboundInitializationEnvelope(
-      message,
-      this.#options.bootstrap.decoder,
-    );
-    if (decoded.kind === "failure") {
-      this.#failed = true;
-      return;
+  #post(data: RawWorkerToMainEnvelope): void {
+    if (data.kind === "accepted"
+      || data.kind === "rejected"
+      || data.kind === "cancel-acknowledged"
+      || data.kind === "probe-acknowledged") {
+      const correlation = data.kind === "probe-acknowledged"
+        ? String(data.probeSequence)
+        : operationKey(data.operation);
+      if (this.#options.omitResponse?.(data.kind, correlation) === true) return;
     }
-    this.#epochToken = decoded.value.epochToken;
-    this.#idleHeartbeatIntervalMilliseconds
-      = decoded.value.idleHeartbeatIntervalMilliseconds;
-    if (decoded.value.idleAllowanceMilliseconds
-      !== this.#options.producerClasses.idleAllowanceMilliseconds) {
-      this.#startupFailed({
-        kind: "producer-class-idle-allowance-mismatch",
-        expected: decoded.value.idleAllowanceMilliseconds,
-        actual: this.#options.producerClasses.idleAllowanceMilliseconds,
-      });
-      return;
-    }
-    let bootstrap: void | Promise<void>;
-    try {
-      bootstrap = this.#options.bootstrap.bootstrap(decoded.value.bootstrap);
-    } catch (error: unknown) {
-      this.#startupFailed(error);
-      return;
-    }
-    Promise.resolve(bootstrap).then(
-      () => {
-        if (this.#terminated || this.#failed || this.#epochToken === null)
-          return undefined;
-        this.#ready = true;
-        this.#emit({
-          protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-          epochToken: this.#epochToken,
-          kind: "ready",
-          idleHeartbeatIntervalMilliseconds:
-            this.#idleHeartbeatIntervalMilliseconds
-            ?? decoded.value.idleHeartbeatIntervalMilliseconds,
-        });
-        return undefined;
-      },
-      (error: unknown) => {
-        this.#startupFailed(error);
-        return undefined;
-      },
-    );
-  }
-
-  async #processCommand(message: unknown): Promise<void> {
-    if (this.#terminated || this.#failed || this.#epochToken === null) return;
-    const decoded = decodeBoundMainToWorkerEnvelope(
-      message,
-      this.#epochToken,
-    );
-    if (decoded.kind === "failure") {
-      this.#declareFailure(decoded.failure);
-      return;
-    }
-    if (!this.#ready || decoded.value.kind === "initialize") {
-      this.#declareFailure({
-        kind: "illegal-command-state",
-        command: decoded.value.kind,
-      });
-      return;
-    }
-    if (decoded.value.kind === "start") {
-      this.#processStart(decoded.value);
-      return;
-    }
-    if (decoded.value.kind === "cancel") {
-      await this.#processCancel(decoded.value);
-      return;
-    }
-    this.#processProbe(decoded.value.probeSequence);
-  }
-
-  #processStart(
-    envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "start" }>,
-  ): void {
-    if (envelope.operation.operationSequence <= this.#operationHighWater) {
-      this.#declareFailure({
-        kind: "operation-sequence-replay",
-        operation: envelope.operation,
-      });
-      return;
-    }
-    this.#operationHighWater = envelope.operation.operationSequence;
-    if (this.#active.has(envelope.operation.operationId)) {
-      this.#declareFailure({
-        kind: "active-operation-id-duplicate",
-        operation: envelope.operation,
-      });
-      return;
-    }
-    const context: FakeWorkerOperationContext = {
-      operation: envelope.operation,
-      cache: this.cache,
-      startEpochWork: (producerClass, sequence, advertisedAllowance) =>
-        this.startEpochWork(producerClass, sequence, advertisedAllowance),
-      finishEpochWork: sequence => this.finishEpochWork(sequence),
-    };
-    const dispatched = this.#options.operations.dispatch(
-      envelope,
-      context,
-      {
-        accepted: (allowance, cancel) => {
-          if (this.#terminated || this.#failed) return false;
-          this.#active.set(envelope.operation.operationId, {
-            operation: envelope.operation,
-            cancel,
-            settling: false,
-          });
-          if (!this.#omit("accepted", operationKey(envelope.operation))) {
-            this.#emit({
-              protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-              epochToken: this.#requiredEpochToken(),
-              kind: "accepted",
-              operation: envelope.operation,
-              allowance,
-            });
-          }
-          return !this.#terminated && !this.#failed;
-        },
-        rejected: (error, diagnostic) => {
-          this.#rejectStart(envelope, error, diagnostic);
-        },
-        settled: settlement => {
-          this.#settle(envelope.operation, settlement);
-        },
-        failed: error => {
-          this.#declareFailure(error);
-        },
-      },
-    );
-    if (dispatched) return;
-    const rejection = this.#options.unknownOperationRejection(
-      envelope.operationKind,
-    );
-    this.#rejectStart(envelope, rejection.error, rejection.diagnostic);
-  }
-
-  async #processCancel(
-    envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "cancel" }>,
-  ): Promise<void> {
-    if (envelope.operation.operationSequence > this.#operationHighWater) {
-      this.#declareFailure({
-        kind: "future-cancellation",
-        operation: envelope.operation,
-      });
-      return;
-    }
-    const active = this.#active.get(envelope.operation.operationId);
-    let running = false;
-    if (active !== undefined
-      && active.operation.operationSequence
-        === envelope.operation.operationSequence
-      && !active.settling) {
-      running = active.cancel === null
-        ? false
-        : await active.cancel(envelope.operation, envelope.reason);
-    }
-    if (!this.#omit("cancel-acknowledged", operationKey(envelope.operation))) {
-      this.#emit({
-        protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-        epochToken: this.#requiredEpochToken(),
-        kind: "cancel-acknowledged",
-        operation: envelope.operation,
-        status: running ? "running" : "not-active",
-      });
-    }
-  }
-
-  #processProbe(sequence: number): void {
-    if (this.#omit("probe-acknowledged", String(sequence))) return;
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#requiredEpochToken(),
-      kind: "probe-acknowledged",
-      probeSequence: sequence,
-    });
-  }
-
-  #rejectStart(
-    envelope: Extract<RawMainToWorkerEnvelope, { readonly kind: "start" }>,
-    error: unknown,
-    diagnostic: unknown,
-  ): void {
-    if (this.#omit("rejected", operationKey(envelope.operation))) return;
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#requiredEpochToken(),
-      kind: "rejected",
-      operation: envelope.operation,
-      error,
-      diagnostic,
-    });
-  }
-
-  #settle(
-    operation: WorkerWireOperationReference,
-    settlement: ManagedOperationSettlement<unknown, unknown, unknown>,
-  ): void {
-    if (this.#terminated) return;
-    const active = this.#active.get(operation.operationId);
-    if (active === undefined
-      || active.operation.operationSequence !== operation.operationSequence) {
-      if (!this.#failed) {
-        this.#declareFailure({
-          kind: "settlement-without-active-operation",
-          operation,
-        });
-      }
-      return;
-    }
-    active.settling = true;
-    this.#active.delete(operation.operationId);
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#requiredEpochToken(),
-      kind: "settled",
-      operation,
-      settlement,
-    });
-  }
-
-  #startupFailed(error: unknown): void {
-    if (this.#terminated || this.#failed || this.#epochToken === null) return;
-    this.#failed = true;
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#epochToken,
-      kind: "startup-failed",
-      diagnostic: this.#options.diagnostic(error),
-    });
-  }
-
-  #declareFailure(detail: unknown): void {
-    if (this.#terminated || this.#failed || this.#epochToken === null) return;
-    this.#failed = true;
-    this.#emit({
-      protocolVersion: WORKER_RUNTIME_PROTOCOL_VERSION,
-      epochToken: this.#epochToken,
-      kind: "epoch-failed",
-      diagnostic: this.#options.diagnostic(detail),
-    });
-  }
-
-  #requiredEpochToken(): number {
-    if (this.#epochToken === null)
-      throw new Error("Fake worker has no epoch token.");
-    return this.#epochToken;
-  }
-
-  #omit(
-    kind: "accepted" | "rejected" | "cancel-acknowledged" | "probe-acknowledged",
-    correlation: string,
-  ): boolean {
-    return this.#options.omitResponse?.(kind, correlation) ?? false;
-  }
-
-  #emit(data: RawWorkerToMainEnvelope): void {
-    if (this.#terminated) return;
     this.emittedMessages.push(data);
     this.#handlers?.message(this, data);
   }

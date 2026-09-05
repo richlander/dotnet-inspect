@@ -14,15 +14,18 @@ import type {
   QueryResultRow,
   TerminalQueryCompletion,
 } from "./package-query.ts";
+import { PACKAGE_QUERY_INITIAL_MATCH_CREDIT } from "./package-query.ts";
 
 export interface BrowserPackageQueryEngine {
   cancel(): void;
+  requestMatches(additionalMatchCredit: number): boolean;
   run(
     prefix: string,
     facetIdsJson: string,
     maximumCandidates: number,
     maximumMatches: number,
     includePrerelease: boolean,
+    initialMatchCredit: number,
     eventSink: unknown,
   ): Promise<BrowserPackageQueryEvent>;
 }
@@ -53,6 +56,9 @@ export function createBrowserPackageQueryDataSource(
   engine: BrowserPackageQueryEngine,
 ): PackageQueryDataSource {
   return {
+    initialMatchCredit: PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
+    requestMore: additionalMatchCredit =>
+      engine.requestMatches(additionalMatchCredit),
     async run(request, onPage, onFailure, onProgress, abortSignal) {
       if (abortSignal.aborted) return { kind: "cancelled" };
 
@@ -69,8 +75,24 @@ export function createBrowserPackageQueryDataSource(
       const flushEvents = () => {
         flushScheduled = false;
         const batch = pendingEvents.splice(0);
+        let pendingRows: QueryResultRow[] = [];
+        const flushRows = () => {
+          if (!pendingRows.length) return;
+          const rows = pendingRows;
+          pendingRows = [];
+          onPage(rows);
+        };
         try {
           for (const queryEvent of batch) {
+            if (queryEvent.kind === "Match") {
+              if (!queryEvent.row) {
+                throw new TypeError(
+                  "A package-query match event contained no row.");
+              }
+              pendingRows.push(toQueryRow(queryEvent.row));
+              continue;
+            }
+            flushRows();
             dispatchEvent(
               queryEvent,
               onPage,
@@ -78,6 +100,7 @@ export function createBrowserPackageQueryDataSource(
               onProgress,
               terminal => { completion = terminal; });
           }
+          flushRows();
         } catch (error) {
           flushState.failed = true;
           flushState.error = error;
@@ -116,6 +139,7 @@ export function createBrowserPackageQueryDataSource(
           request.requestedLimit,
           request.requestedMatchLimit,
           false,
+          PACKAGE_QUERY_INITIAL_MATCH_CREDIT,
           eventSink);
         flushEvents();
         if (flushState.failed) throw flushState.error;
