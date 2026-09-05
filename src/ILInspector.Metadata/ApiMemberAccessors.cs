@@ -123,6 +123,16 @@ public static class ApiMemberAccessors
                 facts => facts.MethodToken == token);
         bool? accessorHasBody =
             implementation?.HasBodyRva ?? hasMethodBody;
+        ApiMethodModifiers modifiers = implementation is not null
+            ? ApiMethodModifiers.FromAttributes(
+                implementation.Attributes,
+                isExplicitImplementation)
+            : new(
+                owner.IsStatic,
+                owner.IsVirtual,
+                owner.IsAbstract && accessorHasBody != true,
+                owner.IsOverride,
+                owner.IsSealed);
         return new ApiMember
         {
             Name = name,
@@ -140,11 +150,11 @@ public static class ApiMemberAccessors
                 ReturnType = returnType,
                 Parameters = parameters,
             },
-            IsStatic = owner.IsStatic,
-            IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract && accessorHasBody != true,
-            IsOverride = owner.IsOverride,
-            IsSealed = owner.IsSealed,
+            IsStatic = modifiers.IsStatic,
+            IsVirtual = modifiers.IsVirtual,
+            IsAbstract = modifiers.IsAbstract,
+            IsOverride = modifiers.IsOverride,
+            IsSealed = modifiers.IsSealed,
             IsUnsafe = owner.IsUnsafe,
             IsReadOnly = accessorEntry?.IsReadOnly == true
                 || owner.IsReadOnly,

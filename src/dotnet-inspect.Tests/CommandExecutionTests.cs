@@ -17671,7 +17671,11 @@ public partial class CommandExecutionTests
             Assert.Equal(0, concreteExit);
             Assert.Empty(concreteError);
             Assert.Contains("## Decompiled Source", concreteOutput);
-            Assert.Contains(concreteAccessor, concreteOutput);
+            Assert.Contains($"public void {concreteAccessor}(", concreteOutput);
+            Assert.DoesNotContain("virtual ", concreteOutput);
+            Assert.DoesNotContain("abstract ", concreteOutput);
+            Assert.DoesNotContain("override ", concreteOutput);
+            Assert.DoesNotContain("sealed ", concreteOutput);
         }
         finally
         {

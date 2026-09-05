@@ -75,6 +75,11 @@ a method.
 Accessor-ordinal projection retains the private MethodImpl classification
 from metadata, including when the physical accessor name is unqualified.
 Its anchor therefore agrees with direct selection of the same raw MethodDef.
+When exact MethodDef facts are retained, the selected accessor's modifiers come
+from that method, not the property or event's aggregate across sibling accessors.
+The `ApiMethodImplementationFactsTests` modifier cases and
+`Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract` enforce this
+in Release; older models without MethodDef facts retain the aggregate fallback.
 Indexer status comes from the associated property's index parameters, not its
 name. Ordinary explicit properties named `Item` or `Chars` retain property
 syntax; actual indexer accessors retain their existing method form.

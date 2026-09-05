@@ -1071,9 +1071,9 @@ public static class ApiSurfaceExtractor
                     constraintResolution,
                     observeAttributeMaterialize);
                 var isOperator = IsOperatorMethodName(methodName);
-                var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
-                var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
-                var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+                var modifiers = ApiMethodModifiers.FromAttributes(
+                    methodAttributes,
+                    isExplicitInterfaceImplementation);
 
                 // A class finalizer is the `object.Finalize` override the C#
                 // `~Type()` destructor compiles to. It is detected by the
@@ -1119,11 +1119,11 @@ public static class ApiSurfaceExtractor
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
-                    IsStatic = (methodAttributes & MethodAttributes.Static) != 0,
-                    IsVirtual = isVirtual,
-                    IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
-                    IsOverride = isOverride,
-                    IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                    IsStatic = modifiers.IsStatic,
+                    IsVirtual = modifiers.IsVirtual,
+                    IsAbstract = modifiers.IsAbstract,
+                    IsOverride = modifiers.IsOverride,
+                    IsSealed = modifiers.IsSealed,
                     IsFinalizer = isFinalizer,
                     IsReadOnly = AttributeReader.HasAttribute(
                         reader,
