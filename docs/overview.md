@@ -418,6 +418,10 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   timeout identity, and source-safe post-return stream failures. It consumes
   source-result identity; source eligibility, failover policy, cache behavior,
   and presentation remain with their focused owners.
+- [NuGet API selection](design/nuget.md#scenario-selection): scenario-to-resource
+  decision guidance and evidence, including API combinations and first/last
+  requested-result costs. This is not a new runtime selector; source, query,
+  and host contracts remain with their focused owners.
 - [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
   NuGetFetch-owned termless/type-filtered discovery, source ordering,
   search-selector catalog, typed metadata observations, and Gallery-specific

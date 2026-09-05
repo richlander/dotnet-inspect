@@ -203,7 +203,9 @@ Metadata facts, (2) adopt them in the shared CSharp declaration producer under
 [#5257](https://github.com/richlander/dotnet-inspect/issues/5257), and (3)
 exercise that producer through CLI and browser/Wasm declaration surfaces.
 Stage 2 also consumes the Decompiler's independently owned primary-constructor
-fallback from #5255. This slice completes stage 1, not the host behavior.
+fallback from #5255. The focused
+[CSharp spelling contract](csharp-memory-safety-spelling.md) owns that consumer's
+declaration policy. This slice completes stage 1, not the host behavior.
 JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
 The existing Boolean remains until its consumers explicitly migrate; no
 retirement or narrowing is performed here.
@@ -672,6 +674,15 @@ are erased deliberately; duplicate matches remain ambiguous and an unavailable
 source sibling prevents uniqueness. Rank-one non-SZ metadata has no ordinary
 C# declaration counterpart. These are correspondence gates, not member-identity
 or source-ownership proofs.
+
+`ConversionSignatureShapeFlowTests` records conversion return shapes and
+canonical transport against compiler-produced methods and independently located
+MethodDef tokens. Same-name conversion candidates remain distinct by return
+type; ordinary-method return types are erased, so their shape cannot establish
+return-type identity. The caller supplies the operator-name group: the shape
+itself does not distinguish implicit from explicit or checked operators. Checked
+explicit operators retain Metadata return evidence, while the current source
+adapter refuses their headers visibly rather than manufacturing correspondence.
 
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows

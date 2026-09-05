@@ -655,7 +655,11 @@ public sealed partial class EhStructuringPass : IIrPass
     {
         Constant constant => new Constant(constant.Value, constant.Type),
         LoadLocal local => new LoadLocal(local.Index, local.Type),
-        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadArgument argument => new LoadArgument(
+            argument.Index,
+            argument.Name,
+            argument.Type,
+            argument.Parameter),
         _ => null,
     };
 

@@ -113,6 +113,7 @@ public class PatternSwitchExpressionPassTests
         Assert.Contains("LogicalNot { Operand: Comparison comparison } when ReadsLoopField(comparison.Left, loopFieldName)", output);
         Assert.DoesNotContain("Comparison V_", output);
         Assert.Contains("_ => false,", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
 
     // ── Compiler-backed positives: heterogeneous / inline arm intros (#3028) ─

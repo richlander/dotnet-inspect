@@ -19,9 +19,11 @@ manifest, ten-demo contribution, Workspace-owned lazy source binding, CLI
 handoff, inspect-web facade handoff, and the corresponding active Release gates
 named below are implemented. The assembly-friend tests, solution
 dependency-policy rule, and strengthened inspect-web facade boundary gate are
-active. Prefix and scanner slots and their future gates remain absent until
-their owners issue the required currencies; existing search and Integration
-behavior is unchanged.
+active. The optional scanner slot and Aspire binding selection are implemented
+under [#5935](https://github.com/richlander/dotnet-inspect/issues/5935), using
+the Integration-owned compatibility binding. CLI/browser scanner selection
+remains staged. Prefix slots remain absent until their owner issues the
+required currency; existing search and full Integration behavior is unchanged.
 
 Participating normative owner:
 
@@ -198,6 +200,12 @@ ecosystem.
 
 The public discovery boundary exposes immutable pack, prefix-action, and demo
 descriptor metadata, package-set identity, and whether a scanner is available.
+`EcosystemPackDescriptor.HasScanner` reports scanner availability without
+exposing the binding. `EcosystemPackCatalog.SelectScanner` accepts the exact
+typed pack ID and returns `EcosystemScannerSelectionResult`: `Known` carries
+only the selected owner-issued binding, `Unavailable` identifies a registered
+pack without that capability, and `Unknown` preserves an unregistered ID.
+Neither missing case selects a neighboring scanner or a default.
 Exact demo selection returns one `EcosystemDemoSelection`, retaining the
 catalog descriptor beside the Workspace-Definitions-owned resolved scenario.
 Hosts use descriptor title and summary for product discovery and display;
@@ -563,19 +571,21 @@ classification passes, its scanner composes them behind the single
 Integration-owned binding rather than exposing a runtime scanner collection or
 execution graph.
 
-The current broad `EcosystemIntegrationScanner` remains the behavior oracle
-until the Integration owner adopts this pattern. Extracting Aspire or another
-ecosystem-specific semantic scanner requires first separating common guarded
-traversal from the decoded observation context in a focused Integration change;
-it does not join the pack-contract PR.
+The [Integration-owned contract](integration-scanner-binding.md), locked under
+issue #5719 and implemented under #5902, separates common guarded traversal from
+decoded observations. The broad scanner remains the behavior oracle.
+The Aspire registration uses `EcosystemIntegrationScanner.AspireBinding`
+directly during migration, retaining one owner-side semantic policy rather
+than copying its predicates into application source. Other packs have no
+scanner contribution yet.
 
-The executable pack registration cannot land the scanner slot before that
-focused owner issues the binding currency under
-[#5719](https://github.com/richlander/dotnet-inspect/issues/5719), whose
-[Integration-owned contract](integration-scanner-binding.md) now has its
-substrate implementation under #5902. Catalog adoption remains a separate step.
-The pack design does not introduce a generic delegate or parallel scan result as a
-placeholder.
+Catalog adoption under #5935 is step 3 of the
+[six-step scanner path](integration-scanner-binding.md#adoption-and-retirement)
+in #5728. Explicit CLI and browser selection follow separately. Moving Aspire
+interpretation fully into application source and retiring owner-side
+compatibility remain the final step, after existing full-scan/presence
+consumers retain their behavior. The catalog introduces neither a generic
+delegate nor a parallel scan result.
 
 ## Discovery and selection
 
@@ -663,9 +673,9 @@ currencies and content:
 | Pack identity | Package-set identity | Product demos | Residual capabilities |
 | --- | --- | --- | --- |
 | `ecosystem.platform` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | no prefix or scanner planned by this slice |
-| `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix waits for #5602; scanner waits for #5719 |
-| `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix waits for #5602; scanner waits for #5719 |
-| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | prefixes wait for #5602; scanner waits for #5719 |
+| `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix waits for #5602; no scanner contributed yet |
+| `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix waits for #5602; no scanner contributed yet |
+| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; host selection remains staged; prefixes wait for #5602 |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
@@ -733,6 +743,26 @@ candidate packs, not registrations authorized by this design.
 
 ## Demo
 
+Scanner selection is a shared application-catalog API, not a new CLI or
+browser action:
+
+```csharp
+var selection = EcosystemPackCatalog.SelectScanner(EcosystemPackIds.Aspire);
+if (selection is not EcosystemScannerSelectionResult.Known scanner)
+    throw new InvalidOperationException("The shipped Aspire scanner is unavailable.");
+
+using var session = AssemblyInspectionSession.Open(path);
+var rows = session.EcosystemIntegrations(scanner.Binding);
+```
+
+On the pinned `Aspire.Hosting.PostgreSQL@13.5.3` and
+`Aspire.Hosting.Redis@13.5.3` `net8.0` assemblies this yields six and four
+Aspire rows respectively, retaining the same ordered rows and evidence as the
+full scanner's Aspire subset. `ILInspector.Metadata.dll` is a neighboring
+input with zero Aspire rows. Selecting `ecosystem.microsoft-extensions`
+instead returns typed `Unavailable`; discovering or selecting any pack does
+not itself run a scanner.
+
 The flat product-demo projection preserves current order and appends Aspire:
 
 ```text
@@ -791,6 +821,9 @@ ordinary non-friend consumer.
 | `ProductDemoSourceBindingTests.ResolveRequiresExactlyOneMatchingScenario` | A selected source must return exactly one scenario with the binding's exact ID; absent, duplicate, and mismatched scenario records fail visibly. |
 | `ProductDemoSourceBindingTests.ResolvePreservesDefinitionAndSectionFailures` | Invalid peer records and unsupported demo sections remain visible Workspace-Definitions-owned failures. |
 | `EcosystemPackRegistryTests.ScannerSelectionReturnsOnlyTheSelectedBinding` | Selecting one synthetic pack returns only its scanner binding and leaves every neighboring binding unreturned and uninvoked. |
+| `EcosystemPackRegistryTests.ScannerOnlyPackIsValidAndMissingCapabilityIsDistinctFromUnknownPack` | A scanner-only contribution is valid; exact selection distinguishes a known pack without a scanner from an unknown pack. |
+| `ProductEcosystemPackTests.AspireIsTheOnlyShippedScannerAndRetainsTheOwnerBinding` | Literal shipped availability identifies only Aspire and selection preserves the Integration-owned compatibility binding by identity. |
+| `PackageSetRegistryConsumerTests.PublicSurfaceHandsSelectedScannerToIntegrationOwner` | A non-friend consumer discovers and selects Aspire, passes only the binding to the public Integration operation, and retains typed missing-capability/unknown results. |
 | `EcosystemPackRegistryTests.PrefixSelectionPreservesExactValidatedIntent` | After the prefix owner issues its currency, selecting a prefix returns that typed request unchanged and does not expand, combine, count, or execute it. |
 | `EcosystemPackRegistryTests.PackageSetSelectionPreservesExactTypedIdentity` | Selecting a curated set returns only its `PackageSetId` and does not copy membership or activate another pack capability. |
 | `PackageSetRegistryConsumerTests.PublicSurfaceSupportsEcosystemDiscoveryAndDemoSelection` | An ordinary non-friend front-end consumer discovers and selects available actions through only the public surface, without registration construction, manifest publication, demo factories, scanner implementation, CLI types, package clients, or workspaces. |

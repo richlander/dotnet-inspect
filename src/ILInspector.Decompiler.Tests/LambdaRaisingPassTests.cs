@@ -16,7 +16,10 @@ public class LambdaRaisingPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_func = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Func`2"), [s_int, s_int]);
 
-    static string PrintRaised(string methodName, Type? fixtureType = null)
+    static string PrintRaised(
+        string methodName,
+        Type? fixtureType = null,
+        Action<IrFunction>? inspectFunction = null)
     {
         var type = fixtureType ?? typeof(CfgSampleClass);
         using var source = MetadataSource.Open(type.Assembly.Location);
@@ -26,6 +29,7 @@ public class LambdaRaisingPassTests
         var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
         Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
         Assert.NotNull(result.Output);
+        inspectFunction?.Invoke(function!);
         return result.Output!.ReplaceLineEndings("\n").Trim();
     }
 
@@ -53,6 +57,32 @@ public class LambdaRaisingPassTests
     [Fact]
     public void NonCapturingExpressionBody_RaisesSimpleLambda()
         => Assert.Equal("return x => x + 1;", PrintRaised(nameof(CfgSampleClass.NonCapturingLambda)));
+
+    [Fact]
+    public void ParameterReusingOuterLocal_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LambdaParameterReusesOuterLocal),
+            inspectFunction: function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = input;", output);
+        Assert.Contains("value => value + 1", output);
+        Assert.DoesNotContain("int num = input;", output);
+    }
+
+    [Fact]
+    public void LocalReusingOuterParameter_PreservesBothNamesAndFullFidelity()
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.LambdaLocalReusesOuterParameter),
+            inspectFunction: function =>
+                Assert.Equal(DecompilationFidelity.Full, function.Fidelity));
+
+        Assert.Contains("int value = 1;", output);
+        Assert.Contains("RefHelper(ref value);", output);
+        Assert.DoesNotContain("int num = 1;", output);
+    }
 
     [Fact]
     public void NonCapturingStatementBody_RaisesBlockLambda()
@@ -141,7 +171,18 @@ public class LambdaRaisingPassTests
 
     [Fact]
     public void CapturingExpressionBody_SubstitutesCaptureAndRaisesLambda()
-        => Assert.Equal("return x => x + n;", PrintRaised(nameof(CfgSampleClass.CapturingLambda)));
+    {
+        string output = PrintRaised(
+            nameof(CfgSampleClass.CapturingLambda),
+            inspectFunction: function =>
+                Assert.Equal(
+                    ["n"],
+                    Assert.Single(
+                        function.Descendants.OfType<Lambda>())
+                        .CapturedBinderNames));
+
+        Assert.Equal("return x => x + n;", output);
+    }
 
     [Fact]
     public void MultipleCaptures_AllSubstitutedIntoRaisedBody()
@@ -2365,7 +2406,10 @@ public class LambdaRaisingPassTests
 
         new LambdaRaisingPass().Run(function, context);
 
-        Assert.Equal(2, function.Descendants.OfType<Lambda>().Count());
+        Assert.Collection(
+            function.Descendants.OfType<Lambda>(),
+            lambda => Assert.Equal(["a"], lambda.CapturedBinderNames),
+            lambda => Assert.Equal(["b"], lambda.CapturedBinderNames));
         Assert.Empty(function.Descendants.OfType<DelegateCreation>());
         Assert.Empty(function.Descendants.OfType<StoreField>());
         function.CheckInvariant();
@@ -2442,7 +2486,10 @@ public class LambdaRaisingPassTests
             outer,
             new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
             [dcType, s_int, s_int, s_func1, s_func1],
-            body);
+            body)
+        {
+            LocalNames = [null, "a", "b", null, null],
+        };
 
         IrFunction LambdaBodyReading(MethodRef method, FieldRef field)
         {
