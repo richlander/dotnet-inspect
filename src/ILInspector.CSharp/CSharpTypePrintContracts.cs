@@ -67,6 +67,12 @@ public sealed record CSharpBlockBody(
     CSharpConstructorInitializer? ConstructorInitializer = null) : CSharpMemberBody
 {
     /// <summary>
+    /// Complete parameter-name overrides owned by this body projection. Null
+    /// or empty keeps the declaration's metadata names.
+    /// </summary>
+    public IReadOnlyList<string>? ParameterNames { get; init; }
+
+    /// <summary>
     /// Selects this exact rendered block as the compilation unit's replaceable
     /// body. A print batch may select at most one body.
     /// </summary>

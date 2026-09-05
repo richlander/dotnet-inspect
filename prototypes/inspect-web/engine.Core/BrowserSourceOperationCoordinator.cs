@@ -13,16 +13,24 @@ internal static class BrowserSourceOperationCoordinator
     static readonly SemaphoreSlim Gate = new(1, 1);
     static SourceOperation? _current;
 
-    internal static async ValueTask<BrowserSourceOperationLease> BeginAsync()
+    internal static ValueTask<BrowserSourceOperationLease> BeginAsync() =>
+        BeginAsync(new SourceOperation());
+
+    internal static ValueTask<BrowserSourceOperationLease> BeginAsync(
+        CancellationToken cancellationToken,
+        Action<BrowserManagedOperationCancelReason> requestCancellation) =>
+        BeginAsync(new SourceOperation(cancellationToken, requestCancellation));
+
+    static async ValueTask<BrowserSourceOperationLease> BeginAsync(
+        SourceOperation operation)
     {
-        var operation = new SourceOperation();
         SourceOperation? superseded =
             Interlocked.Exchange(ref _current, operation);
-        superseded?.Cancel();
 
         bool entered = false;
         try
         {
+            superseded?.Cancel(BrowserManagedOperationCancelReason.Superseded);
             await Gate.WaitAsync(operation.Token);
             entered = true;
             operation.Token.ThrowIfCancellationRequested();
@@ -41,7 +49,7 @@ internal static class BrowserSourceOperationCoordinator
     }
 
     internal static void CancelCurrent() =>
-        Volatile.Read(ref _current)?.Cancel();
+        Volatile.Read(ref _current)?.Cancel(BrowserManagedOperationCancelReason.User);
 
     static void Complete(SourceOperation operation)
     {
@@ -53,17 +61,38 @@ internal static class BrowserSourceOperationCoordinator
     sealed class SourceOperation : IDisposable
     {
         readonly object _sync = new();
-        readonly CancellationTokenSource _cancellation = new();
+        readonly CancellationTokenSource? _cancellation;
+        readonly Action<BrowserManagedOperationCancelReason>? _requestCancellation;
         bool _disposed;
 
-        internal CancellationToken Token => _cancellation.Token;
+        internal SourceOperation()
+        {
+            _cancellation = new();
+            Token = _cancellation.Token;
+        }
 
-        internal void Cancel()
+        internal SourceOperation(
+            CancellationToken token,
+            Action<BrowserManagedOperationCancelReason> requestCancellation)
+        {
+            ArgumentNullException.ThrowIfNull(requestCancellation);
+            Token = token;
+            _requestCancellation = requestCancellation;
+        }
+
+        internal CancellationToken Token { get; }
+
+        internal void Cancel(BrowserManagedOperationCancelReason reason)
         {
             lock (_sync)
             {
                 if (!_disposed)
-                    _cancellation.Cancel();
+                {
+                    if (_requestCancellation is { } requestCancellation)
+                        requestCancellation(reason);
+                    else
+                        _cancellation!.Cancel();
+                }
             }
         }
 
@@ -74,7 +103,7 @@ internal static class BrowserSourceOperationCoordinator
                 if (_disposed)
                     return;
                 _disposed = true;
-                _cancellation.Dispose();
+                _cancellation?.Dispose();
             }
         }
     }

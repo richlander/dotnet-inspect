@@ -128,7 +128,9 @@ internal static class SourceEnricher
 
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            using var service = sourceAssembly is null
+                ? SourceLinkService.Open(dllPath, logger.Log)
+                : SourceLinkService.Open(sourceAssembly, logger.Log);
             var context = service.Context;
 
             if (!context.HasMetadata)
@@ -200,7 +202,8 @@ internal static class SourceEnricher
             var sourceInfo = service.ResolveTypeSource(typeName);
             if (sourceInfo == null)
             {
-                if (apiType.DefinitionName is not null
+                if (sourceAssembly is null
+                    && apiType.DefinitionName is not null
                     && await TryEnrichFromForwardedAssemblyAsync(
                         apiType,
                         typeName,
@@ -222,7 +225,7 @@ internal static class SourceEnricher
                 options,
                 logger);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (sourceAssembly is null)
         {
             logger.Log($"Error enriching source info: {ex.Message}");
         }
