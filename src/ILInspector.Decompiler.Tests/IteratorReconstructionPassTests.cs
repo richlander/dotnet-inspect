@@ -904,6 +904,23 @@ public class IteratorReconstructionPassTests
         Assert.Contains("yield return date.Year;", output);
     }
 
+    [Theory]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldYears))]
+    [InlineData(nameof(IteratorReceiverNameSamples.YieldAdjustedYears))]
+    public void ForeachDelegationIterator_UnownedReceiverInitializationDeclines(string methodName)
+    {
+        using var source = MetadataSource.Open(typeof(IteratorReceiverNameSamples).Assembly.Location);
+        var (function, _) = RaisedFrom(
+            source,
+            typeof(IteratorReceiverNameSamples).FullName!,
+            methodName);
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<YieldReturn>());
+        Assert.Single(function.Descendants.OfType<UnsupportedNode>(), node => node.Opcode == "iterator");
+    }
+
     [Fact]
     public void ForeachDelegationIterator_WithUserFinally_DeclinesToAcknowledgment()
     {

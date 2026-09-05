@@ -103,6 +103,12 @@ when it is also a struct receiver. Preserving that local must not make an
 already reconstructed foreach fail the iterator's reconstruction contract;
 `IteratorReconstructionPassTests.ForeachDelegationIterator_PreservesNamedStructReceiver`
 gates the compiler-produced case in P2.
+The foreach-delegation recipe declines a state-dispatch prefix containing
+unowned initialization instead of discarding a captured receiver binding.
+`ForeachDelegationIterator_UnownedReceiverInitializationDeclines` gates the
+collection-receiver and yielded-projection cases.
+[#5923](https://github.com/richlander/dotnet-inspect/issues/5923) tracks consuming
+that surviving receiver evidence.
 
 ### Portable PDB boundary
 
@@ -199,6 +205,7 @@ output does not preserve it.
 
 | Gap | Surviving evidence | Current output | Target | Issue and probe |
 | --- | --- | --- | --- | --- |
+| Iterator receiver initialized before state dispatch | MoveNext records the captured-instance assignment and its later uses. | Foreach-delegation reconstruction declines rather than discarding that assignment and using a default receiver. | Preserve the original captured receiver binding through dispatch removal using typed kickoff/capture evidence. | [#5923](https://github.com/richlander/dotnet-inspect/issues/5923), P2 |
 | Static argument zero named `this` | The Param row preserves the ordinary parameter identity `this`, and `HasThis == false` proves that argument zero is not an implicit receiver. | The declaration emits `@this`, but shared value, receiver, ref, and cast paths can print its uses as the `this` keyword, producing CS0026 while fidelity remains Full. | Gate every implicit-receiver spelling on `HasThis`; otherwise render the ordinary parameter identity as `@this` in every position. | [#3260](https://github.com/richlander/dotnet-inspect/issues/3260), P29 |
 | Declined capturing local functions | The generated local-function method embeds `AddSquare`; the display-class field embeds captured `n`. | Generated support identifiers such as `___c__DisplayClass...` and `__CapturingLocalFunctionWithLocal_g__AddSquare...` remain. | Raise the supported environment and function, or retain an honest valid fallback without losing the available source identity when binding can be proved. | [#3129](https://github.com/richlander/dotnet-inspect/issues/3129), P11 |
 | Same-named local functions in disjoint source scopes | Each authenticated generated method embeds `Pick`; local-function ordinals and distinct MethodDefs distinguish the two definitions. | Both calls retain generated fallback names because declarations are flattened into one scope. | Recover each declaration into its own source scope while preserving each call's binding. | [#3878](https://github.com/richlander/dotnet-inspect/issues/3878), P12 |
@@ -359,11 +366,17 @@ surface is gated by `MetadataDeclarationQueryTests`.
 inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples YieldNamedStructReceiver "$CFG"
 inspect_member ILInspector.Decompiler.Tests.CfgSampleClass ReverseCopy "$CFG"
 inspect_member ILInspector.Decompiler.Tests.NamePreservationSamples StoreElementNamedReceiverTemp "$CFG"
+inspect_member ILInspector.Decompiler.Tests.IteratorReceiverNameSamples YieldYears "$CFG"
+inspect_member ILInspector.Decompiler.Tests.IteratorReceiverNameSamples YieldAdjustedYears "$CFG"
 ```
 
 Expected: `ReverseCopy` declarations and uses are named `i` and `j`, not `V_0`
 and `V_1`. `StoreElementNamedReceiverTemp` retains the declaration and use of
 `trimmed` rather than inlining it away.
+`YieldNamedStructReceiver` retains `date` in its foreach and `date.Year` yield.
+The two instance-iterator probes remain visibly unsupported while #5923 is
+open: their captured receiver initialization cannot be discarded with state
+dispatch scaffolding. They must not emit a raised body using a default receiver.
 
 ### P3: lambda parameter and capture names
 

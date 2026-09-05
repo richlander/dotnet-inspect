@@ -107,6 +107,17 @@ internal static class ForeachIteratorReconstruction
         if (dispatchEnd >= blocks.Count)
             return false;
 
+        // A dispatch block may also initialize a captured receiver used by the
+        // iterator body. Do not discard that binding with the state machinery.
+        foreach (var statement in blocks.Take(dispatchEnd).SelectMany(block => block.Children))
+        {
+            if (ReferenceEquals(statement, stateStore)
+                || statement is ConditionalBranch or Branch or Leave
+                || statement is StoreLocal { Value: Constant } marker && marker.Index == returnLocal)
+                continue;
+            return false;
+        }
+
         // Rebuild the surviving blocks: strip the scaffolding, sew the yields, drop the
         // disposal idiom, and remap the state-machine fields to the fresh locals/arguments.
         var container = new BlockContainer();
