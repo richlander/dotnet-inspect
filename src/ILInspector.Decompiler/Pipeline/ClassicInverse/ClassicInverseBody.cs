@@ -266,6 +266,16 @@ internal sealed record ClassicInverseLogicalNotNode(
     internal override string Signature => $"not({Operand.Signature})";
 }
 
+internal sealed record ClassicInverseCoalesceNode(
+    ClassicInverseBodyNode Left,
+    ClassicInverseBodyNode Right)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new Coalesce(Expr(Left), Expr(Right));
+
+    internal override string Signature => $"coalesce({Left.Signature},{Right.Signature})";
+}
+
 internal sealed record ClassicInverseUnaryNode(
     UnaryKind Kind,
     ClassicInverseBodyNode Operand)
@@ -328,6 +338,46 @@ internal sealed record ClassicInverseCallNode(
     internal override string Signature =>
         $"call[{MethodText(Callee)}:{IsVirtual}:{TypeText(ConstrainedTo)}]"
         + $"({Children(Arguments)})";
+}
+
+internal sealed record ClassicInverseCastClassNode(
+    TypeRef Type,
+    ClassicInverseBodyNode Operand)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new CastClass(Type, Expr(Operand));
+
+    internal override string Signature => $"cast[{TypeText(Type)}]({Operand.Signature})";
+}
+
+internal sealed record ClassicInverseUnboxAnyNode(
+    TypeRef Type,
+    ClassicInverseBodyNode Operand)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new UnboxAny(Type, Expr(Operand));
+
+    internal override string Signature => $"unbox-any[{TypeText(Type)}]({Operand.Signature})";
+}
+
+internal sealed record ClassicInverseIsInstanceNode(
+    TypeRef Type,
+    ClassicInverseBodyNode Operand)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new IsInstance(Type, Expr(Operand));
+
+    internal override string Signature => $"isinst[{TypeText(Type)}]({Operand.Signature})";
+}
+
+internal sealed record ClassicInverseNewArrayNode(
+    TypeRef ElementType,
+    ClassicInverseBodyNode Length)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new NewArray(ElementType, Expr(Length));
+
+    internal override string Signature => $"newarr[{TypeText(ElementType)}]({Length.Signature})";
 }
 
 internal sealed record ClassicInverseNewObjectNode(
@@ -634,6 +684,15 @@ internal static class ClassicInverseBodyCapture
                     : new ClassicInverseLogicalNotNode(operand);
             }
 
+            case Coalesce coalesce:
+            {
+                var left = TryCapture(coalesce.Left, budget);
+                var right = TryCapture(coalesce.Right, budget);
+                return left is null || right is null
+                    ? null
+                    : new ClassicInverseCoalesceNode(left, right);
+            }
+
             case Unary unary:
             {
                 var operand = TryCapture(unary.Operand, budget);
@@ -668,6 +727,38 @@ internal static class ClassicInverseBodyCapture
                 return operand is null
                     ? null
                     : new ClassicInverseBoxNode(box.Type, operand);
+            }
+
+            case CastClass cast:
+            {
+                var operand = TryCapture(cast.Operand, budget);
+                return operand is null
+                    ? null
+                    : new ClassicInverseCastClassNode(cast.Type, operand);
+            }
+
+            case UnboxAny unbox:
+            {
+                var operand = TryCapture(unbox.Operand, budget);
+                return operand is null
+                    ? null
+                    : new ClassicInverseUnboxAnyNode(unbox.Type, operand);
+            }
+
+            case IsInstance test:
+            {
+                var operand = TryCapture(test.Operand, budget);
+                return operand is null
+                    ? null
+                    : new ClassicInverseIsInstanceNode(test.Type, operand);
+            }
+
+            case NewArray array:
+            {
+                var length = TryCapture(array.Length, budget);
+                return length is null
+                    ? null
+                    : new ClassicInverseNewArrayNode(array.ElementType, length);
             }
 
             case Call call:

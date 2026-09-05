@@ -50,6 +50,9 @@ internal sealed class ClassicInverseAccountant
         new(ReferenceEqualityComparer.Instance);
     readonly HashSet<IrNode> _rawSemanticReceiptNodes =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, IrNode> _rawBooleanFolds =
+        new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<int, ImmutableArray<int>> _booleanFoldOffsets = [];
     ImmutableArray<string> _planningEffectOrder = [];
     ClassicInverseConsumedMembers? _consumedMembers;
     bool _consumedMembersIndexed;
@@ -393,7 +396,7 @@ internal sealed class ClassicInverseAccountant
             planningValues.Select(static node => node.SourceOffset)
                 .ToImmutableHashSet();
         ImmutableArray<IrNode> rawValues =
-            RawSemanticValueAtoms(_request.ExecutionBody.Body)
+            RawSemanticValueAtoms(_request.ExecutionBody.Body, planningValues)
                 .Where(node =>
                     planningOffsets.Contains(node.SourceOffset)
                     || IsMappedMachineValue(node)
@@ -569,8 +572,21 @@ internal sealed class ClassicInverseAccountant
         }
     }
 
-    ImmutableArray<IrNode> RawSemanticValueAtoms(IrNode root)
+    ImmutableArray<IrNode> RawSemanticValueAtoms(
+        IrNode root,
+        ImmutableArray<IrNode> planningValues)
     {
+        var planningByOffset = new Dictionary<int, IrNode?>();
+        foreach (IrNode value in planningValues)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("boolean correspondence indexing exhausted the planning budget");
+                return [];
+            }
+            if (!planningByOffset.TryAdd(value.SourceOffset, value))
+                planningByOffset[value.SourceOffset] = null;
+        }
         var values = ImmutableArray.CreateBuilder<IrNode>();
         Visit(root);
         return values.ToImmutable();
@@ -586,9 +602,41 @@ internal sealed class ClassicInverseAccountant
             }
             ClassicInverseProtocolRule protocol =
                 ClassicInverseProtocol.Classify(node, _shell, _candidate);
+            if (node is LoadStackSlot
+                && _shell.Protocol.CoalescingTestForJoin(node) is { } coalescingTest)
+            {
+                values.Add(coalescingTest);
+                return;
+            }
             if (protocol.Kind is ClassicInverseProtocolKind.OwnedProtocol
                 or ClassicInverseProtocolKind.Preserved)
             {
+                return;
+            }
+
+            if (node is Comparison comparison
+                && planningByOffset.TryGetValue(comparison.SourceOffset, out IrNode? replacement)
+                && replacement is not null
+                && ClassicInverseExpressionRules.TryMatchBooleanNegation(comparison, replacement, _budget))
+            {
+                IrNode operand = comparison.Left;
+                if (replacement is LogicalNot)
+                {
+                    Visit(operand);
+                }
+                else
+                {
+                    foreach (IrNode child in operand.Children)
+                        Visit(child);
+                    _rawSemanticValues.Add(operand);
+                }
+                _rawSemanticValues.Add(comparison.Right);
+                _rawBooleanFolds.Add(comparison, replacement);
+                _booleanFoldOffsets[comparison.SourceOffset] =
+                    replacement is LogicalNot
+                        ? [comparison.Right.SourceOffset]
+                        : [comparison.Right.SourceOffset, operand.SourceOffset];
+                values.Add(comparison);
                 return;
             }
 
@@ -624,7 +672,10 @@ internal sealed class ClassicInverseAccountant
             or LogicalNot
             or Unary
             or Box
+            or CastClass
+            or UnboxAny
             or IsInstance
+            or NewArray
             or TypeOf
             or SizeOf
             or DefaultValue
@@ -660,8 +711,14 @@ internal sealed class ClassicInverseAccountant
             values.Select(static value =>
                 $"{value.Describe()}@{value.SourceOffset}"));
 
-    static bool SemanticValueEquals(IrNode raw, IrNode planning)
-        => (raw, planning) switch
+    bool SemanticValueEquals(IrNode raw, IrNode planning)
+    {
+        if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
+            return ReferenceEquals(replacement, planning);
+        if (raw is ConditionalBranch && planning is Coalesce)
+            return _shell.Protocol.ProvesCoalescingValue(raw, planning);
+
+        return (raw, planning) switch
         {
             (LoadArgument left, LoadArgument right) =>
                 left.Index == right.Index
@@ -685,7 +742,7 @@ internal sealed class ClassicInverseAccountant
             (Constant left, Constant right) =>
                 (Equals(left.Value, right.Value)
                     && Equals(left.Type, right.Type))
-                || IsRetypedBooleanArgument(left, right),
+                || ClassicInverseExpressionRules.IsRetypedBooleanArgument(left, right),
             (Binary left, Binary right) =>
                 left.Kind == right.Kind
                 && left.IsChecked == right.IsChecked
@@ -707,8 +764,12 @@ internal sealed class ClassicInverseAccountant
             (LogicalNot, LogicalNot) => true,
             (Unary left, Unary right) => left.Kind == right.Kind,
             (Box left, Box right) => Equals(left.Type, right.Type),
+            (CastClass left, CastClass right) => Equals(left.Type, right.Type),
+            (UnboxAny left, UnboxAny right) => Equals(left.Type, right.Type),
             (IsInstance left, IsInstance right) =>
                 Equals(left.Type, right.Type),
+            (NewArray left, NewArray right) =>
+                Equals(left.ElementType, right.ElementType),
             (TypeOf left, TypeOf right) => Equals(left.Type, right.Type),
             (SizeOf left, SizeOf right) => Equals(left.Type, right.Type),
             (DefaultValue left, DefaultValue right) =>
@@ -717,22 +778,6 @@ internal sealed class ClassicInverseAccountant
                 left.Constructor == right.Constructor,
             _ => false,
         };
-
-    static bool IsRetypedBooleanArgument(Constant raw, Constant planning)
-    {
-        if (raw.Value is not int value || value is not (0 or 1)
-            || planning.Value is not bool boolean || boolean != (value == 1)
-            || !MemberIdentity.IsCoreLibraryType(raw.Type, "System", "Int32")
-            || !MemberIdentity.IsCoreLibraryType(planning.Type, "System", "Boolean")
-            || raw.Parent is not Call call)
-        {
-            return false;
-        }
-
-        int parameter = raw.ChildIndex - (call.Callee.HasThis ? 1 : 0);
-        return parameter >= 0 && parameter < call.Callee.ParameterTypes.Length
-            && MemberIdentity.IsCoreLibraryType(
-                call.Callee.ParameterTypes[parameter], "System", "Boolean");
     }
 
     bool ValidateRawKickoff()
@@ -1107,31 +1152,65 @@ internal sealed class ClassicInverseAccountant
         for (int i = 0; i < _realizations.Count; i++)
         {
             ClassicInverseSemanticRealization realization = _realizations[i];
+            ImmutableArray<int> offsets = ExpandBooleanOffsets(realization.ImportOffsets);
+            if (_terminal is not null)
+                return false;
             ImmutableArray<ImmutableArray<int>> paths =
-                ImportPaths(realization.ImportOffsets);
+                ImportPaths(offsets);
             if (paths.IsEmpty)
             {
                 return DeclineFalse(
                     ClassicInverseDeclineReason.MissingImportCorrespondence,
                     $"{realization.Rule} has no raw import region");
             }
-            _realizations[i] = realization with { ImportPaths = paths };
+            _realizations[i] = realization with { ImportOffsets = offsets, ImportPaths = paths };
         }
 
         for (int i = 0; i < _ancestors.Count; i++)
         {
             ClassicInverseAncestorReceipt receipt = _ancestors[i];
+            ImmutableArray<int> offsets = ExpandBooleanOffsets(receipt.ImportOffsets);
+            if (_terminal is not null)
+                return false;
             ImmutableArray<ImmutableArray<int>> paths =
-                ImportPaths(receipt.ImportOffsets);
+                ImportPaths(offsets);
             if (paths.IsEmpty)
             {
                 return DeclineFalse(
                     ClassicInverseDeclineReason.MissingImportCorrespondence,
                     "an ancestor receipt has no raw import region");
             }
-            _ancestors[i] = receipt with { ImportPaths = paths };
+            _ancestors[i] = receipt with { ImportOffsets = offsets, ImportPaths = paths };
         }
         return true;
+    }
+
+    ImmutableArray<int> ExpandBooleanOffsets(ImmutableArray<int> offsets)
+    {
+        if (_booleanFoldOffsets.Count == 0)
+            return offsets;
+        var expanded = new HashSet<int>();
+        foreach (int offset in offsets)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("boolean origin accounting exhausted the planning budget");
+                return [];
+            }
+            expanded.Add(offset);
+            if (!_booleanFoldOffsets.TryGetValue(offset, out var consumed))
+                continue;
+            foreach (int origin in consumed)
+            {
+                if (!_budget.Charge())
+                {
+                    _terminal = Failure("boolean origin accounting exhausted the planning budget");
+                    return [];
+                }
+                expanded.Add(origin);
+            }
+        }
+        return [.. expanded.Order()];
     }
 
     ImmutableArray<ImmutableArray<int>> ImportPaths(

@@ -410,6 +410,16 @@ recipe declines. A state store or awaiter transfer is protocol only under this
 proof; it is never preserved merely for matching a compiler-generated name or
 lacking an effect signature.
 
+A reference-coalescing diamond may move the proven `GetResult` into the left
+operand of a coalesce in the continuation's sole successor. The planning
+continuation must otherwise be empty. The raw diamond must bind one evaluated
+reference, its exact null test, a null-only fallback, and one carried value's
+sole joined use, with no additional entry or intervening work. Both operands
+and the surrounding use retain their typed, ordered correspondence. The null
+test supplies the coalesce's import origin and remains semantic; its temporary
+transfers alone are protocol. A same-offset call elsewhere in the body cannot
+license this movement.
+
 The proof's work is proportional to the budget it charges. One charged pass
 builds every index the later phases need — builder callbacks, state stores and
 awaiter transfers grouped by block, blocks by start offset, dispatch tests by
@@ -574,6 +584,10 @@ instance presence, and ordered index arguments through detached publication.
 Unary operators retain their operator kind and operand; array lengths retain
 their array; ordinary field reads retain exact field identity, volatility, and
 optional receiver. These expressions are ordinary realizations, not protocol.
+Reference casts, `unbox.any` value reads, and `as`/type tests retain their exact target
+type. Array creation retains its exact element type and length expression.
+Ordered operands remain accounted, including the exceptions and effects of
+casts, unboxing, and allocation, through detached publication.
 
 The compiler's unchecked, signed `conv.i4` directly over an `ArrayLength` is
 an identity under the imported int-typed array-length model, as recognized by
@@ -586,6 +600,15 @@ The `0`/`1` literals consumed by an exactly bool-typed call parameter may
 correspond to `false`/`true` after `TypedConstantsPass`; the value, parameter
 position, and import offset must remain the same. This does not authorize
 integer retyping in other positions or recovery from a missing import anchor.
+
+An exact bool comparison with `false` (or inequality with `true`) may correspond
+to negation or a typed comparison dual. The operand, literal type and value,
+polarity, signedness, and floating-point unordered behavior remain significant.
+The consumed literal and any combined comparison retain semantic physical
+receipts and import origins in their enclosing realization. This same rule
+applies inside coalescing operands; neither rule licenses dropping a condition
+or making a fallback effect unconditional. An unanchored negation still
+declines rather than borrowing a nearby value's identity.
 
 ### Structured-ancestor receipts
 
@@ -750,6 +773,25 @@ Release gates:
 | `ClassicInverseArrayLengthConversionCannotBeHealedByPlanning` | A planning-only repair hides a checked, unsigned, or widening conversion over the raw array length. |
 | `ClassicInverseConfiguredOperandCannotBeHealedByPlanning` | A planning-only repair hides a changed configured-await option or an operand store moved after its consuming bind. |
 | `ClassicInverseFieldVolatilityCannotBeHealedByPlanning` | A planning-only repair hides a raw field read's volatility. |
+| `ClassicInversePreservesTypedExpressionForms` | Reference casts, unboxing, `as`/type tests, array creation, or their array-read neighbor stop reconstructing or lose their typed payload. |
+| `ClassicInverseRejectsChangedExpressionType` | A proposed output changes a cast, unboxing, type-test target, or array element type. |
+| `ClassicInverseExpressionTypeCannotBeHealedByPlanning` | Planning hides a changed raw expression target or element type. |
+| `ClassicInverseTypedAndBooleanPlansAreDetached` | A typed expression or negation aliases an input or earlier materialization. |
+| `ClassicInversePreservesBooleanExpressions` | Ordinary bool negation, comparison, or signed, unsigned, and floating-point comparison duals stop reconstructing faithfully. |
+| `ClassicInverseBooleanNegationCannotBeHealedByPlanning` | Planning hides a changed raw comparison, literal value, literal type, or signedness. |
+| `ClassicInverseRejectsChangedBooleanFold` | Planning loses a negation, invents a comparison dual, changes unordered behavior, or omits its import origin. |
+| `ClassicInverseBooleanFoldAccountsForConsumedValues` | A folded comparison or literal loses its semantic physical receipt or enclosing realization's import origins. |
+| `ClassicInversePreservesCoalescingExpressions` | A reference-coalescing diamond loses the exact awaited value, conditional fallback, surrounding call, or physical and structured receipts. |
+| `ClassicInverseCoalescingControlCannotBeHealedByPlanning` | Planning hides a changed raw null test, target, carried slot, joined use, or additional fallback effect. |
+| `ClassicInverseCoalescingRequiresExactPlanningJoin` | A moved result lacks its proven coalescing join, swaps operands, changes a member, makes the fallback unconditional, or loses its origin. |
+| `ClassicInverseRejectsLostCoalescingConditionOrEffect` | Proposed output drops the coalescing condition or fallback effect. |
+| `ClassicInverseCoalescingPlanIsDetached` | A published coalesce retains mutable operands or a callee acquisition guard. |
+| `ClassicInverseExpressionBridgeBudgetRemainsLoadBearing` | Expression correspondence exhaustion becomes decline or reconstruction instead of `Failed(BudgetExhausted)`. |
+
+`BooleanConstantComparison_PreservesExpressionOrigin`, the coalescing-store
+cases in `BooleanFoldingSourceOffsetTests`, and
+`SlotDiamond_GuardStorePreservesBranchOrigin` gate the prerequisite expression
+origins these closed correspondences consume.
 
 The first five gates need compiler-produced positives plus synthetic close
 negatives. Two later gates are deliberately narrower.

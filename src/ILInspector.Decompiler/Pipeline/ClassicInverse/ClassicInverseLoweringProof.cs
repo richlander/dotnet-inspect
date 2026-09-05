@@ -30,7 +30,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// </para>
 /// <para>Owning design: <c>docs/design/classic-async-reconstruction.md</c>.</para>
 /// </summary>
-internal sealed class ClassicInverseLoweringProof
+internal sealed partial class ClassicInverseLoweringProof
 {
     internal const string StateLocalStore = "state-local-store";
     internal const string StateFieldStore = "state-field-store";
@@ -49,18 +49,23 @@ internal sealed class ClassicInverseLoweringProof
     internal const string AwaitOperandStore = "await-operand-store";
     internal const string AwaitOperandAddress = "await-operand-address";
     internal const string AwaitCompletionBranch = "awaiter-completed-branch";
+    internal const string CoalesceStore = "coalesce-value-transfer";
+    internal const string CoalesceRead = "coalesce-carried-value";
 
     const string BudgetFailure =
         "the lowering-protocol proof exhausted the planning budget";
 
     readonly Dictionary<IrNode, string> _roles;
+    readonly CoalescingBindings _coalescing;
 
     ClassicInverseLoweringProof(
         Dictionary<IrNode, string> roles,
-        string? failure)
+        string? failure,
+        CoalescingBindings? coalescing = null)
     {
         _roles = roles;
         Failure = failure;
+        _coalescing = coalescing ?? new();
     }
 
     /// <summary>Why the lowering protocol is unproven, or <c>null</c> when it holds.</summary>
@@ -114,9 +119,17 @@ internal sealed class ClassicInverseLoweringProof
         if (Mismatch(planningProtocol, rawProtocol, budget) is { } mismatch)
             return new(empty, mismatch);
 
+        if (!ProveCoalescingCorrespondence(
+                planningProtocol.Index, rawProtocol.Index, planningRoles, budget,
+                out CoalescingBindings coalescing))
+        {
+            return new(empty, budget.Exhausted ? BudgetFailure
+                : "the raw coalescing branch and planning expression do not carry the same value and join");
+        }
+
         foreach ((IrNode node, string role) in rawRoles)
             planningRoles[node] = role;
-        return new(planningRoles, null);
+        return new(planningRoles, null, coalescing);
     }
 
     /// <summary>
@@ -1301,6 +1314,13 @@ internal sealed class ClassicInverseLoweringProof
                         transfer.Local,
                         completionMethod.DeclaringType)),
             ];
+            if (results.Count == 0 && !isRawImport
+                && TryFindCoalescedResult(index, continuation, transfer.Local,
+                    completionMethod.DeclaringType, budget) is { } coalesced)
+            {
+                results.Add(coalesced.GetResult);
+                index.CoalescedContinuations.Add(coalesced);
+            }
             if (results is not [Call getResult])
             {
                 failure = $"state {state} does not join at exactly one "
@@ -1597,6 +1617,7 @@ internal sealed class ClassicInverseLoweringProof
         readonly Dictionary<int, List<Block>> _blocksByStart = [];
         readonly Dictionary<int, List<ConditionalBranch>> _stateTests = [];
         readonly Dictionary<int, List<StoreStackSlot>> _slotStores = [];
+        readonly Dictionary<int, List<LoadStackSlot>> _slotLoads = [];
         readonly Dictionary<IrNode, List<Call>> _getResultsByBlock =
             new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, int> _positions =
@@ -1649,6 +1670,8 @@ internal sealed class ClassicInverseLoweringProof
 
         internal List<StoreStackSlot> AllSlotStores { get; } = [];
 
+        internal List<CoalescedContinuation> CoalescedContinuations { get; } = [];
+
         internal List<ConditionalBranch> AwaitCompletionBranches { get; } = [];
 
         /// <summary>Every awaiter cache, restore, and clear in the body.</summary>
@@ -1696,11 +1719,17 @@ internal sealed class ClassicInverseLoweringProof
         internal List<StoreStackSlot> SlotStoresFor(int slot)
             => _slotStores.GetValueOrDefault(slot, s_noSlotStores);
 
+        internal IReadOnlyList<LoadStackSlot> SlotLoadsFor(int slot)
+            => _slotLoads.TryGetValue(slot, out var loads) ? loads : [];
+
         internal List<Call> GetResultsIn(Block block)
             => _getResultsByBlock.GetValueOrDefault(block, s_noCalls);
 
         internal IReadOnlyList<Block> PredecessorsOf(Block block)
             => _predecessors.GetValueOrDefault(block, s_noBlocks);
+
+        internal IReadOnlyList<Block> SuccessorsOf(Block block)
+            => _successors.GetValueOrDefault(block, s_noBlocks);
 
         internal bool HasOnlySuccessors(Block block, params Block[] expected)
             => _controlFlow.TryGetValue(block, out var edges)
@@ -2128,6 +2157,7 @@ internal sealed class ClassicInverseLoweringProof
 
                 case LoadStackSlot load:
                     SlotLoads.Add(load);
+                    Group(_slotLoads, load.Slot, load);
                     return;
 
                 case StoreStackSlot slotStore:

@@ -544,7 +544,7 @@ internal static class ClassicInverseRealizationRules
         return ReferenceEquals(reachingBind, bind);
     }
 
-    static bool PayloadEquals(IrNode source, IrNode output)
+    internal static bool PayloadEquals(IrNode source, IrNode output)
         => (source, output) switch
         {
             (Block left, Block right) =>
@@ -573,11 +573,17 @@ internal static class ClassicInverseRealizationRules
                 && left.IsUnsigned == right.IsUnsigned,
             (Conditional left, Conditional right) =>
                 Equals(left.MergedType, right.MergedType),
+            (Coalesce, Coalesce) => true,
             (Convert left, Convert right) =>
                 Equals(left.Target, right.Target)
                 && left.IsChecked == right.IsChecked
                 && left.IsUnsigned == right.IsUnsigned,
             (Box left, Box right) => Equals(left.Type, right.Type),
+            (CastClass left, CastClass right) => Equals(left.Type, right.Type),
+            (UnboxAny left, UnboxAny right) => Equals(left.Type, right.Type),
+            (IsInstance left, IsInstance right) => Equals(left.Type, right.Type),
+            (NewArray left, NewArray right) =>
+                Equals(left.ElementType, right.ElementType),
             (Call left, Call right) =>
                 left.Callee == right.Callee
                 && left.IsVirtual == right.IsVirtual

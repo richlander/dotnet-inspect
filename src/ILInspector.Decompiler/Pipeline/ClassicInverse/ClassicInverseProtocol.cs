@@ -161,6 +161,16 @@ internal static class ClassicInverseProtocol
                 return ClassicInverseProtocolRule.Owned(
                     ClassicInverseLoweringProof.AwaitOperandAddress);
 
+            case StoreStackSlot store when shell.Protocol.Proves(
+                store, ClassicInverseLoweringProof.CoalesceStore):
+                return ClassicInverseProtocolRule.Frame(
+                    ClassicInverseLoweringProof.CoalesceStore, 0);
+
+            case LoadStackSlot load when shell.Protocol.Proves(
+                load, ClassicInverseLoweringProof.CoalesceRead):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.CoalesceRead);
+
             case ExpressionStatement { Expression: Call builderCall }
                 when IsProvenCompletionCallback(builderCall, shell, candidate):
                 return ClassicInverseProtocolRule.Owned(

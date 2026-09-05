@@ -66,6 +66,82 @@ public static class AsyncExpressionFixtures
         Task<int> a, bool continueOnCapturedContext)
         => await a.ConfigureAwait(continueOnCapturedContext);
 
+    public static async Task<string> ReferenceCast(Task<object> a)
+        => (string)await a;
+
+    public static async Task<int> ValueCast(Task<object> a)
+        => (int)await a;
+
+    public static async Task<string> AsReference(Task<object> a)
+        => await a as string;
+
+    public static async Task<bool> TypeTest(Task<object> a)
+        => await a is string;
+
+    public static async Task<bool> NegatedTypeTest(Task<object> a)
+        => await a is not string;
+
+    public static async Task<int[]> NewIntArray(Task<int> a)
+        => new int[await a];
+
+    public static async Task<string[]> NewReferenceArray(Task<int> a)
+        => new string[await a + 1];
+
+    public static async Task<int> ArrayElementAfterAwait(Task<int[]> a, int index)
+        => (await a)[index];
+
+    public static async Task<bool> Not(Task<bool> a)
+        => !await a;
+
+    public static async Task<bool> EqualFalse(Task<bool> a)
+        => await a == false;
+
+    public static async Task<bool> EqualTrue(Task<bool> a)
+        => await a == true;
+
+    public static async Task<bool> NotEqualFalse(Task<bool> a)
+        => await a != false;
+
+    public static async Task<bool> NotEqualTrue(Task<bool> a)
+        => await a != true;
+
+    public static async Task<bool> CompareBooleans(Task<bool> a, bool b)
+        => await a == b;
+
+    public static async Task<bool> NotComparison(Task<int> a, int b)
+        => !(await a > b);
+
+    public static async Task<bool> NotFloatComparison(Task<double> a, double b)
+        => !(await a > b);
+
+    public static async Task<bool> NotUnsignedComparison(Task<uint> a, uint b)
+        => !(await a > b);
+
+    public static async Task<bool> DoubleNot(Task<bool> a)
+        => !!await a;
+
+    public static async Task<string> Coalesce(Task<string> a)
+        => await a ?? "fallback";
+
+    public static async Task<string> CoalesceCall(Task<string> a)
+        => await a ?? Fallback();
+
+    public static async Task<string> CoalesceParameter(Task<string> a, string fallback)
+        => await a ?? fallback;
+
+    public static async Task<string> CoalesceThenCall(Task<string> a)
+        => (await a ?? Fallback()).Trim();
+
+    public static async Task<string> CoalesceOperandCall(Task<string> a)
+        => (await a).Trim() ?? Fallback();
+
+    public static async Task<string> CoalesceBooleanArgument(Task<string> a, bool useFirst)
+        => await a ?? ChooseFallback(!useFirst);
+
+    static string Fallback() => Environment.TickCount.ToString();
+
+    static string ChooseFallback(bool useFirst) => useFirst ? "first" : "second";
+
     public class Reading
     {
         public virtual int Value => 42;
