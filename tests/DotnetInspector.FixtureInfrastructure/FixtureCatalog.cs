@@ -52,6 +52,7 @@ public static class FixtureGroupExtensions
 
 public static class FixtureIds
 {
+    public const string MetadataAttributeEnums = "metadata.attribute-enums";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
     public const string DiffAsmCaller = "diff-asm.caller";
@@ -136,6 +137,13 @@ public static class FixtureIds
 
 public static class FixtureCatalog
 {
+    public static readonly FixtureDefinition MetadataAttributeEnums = Fixture(
+        FixtureIds.MetadataAttributeEnums,
+        "ILInspector.Metadata.AttributeEnumFixtures",
+        "ILInspector.Metadata.AttributeEnumFixtures.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+        "metadata", "custom-attributes", "producer-truth");
+
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
         "ILInspector.Decompiler.Fixtures.AuthoredRebuild",
@@ -630,6 +638,7 @@ public static class FixtureCatalog
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        MetadataAttributeEnums,
         DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
@@ -975,6 +984,8 @@ public static class FixtureCatalog
     static string RepositoryProjectDirectory(string projectName)
         => projectName switch
         {
+            "ILInspector.Metadata.AttributeEnumFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "DiffAsmFixtures.Caller" => "fixtures/diff/DiffAsmFixtures.Caller",
             "DiffAsmFixtures.LibA" => "fixtures/diff/DiffAsmFixtures.LibA",
             "DiffAsmFixtures.LibB" => "fixtures/diff/DiffAsmFixtures.LibB",
