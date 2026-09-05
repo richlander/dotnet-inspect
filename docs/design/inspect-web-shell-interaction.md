@@ -324,6 +324,9 @@ typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
 
+[Package-row removal](inspect-web-package-removal.md) owns the trailing close
+control for open and recent NuGet package rows in Home and modal Spotlight.
+
 Spotlight exposes one visible `Package query` action. Activating it closes
 Spotlight and requests the routed `/query` surface. When the current
 package-search text is a valid package-ID prefix, the action preserves it as
