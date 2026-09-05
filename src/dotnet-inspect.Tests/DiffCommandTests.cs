@@ -2317,8 +2317,13 @@ public class DiffCommandTests
         Assert.True(member.HasIlChanges);
     }
 
-    [Fact]
-    public void BuildImplementationDiff_MemberFilter_RejectsNonMethodTargets()
+    [Theory]
+    [InlineData(false, "Value")]
+    [InlineData(true, "Value")]
+    [InlineData(true, "Value:1")]
+    public void BuildImplementationDiff_MemberFilter_RejectsNonMethodTargets(
+        bool includePdbSource,
+        string selector)
     {
         var surface = DiffSurface(DiffProperty("Value"));
 
@@ -2326,7 +2331,8 @@ public class DiffCommandTests
             DiffCommand.BuildImplementationDiff([], [], new DiffOptions
             {
                 TypeFilter = ["Widget"],
-                MemberFilter = ["Value"]
+                MemberFilter = [selector],
+                IncludePdbSource = includePdbSource,
             }, surface, surface));
 
         Assert.Contains("Implementation Diff --member", error.Message, StringComparison.Ordinal);

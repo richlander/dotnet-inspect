@@ -61,7 +61,10 @@ public class SharedOptions
     public Option<string?> Select { get; }
     public Option<string?> Columns { get; }
     public Option<string?> Fields { get; }
-    public Option<bool> Schema { get; } = new("--schema") { Description = "With -D: show the full static schema without resolving/loading source (offline)" };
+    public Option<bool> Schema { get; } = new("--schema")
+    {
+        Description = "With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)"
+    };
     public Option<bool> Tree { get; } = new("--tree") { Description = "Show hierarchical output when supported" };
     public Option<bool> Effective { get; } = new("--effective")
     {

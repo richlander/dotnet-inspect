@@ -57,11 +57,21 @@ selected assembly set.
    `PackageAssemblyContextSelection` applies
    `PackageCompileAssetSelector`'s reference-group semantics around the
    implementation universe selected by `PackageAssetSelector`.
-   `InspectionWorkspace.RealizePackageAssemblyContextRoles` decodes each
+   `InspectionWorkspace.RealizePackageAssemblyContextRolesAsync` decodes each
    healthy entry's real metadata identity, mints the descriptors, retains
    malformed/native/module entries as rejection carriers, applies the
    Browser-supplied admission policy, and creates the coordinated surface and
-   implementation roles. It owns equivalent-identity rejection,
+   implementation roles. One acquisition-bound coordinate — the shape every
+   production package operation resolves — is realized through that
+   artifact-backed path, which retains the selected assets in one exact
+   artifact session and generation the product workspace owns until the scope
+   closes. A workspace spanning several coordinates still uses the synchronous
+   binding-consistent `RealizePackageAssemblyContextRoles`, the only shape that
+   composes several package Roots into one group.
+   `BrowserWorkspace_SingleCoordinateScopeIsArtifactBacked`,
+   `BrowserWorkspace_CompositeScopeKeepsBindingConsistentRoles`, and
+   `BrowserWorkspace_ArtifactScopeKeepsRejectedParticipantVisible` gate that
+   split and its rejection carriers. It owns equivalent-identity rejection,
    reference-only surfaces, exact asset/participant associations, and exact
    surface-to-implementation correspondence. Browser retains transport,
    cache/deadline/lifetime policy, the 64 MB and 256-assembly limit values, and
@@ -121,13 +131,77 @@ Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
-A scope carries a 64 MB aggregate retained-image budget. Two distinct
-compile/implementation groups receive 32 MB each; a shared or reference-only
-single group receives the full 64 MB. Before decoding any identity, the host
-rejects a role whose declared expanded assembly total exceeds its group budget
-or whose selected set exceeds 256 assemblies. Product realization enforces
-those Browser-supplied values, keeping identity decoding itself inside the same
-bound rather than relying on the later retained-snapshot check.
+Opening, evicting, removing, and releasing the last protected use of a scope
+are awaited operations, and **a counted registry entry belongs to its workspace
+from before construction starts until its retirement settles**. The four-entry
+bound counts pending, ready, and retiring entries together, including legacy
+multi-package and Platform entries, and each entry reserves its full aggregate
+image allowance before any construction begins. A withdrawn scope stops being
+reusable and joinable immediately, but its entry keeps counting against that
+bound and keeps holding its package dependency until the close finishes, so
+admission cannot publish into a slot a retained artifact session has not
+released and package eviction cannot drop an archive another removal path is
+still closing. Every removal path — capacity replacement, explicit removal,
+the last protected use going away, and package eviction — retires through one
+joinable settlement, so competing paths observe the same outcome instead of
+racing it. A capacity decision is only sound at the instant the entry is
+published, so every caller that publishes into the bounded cache re-evaluates
+its room after each suspension. Nothing counts the room as free while a
+retained artifact session is still closing, and no cleanup runs unobserved in
+the background.
+
+Opening returns **protected use**, taken before the caller suspends and held
+through that caller's query including its asynchronous return, so eviction can
+never take a workspace out from under a caller that is still reading it; when
+capacity is held by active work, admission visibly rejects instead. Opening one
+exact demand is single-flighted: concurrent callers join one realization —
+pending or ready — and a caller that queued behind a full registry re-checks
+that join after every capacity wait rather than demanding a second entry.
+Repeated unbound requests join the retained binding before another selection
+token is issued, keyed by the acquired coordinate, its producer, its retained
+content generation, and the selection request, with a default selection
+distinct from an explicit one; a caller that already holds an issued binding
+joins only that exact binding, never a label match. Each caller keeps its own
+cancellation, a cancelled caller receives no scope, and construction carries a
+bounded deadline. A completion that raced an eviction or a replacing download
+cannot republish that content: the exact archive identity is revalidated after
+every suspension, a stale coordinate fails visibly, and an abandoned
+construction disposes what it built rather than publishing into a replacement.
+**A retirement whose cleanup fails terminally leaves its entry charged and
+unavailable** with a bounded observable failure record that later admissions
+name; reloading the browser session is the recovery boundary.
+`BrowserWorkspace_ClosingScopeKeepsItsRegistrySlotUntilDisposalSettles`,
+`BrowserWorkspace_PackageEvictionAwaitsScopeClosedByAnotherPath`,
+`BrowserWorkspace_ConcurrentReservationsStayWithinTheByteBudget`,
+`BrowserWorkspace_FailedScopeCloseStaysChargedAndUnavailable`,
+`BrowserWorkspace_DuplicateCandidateRetiresItsOwnReservation`,
+`BrowserWorkspace_ConcurrentScopeOpensShareOneRealization`,
+`BrowserWorkspace_RepeatedUnboundRequestsJoinOneRetainedBinding`,
+`BrowserWorkspace_IndependentlyIssuedBindingsDoNotJoinOnLabelMatch`,
+`BrowserWorkspace_DefaultAndExplicitSelectionRequestsDoNotJoin`,
+`BrowserWorkspace_ProtectedUseSurvivesWorkspacePressureAcrossAnAsyncReturn`,
+`BrowserWorkspace_CancelledWaiterLeavesTheOtherWaiterUnaffected`,
+`BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable`,
+`BrowserWorkspace_ArtifactScopeDisposalClosesItsSession`,
+`BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`,
+`BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal`,
+`WorkspaceOccurrences_ActivationCannotOutliveItsView`, and
+`PackageOperation_LateCancellationPreservesCleanupFailure` gate those
+lifetimes.
+The host supplies one 64 MB aggregate retained-image budget and a 256-assembly
+ceiling per role, and the realization it selects decides how that aggregate is
+divided. The **artifact-backed** realization used for a single-root package
+scope splits the aggregate in half: 32 MB bounds the retained artifact bytes
+and the remaining 32 MB is the role budget, which two distinct
+compile/implementation groups then split at 16 MB each while a shared or
+reference-only single group takes the whole 32 MB. The **composite**
+realization used for a multi-package scope retains no artifact bytes, so its
+two distinct groups receive 32 MB each and a single group receives the full
+64 MB. Before decoding any identity, the host rejects a role whose declared
+expanded assembly total exceeds its group budget or whose selected set exceeds
+256 assemblies. Product realization enforces those Browser-supplied values,
+keeping identity decoding itself inside the same bound rather than relying on
+the later retained-snapshot check.
 Failures after the role passes that preflight remain typed participant outcomes
 beside healthy results.
 
@@ -251,9 +325,12 @@ Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
 single-threaded, and both caches are written for that host: at most 12 packages
 or 128 MB of package content in aggregate, including nupkg arrays retained by
-open scopes, and at most four open workspaces. Evicting a package first disposes
-every scope that retains it, so cache eviction actually releases the archive
-bytes instead of removing only the cache's reference. The client retains at
+open scopes, and at most four open workspaces. Evicting a package first retires
+every idle scope that retains it, awaiting each retirement, so cache eviction
+actually releases the archive bytes instead of removing only the cache's
+reference; a workspace with a protected use keeps its archive, and the
+reservation that cannot be satisfied without it visibly rejects. The client
+retains at
 most 12 package models as well, and rejects a shared workspace with more than
 12 tuples or 65,536 encoded characters before it starts package acquisition.
 The JavaScript `shared workspaces are bounded before package loading` and
@@ -316,19 +393,22 @@ Integrations, call graphs, and whole-assembly performance analysis.
 Opportunities use the compile group because they classify the package's
 reference-preferred public surface. Packages without `ref/` assets share one
 group for both roles. When both roles exist and differ, they split the scope's
-64 MB retained image budget rather than doubling it. A reference-only package
-has one group and uses the full budget; performance analysis falls back to that
-surface group when no implementation participant exists.
+role budget rather than doubling it — half the 64 MB aggregate for an
+artifact-backed single-root scope, the whole aggregate for a composite scope. A
+reference-only package has one group and uses that role budget undivided;
+performance analysis falls back to that surface group when no implementation
+participant exists.
 
 ### Artifact-backed package scope adoption
 
-**Status: planned, not implemented.** This section owns the Browser registry
+**Status: implemented.** This section owns the Browser registry
 contract for [#5576](https://github.com/richlander/dotnet-inspect/issues/5576).
-The synchronous behavior described above remains current until that adoption
-lands. The end-to-end tracker is
-[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); the CLI
-consumer has landed in
-[#5799](https://github.com/richlander/dotnet-inspect/pull/5799).
+The end-to-end adoption and retirement tracker is
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577). The CLI
+default-framework consumer landed in
+[#5799](https://github.com/richlander/dotnet-inspect/pull/5799), and compatible
+explicit-framework requests followed in
+[#5928](https://github.com/richlander/dotnet-inspect/pull/5928).
 [Package Root realization](../../docs/design/artifact-acquisition-and-workspaces.md#package-root-realization)
 owns artifact construction, role selection, rejection, and the budget split.
 [Inspection space](../../docs/inspection-space.md#retained-package-realization-caller)
@@ -355,9 +435,10 @@ binding preserves that binding's coordinate, `ContentGenerationIdentity`, and
 `SelectionIdentity`; independently issued selection tokens are not
 interchangeable merely because package/version/TFM labels match. Such a request
 can join only its exact binding operation, otherwise it is a distinct demand.
-Every singleton entry point uses the same opener; synchronous occurrence
-activation must become awaitable rather than constructing a competing legacy
-singleton scope.
+Every singleton entry point uses the same opener. Workspace occurrence
+activation is awaitable and uses that opener rather than constructing a
+competing legacy singleton scope. It rechecks the occurrence after opening, so
+a view cleared or replaced during the await cannot return an active selection.
 
 Concurrent callers join pending work as well as ready work. Each caller has its
 own cancellation and receives protected use of the exact entry before the
@@ -377,6 +458,13 @@ remaining 32 MiB, or 16 MiB per group when roles differ. This deliberately
 tightens the old one-copy admission capacity while preserving the total bound;
 budget rejection must remain visible. The 256-assembly per-role bound remains.
 These are retained-image limits, not a total Wasm heap estimate.
+
+Unknown-family Platform discovery reserves before its first probe. Each probe
+releases its images before the next probe, retaining only its product-issued
+coordinate and the leased archives. Final realization reuses that reservation
+and those coordinates. This may reopen a selected image from the retained
+archive, but does not require two simultaneous probe allowances or another
+download.
 
 Archive bytes and download reservations separately keep the existing
 12-package/128 MiB aggregate. Packages referenced by pending construction,
@@ -401,10 +489,12 @@ algorithm or a host-issued artifact identity.
 Registry retirement has an awaitable terminal outcome. Synchronous scope
 disposal is adapted as an already-completed retirement; an asynchronous
 workspace uses `CloseAsync`, never a synchronous wait or request-only
-`Dispose` pretending that reclamation finished. The outcome includes the
-workspace's group results and `ArtifactSessionCleanupFailures`, not merely
-whether its close task completed. The primary operation failure and any cleanup
-failures remain observable together. If cleanup fails, the entry remains
+`Dispose` pretending that reclamation finished. The outcome includes propagated
+workspace-close exceptions and `ArtifactSessionCleanupFailures`, not merely
+whether its close task completed. Coordinated role-release diagnostics retain
+their lower-owner representation; converting those diagnostics into Browser
+exceptions is not part of this adoption. The primary operation failure and the
+observed cleanup failures remain observable together. If cleanup fails, the entry remains
 charged and unavailable, with its bounded failure record surfaced to awaiting
 callers and subsequent admissions; no retry silently clears it or allocates
 replacement resources against unproven capacity. An abandoned caller does not
@@ -419,18 +509,44 @@ broken-policy controls and required reachability witnesses. It abstracts
 authoritative factory and cleanup outcomes; it does not establish production
 conformance, binding issuance, archive accounting, or lower-owner cleanup.
 
-**Adoption evidence: unverified.** The implementation must add Release Browser
-engine gates for joined requests and independent cancellation, non-joining
-content/selection identities, use protected across async return, four-entry
-pressure and awaited eviction, stale completion after cancellation/replacement,
-and observable cleanup failure. It must preserve visible selected rejection
-carriers beside healthy participants and the existing multi-package/Platform
-registry cases. The Browser/Wasm gate must exercise the awaitable production
-opening/activation path. The two-host demo uses
-`Microsoft.Extensions.Http@10.0.0`: record the concrete TFM resolved by the CLI
-pilot's default selection and select that same TFM in Browser, with a
-neighboring replacement/eviction and valid-reference/malformed-implementation
-fixture. These are required future gates, not evidence supplied by this design.
+**Adoption evidence.** The Release `BrowserEngineBoundaryTests` cases listed
+above cover retained binding reuse, queued bound and unbound joins, independent
+wait cancellation, distinct content/selection identities, protected use,
+four-entry pressure, awaited reclamation, stale activation, and cleanup-failure
+quarantine. They also preserve the existing multi-package and Platform cases.
+`BrowserTypeSourceOperationTests` covers the managed source consumer's release
+through success, expected failure, and unexpected failure.
+`HomeDemo_ReleasesScopeAfterQuery` and
+`QueryMemberCallGraph_RejectsCollapsedContextCoordinates` gate release of the
+resolved scope at the Catalog and Call Graph facade boundaries: after success
+or rejection, archive pressure can reclaim the completed query's resources.
+`WorkspaceOccurrences_LeaseAcquiredDuringRetirementKeepsArchiveResident` gates
+the independent occurrence lease acquired while retirement is suspended: archive
+pressure must not discard it, and occurrence activation must still work.
+`PlatformWorkspace_UnknownFamilyReservesBeforeProbing` gates rejection before
+loading when four scopes are protected, and successful sequential discovery
+within the fourth reservation when three scopes are protected.
+
+`eng/test-inspect-web-package-adoption-gate.sh` runs the public generated
+Package and Analysis facades against the published production engine in
+Firefox/Wasm. It exercises concurrent initial opening and retained reuse,
+Workspace occurrence activation and supersession, and admission of a fifth
+scope under the four-scope bound. Its mixed fixture uses the cataloged
+`diff-asm.lib-a` and `diff-asm.lib-b` assemblies as valid, distinct-identity
+reference assets, with malformed bytes only in the latter's implementation
+asset. The API surface remains healthy while Integrations reports an incomplete
+result with the selected implementation rejection. The fixture resolver uses
+`FixtureCatalog.AssemblyPath`; its build-only references keep these inputs in
+the normal solution graph rather than discovering arbitrary build outputs.
+
+The same gate includes the two-host scenario
+`Microsoft.Extensions.Http@10.0.0` / `net10.0`. The production CLI's default
+selection resolves `net10.0`; Browser explicitly selects that framework, opens
+and activates its occurrence, and reports the matching `IHttpClientFactory`
+and `AddHttpClient` signals. This network-backed case uses the live Gallery CDN;
+the lifecycle and malformed-implementation cases use deterministic local
+archive responses. Run the gate after building the frontend and publishing
+`InspectWeb.Engine.csproj` in Release to `artifacts/inspect-web-publish`.
 
 ## Supported
 
@@ -888,10 +1004,32 @@ envelopes, boundary rejection, progress callback argument fidelity and closure,
 and operation readmission after release. The verifier, managed counters, and
 facade drift check reject skipped scenarios, wrong cancellation routing, stale
 facade output, or omitted callback release probes. This is Node-hosted
-Browser/Wasm evidence, not a Worker,
-real-browser, DOM-responsiveness, shared-producer, or epoch-work claim; the
-[managed operation bridge design] owns that scope and the remaining aggregate
-gate.
+Browser/Wasm evidence.
+
+The same canary drives `RunSharedAsync` with the real
+`BrowserManagedSharedProducer`. It covers independent waiter cancellation,
+surviving-neighbor events and results, throwing-observer isolation, final-waiter
+natural completion and stop-and-drain through an asynchronous `finally`, late
+release failure, and producer cancellation that must not become waiter
+cancellation. Actual managed tasks, active entries, waiter counts, generated
+Promises, and callback sequences witness the release boundaries. Six producers
+and eight waiters must finish with no remaining entries or subscriptions.
+Additional negative controls reject a split producer, premature physical
+finalization, and an omitted final-waiter scenario.
+
+An explicit epoch-work phase exercises the real managed reporter and final-waiter
+handoff: five physical producers, seven waiters, and three registrations.
+The final waiter can settle while the producer continues under one lease; later
+waiters reuse it, and finish follows physical finalization. Actual callback
+values pass through the Worker-owned envelope decoder. Failed starts retain
+fault ownership, and late producer and finish failures remain observable through
+generated Promises. Drain precedes unregister. Negative controls reject premature
+finalization and omitted lease reuse.
+
+This is not production Worker registration, liveness, a real-browser,
+DOM-responsiveness, or prompt-cancellation evidence; the
+[managed operation bridge design] owns the implemented subset and remaining
+aggregate gate.
 
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
 [managed operation bridge design]: ../../docs/design/inspect-web-managed-operation-bridge.md
@@ -993,9 +1131,13 @@ as an adoption. Overrides need reading separately because Oxlint keeps them as
 their own array rather than folding them into the top-level rules.
 That resolved read pins rule *options* as one set alongside the severities: a
 rule left enabled but given options that exempt the code it was enabled for
-reports nothing while every severity reads exactly as before. The `node:test`
-`test` call is the only option-borne exemption in the project, so any second one
-fails there. Plugin *settings* are pinned the same way and for the same reason,
+reports nothing while every severity reads exactly as before. Two option-borne
+exemptions exist, so a third fails there. The `node:test` `test` call is not a
+floating promise, and Prism ships each language grammar as a module whose only
+effect is registering itself onto the core, so the import has nothing to bind;
+`import/no-unassigned-import` allows exactly `prismjs/components/*` and still
+reports an unassigned import anywhere else. Plugin *settings* are pinned the
+same way and for the same reason,
 except that they reach a whole family at once — `settings.jsdoc.ignorePrivate`
 exempts every `@private` symbol from every jsdoc rule without touching a
 severity. The settings assertion is differential: it compares this project's
@@ -1139,8 +1281,8 @@ CSS is not linted. Adopting Stylelint is tracked separately.
 
 ### Protections the linters cannot provide
 
-Everything above reads source text at build time. Two properties matter here that
-no amount of reading source text can establish.
+Everything above reads source text at build time. Browser response policy and
+runtime dependency delivery need separate controls.
 
 The first is what a browser is allowed to do with the page once it ships.
 
@@ -1169,51 +1311,30 @@ under `/api/*`, which carry whatever headers the function sets for itself. The
 MSDL proxy is such a function, so these four headers do not cover its responses.
 Giving the proxy its own headers is tracked in #5119.
 
-The second property is whether the third-party digests in `index.html` still
-describe what the CDN serves. `require-sri` enforces that a cross-origin
-subresource *carries* a digest, and that is the whole of what a linter can see;
-whether the digest is still current lives on the network and changes without any
-commit here. `scripts/check-sri-freshness.ts` re-fetches each pinned URL and
-compares hashes, reading the pins out of the document so they cannot drift from
-what the site actually loads.
+Prism is delivered through the same npm/Vite pipeline as mermaid, marked, and
+DOMPurify. `src/prism-csharp.ts` registers the clike and C# grammars in order;
+the application and annotated-source fixture import its typed instance instead
+of depending on CDN scripts in their documents. This removes Prism's runtime
+CDN dependency without changing its pinned version.
 
-Be precise about what that buys, because it is not a security control. SRI is
-the security control and the browser enforces it: a stale pin means the browser
-*refuses* the bytes, so nothing unexpected runs. What goes wrong is that the
-subresource silently disappears — on this site, syntax highlighting stops
-working — with nothing to say why. This is a maintenance signal, and it is
-scheduled weekly rather than gating pull requests, because reaching jsDelivr is
-required and an outage there is not a defect in somebody's change.
+The weekly SRI freshness workflow and its script are retired with those Prism
+tags. They checked whether the CDN still served bytes matching the committed
+digests; there are no Prism CDN pins left for them to maintain. html-validate's
+standard `require-sri` check remains unchanged. It checks applicable resource
+tags, not arbitrary runtime imports.
 
-It reads the document with html-validate's own parser — the same parser that
-lints the file — rather than with a pattern, so the two cannot disagree about
-what the markup contains. It resolves URLs the way a browser does and follows
-the SRI metadata grammar, so valid markup does not produce false drift. It also
-separates the two ways it can fail: a stale pin is fixed by re-pinning, an
-unreachable CDN is not a pin problem at all, and filing the second under the
-first sends somebody looking for drift that is not there.
+Coverage is deliberately partial. `browser/annotated-source.spec.ts` verifies
+that bundled Prism produces C# keyword and class-name tokens and that loading
+that fixture through highlighting readiness uses only same-origin requests.
+The neighboring copy, annotation, selection, and modal tests exercise the same
+bundled instance. These are bounded regressions, not a general origin-policy
+gate: they do not enumerate every application route, future import, SVG or CSS
+resource, or later interaction. There is no custom static containment checker.
 
-The check that matters most is the cheapest one. Finding *no* pinned
-subresources exits as inconclusive rather than as success, because this script
-exists to check them and finding none means the markup shape changed underneath
-it. Without that, every later refactor of `index.html` would quietly turn the
-weekly run into a green light for nothing.
-
-Both of those checks read markup, and that is also their limit. `require-sri`
-and the freshness check each look at `<script>` and `<link>` elements, so a
-library loaded by `import("https://cdn.example/lib.js")` is invisible to both --
-a dynamic import is not markup. Three runtime libraries used to load exactly
-that way: mermaid, marked, and DOMPurify. They carried no digest, and both
-checks reported clean, because neither could see them. That is a worse failure
-than a missing pin: the report says the CDN surface is fully covered while a
-third of it is unexamined, and the unexamined third included the sanitizer.
-
-The fix is not a third check that knows about dynamic imports. It is removing
-the condition those checks were trying to describe. The three libraries are
-ordinary npm dependencies, and Vite bundles them into same-origin chunks that
-load on demand, so no CDN sits in the runtime path for them at all. Lazy
-loading survives, and mermaid actually splits further: its per-diagram-type
-chunks are only fetched for the diagram kinds a page renders.
+The other three libraries were also moved from CDN imports into ordinary npm
+dependencies. Vite bundles them into same-origin chunks that load on demand.
+Lazy loading survives, and mermaid splits further: its per-diagram-type chunks
+are only fetched for the diagram kinds a page renders.
 
 Moving them into the lockfile is what makes them auditable. A version in a CDN
 URL is checked against nothing; a version in `package-lock.json` is checked
@@ -1262,13 +1383,9 @@ lets the sanitization comment name a gate that is monitoring rather than
 enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
 demand.
 
-What remains on a CDN is the three Prism scripts in `index.html`. Those are
-markup, they carry digests, and the freshness check reads them -- so the
-coverage claim and the actual surface now describe the same set.
-
-A Content-Security-Policy is still outstanding, because the generated
-`<script type="importmap">` needs a per-build hash before `script-src` can be
-strict.
+A Content-Security-Policy remains separate follow-up work for browser-enforced
+resource restrictions. Bundling Prism does not establish such a policy or
+prohibit intentional package, API, or Wasm acquisition traffic.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
@@ -1390,6 +1507,15 @@ The `eng/CiChangeDetection` gate, invoked through
 `ci-required` includes the job's result.
 
 ## Interaction model
+
+On Workspace, **Add package** opens package search as a focused picker. Choose a
+NuGet or recent result to append its resolved coordinate while staying on
+Workspace; existing packages and the active inspection are retained. Already
+loaded packages are no-ops. Cancel leaves the scope unchanged. At the
+12-coordinate limit, Add reports the limit rather than evicting another member.
+Saved definitions change only through an explicit Save, not live additions.
+Version/framework editing and prefixes are separate from this focused
+[Add-package interaction](../../docs/design/inspect-web-workspace-add-package.md).
 
 The Workspace page offers **Save Workspace** for the current nonempty scope.
 Enter a unique name to save its canonical packet locally on this browser;

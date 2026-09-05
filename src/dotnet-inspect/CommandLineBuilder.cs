@@ -361,7 +361,7 @@ public static class CommandLineBuilder
         return true;
     }
 
-    private static string FormatParseError(string message)
+    internal static string FormatParseError(string message)
     {
         if (message.StartsWith("Cannot parse argument '", StringComparison.Ordinal)
             && TryParseCannotParseArgument(
@@ -467,10 +467,10 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(httpTimeoutOption);
 
         // Type command (type discovery, compact table)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts));
+        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateTypeCommand(opts, out var typeArgs));
 
         // Member command (member inspection, docs by default)
-        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateMemberCommand(opts));
+        rootCommand.Subcommands.Add(ApiCommandDefinitions.CreateMemberCommand(opts, out var memberArgs));
 
         // Library command
         rootCommand.Subcommands.Add(InspectionCommandDefinitions.CreateLibraryCommand(opts));
@@ -489,6 +489,11 @@ public static class CommandLineBuilder
         // Depends command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateDependsCommand(opts));
 
+        // Dependency evidence command (normalized direct declarations, not a traversal)
+        rootCommand.Subcommands.Add(
+            DependencyEvidenceCommandDefinitions
+                .CreateDependencyEvidenceCommand(opts));
+
         // Extensions command
         rootCommand.Subcommands.Add(SearchCommandDefinitions.CreateExtensionsCommand(opts));
 
@@ -505,7 +510,7 @@ public static class CommandLineBuilder
         rootCommand.Subcommands.Add(MatchCommandDefinitions.CreateMatchCommand(opts));
 
         // Package command
-        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts));
+        rootCommand.Subcommands.Add(PackageCommandDefinitions.CreatePackageCommand(opts, out var packageArgs));
 
         // Project command
         rootCommand.Subcommands.Add(ProjectCommandDefinitions.CreateProjectCommand(opts));
@@ -519,7 +524,7 @@ public static class CommandLineBuilder
             WorkspaceCommandDefinitions.CreateWorkspaceCommand(opts));
 
         // Router command (hidden, implicit default for bare names)
-        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts));
+        rootCommand.Subcommands.Add(RouterCommandDefinition.Create(rootCommand, opts, typeArgs, memberArgs, packageArgs));
 
         // Skill command
         rootCommand.Subcommands.Add(UtilityCommandDefinitions.CreateSkillCommand(opts));

@@ -20,9 +20,12 @@ terminal-after-events settlement, callback-failure rejection, and callback
 closure after release. Terminal-bounded shared-producer attachment is implemented
 by `BrowserManagedSharedProducer` and `BrowserManagedOperationBridge.RunSharedAsync`,
 gated by `BrowserManagedSharedProducerTests` in the Release browser-engine suite.
-Its generated Browser/Wasm exercise, epoch-work leases, and the remaining complete
-browser-host gate cases named below remain required before an implementation may
-claim those corresponding behaviors.
+The managed-operation Browser/Wasm canary also gates the
+[generated shared-waiter cases](#generated-shared-waiter-evidence) below.
+Explicit epoch-work handoff is implemented by `BrowserManagedEpochWorkReporter`
+and the shared producer, gated by `BrowserManagedEpochWorkTests` and the same
+generated canary. Production Worker reporter registration, liveness integration,
+and feature migration remain outside this implemented slice.
 
 ## Decision
 
@@ -591,20 +594,50 @@ attachments, with no bridge-owned replay of events emitted before attachment.
 `BrowserManagedSharedProducerTests` gates this restricted contract through the
 real managed bridge in Release, alongside the existing lifecycle tests.
 
-The named immediate consumer is the inspect-web managed bridge and its Release
-engine harness. The four remaining adoption steps tracked in
+The named immediate consumers are the inspect-web managed bridge, its Release
+engine harness, and the generated managed-operation Browser/Wasm canary. The
+four-step production-host adoption path tracked in
 [#5419](https://github.com/richlander/dotnet-inspect/issues/5419), under the overall
 [#4937](https://github.com/richlander/dotnet-inspect/issues/4937) and
 [#5095](https://github.com/richlander/dotnet-inspect/issues/5095) composition, are:
 
-1. terminal-bounded managed waiter attachment and release (this slice);
-2. shared-waiter exercise through the generated Browser/Wasm boundary;
-3. epoch-work sender and final-waiter lease handoff; and
+1. terminal-bounded managed waiter attachment and release (implemented);
+2. shared-waiter exercise through the generated Browser/Wasm boundary (implemented);
+3. epoch-work sender and final-waiter lease handoff (implemented); and
 4. first production feature adoption through #5420 with the #5418 Worker host.
 
 The existing six-step [migration plan](#migration) owns feature-coordinator
 retirement. This browser-host-only slice does not change production features,
 Worker placement, or worker-owned liveness types.
+
+### Generated shared-waiter evidence
+
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` exercises the actual
+`RunSharedAsync` and `BrowserManagedSharedProducer` through generated exports
+under Mono and CoreCLR. Six controlled producers and eight operation calls cover:
+
+- canceling one waiter while its neighbor continues receiving events and succeeds;
+- rejecting a throwing JavaScript observer without stopping its healthy neighbor;
+- canceling the final waiter while awaiting natural producer completion;
+- feature-approved producer stop with asynchronous finalization still pending;
+- rejecting a late producer fault during canceled-waiter release; and
+- preserving unexpected producer cancellation when its synchronous event first
+  reenters the cancellation export with a valid waiter cancellation.
+
+The harness supplies physical work and holds its asynchronous `finally` open.
+Generated snapshot calls observe the actual producer task, bridge-returned tasks,
+active entries, and represented waiters. JavaScript also observes the returned
+Promises and callback sequences. Phase polling has a failure deadline; elapsed
+time does not establish quiescence. Each settled scenario probes event closure
+and requires physical completion and empty waiter/operation state before removing
+its fixture. Typed managed receipts account for the original lifecycle scenarios
+first, then the shared scenarios, so both phases remain independently enforced.
+
+Negative controls split the supposedly shared neighbor onto another producer,
+release physical finalization before observing its pending state, or omit the
+final-waiter natural-completion scenario. Each must fail for its expected reason.
+This is Node-hosted Browser/Wasm boundary evidence, not a real-browser, Worker,
+DOM-responsiveness, prompt-final-cancellation, or epoch-work lease claim.
 
 ## Epoch-work lease handoff
 
@@ -646,6 +679,68 @@ The companion model checks `WorkSequenceNeverReused`,
 `OutlivingProducerHasEpochWorkLease`. The #5093 protocol gate must check
 bounded receiver replay detection and duplicate or unmatched notification
 handling.
+
+### Implemented sender and handoff
+
+`BrowserManagedEpochWorkReporter<TAllowance>` owns one registration's callback
+pair, work high-water, active leases, pending callouts, and fault records.
+`TAllowance` is opaque to the sender. `ForProducer` binds the feature's allowance
+to a source without defining Worker policy or allocating an epoch token.
+Allocation and synchronous start delivery are ordered together; callbacks run
+outside the producer and ledger guards.
+
+Supplying that source to `BrowserManagedSharedProducer` explicitly enables
+outliving work. Omitting it preserves terminal-bounded behavior. A non-final
+waiter needs no new lease. Final handoff retains the closed subscription until
+the handle is installed, then releases the operation without awaiting physical
+completion. Later attachments reuse that exact lease and receive only subsequent
+events. Physical completion seals admission; the terminal observer finishes the
+handle after the source task, including its asynchronous `finally`, completes.
+Completion during the start callback waits for handoff commitment before finish.
+
+Failed starts, including sequence exhaustion, stop reporter admission and retain
+a fault record until physical completion. The handoff rejects visibly, attempts
+feature-permitted stop, and does not send a finish for the failed start. A
+reentrant neighbor shares that same retained ownership; last-detach stop waits
+until that neighbor also leaves. If the registration has
+already stopped or unregistered and cannot issue a record, the final waiter stays
+represented through terminal drain before rejection instead of releasing
+unaccounted work.
+
+The feature broker must consume `ObserveCompletionAsync` even after its waiters
+release. It observes late physical failures and lease-finish failures separately
+from operation results; a finish failure is not an ordinary `Failed` feature
+envelope. Producer cancellation retains the same origin wrapper used by shared
+subscriptions, rather than canceling the observation Task. This also keeps its
+generated Promise rejection observable. Reporter `DrainAsync` independently
+reports retained lifecycle failures after all records and callouts finish.
+Stop admission before draining; unregister only after drainage, including when
+drain reports failure. Unregister drops both callbacks. Finish is terminal even
+when its callback throws and is never retried.
+
+`BrowserManagedEpochWorkTests` is the Release gate for the concrete sender,
+handoff, reentrancy, failure records, and terminal observation. A smaller
+configurable sequence ceiling exercises exhaustion with the same allocator;
+the production ceiling is JavaScript's maximum safe integer. The existing TLA+
+model supplies abstract handoff, reuse, and exhaustion evidence, not a proof of
+this implementation; its documented start-callback fault-record exclusion remains.
+
+The generated canary adds five physical producers, seven waiters, and three
+reporter registrations under both Mono and CoreCLR. It observes start before final
+waiter release, reuse after later attachment, non-reused sequences, held physical
+finalization, late failure, failed-start fault ownership with permitted stop,
+failed finish, and stop/drain/unregister. The verifier passes actual callback
+values through the Worker-owned envelope decoder with a harness-supplied epoch
+token and allowance. It does not simulate receiver liveness or replay policy.
+Negative controls omit the later waiter or release finalization before the
+pending-lease observation.
+
+The immediate consumers remain the managed bridge and its existing generated
+canary, step 3 of the four-step #5419 adoption path. This slice does not wire
+production reporter registration between facade readiness and Worker `Ready`,
+add the idle-compatible optimization, change #5093 liveness policy, or migrate
+the #5420 source feature. Those remain production composition work, not hidden
+requirements for using the explicit sender in its current harness.
 
 ## Target boundary sequence
 
@@ -857,19 +952,18 @@ Generated DTO projection authenticates the producer serializer and static
 TypeScript shape; runtime validation of malformed Worker messages belongs to
 the #5093 adapter and protocol gate rather than `ts-jsexport`.
 
-`inspect-web-managed-operation-bridge` remains the complete Release
-browser-host gate. It must combine the implemented managed-core and both
-browser-boundary canaries with later evidence for:
+The same Browser/Wasm sub-gate also covers the
+[shared-waiter cases](#generated-shared-waiter-evidence) and the
+[epoch-work sender cases](#implemented-sender-and-handoff).
+`BrowserManagedEpochWorkTests` adds concrete native evidence for finite sequence
+exhaustion, completion during start, reentrant admission, and in-flight callout
+drain.
 
-- two waiters sharing one controlled producer, including independent
-  cancellation and quiescence, exact final detach, feature-owned last-waiter
-  policy, and no waiter token becoming the producer token;
-- atomic epoch-work lease installation before final waiter release, including
-  start failure, later attachment, producer-finally finish, callback failures,
-  and normal reporter unregister only after every lease finishes; and
-- monotonic work sequences at the JavaScript safe-integer boundary, visible
-  exhaustion, bounded receiver validation, and no wrap, reuse, unmatched
-  finish, or duplicate finish.
+`inspect-web-managed-operation-bridge` remains the complete Release
+browser-host gate. Its remaining composition evidence must join the implemented
+managed-core and generated-boundary gates to production Worker registration,
+epoch failure/drain, and feature adoption. The sender cases alone do not establish
+that aggregate.
 
 The #5093 Release protocol gate separately proves high-water replay validation,
 active work-lease matching, malformed allowance handling, worker quiescence
@@ -890,6 +984,6 @@ This owner does not claim:
 - package acquisition, cache, reservation, or publication correctness; or
 - that an epoch-work allowance is bounded.
 
-Those claims require their adjacent owner and named gate. Until the remaining
-shared-producer and epoch-work gates exist, those implementation behaviors
-described by this target design are unverified.
+Those claims require their adjacent owner and named gate. Production Worker and
+feature composition remains unverified by the managed and generated-boundary
+gates described here.

@@ -7,6 +7,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Queries;
 using DotnetInspector.RowSelection;
 using NuGetFetch;
@@ -60,13 +61,57 @@ public class PackageCommand
             return 1;
         }
 
+        if (packageLibraryMode
+            && options.Discover is not null
+            && options.Schema)
+        {
+            if (GetLibraryInspectionModeError(
+                    options,
+                    allowStaticDiscovery: true) is { } modeError)
+            {
+                CommandError.Write(modeError);
+                return 1;
+            }
+
+            StructuralRoute route = options.AllLibraries
+                ? StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageAllLibraries,
+                    InspectionCatalogIdentity.LibraryAggregate)
+                : StructuralViewRegistry.Route(
+                    StructuralViewIdentity.PackageSingleLibrary,
+                    InspectionCatalogIdentity.Library);
+            StructuralOutputShape shape =
+                options.AllLibraries
+                && options.TabularExplicitlySet
+                && !options.Count
+                    ? StructuralOutputShape.Rows
+                    : StructuralOutputShape.Document;
+            return StructuralViewRegistry.Execute(
+                route,
+                StructuralDiscoveryRequest.From(options),
+                shape);
+        }
+
+        if (!packageLibraryMode
+            && options.Discover is not null
+            && options.Schema)
+        {
+            return StructuralViewRegistry.Execute(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Package,
+                    InspectionCatalogIdentity.Package),
+                StructuralDiscoveryRequest.From(options));
+        }
+
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
         // can never fan out to unbounded @Hidden members as a group.
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
-        if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
+        if (!packageLibraryMode
+            && options.Discover != null
+            && packageArgs.Length < 1)
         {
             var schemaMap = PackageDiscoverySchema();
             if (options.Schema)
@@ -321,10 +366,11 @@ public class PackageCommand
         if (!ValidatePackageContentMode(options))
             return 1;
 
-        if (options.AllLibraries && !ValidatePackageAllLibrariesMode(options))
+        if (GetLibraryInspectionModeError(options) is { } libraryModeError)
+        {
+            CommandError.Write(libraryModeError);
             return 1;
-        if (options.PackageLibrary != null && !ValidatePackageLibraryMode(options))
-            return 1;
+        }
 
         InspectionOptions producerOptions = CreateProducerOptions(
             options,
@@ -2133,8 +2179,140 @@ public class PackageCommand
         "Evidence"
     ];
 
-    private static DocumentSchema PackageDiscoverySchema()
+    internal static DocumentSchema PackageDiscoverySchema()
         => AddPackageDynamicDiscoveryItems(InspectionContext.Default.GetSchemaInfo<InspectionResultView>()!.ToDocumentSchema());
+
+    internal sealed record AllLibrariesRowSchema(
+        string Section,
+        string[] Headers,
+        string[] StableHeaders,
+        string[]? AlternateHeaders = null,
+        string[]? AlternateStableHeaders = null);
+
+    internal static IReadOnlyList<AllLibrariesRowSchema>
+        AllLibrariesRowSchemas { get; } =
+        CreateAllLibrariesRowSchemas();
+
+    internal static DocumentSchema PackageAllLibrariesDiscoverySchema()
+    {
+        var schema = new DocumentSchema();
+        foreach (AllLibrariesRowSchema rowSchema in
+                 AllLibrariesRowSchemas)
+            schema.Add(
+                rowSchema.Section,
+                "column",
+                rowSchema.Headers
+                    .Concat(rowSchema.AlternateHeaders ?? [])
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray());
+
+        return schema;
+    }
+
+    private static IReadOnlyList<AllLibrariesRowSchema>
+        CreateAllLibrariesRowSchemas()
+    {
+        var schemas = new List<AllLibrariesRowSchema>
+        {
+            new(
+                SectionNames.LibraryInfo,
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    "Field",
+                    "Value",
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    "field",
+                    "value",
+                ]),
+            new(
+                "Switches",
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    "Kind",
+                    "Switch",
+                    "API",
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    "kind",
+                    "switch",
+                    "api",
+                ]),
+            new(
+                IntegrationSectionNames.Opportunities,
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    "Integration",
+                    "API",
+                    "Integration Type",
+                    "Look For",
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    "integration",
+                    "api",
+                    "integration_type",
+                    "look_for",
+                ]),
+        };
+        schemas.AddRange(
+            LibraryIntegrationCatalog.All.Select(descriptor =>
+                new AllLibrariesRowSchema(
+                    descriptor.SectionName,
+                    [
+                        "Package",
+                        "Version",
+                        "Library",
+                        "TFM",
+                        "Kind",
+                        "API",
+                    ],
+                    [
+                        "package",
+                        "version",
+                        "library",
+                        "tfm",
+                        "kind",
+                        "api",
+                    ],
+                    [
+                        "Package",
+                        "Version",
+                        "Library",
+                        "TFM",
+                        "Kind",
+                        "Type",
+                    ],
+                    [
+                        "package",
+                        "version",
+                        "library",
+                        "tfm",
+                        "kind",
+                        "type",
+                    ])));
+        return schemas;
+    }
 
     private static bool ValidatePackageProjection(
         InspectionOptions options,
@@ -4686,7 +4864,18 @@ public class PackageCommand
         options.Verbosity >= Verbosity.Detailed
         || options.IncludeSections?.Any(IsNetworkUsingPackageSection) == true;
 
-    private static bool ValidatePackageLibraryMode(InspectionOptions options)
+    internal static OptionError? GetLibraryInspectionModeError(
+        InspectionOptions options,
+        bool allowStaticDiscovery = false)
+    {
+        if (options.AllLibraries)
+            return GetPackageAllLibrariesModeError(options, allowStaticDiscovery);
+        if (options.PackageLibrary is not null)
+            return GetPackageLibraryModeError(options);
+        return null;
+    }
+
+    private static OptionError? GetPackageLibraryModeError(InspectionOptions options)
     {
         if (options.Tree
             && !options.Count
@@ -4699,13 +4888,13 @@ public class PackageCommand
                 || options.JsonArray
                 || options.NoHeader))
         {
-            CommandError.Write("--tree cannot be combined with row projections or non-Markdown formats.");
-            return false;
+            return new OptionError("--tree cannot be combined with row projections or non-Markdown formats.");
         }
 
         List<string> conflicts = [];
         if (options.AllLibraries) conflicts.Add("--all-libraries");
-        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListLayout || options.ListLayoutExplicitlySet)
+            conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
@@ -4714,34 +4903,39 @@ public class PackageCommand
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
         if (conflicts.Count == 0)
-            return true;
+            return null;
 
-        CommandError.Write($"--library cannot be combined with {string.Join(", ", conflicts)}.");
-        return false;
+        return new OptionError($"--library cannot be combined with {string.Join(", ", conflicts)}.");
     }
 
-    private static bool ValidatePackageAllLibrariesMode(InspectionOptions options)
+    private static OptionError? GetPackageAllLibrariesModeError(
+        InspectionOptions options,
+        bool allowStaticDiscovery = false)
     {
         List<string> conflicts = [];
         if (options.PackageLibrary != null) conflicts.Add("--library");
-        if (options.ListLayout) conflicts.Add("--layout");
+        if (options.ListLayout || options.ListLayoutExplicitlySet)
+            conflicts.Add("--layout");
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
-        if (options.Discover != null) conflicts.Add("-D/--discover");
+        if (options.Discover != null
+            && !allowStaticDiscovery)
+        {
+            conflicts.Add("-D/--discover");
+        }
         if (options.Tree && options.Discover == null && !options.Count) conflicts.Add("--tree");
         if (options.Columns != null) conflicts.Add("--columns");
         if (options.Fields != null) conflicts.Add("--fields");
 
         if (conflicts.Count > 0)
         {
-            CommandError.Write($"--all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
-            return false;
+            return new OptionError($"--all-libraries cannot be combined with {string.Join(", ", conflicts)}.");
         }
 
-        return true;
+        return null;
     }
 
     private static async Task<int> ExecutePackageLibraryAsync(
@@ -5665,15 +5859,7 @@ public class PackageCommand
         bool HasRowsBeforeWindow);
 
     private static bool SupportsAllLibrariesTableSection(string section) =>
-        section.Equals("Library Info", StringComparison.OrdinalIgnoreCase)
-        || section.Equals("Switches", StringComparison.OrdinalIgnoreCase)
-        || section.Equals(
-            IntegrationSectionNames.Opportunities,
-            StringComparison.OrdinalIgnoreCase)
-        || LibraryIntegrationCatalog.All.Any(
-            descriptor => descriptor.SectionName.Equals(
-                section,
-                StringComparison.OrdinalIgnoreCase));
+        FindAllLibrariesRowSchema(section) is not null;
 
     private static AllLibrariesTable? BuildAllLibrariesTable(
         string packageName,
@@ -5682,6 +5868,11 @@ public class PackageCommand
         string section,
         RowWindow? rowWindow)
     {
+        AllLibrariesRowSchema? rowSchema =
+            FindAllLibrariesRowSchema(section);
+        if (rowSchema is null)
+            return null;
+
         if (section.Equals("Library Info", StringComparison.OrdinalIgnoreCase))
         {
             var rowsByLibrary = inspections
@@ -5692,8 +5883,8 @@ public class PackageCommand
                 .SelectMany(rows => RowWindow.Apply(rowWindow, rows))
                 .ToArray();
             return new(
-                ["Package", "Version", "Library", "TFM", "Field", "Value"],
-                ["package", "version", "library", "tfm", "field", "value"],
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
                 libraryInfoRows,
                 rowsByLibrary.Any(rows => rows.Length != 0));
         }
@@ -5723,8 +5914,8 @@ public class PackageCommand
                     row.Opportunity.LookFor))
                 .ToArray();
             return new(
-                ["Package", "Version", "Library", "TFM", "Integration", "API", "Integration Type", "Look For"],
-                ["package", "version", "library", "tfm", "integration", "api", "integration_type", "look_for"],
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
                 [.. RowWindow.Apply(rowWindow, opportunityRows)],
                 opportunityRows.Length != 0);
         }
@@ -5753,8 +5944,8 @@ public class PackageCommand
                     row.SwitchInfo.Api))
                 .ToArray();
             return new(
-                ["Package", "Version", "Library", "TFM", "Kind", "Switch", "API"],
-                ["package", "version", "library", "tfm", "kind", "switch", "api"],
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
                 [.. RowWindow.Apply(rowWindow, switchRows)],
                 switchRows.Length != 0);
         }
@@ -5770,8 +5961,16 @@ public class PackageCommand
             .ToList();
         var hasApis = signals.Any(row => row.Signal.Shape == IntegrationSignalShape.Api);
         var includeTypes = descriptor.IncludeTypesWhenApisPresent;
-        var valueColumn = hasApis ? "API" : "Type";
-        var valueStableColumn = hasApis ? "api" : "type";
+        string[] headers =
+            hasApis
+                ? rowSchema.Headers
+                : rowSchema.AlternateHeaders
+                    ?? rowSchema.Headers;
+        string[] stableHeaders =
+            hasApis
+                ? rowSchema.StableHeaders
+                : rowSchema.AlternateStableHeaders
+                    ?? rowSchema.StableHeaders;
         var focusedRows = signals
             .Where(row => !hasApis || includeTypes || row.Signal.Shape == IntegrationSignalShape.Api)
             .OrderBy(row => row.Signal.Kind, StringComparer.Ordinal)
@@ -5784,11 +5983,18 @@ public class PackageCommand
                 row.Signal.Name))
             .ToArray();
         return new(
-            ["Package", "Version", "Library", "TFM", "Kind", valueColumn],
-            ["package", "version", "library", "tfm", "kind", valueStableColumn],
+            headers,
+            stableHeaders,
             [.. RowWindow.Apply(rowWindow, focusedRows)],
             focusedRows.Length != 0);
     }
+
+    private static AllLibrariesRowSchema?
+        FindAllLibrariesRowSchema(string section) =>
+        AllLibrariesRowSchemas.FirstOrDefault(schema =>
+            schema.Section.Equals(
+                section,
+                StringComparison.OrdinalIgnoreCase));
 
     private static IEnumerable<string[]> BuildLibraryInfoRows(string packageName, string version, LibraryInspection inspection)
     {

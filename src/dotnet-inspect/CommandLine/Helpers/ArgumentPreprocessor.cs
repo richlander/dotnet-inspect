@@ -211,7 +211,7 @@ public static class ArgumentPreprocessor
     public static readonly HashSet<string> KnownCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "audit", // removed commands, reserved so they are not treated as implicit package targets
-        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
+        "package", "project", "library", "type", "member", "diff", "timeline", "graph", "find", "vocabulary", "source", "list", "ls", "skill", "demo", "extensions", "implements", "match", "depends", "dependency-evidence", "cache", "workspace", "workspace-state", "help", "--help", "-h", "-?", "--version", "--flavor"
     };
 
     internal static bool IsImplicitPackageCandidate(
@@ -326,6 +326,17 @@ public static class ArgumentPreprocessor
                 && !token.Contains('=', StringComparison.Ordinal)
                 && i + 1 < args.Length
                 && !args[i + 1].StartsWith("-", StringComparison.Ordinal))
+            {
+                i++;
+                continue;
+            }
+
+            if (token != "--"
+                && token is not ("--versions" or "--versions-with-feed" or "--lines" or "--tail-lines")
+                && !(directionPresence && token is "--head" or "--tail")
+                && !token.Contains('=', StringComparison.Ordinal)
+                && i + 1 < args.Length
+                && bool.TryParse(args[i + 1], out _))
             {
                 i++;
             }

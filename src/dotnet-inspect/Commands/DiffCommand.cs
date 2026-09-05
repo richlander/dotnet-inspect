@@ -286,12 +286,17 @@ public class DiffCommand
                         inputs.ToPaths,
                         options,
                         context.HttpClient,
-                        logger);
+                        logger,
+                        inputs.FromSurface,
+                        inputs.ToSurface,
+                        inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
+                        inputs.To.AssemblySet.Assemblies.FirstOrDefault());
                     var view = DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
-                        implementation,
+                        implementation.Local,
                         inputs.FromVersion,
-                        inputs.ToVersion);
+                        inputs.ToVersion,
+                        implementation.SelectedSource);
                     if (options.Tabular)
                     {
                         OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
@@ -910,12 +915,17 @@ public class DiffCommand
                 inputs.ToPaths,
                 options,
                 httpClient,
-                logger);
+                logger,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.From.AssemblySet.Assemblies.FirstOrDefault(),
+                inputs.To.AssemblySet.Assemblies.FirstOrDefault());
             implementationView = DiffOutputFormatter.BuildImplementationDiffView(
                 inputs.Name,
-                implementation,
+                implementation.Local,
                 inputs.FromVersion,
-                inputs.ToVersion);
+                inputs.ToVersion,
+                implementation.SelectedSource);
         }
 
         FindingTransitionsView? findingTransitionsView = null;
@@ -1107,14 +1117,20 @@ public class DiffCommand
             session.BodyIndex);
     }
 
-    internal static async Task<ImplementationDiffResult> BuildImplementationDiffWithSourceAsync(
+    internal sealed record ImplementationDiffWithSource(
+        ImplementationDiffResult Local,
+        AssemblyMemberSourcePairResult? SelectedSource = null);
+
+    internal static async Task<ImplementationDiffWithSource> BuildImplementationDiffWithSourceAsync(
         IReadOnlyList<string> fromPaths,
         IReadOnlyList<string> toPaths,
         DiffOptions options,
         HttpClient httpClient,
         VerboseLogger logger,
         ApiSurface? fromSurface = null,
-        ApiSurface? toSurface = null)
+        ApiSurface? toSurface = null,
+        AssemblySetEntry? fromEntry = null,
+        AssemblySetEntry? toEntry = null)
     {
         var result = BuildImplementationDiff(
             fromPaths,
@@ -1128,21 +1144,68 @@ public class DiffCommand
             toPaths,
             options,
             httpClient,
-            logger);
+            logger,
+            fromSurface,
+            toSurface,
+            fromEntry,
+            toEntry);
     }
 
-    internal static async Task<ImplementationDiffResult>
+    internal static async Task<ImplementationDiffWithSource>
         BuildImplementationDiffWithSourceAsync(
             ImplementationDiffResult result,
             IReadOnlyList<string> fromPaths,
             IReadOnlyList<string> toPaths,
             DiffOptions options,
             HttpClient httpClient,
-            VerboseLogger logger)
+            VerboseLogger logger,
+            ApiSurface? fromSurface = null,
+            ApiSurface? toSurface = null,
+            AssemblySetEntry? fromEntry = null,
+            AssemblySetEntry? toEntry = null)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (!options.IncludePdbSource || result.Members.Count == 0)
-            return result;
+        if (!options.IncludePdbSource)
+            return new(result);
+
+        AssemblyMemberSourcePairRequest? request = null;
+        if (options.MemberFilter.Count == 1 && fromPaths.Count == 1 && toPaths.Count == 1)
+        {
+            request = TryResolveSelectedSourceRequest(
+                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll)
+                    ?? throw new InvalidOperationException("Failed to extract API surface from the old selected PDB Source endpoint."),
+                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll)
+                    ?? throw new InvalidOperationException("Failed to extract API surface from the new selected PDB Source endpoint."),
+                options);
+        }
+        if (request is not null)
+        {
+            using var workspace = new InspectionWorkspace();
+            var before = CreateSourceParticipant(fromPaths[0], options, oldSide: true, fromEntry);
+            var after = CreateSourceParticipant(toPaths[0], options, oldSide: false, toEntry);
+            using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);
+            using var afterGroup = workspace.CreateAssemblyContextGroup([after]);
+            var sourceContext = new AssemblyContextSourceQueryContext(
+                httpClient,
+                FileSystemPdbStore.CreateDefault(),
+                new SourcePolicyPackageSourceAuthorization(options.SourceOptions),
+                new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch))
+            {
+                AllowAdjacentPdbReads = true,
+                AllowLocalSourceReads = true,
+                RepositoryPaths = options.SourceRepositories,
+                NuGetSourceOptions = options.SourceOptions,
+                Log = logger.Log,
+            };
+            var pair = await AssemblyContextMemberSourcePairQuery.ExecuteAsync(
+                beforeGroup, before, afterGroup, after, request, sourceContext);
+            return new(result, pair);
+        }
+
+        // Broader selections and targets without one exact MethodDef anchor
+        // (including property/event accessor selections) retain legacy enrichment.
+        if (result.Members.Count == 0)
+            return new(result);
 
         var subjects = result.Members
             .Select(member => member.Subject)
@@ -1166,12 +1229,85 @@ public class DiffCommand
                 subject,
                 PdbSourceInspectionFor(from, subject, oldSide: true),
                 PdbSourceInspectionFor(to, subject, oldSide: false)));
-        return ImplementationDiff.WithPdbSourceComparisons(
+        return new(ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
             new ImplementationDiffOptions(
                 TypeFilters: options.TypeFilter,
-                MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal)));
+                MemberTargetIdentities: subjects.Keys.ToHashSet(StringComparer.Ordinal))));
+    }
+
+    static AssemblyMemberSourcePairRequest? TryResolveSelectedSourceRequest(
+        ApiSurface fromSurface,
+        ApiSurface toSurface,
+        DiffOptions options)
+    {
+        var parsed = ParseDiffMemberTarget(
+            options.MemberFilter.Single(), fromSurface, toSurface, options.TypeFilter);
+        AssemblyMemberSourcePairRequest? request = null;
+        bool unsupported = false;
+        foreach (var surface in new[] { fromSurface, toSurface })
+        {
+            var type = FindSelectedType(surface, parsed.TypeName, out string? error);
+            if (error is not null)
+                throw new InvalidOperationException(error);
+            if (type is null)
+                continue;
+            var resolution = MemberTargetResolver.Resolve(type, parsed.Selector);
+            if (resolution.Target is not { } target)
+            {
+                if (resolution.Diagnostic is { } diagnostic
+                    && IsFatalTargetDiagnostic(diagnostic.Kind))
+                    throw new InvalidOperationException(diagnostic.Message);
+                continue;
+            }
+
+            var member = target.ApiMember.Member;
+            if (member.Kind is "property" or "event" or "field"
+                || type.DefinitionName is null
+                || member.MetadataToken is null
+                || target.Body?.MetadataToken != member.MetadataToken)
+            {
+                unsupported = true;
+                continue;
+            }
+            var candidate = AssemblyMemberSourcePairRequest.From(type, member);
+            if (candidate.Member != target.Anchor
+                || (request is not null
+                    && (!request.Type.Equals(candidate.Type) || request.Member != candidate.Member)))
+            {
+                unsupported = true;
+            }
+            request = candidate;
+        }
+        if (unsupported)
+            return null;
+        return request ?? throw new InvalidOperationException(
+            "The selected PDB Source member did not resolve in either diff input.");
+    }
+
+    static AssemblyContextParticipant CreateSourceParticipant(
+        string path,
+        DiffOptions options,
+        bool oldSide,
+        AssemblySetEntry? entry)
+    {
+        var (packageName, packageVersion) = DiffPackageIdentity(options, oldSide);
+        var provenance = entry is { SourceKind: AssemblySetSourceKind.Package, Version: not null }
+            ? AssemblyResolutionProvenance.Package(entry.Source, entry.Version, entry.Tfm, rid: null)
+            : entry is { SourceKind: AssemblySetSourceKind.PlatformAssembly or AssemblySetSourceKind.PlatformFramework }
+                ? AssemblyResolutionProvenance.Platform(entry.Source, entry.Version, "diff selected PDB source")
+            : packageName is not null && packageVersion is not null
+            ? AssemblyResolutionProvenance.Package(packageName, packageVersion, options.Tfm, rid: null)
+            : options.PlatformVersionRange is { } platform
+                ? AssemblyResolutionProvenance.Platform(
+                    ParseVersionRange(platform).package ?? Path.GetFileNameWithoutExtension(path),
+                    oldSide ? ParseVersionRange(platform).fromVersion : ParseVersionRange(platform).toVersion,
+                    "diff selected PDB source")
+                : AssemblyResolutionProvenance.Local("diff selected PDB source");
+        return new(
+            ResolvedAssemblyReference.CreateFromPath(path, provenance),
+            new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)));
     }
 
     internal sealed record PdbSourceInspectionBatch(

@@ -56,6 +56,10 @@
 
 ### Source and implementation evidence
 
+- Type Analysis-index sections now acquire bytes through the selected root or
+  forwarded supplier descriptor, including effective discovery. Rejected
+  acquisition is a visible command error rather than a path retry; ordinary
+  API output keeps Analysis acquisition lazy (#5957).
 - Type source-file and portable-PDB acquisition now open the selected supplier
   descriptor, preserving its opener as well as its symbol policy. Thrown
   source-context failures are reported as command errors instead of appearing
