@@ -779,8 +779,10 @@ containment properties are gated in Release by
    and the cross-input equivalence fixture.
 6. Land the focused Package Owner Evidence Query tracked by #5315, then admit
    its owner observations as optional input.
-7. Under #5534, add the L2 section, Markout and JSON-family projections, CLI
-   input spellings, and later product-owned predicates.
+7. Under #5534, adopt the focused
+   [Dependency Evidence CLI](dependency-evidence-cli.md) command, L2 sections,
+   Markout and JSON-family projections, input spellings, and later
+   product-owned predicates.
 8. Under #5535, export the same typed outcome through the Browser/Wasm boundary
    and adopt it in inspect-web without duplicating dependency semantics.
 

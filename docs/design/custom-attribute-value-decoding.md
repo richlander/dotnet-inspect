@@ -832,7 +832,7 @@ remain `unverified`.**
 | --- | --- | --- |
 | **D1** | #5733 varies attacker-controlled dimensions jointly, measures work rather than allocation, samples capped dimensions past their cap, and must be shown red against the pre-repair head. | Does not exist; five open defects violate it. |
 | **D2** | Slice 2 classified and inverted the guard's deferral tests, and added explicit coverage for the defaulted-width signal, caller-boundary provenance (observer and resolver, including `BadImageFormatException` and `ArgumentOutOfRangeException`), and a malformed control. An internally originated `OutOfMemoryException` gate does not yet exist. | Partial in the slice 2 candidate; resource-exhaustion propagation remains unverified. |
-| **D3** | #5148 is re-targeted from offset agreement to value equality; stage 1 adds producer-truth widths where an SRM oracle would share the decoder's resolution path. | #5148 open; stage 1 not landed. |
+| **D3** | #5148's fixtures-first gate compares compiler-produced values with independent SRM results and source-owned cross-assembly enum expectations. `CustomAttributeFidelityTests.CompilerProducedValues_EqualIndependentSrm` and `RetainedCrossAssemblyEnums_EqualProducerTruth` enforce this fixture subset. | Partial fixture coverage; real-package certification and its producer range remain unverified. |
 | **Defaulted-width signal** | #5742 asserts that the out-of-band per-argument signal is set for a defaulted width and clear for a resolved width on the same decode path. `DetailedDecode_ReportsDefaultedAndResolvedWidths` and `DetailedDecode_LegacyFuncIsAuthoritative_ButUnresolvedDefaults` gate it. | Gated in the slice 2 candidate. |
 
 Until those gates exist, any statement in this document that an invariant
@@ -925,6 +925,36 @@ produces a refused legitimate attribute — a fidelity regression, not a safety 
 Certification is versioned and re-runnable, so adding SDK N+1 is a corpus run, not
 a redesign.
 
+### Compiler-produced fixture gate
+
+The user approved a fixtures-first D3 slice for #5148 before completing stage 1.
+This does not narrow D3's normative target or certify the existing package
+baselines: package versions and TFMs do not establish producer SDK provenance.
+The broader package corpus and certified producer range remain outstanding.
+
+`CustomAttributeFidelitySamples` declares the current fixture inventory beside
+its tests, compiled by the repository-selected SDK and target framework. Its
+primitive, string, `System.Type`, array, boxed, and named-argument cases compare
+complete decoded trees with SRM through a test-owned provider that does not
+resolve enums or call the product's resolution logic. Comparisons preserve
+argument types, named kinds/names, element order, null/default versus empty
+arrays, and floating-point bits.
+
+The cataloged `metadata.attribute-enums` fixture supplies a separate defining
+assembly. Source-owned expectations cover `long` and `byte` enum values in
+fixed, array, named, and boxed positions, including values outside `Int32` and
+following arguments. The tests retain the defining image through
+`TypeResolutionContext`, use the production `TypeResolutionEnumWidth` adapter,
+and compare against those source expectations rather than an SRM run sharing
+the adapter.
+
+These are normal Release metadata tests, not a broad corpus sweep. The
+test harness is the consumer of this evidence; the exercised decoder is the
+same shared implementation already adopted by CLI and browser/Wasm. The old
+I1 offset seam and generated guard-approval assertions are retired, not carried
+as additional D3 requirements. Exhaustive grammar coverage, D1/D2 enumeration,
+and real-package certification are not established by this fixture gate.
+
 ## Known gaps
 
 Each row is a **verified** divergence between the contract above and the
@@ -996,7 +1026,7 @@ slice 2. Both are now settled.
 
 | Issue | Concern |
 | --- | --- |
-| #5288 | This inversion. Slice 2 is the current decoder candidate; slice 3 (the D3 gate) and slice 4 (cleanup) are outstanding. |
+| #5288 | This inversion. Slice 2 landed in #5815; slice 3 starts with the fixtures-first D3 gate, with package certification and slice 4 cleanup still outstanding. |
 | #5047 | Slice 2 resolves each array element type once; close after the candidate lands. |
 | #5098 | Per-`VAR` generic-context re-skip retains `Θ(P × G)` work in the owned decoder. |
 | #5065 | The differential oracle. To be **retitled to D3** by #5288 slice 4; it is not D1's gate. |
@@ -1004,7 +1034,7 @@ slice 2. Both are now settled.
 | #5091 | Quadratic work across declared parameter count and type-definition count. Gap 1. |
 | #5130 | Slice 2 deletes the paired walk's single-slot memos; close after the candidate lands. |
 | #5132 | Quadratic cost across attribute rows sharing one value blob. Gap 4. |
-| #5148 | The differential generator, to be re-targeted from offset agreement to D3 value equality. |
+| #5148 | Fixtures-first D3 value equality and retained-image producer truth; broader package certification remains outstanding. |
 | #5304 | Stage 2 exhaustive per-position enumeration. |
 | #5397 | Slice 2 no longer catches internal `OutOfMemoryException`; dedicated propagation evidence remains absent, so D2 stays partially unverified. |
 | #5733 | The D1 generative bounded-cost gate; #5065 does not measure cost. |

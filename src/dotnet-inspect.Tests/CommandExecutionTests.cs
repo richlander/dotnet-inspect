@@ -4339,7 +4339,12 @@ public partial class CommandExecutionTests
             ]);
 
         Assert.Equal(0, exit);
-        Assert.Contains("| Body Shapes | section |", output);
+        Assert.Contains(
+            "| [member/member-target/ApiMemberDetail] Body Shapes | section |",
+            output);
+        Assert.Contains(
+            "| [type/type/ApiMember] Body Shapes | section |",
+            output);
         Assert.Empty(error);
     }
 
@@ -4374,7 +4379,9 @@ public partial class CommandExecutionTests
         Assert.Equal(0, direct.Exit);
         Assert.Equal(0, deferred.Exit);
         Assert.Contains("| Body Shapes | section |", direct.Output);
-        Assert.Contains("| Body Shapes | section |", deferred.Output);
+        Assert.Contains(
+            "| [member/member-target/ApiMemberDetail] Body Shapes | section |",
+            deferred.Output);
         Assert.Empty(direct.Error);
         Assert.Empty(deferred.Error);
     }
@@ -4569,6 +4576,31 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("  Classes", ambiguous.Error);
         Assert.DoesNotContain("  Inspection Failures", ambiguous.Error);
         Assert.DoesNotContain("  Method Groups", explicitMember.Error);
+    }
+
+    [Fact]
+    public async Task Member_DottedTargetDefersAlternativeSpecificSectionUntilResolution()
+    {
+        string missingAssembly = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-missing-{Guid.NewGuid():N}.dll");
+
+        var result = await RunAppAsync(
+            "member",
+            "Missing.Type.Member",
+            "--library",
+            missingAssembly,
+            "-S",
+            "Signature",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("File not found", result.Error);
+        Assert.DoesNotContain(
+            "Select value 'Signature' not found.",
+            result.Error);
     }
 
     [Fact]
@@ -4959,7 +4991,7 @@ public partial class CommandExecutionTests
             "-t",
             "*SampleGenericClass*",
             "-S",
-            "Type Info",
+            "API Info",
             "--count",
             "--tips",
             "q"
@@ -8637,6 +8669,119 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Enums", discoverOutput, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Type_PrefixBrowse_DiscoveryValidOnlyForListingIsDeferred()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "Command",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Kind", output, StringComparison.Ordinal);
+        Assert.Contains("Type", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_ExactMatch_ListingOnlyDiscoveryIsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "DotnetInspector.Tests.CommandExecutionTests",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            SectionNames.Baseclass,
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_NoPrefixMatch_DeferredDiscoveryIsRejected()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "type",
+            "Zqqxnomatch",
+            "--library",
+            TestAssemblyPath,
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_DiscoveryUsesFilteredSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.IAsync",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Classes",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Section 'Classes' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Type_PrefixBrowse_SharedDiscoveryUsesFilteredSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type",
+            "System.Str",
+            "--platform",
+            "System.Private.CoreLib",
+            "-D",
+            "Interfaces",
+            "--table",
+            "--tips",
+            "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            "Section 'Interfaces' not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A deferred select must use the listing pipeline for both count-map ordering and reduction;
     /// otherwise it either retains the obsolete single-section rejection or emits one scalar total.
@@ -11282,7 +11427,7 @@ public partial class CommandExecutionTests
         // a discovery request there would have been rejected with a misleading column message.
         // Discovery must be dispatched before the projection guard, matching the main listing path.
         var (exit, output, error) = await RunAppAsync(
-            "type", "System.*", "--library", TestAssemblyPath,
+            "type", "DotnetInspector.Tests.Sample*", "--library", TestAssemblyPath,
             "-D", "Classes", "--fields", "Name", "--json");
 
         Assert.Equal(0, exit);
@@ -11297,6 +11442,30 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task GlobListing_Discovery_UsesMatchedTypes()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "DotnetInspector.Tests.Sample*Constraint*", "--library", TestAssemblyPath,
+            "-D", "Enums", "--table", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Section 'Enums' not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GlobListing_Discovery_RejectsUnmatchedGlob()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "Zqqxnomatch.*", "--library", TestAssemblyPath,
+            "-D", "Classes", "--fields", "Name", "--json");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Type 'Zqqxnomatch.*' not found", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProjectedJsonRoutingAudit_InventoryIncludesEveryProjectionCapableCommand()
     {
         var root = CommandLineBuilder.CreateRootCommand();
@@ -11307,6 +11476,7 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
+                "dependency-evidence",
                 "extensions",
                 "find",
                 "implements",
@@ -26040,7 +26210,22 @@ public partial class CommandExecutionTests
                 "package", packagePath, "--all-libraries", "-S", "Integration: Configuration", "--tsv");
 
             Assert.Equal(0, exit);
-            Assert.Contains("package\tversion\tlibrary\ttfm\tkind\tapi", output);
+            string[] lines = output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries);
+            string[] headers = lines[0].Split('\t');
+            PackageCommand.AllLibrariesRowSchema rowSchema =
+                Assert.Single(
+                    PackageCommand.AllLibrariesRowSchemas,
+                    schema => schema.Section.Equals(
+                        "Integration: Configuration",
+                        StringComparison.Ordinal));
+            Assert.Equal(rowSchema.StableHeaders, headers);
+            Assert.All(
+                lines[1..],
+                line => Assert.Equal(
+                    headers.Length,
+                    line.Split('\t').Length));
             Assert.Contains("Microsoft.Extensions.Configuration.dll", output);
             Assert.Contains("Microsoft.Extensions.Configuration.Json.dll", output);
             Assert.DoesNotContain("Tip:", error);
@@ -28017,7 +28202,9 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Select value 'Signature' not found.", error);
+        Assert.Contains(
+            "Exact-member section selection requires exactly one member name.",
+            error);
     }
 
     /// <summary>

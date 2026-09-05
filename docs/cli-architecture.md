@@ -133,8 +133,9 @@ This is the API-surface slice in
 [#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
 descriptor adoption for every `type` operation. Existing source/PDB policy
 consumers keep receiving the selected type's descriptor; the next subsection
-owns source-context opening. Runtime acquisition, deep Analysis/decompiler acquisition, and
-acquired-PDB propagation remain focused successors under
+owns source-context opening, and the following subsection owns type Analysis
+index acquisition. Runtime acquisition, remaining deep-body/decompiler
+acquisition, and acquired-PDB propagation remain focused successors under
 [#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
 
 ### Type source-context opening
@@ -168,7 +169,45 @@ source/PDB acquisition consumes it, and existing rendering or command error
 reporting publishes the result. It uses Metadata/SourceLink's existing
 host-neutral descriptor APIs; their contracts remain owned by
 [PDB acquisition](pdb-acquisition.md). Standalone member, browser, runtime
-selection, and deep-body adoption remain separate #4867 successors.
+selection, and remaining deep-body adoption remain separate #4867 successors.
+
+### Type Analysis-index acquisition
+
+Type sections backed by the shared Analysis index consume the selected API
+supplier's descriptor, including forwarded suppliers, rather than reopening
+its path projection. Normal output and effective discovery carry that supplier
+through filtering and rendering. A rejected image acquisition reaches the
+command error boundary, not path fallback or successful empty Analysis output.
+
+CLI composition acquires Metadata's bounded immutable image snapshot and
+passes its content to Analysis's existing prefetched-image entry point. The
+512 MiB default retained-image envelope is inherited from Metadata. Scoped
+requests deliberately materialize a bounded PE snapshot to keep descriptor
+validation with Metadata; body decoding remains scoped as before. Acquisition
+does not use a PDB context. Requested features, reference-resolution options,
+whole-assembly scope for aggregate sections, and lazy per-render index reuse
+remain unchanged.
+
+`TypeAnalysisAcquisition_UsesSelectedSupplier`,
+`TypeAnalysisAcquisition_ReportsSelectedOpenFailure`,
+`TypeAnalysisAcquisition_SkipsOrdinaryApiOutput`, and
+`TypeAnalysisAcquisition_PreservesFeaturesAndScope` gate this composition,
+alongside the existing index-build and reference-resolver invariants.
+`TypeAnalysisAcquisition_IgnoresUnrequestedDebugData` gates direct and
+deferred Analysis requests over an image with a malformed embedded PDB.
+
+This is [#5957](https://github.com/richlander/dotnet-inspect/issues/5957)'s
+three-step production adoption: TypeCommand retains the selected descriptor;
+the type-index helper acquires its snapshot and hands the content to Analysis;
+existing typed rows and Markout rendering, or command error reporting, publish
+the result. Metadata's snapshot contract and Analysis's producer contracts
+remain unchanged; Research's descriptor Analysis cache is an analogous
+consumer, not a new CLI dependency. Browser adoption remains under #4867.
+
+Descriptorless and standalone-member callers retain their path route. This
+does not select a runtime implementation or establish cross-image
+correspondence. Exception Regions, Body Shapes, whole-type decompiler
+acquisition, and acquired-PDB propagation remain separate successors.
 
 ## Command families
 

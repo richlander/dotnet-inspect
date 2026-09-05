@@ -49,7 +49,8 @@ internal static class ApiAnalysisInspection
         string assemblyPath,
         IReadOnlyCollection<string>? requestedSections = null,
         ApiType? type = null,
-        ApiOptions? options = null)
+        ApiOptions? options = null,
+        ResolvedAssemblyReference? sourceAssembly = null)
     {
         var (allocations, opportunities) = AnalysisScopeFor(requestedSections);
         Func<Analysis.TypeRef, bool>? bodyTypeScope = null;
@@ -58,6 +59,35 @@ internal static class ApiAnalysisInspection
             && !requestedSections.Contains(SectionNames.PerformanceTriage))
         {
             bodyTypeScope = typeRef => SameType(typeRef, type);
+        }
+
+        if (sourceAssembly is not null)
+        {
+            string sourcePath = sourceAssembly.Path ?? assemblyPath;
+            AssemblyImageSnapshotResult result = AssemblyImageSnapshot.Open(
+                sourceAssembly,
+                length => length <= AssemblyImageSnapshot.DefaultMaxRetainedImageBytes,
+                static _ => { });
+            AssemblyImageSnapshot snapshot = result switch
+            {
+                AssemblyImageSnapshotResult.Ready ready => ready.Snapshot,
+                AssemblyImageSnapshotResult.Rejected rejected =>
+                    throw new InvalidOperationException(
+                        $"Type Analysis acquisition failed for '{sourcePath}' ({rejected.Failure.Kind}): {rejected.Failure.Detail}"),
+                _ => throw new InvalidOperationException("Unknown assembly snapshot result."),
+            };
+            var features = Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
+            if (allocations)
+                features |= Analysis.LibraryBodyAnalysisFeatures.Allocations;
+            if (opportunities)
+                features |= Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities;
+            return MethodBodyInspectionSession.OpenWithPrefetchedImage(
+                sourcePath,
+                snapshot.Content,
+                features,
+                CreateReferenceResolver(sourcePath, options),
+                sourceAssembly,
+                bodyTypeScope: bodyTypeScope).BodyIndex;
         }
 
         return MethodBodyInspectionSession.Open(
