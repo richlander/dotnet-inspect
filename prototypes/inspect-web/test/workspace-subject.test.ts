@@ -105,7 +105,7 @@ test("Workspace details render product occurrences as opaque actions", () => {
   assert.match(html, /aria-label="Open demo System\.Text\.Json"/);
   assert.match(
     html,
-    /data-workspace-activate="opaque-action"[\s\S]*system\.text\.json/);
+    /data-workspace-activate="opaque-action"[\s\S]*System\.Text\.Json/);
   assert.match(html, /Platform[\s\S]*Microsoft\.NETCore\.App/);
   assert.doesNotMatch(html, /data-workspace-close/);
 });
@@ -131,6 +131,18 @@ test("Workspace details distinguish loading, empty, and failure", () => {
   assert.match(
     render(false, "", "Product demos are unavailable"),
     /Product demos are unavailable/);
+});
+
+test("Workspace removal remains available while occurrence activation loads or fails", () => {
+  for (const status of [{ loading: true, error: "" }, { loading: false, error: "Offline" }]) {
+    const html = renderWorkspaceView({
+      packages: [{ id: "Alpha", version: "1.0.0", activeFramework: "net10.0", isRuntimePack: false }],
+      occurrences: [], demos: [], demoError: "", escapeHtml, ...status,
+    });
+    assert.match(html, /data-workspace-remove=/);
+    assert.match(html, /aria-label="Remove Alpha 1\.0\.0 net10\.0 from Workspace"/);
+    assert.match(html, /class="workspace-occurrence"[^>]*disabled/);
+  }
 });
 
 test("Workspace selection and activation dispatch separate actions", () => {
@@ -169,7 +181,7 @@ test("Workspace selection and activation dispatch separate actions", () => {
     querySelectorAll: (selector: string) =>
       selector === "[data-workspace-activate]"
         ? [activate]
-        : [demo, invalidDemo],
+        : selector === "[data-workspace-demo]" ? [demo, invalidDemo] : [],
   };
   const calls: string[] = [];
 

@@ -62,24 +62,38 @@ public static class AssemblyTypeDeclarationInventoryReader
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
+        Stream? stream = null;
+        PEReader? peReader = null;
+        bool rejectionEstablished = false;
+        AssemblyTypeDeclarationInventoryOutcome Reject(
+            CandidateOpenFailureKind kind,
+            string detail,
+            MetadataRootMalformedReason? metadataRootReason = null)
+        {
+            rejectionEstablished = true;
+            return Rejected(kind, detail, metadataRootReason);
+        }
+
         try
         {
-            using Stream stream = assembly.OpenRead();
-            using var peReader = new PEReader(stream);
-            if (!peReader.HasMetadata)
+            stream = assembly.OpenRead();
+            peReader = new PEReader(
+                stream,
+                PEStreamOptions.LeaveOpen);
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
-                return Rejected(
+                return Reject(
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected image has no managed metadata.");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             assembly.ValidateArtifactContent(peReader);
             AssemblyReferenceIdentity actual =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
             if (actual != assembly.Identity)
             {
-                return Rejected(
+                return Reject(
                     CandidateOpenFailureKind.InvalidImage,
                     "The opened image identity does not match the acquisition descriptor.");
             }
@@ -93,7 +107,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read read)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "A type definition name could not be decoded.");
                 }
@@ -118,7 +132,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                     RelationshipTraversalResult<
                         RelationshipChain<ExportedTypeHandle>>.Rejected)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "An exported type relationship could not be decoded.");
                 }
@@ -136,7 +150,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                     reader.GetExportedType(chain.Handles[0]);
                 if (!root.IsForwarder)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "An assembly-forwarded type chain is not marked as a forwarder.");
                 }
@@ -144,7 +158,7 @@ public static class AssemblyTypeDeclarationInventoryReader
                 if (MetadataTypeDefinitionNameReader.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read read)
                 {
-                    return Rejected(
+                    return Reject(
                         CandidateOpenFailureKind.InvalidImage,
                         "A forwarded type name could not be decoded.");
                 }
@@ -159,27 +173,83 @@ public static class AssemblyTypeDeclarationInventoryReader
                     forwarders.ToImmutable(),
                     meaningfulPublicTypeCount));
         }
+        catch (UnsupportedMetadataFormatException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            return Rejected(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            return Rejected(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
+        }
         catch (Exception ex) when (
             ex is IOException or UnauthorizedAccessException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return Rejected(
                 CandidateOpenFailureKind.Unreadable,
                 "The selected image could not be read.");
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
-                or ArgumentOutOfRangeException)
+                or ArgumentOutOfRangeException
+                or OverflowException)
         {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
             return Rejected(
                 CandidateOpenFailureKind.InvalidImage,
                 "The selected image metadata is invalid.");
+        }
+        catch (Exception ex)
+        {
+            OwnedResourceCleanup.DisposeAfterFailure(
+                ref peReader,
+                ref stream,
+                ex);
+            throw;
+        }
+        finally
+        {
+            if (rejectionEstablished)
+            {
+                OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                    ref peReader,
+                    ref stream);
+            }
+            else
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
         }
     }
 
     static AssemblyTypeDeclarationInventoryOutcome.Rejected Rejected(
         CandidateOpenFailureKind kind,
-        string detail) =>
-        new(new CandidateOpenFailure(kind, detail));
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(new CandidateOpenFailure(kind, detail)
+        {
+            MetadataRootReason = metadataRootReason,
+        });
 }
 
 public enum AssemblySurfaceKind
@@ -243,12 +313,36 @@ public static class AssemblySurfaceClassifier
                     CandidateOpenFailureKind.Unreadable,
                     "The selected assembly could not be read."));
         }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                    "The selected assembly uses an unsupported metadata format."));
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    $"The selected assembly has a malformed metadata root ({ex.Reason}).")
+                {
+                    MetadataRootReason = ex.Reason,
+                });
+        }
         catch (BadImageFormatException)
         {
             return new AssemblySurfaceClassificationOutcome.Rejected(
                 new CandidateOpenFailure(
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected assembly is not a valid managed image."));
+        }
+        catch (OverflowException)
+        {
+            return new AssemblySurfaceClassificationOutcome.Rejected(
+                new CandidateOpenFailure(
+                    CandidateOpenFailureKind.InvalidImage,
+                    "The selected assembly metadata is invalid."));
         }
     }
 

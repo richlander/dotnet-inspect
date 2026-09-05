@@ -191,6 +191,8 @@ public sealed record BrowserAnnotatedSource
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserSource))]
+[JsonSerializable(typeof(BrowserTypeSourceResult))]
+[JsonSerializable(typeof(BrowserTypeSourceCancellation))]
 [JsonSerializable(typeof(BrowserAnnotatedSource))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserSourceJsonContext : JsonSerializerContext;

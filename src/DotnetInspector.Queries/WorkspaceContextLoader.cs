@@ -1464,7 +1464,8 @@ public static class WorkspaceContextLoader
                 Failure(
                     failure.Kind,
                     member,
-                    failure.Message));
+                    failure.Message,
+                    failure.MetadataRootReason));
         }
 
         string? realizedAssembly = member.Assembly is null
@@ -1700,6 +1701,23 @@ public static class WorkspaceContextLoader
                     assembliesByMember[member].Add(assembly);
                 }
             }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    "A selected assembly asset uses an unsupported metadata format.");
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                return FailPlatformMembers(
+                    members,
+                    WorkspaceContextLoadFailureKind
+                        .MalformedMetadataRoot,
+                    $"A selected assembly asset in platform family '{family}' contains a malformed metadata root.",
+                    ex.Reason);
+            }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
@@ -1776,7 +1794,8 @@ public static class WorkspaceContextLoader
         MemberRealization> FailPlatformMembers(
         ImmutableArray<RealizedMemberCoordinate.Platform> members,
         WorkspaceContextLoadFailureKind kind,
-        string message)
+        string message,
+        MetadataRootMalformedReason? metadataRootReason = null)
     {
         var failures = new Dictionary<
             RealizedMemberCoordinate.Platform,
@@ -1789,7 +1808,8 @@ public static class WorkspaceContextLoader
                     Failure(
                         kind,
                         Declare(member),
-                        message)));
+                        message,
+                        metadataRootReason)));
         }
 
         return failures;
@@ -2121,6 +2141,25 @@ public static class WorkspaceContextLoader
                     assemblies.Add(assembly);
                 }
             }
+            catch (UnsupportedMetadataFormatException)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .UnsupportedMetadataFormat,
+                        member,
+                        "A selected assembly asset uses an unsupported metadata format."));
+            }
+            catch (MalformedMetadataRootException ex)
+            {
+                return new MemberRealization(
+                    Failure(
+                        WorkspaceContextLoadFailureKind
+                            .MalformedMetadataRoot,
+                        member,
+                        $"A selected assembly asset in package '{coordinate.PackageId}' contains a malformed metadata root.",
+                        ex.Reason));
+            }
             catch (Exception ex) when (
                 ex is BadImageFormatException
                     or ArgumentOutOfRangeException
@@ -2282,6 +2321,25 @@ public static class WorkspaceContextLoader
                 () => new MemoryStream(bytes, writable: false),
                 provenance);
         }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .UnsupportedMetadataFormat,
+                    member,
+                    "Embedded content uses an unsupported metadata format."));
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return new MemberRealization(
+                Failure(
+                    WorkspaceContextLoadFailureKind
+                        .MalformedMetadataRoot,
+                    member,
+                    $"Embedded content '{member.ContentRef}' contains a malformed metadata root.",
+                    ex.Reason));
+        }
         catch (Exception ex) when (
             ex is BadImageFormatException
                 or ArgumentOutOfRangeException
@@ -2403,8 +2461,12 @@ public static class WorkspaceContextLoader
     static WorkspaceContextLoadFailure Failure(
         WorkspaceContextLoadFailureKind kind,
         WorkspaceMemberCoordinate? member,
-        string message) =>
-        new(kind, member, message);
+        string message,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(kind, member, message)
+        {
+            MetadataRootReason = metadataRootReason,
+        };
 
     static bool IsBlankOrPadded(string? value) =>
         !PackageCoordinateResolver.IsAcquisitionTargetText(value);

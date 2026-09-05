@@ -1,8 +1,14 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
+
+export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+
+export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 
 export interface BrowserAnnotatedSource {
   readonly document: unknown;
@@ -58,13 +64,29 @@ export interface BrowserSource {
   readonly text: string;
 }
 
+export interface BrowserTypeSourceCancellation {
+  readonly kind: BrowserTypeSourceCancellationKind;
+  readonly reason: string | null;
+}
+
+export interface BrowserTypeSourceResult {
+  readonly version: number;
+  readonly kind: BrowserTypeSourceResultKind;
+  readonly value: BrowserSource | null;
+  readonly failureKind: BrowserTypeSourceFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
 type $ManagedExports = {
   readonly "SourceExports": {
     readonly "CancelSourceQuery.19325221": () => void;
+    readonly "CancelTypeSourceQuery.271973316": (operationId: string, reason: string) => string;
     readonly "QueryMemberAnnotatedSource.1135530322": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
     readonly "QueryTypeMemberSource.641907440": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string) => Promise<string>;
-    readonly "QueryTypeSource.649160465": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>;
+    readonly "QueryTypeSource.1160082336": (operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string) => Promise<string>;
   };
 };
 
@@ -121,6 +143,14 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "SourceExports");
+    value = $ownDataProperty(value, "CancelTypeSourceQuery.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027SourceExports.CancelTypeSourceQuery.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "SourceExports");
     value = $ownDataProperty(value, "QueryMemberAnnotatedSource.1135530322");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027SourceExports.QueryMemberAnnotatedSource.1135530322\u0027 is not callable.");
@@ -145,9 +175,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   {
     let value: unknown = exports;
     value = $ownDataProperty(value, "SourceExports");
-    value = $ownDataProperty(value, "QueryTypeSource.649160465");
+    value = $ownDataProperty(value, "QueryTypeSource.1160082336");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027SourceExports.QueryTypeSource.649160465\u0027 is not callable.");
+      throw new Error("Managed export \u0027SourceExports.QueryTypeSource.1160082336\u0027 is not callable.");
     }
   }
 }
@@ -191,6 +221,12 @@ export function cancelSourceQuery(): void {
   return $requireManagedExports()["SourceExports"]["CancelSourceQuery.19325221"]();
 }
 
+export function cancelTypeSourceQuery(operationId: string, reason: string): BrowserTypeSourceCancellation {
+  const $result = $requireManagedExports()["SourceExports"]["CancelTypeSourceQuery.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserTypeSourceCancellation;
+}
+
 export async function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource> {
   const $result = await $requireManagedExports()["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
@@ -209,9 +245,9 @@ export async function queryTypeMemberSource(packageId: string, version: string, 
   return $parsed as BrowserSource;
 }
 
-export async function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource> {
-  const $result = await $requireManagedExports()["SourceExports"]["QueryTypeSource.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+export async function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserTypeSourceResult> {
+  const $result = await $requireManagedExports()["SourceExports"]["QueryTypeSource.1160082336"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
   const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserSource;
+  return $parsed as BrowserTypeSourceResult;
 }
 

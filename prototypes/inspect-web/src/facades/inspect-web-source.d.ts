@@ -1,5 +1,8 @@
 export type BrowserAnnotatedSourceCapabilityUnavailableReason = "NotProjected" | "ContextUnavailable" | number;
 export type BrowserAnnotatedSourceMedium = "CSharp" | "Il" | number;
+export type BrowserTypeSourceCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
+export type BrowserTypeSourceFailureKind = "Expected" | "Unexpected" | number;
+export type BrowserTypeSourceResultKind = "Succeeded" | "Failed" | "Canceled" | number;
 export interface BrowserAnnotatedSource {
     readonly document: unknown;
     readonly viewerCatalog: BrowserAnnotatedSourceViewerCatalog;
@@ -48,6 +51,19 @@ export interface BrowserSource {
     readonly pdbSourceLimitation: string | null;
     readonly text: string;
 }
+export interface BrowserTypeSourceCancellation {
+    readonly kind: BrowserTypeSourceCancellationKind;
+    readonly reason: string | null;
+}
+export interface BrowserTypeSourceResult {
+    readonly version: number;
+    readonly kind: BrowserTypeSourceResultKind;
+    readonly value: BrowserSource | null;
+    readonly failureKind: BrowserTypeSourceFailureKind | null;
+    readonly error: string | null;
+    readonly diagnostic: string | null;
+    readonly reason: string | null;
+}
 export interface JsExportRuntime {
     readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
     readonly runMain: (mainAssemblyName?: string, args?: string[]) => Promise<number>;
@@ -56,7 +72,8 @@ export declare function createRuntime(): Promise<JsExportRuntime>;
 export declare function initializeRuntime(runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>): Promise<void>;
 export declare function runEntryPoint(mainAssemblyName?: string, args?: string[]): Promise<number>;
 export declare function cancelSourceQuery(): void;
+export declare function cancelTypeSourceQuery(operationId: string, reason: string): BrowserTypeSourceCancellation;
 export declare function queryMemberAnnotatedSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, typeQueryId: string, memberName: string, memberSignature: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserAnnotatedSource>;
 export declare function queryMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
 export declare function queryTypeMemberSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, memberName: string, selectorKey: string, metadataToken: number, styleOptionsJson: string): Promise<BrowserSource>;
-export declare function queryTypeSource(packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserSource>;
+export declare function queryTypeSource(operationId: string, packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, styleOptionsJson: string): Promise<BrowserTypeSourceResult>;

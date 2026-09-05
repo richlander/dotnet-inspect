@@ -139,6 +139,7 @@ export function createCallGraphInspectionCoordinator(
   dependencies: CallGraphInspectionDependencies,
 ): CallGraphInspectionCoordinator {
   const { state } = dependencies;
+  let loadGeneration = 0;
   const resetPlatformDrill = () => {
     state.platformStack = [];
     state.platformDrillLoading = false;
@@ -195,6 +196,7 @@ export function createCallGraphInspectionCoordinator(
         await dependencies.renderCallGraph();
         return;
       }
+      const generation = ++loadGeneration;
       state.memberCallGraphKey = request.signature;
       state.memberCallGraph = null;
       state.memberCallGraphError = "";
@@ -215,8 +217,11 @@ export function createCallGraphInspectionCoordinator(
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature;
       let local: InspectedCallGraph | null = null;
+      // Platform descent may retain this expansion; a fresh load must not,
+      // even if its local query returns the same graph object.
       const canceledExpansionStillMatchesView = () =>
         local != null
+        && generation === loadGeneration
         && request.isCurrent()
         && state.memberCallGraphKey === request.signature
         && state.memberCallGraph === local
