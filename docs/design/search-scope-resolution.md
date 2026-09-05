@@ -7,8 +7,10 @@ framework and package-coordinate selections. Type-search `find`, `implements`,
 
 This is the current behavior contract and reference oracle for the ground-up
 typed search-scope domain tracked by
-[#5602](https://github.com/richlander/dotnet-inspect/issues/5602). It does not
-define that future declaration component or its adoption plan.
+[#5602](https://github.com/richlander/dotnet-inspect/issues/5602).
+[Typed source intent](search-scope-domain.md) owns the independent declaration
+and reference normalizer. CLI adoption remains separate; this document still
+owns the current command behavior.
 
 [CLI host architecture](../cli-architecture.md) owns parsing, valued
 `--platform` disambiguation, source authorization, operation lifetime,

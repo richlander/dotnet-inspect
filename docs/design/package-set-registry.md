@@ -30,9 +30,9 @@ Related designs:
 - [Search scope resolution](search-scope-resolution.md) owns when search
   defaults apply and how explicit source selections compose. It consumes
   package-set membership but no longer owns it.
-- The future typed search-scope domain tracked by #5602 will carry resolved
-  package-coordinate selection without making lower source infrastructure
-  reference the application registry.
+- [Typed source intent](search-scope-domain.md), tracked by #5602, carries
+  resolved package-coordinate groups without making lower source
+  infrastructure reference the application registry. Host adoption is staged.
 - [Artifact acquisition and workspace composition](artifact-acquisition-and-workspaces.md)
   owns realization of package coordinates into artifacts and workspace
   generations.

@@ -91,6 +91,11 @@ substrates, and inspection producers that will extend that space.
 - `src/DotnetInspector.Packages/` handles NuGet package extraction,
   package/source caches, feeds, symbol package acquisition, and version
   resolution.
+- `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
+  bounded package-prefix requests, and pure search normalization under
+  [the typed source domain](design/search-scope-domain.md). Host adapter
+  adoption remains staged under #5602; package-set identities remain in the
+  application catalog.
 - `src/DotnetInspector.Ecosystems/` is the static front-end application
   catalog. The [Package Set Registry](design/package-set-registry.md) reuses
   Packages-owned coordinate currency and validation while stable set identity,
