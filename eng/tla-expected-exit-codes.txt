@@ -36,6 +36,13 @@ docs/design/models/binding-selection-version/AssemblyBindingPolicyVersionLifecyc
 docs/design/models/binding-selection-version/CompositeBindingVersionBrokenLifecycle.cfg=13
 docs/design/models/binding-selection-version/CompositeBindingVersionLiveness.cfg=0
 docs/design/models/binding-selection-version/CompositeBindingVersionSafety.cfg=0
+docs/design/models/resolver-lineage/BrokenAlwaysInherit.cfg=12
+docs/design/models/resolver-lineage/BrokenCandidateCache.cfg=12
+docs/design/models/resolver-lineage/BrokenRegistrationMap.cfg=12
+docs/design/models/resolver-lineage/BrokenRouteChurn.cfg=12
+docs/design/models/resolver-lineage/ReachabilitySupersession.cfg=12
+docs/design/models/resolver-lineage/Safety.cfg=0
+docs/design/models/resolver-lineage/StableProgress.cfg=0
 docs/design/models/research-workspace-target-composition/BlockedTerminalCensusUnavailable.cfg=0
 docs/design/models/research-workspace-target-composition/BroaderResearchPopulationRejected.cfg=0
 docs/design/models/research-workspace-target-composition/BrokenBindingDrift.cfg=12
