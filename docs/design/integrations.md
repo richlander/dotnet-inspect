@@ -24,6 +24,12 @@ section ordering clusters the whole family together.
 
 Tracking: [#3629](https://github.com/richlander/dotnet-inspect/issues/3629).
 
+The focused [scanner-binding contract](integration-scanner-binding.md) covers
+the proposed decoded-data handoff to source-authored ecosystem scanners under
+[#5719](https://github.com/richlander/dotnet-inspect/issues/5719). It is
+design-only; the library scanner and incremental Census described here remain
+the current behavior.
+
 ## Authority
 
 The Integration owner defines:
@@ -178,7 +184,10 @@ Detection reads metadata only:
    telemetry kinds and how callers configure them.
 4. The `@Integrations` category lists every focused section with at least one
    actionable type or starter API.
-5. Focused sections sort rows by `Kind`, then by the displayed `Type` or `API`.
+5. The current projection uses configured concept/kind priorities rather than
+   alphabetical kind order. Within each bucket, API rows precede type rows;
+   API kind priority and preferred type-currency rank precede ordinal display
+   tie-breaking.
 
 The model is deliberately curated. It should avoid claiming complete support
 from weak signals, and it should prefer stable, low-noise examples over exhaustive
@@ -210,6 +219,12 @@ anchors or signature endpoints.
 `EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`
 gates public-method filtering, signal kind and shape, row order, and parity
 between direct and precomputed presence paths.
+
+The [scanner-binding contract](integration-scanner-binding.md) defines the
+target separation between this owner's observation construction and
+application-authored interpretation. It does not move SRM traversal,
+projection, or presence aggregation into the application catalog, and it does
+not change the following group-query or Census contracts.
 
 ## Group-scoped queries
 

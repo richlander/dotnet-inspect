@@ -940,6 +940,9 @@ const separatelyCompiledTypeScript = new Set([
   "multi-facade-canary/exercise.ts",
   "multi-facade-canary/facades/alpha.ts",
   "multi-facade-canary/facades/beta.ts",
+  "managed-operation-bridge-canary/initialize.ts",
+  "managed-operation-bridge-canary/exercise.ts",
+  "managed-operation-bridge-canary/facades/bridge.ts",
 ]);
 
 function programFiles(): Set<string> {
@@ -1036,6 +1039,13 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     ),
     "utf8",
   );
+  const managedBridgeGenerationScript = readFileSync(
+    new URL(
+      "../../../eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+      import.meta.url,
+    ),
+    "utf8",
+  );
 
   assert.deepEqual([...separatelyCompiledTypeScript], [
     ...generatedFacadeSources,
@@ -1043,6 +1053,9 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     "multi-facade-canary/exercise.ts",
     "multi-facade-canary/facades/alpha.ts",
     "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/initialize.ts",
+    "managed-operation-bridge-canary/exercise.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
   ]);
   assert.match(
     engineGenerationScript,
@@ -1128,6 +1141,24 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
     /"include": \["facades\/\*\.ts", "coordinator\.ts", "exercise\.ts"\]/);
   assert.match(
     multiFacadeGenerationScript,
+    /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
+
+  assert.match(
+    managedBridgeGenerationScript,
+    /canary="\$repo_root\/prototypes\/inspect-web\/managed-operation-bridge-canary"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /Microsoft\.NETCore\.App\.Runtime\.Mono\.browser-wasm[\s\S]*dotnet\.d\.ts/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /-target:ProcessFrameworkReferences[\s\S]*-getItem:RuntimePack/);
+  assert.doesNotMatch(managedBridgeGenerationScript, /DOTNET_ROOT|sort -V/);
+  assert.match(managedBridgeGenerationScript, /"newLine": "lf"/);
+  assert.match(
+    managedBridgeGenerationScript,
+    /"include": \["facades\/\*\.ts", "initialize\.ts", "exercise\.ts"\]/);
+  assert.match(
+    managedBridgeGenerationScript,
     /"\$tsc" -p "\$scratch\/tsconfig\.json"/);
 });
 
@@ -2049,6 +2080,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
     ...generatedFacadeSources,
     "multi-facade-canary/facades/alpha.ts",
     "multi-facade-canary/facades/beta.ts",
+    "managed-operation-bridge-canary/facades/bridge.ts",
   ].join(", ");
   const publishedFacadeScope = publishedFacadeModules.join(", ");
 
@@ -2806,7 +2838,10 @@ test("the analysis host check matches locked native packages and lint wiring", (
     "node scripts/verify-analysis-host.ts && "
       + "oxlint --no-ignore --disable-nested-config src test browser scripts "
       + "multi-facade-canary/coordinator.ts multi-facade-canary/exercise.ts "
-      + "multi-facade-canary/facades engine/facades "
+      + "multi-facade-canary/facades "
+      + "managed-operation-bridge-canary/initialize.ts "
+      + "managed-operation-bridge-canary/exercise.ts "
+      + "managed-operation-bridge-canary/facades engine/facades "
       + `${publishedFacadeModules.join(" ")} vite.config.ts `
       + "playwright.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
