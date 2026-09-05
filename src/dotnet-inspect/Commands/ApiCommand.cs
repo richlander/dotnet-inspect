@@ -2631,7 +2631,8 @@ public class ApiCommand
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
                     type.Members.Where(member => member.MetadataToken is not null
-                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                        && ApiMemberSectionDescriptors.IsMethodLike(member)),
+                    sourceAssembly);
                 ApiOutputFormatter.PopulateTypeExceptionRegions(view, type, exceptionRegions, options.IncludeSections);
             }
 
@@ -3570,7 +3571,8 @@ public class ApiCommand
                 var exceptionRegions = ApiAnalysisInspection.ResolveExceptionRegions(
                     exceptionRegionsDllPath,
                     type.Members.Where(member => member.MetadataToken is not null
-                        && ApiMemberSectionDescriptors.IsMethodLike(member)));
+                        && ApiMemberSectionDescriptors.IsMethodLike(member)),
+                    acquisition?.SourceAssembly);
                 ApiOutputFormatter.PopulateTypeExceptionRegions(
                     view, type, exceptionRegions, renderOptions.IncludeSections);
             }

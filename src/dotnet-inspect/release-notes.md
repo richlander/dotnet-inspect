@@ -56,6 +56,10 @@
 
 ### Source and implementation evidence
 
+- Type Exception Regions now opens the selected root or forwarded supplier
+  descriptor in normal/projected output and effective discovery. Opening
+  failures are visible command errors rather than successful path retries;
+  descriptorless and standalone-member behavior is unchanged (#5999).
 - Type Analysis-index sections now acquire bytes through the selected root or
   forwarded supplier descriptor, including effective discovery. Rejected
   acquisition is a visible command error rather than a path retry; ordinary
