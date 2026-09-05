@@ -86,10 +86,12 @@ public sealed class MetadataRootInspection
         if (!peReader.PEHeaders.TryGetDirectoryOffset(directory, out int metadataOffset))
             throw new BadImageFormatException("The ReadyToRun manifest metadata directory cannot be mapped.");
 
-        var block = peReader.GetSectionData(manifest.RelativeVirtualAddress);
-        MetadataFormatAdmission.AdmitRoot(block.GetReader(0, manifest.Size));
+        // The R2R producer validates raw backing, which can extend beyond the
+        // virtual-size-limited view returned by GetSectionData.
+        var block = peReader.GetEntireImage();
+        MetadataFormatAdmission.AdmitRoot(block.GetReader(metadataOffset, manifest.Size));
         return new MetadataRootInspection(
-            block.GetContent(0, manifest.Size),
+            block.GetContent(metadataOffset, manifest.Size),
             MetadataImageInspector.DescribeHeaders(peReader.PEHeaders),
             metadataOffset,
             root,
@@ -102,7 +104,10 @@ public sealed class MetadataRootInspection
             return null;
 
         var headers = peReader.PEHeaders;
-        var directory = headers.CorHeader!.MetadataDirectory;
+        if (headers.CorHeader is not { } corHeader)
+            throw new BadImageFormatException("The metadata root has no CLI metadata directory.");
+
+        var directory = corHeader.MetadataDirectory;
         return new MetadataRootInspection(
             peReader.GetMetadata().GetContent(),
             MetadataImageInspector.DescribeHeaders(headers),

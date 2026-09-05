@@ -145,6 +145,58 @@ public sealed class MetadataRootInspectionTests
     }
 
     [Fact]
+    public void RawBackedManifest_CanExtendBeyondTheSectionsVirtualSize()
+    {
+        var image = ReadyToRunImageInspectorTests.CreateImage(
+            managedNative: true, exported: false,
+            sections: [new(ReadyToRunSectionType.ManifestMetadata, BuildManifest())]);
+        int rawSize;
+        using (var original = Open(image.Bytes))
+        {
+            var manifest = ReadyToRunImageInspector.Describe(original)!.ManifestMetadata!;
+            var section = original.PEHeaders.SectionHeaders[
+                original.PEHeaders.GetContainingSectionIndex(manifest.RelativeVirtualAddress)];
+            rawSize = section.SizeOfRawData - (manifest.RelativeVirtualAddress - section.VirtualAddress);
+            Assert.True(rawSize > original.GetSectionData(manifest.RelativeVirtualAddress).Length);
+        }
+
+        int sizeOffset = image.HeaderOffset + ReadyToRunImageInspector.FixedHeaderSize + 8;
+        BinaryPrimitives.WriteInt32LittleEndian(image.Bytes.AsSpan(sizeOffset, 4), rawSize);
+        using var pe = Open(image.Bytes);
+        Assert.Equal(rawSize, ReadyToRunImageInspector.Describe(pe)!.ManifestMetadata!.Size);
+
+        var root = MetadataRootInspection.Open(pe, MetadataRootKind.ReadyToRunManifest)!;
+        Assert.Equal(rawSize, root.Identity.Size);
+        Assert.Equal(rawSize, root.Image().MetadataSize);
+        Assert.Equal("Manifest.Dependency", Name(root.Row(TableIndex.AssemblyRef, 1)!));
+    }
+
+    [Fact]
+    public void CoffMetadataWithoutCliDirectory_HasATypedRootFailure()
+    {
+        byte[] metadata = BuildManifest();
+        const int coffHeaderSize = 20;
+        const int sectionHeaderSize = 40;
+        const int metadataOffset = coffHeaderSize + sectionHeaderSize;
+        byte[] bytes = new byte[metadataOffset + metadata.Length];
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(0, 2), (ushort)Machine.Amd64);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(2, 2), 1);
+        ".cormeta"u8.CopyTo(bytes.AsSpan(coffHeaderSize, 8));
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(coffHeaderSize + 16, 4), metadata.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(coffHeaderSize + 20, 4), metadataOffset);
+        metadata.CopyTo(bytes, metadataOffset);
+        using var pe = Open(bytes);
+
+        Assert.True(pe.PEHeaders.IsCoffOnly);
+        Assert.True(pe.HasMetadata);
+        Assert.Null(MetadataImageInspector.Describe(pe)!.Headers.Cor);
+        Assert.NotEmpty(MetadataTableProjector.Project(pe).Tables);
+        Assert.Throws<BadImageFormatException>(() => MetadataRootInspection.Open(pe));
+        using var session = AssemblyInspectionSession.OpenPrefetched(new MemoryStream(bytes));
+        Assert.Throws<BadImageFormatException>(() => session.MetadataRoot());
+    }
+
+    [Fact]
     public void MalformedR2rAdvertisement_DoesNotChangeDefaultCliProjection()
     {
         var image = ReadyToRunImageInspectorTests.CreateImage(managedNative: true, exported: false);

@@ -222,8 +222,8 @@ public sealed record MetadataImageHeaders
 
     /// <summary>
     /// The CLI header, or <see langword="null"/> when the image has none. An
-    /// export-discovered ReadyToRun manifest can have metadata without a CLI
-    /// header.
+    /// image can carry metadata without a CLI header, including a COFF-only
+    /// .cormeta section or an export-discovered ReadyToRun manifest.
     /// </summary>
     public MetadataCorHeaderSummary? Cor { get; }
 }

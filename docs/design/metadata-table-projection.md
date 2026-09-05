@@ -206,6 +206,12 @@ PE section and not the CLI root. A manifest need not contain an `Assembly` row.
 The existing PE-facing operations continue to select only CLI metadata and do
 not acquire a new dependency on successful R2R inspection.
 
+The manifest extent has the producer's raw-file meaning, including raw backing
+beyond a section's virtual size. A requested CLI root needs a CLI metadata
+directory: metadata in a COFF-only container is rejected by this root-scoped
+facet with `BadImageFormatException`, not assigned a synthetic PE/RVA identity.
+Existing projection entry points retain their established behavior.
+
 Provenance preserves the requested root and its canonical identity. Within the
 containing image, that identity consists of the canonical root kind and its RVA
 and size. When the producer reports exact CLI-directory aliasing, the canonical
@@ -228,8 +234,10 @@ classification; this is not a complete metadata-validity claim.
 
 The focused Release gate is `MetadataRootInspectionTests`: separate-root data
 and navigation, canonical CLI alias identity, absent manifest, malformed
-manifest with independently readable CLI metadata, source-reader disposal, and
-the SDK CoreLib canary. Broad composite/corpus work remains outside fast PR CI.
+manifest with independently readable CLI metadata, raw-backed extents beyond
+virtual size, typed rejection of a CLI-root request without a CLI directory,
+source-reader disposal, and the SDK CoreLib canary. Broad composite/corpus work
+remains outside fast PR CI.
 
 ## Structured model
 
