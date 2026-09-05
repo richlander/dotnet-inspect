@@ -2237,6 +2237,11 @@ function activateAfterPackageRemoval(next: AppPackage | null): void {
 function finishPackageRemoval(removed: AppPackage): void {
   navigationSequence.begin();
   invalidateGraphMemberNavigation();
+  invalidateMemberCallGraphWork(state);
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberCallGraphKey = "";
+  state.platformStack = [];
   state.workspaceShareBasis = null;
   clearWorkspaceOccurrenceView();
   packageInspection.invalidatePackageResults();
@@ -2245,9 +2250,12 @@ function finishPackageRemoval(removed: AppPackage): void {
   releasePackageModelCaches(removed);
   if (!state.package && !state.home) {
     state.workspaceSubjectOpen = true;
-    workspaceLocation.replace("/demos");
+    workspaceLocation.replace("/demos", history.state);
   }
   render();
+  if (!state.home && scope() === "member" && state.memberSection === "call-graph") {
+    observeAsync(loadSelectedMemberCallGraph(), "Refreshing the member call graph");
+  }
 }
 
 function removeSpotlightPackage(result: RemovableSpotlightResult): boolean {

@@ -1,13 +1,21 @@
 import { expect, test } from "@playwright/test";
 
-for (const mode of ["", "?modal=1"]) {
-  test(`package removal preserves ${mode ? "modal" : "Home"} search and forgets history`, async ({ page }) => {
+for (const mode of ["", "?modal=1", "?modal=1&refresh=1"]) {
+  test(`package removal preserves search and forgets history: ${mode || "Home"}`, async ({ page }) => {
     await page.goto(`/browser/package-removal.html${mode}`);
     const input = page.locator("#spotlight-input");
     await input.fill("Json");
+    await input.evaluate(element => {
+      if (!(element instanceof HTMLInputElement)) throw new Error("Search input is missing");
+      element.setSelectionRange(1, 3);
+    });
     await page.getByRole("button", { name: "Remove System.Text.Json 10.0.0 net10.0 from Workspace", exact: true }).click();
+    await page.evaluate(() =>
+      new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(input).toBeFocused();
     await expect(input).toHaveValue("Json");
+    expect(await input.evaluate(element => element instanceof HTMLInputElement
+      ? [element.selectionStart, element.selectionEnd] : null)).toEqual([1, 3]);
     await expect(page.locator('[data-sl-pkg-open="System.Text.Json"]')).toHaveCount(0);
     await expect(page.locator('[data-sl-pkg-recent="System.Text.Json"]')).toHaveCount(0);
     await expect(page.locator('[data-sl-pkg-load="System.Text.Json"]')).toHaveCount(0);

@@ -264,6 +264,7 @@ function hasElementId(value: EventTarget | null): value is EventTarget & { id: s
 }
 
 export function createSpotlight(options: SpotlightOptions) {
+  let boundInput: HTMLInputElement | null = null;
   const { state, escapeHtml } = options;
   let interactionGeneration = 0;
   let renderedResults: readonly SpotlightResult[] = [];
@@ -575,12 +576,19 @@ export function createSpotlight(options: SpotlightOptions) {
     return true;
   }
 
-  function focus(): void {
+  function focus(selection?: {
+    start: number | null;
+    end: number | null;
+    direction: "forward" | "backward" | "none" | null;
+  }): void {
     requestAnimationFrame(() => {
       const input = document.querySelector<HTMLInputElement>("#spotlight-input");
-      if (!input) return;
+      if (!input || document.activeElement === input) return;
       input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
+      input.setSelectionRange(
+        selection?.start ?? input.value.length,
+        selection?.end ?? input.value.length,
+        selection?.direction ?? "none");
     });
   }
 
@@ -623,6 +631,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function reset(): void {
+    boundInput = null;
     dismissedPackageIds.clear();
     options.resetPackageSearch();
     state.spotlightOpen = false;
@@ -642,6 +651,7 @@ export function createSpotlight(options: SpotlightOptions) {
   }
 
   function open(seed = "", scope: SpotlightScope = "all"): void {
+    boundInput = null;
     dismissedPackageIds.clear();
     interactionGeneration++;
     options.resetPackageSearch();
@@ -846,6 +856,15 @@ export function createSpotlight(options: SpotlightOptions) {
 
   function bind(root: ParentNode, mode: "modal" | "inline"): void {
     const input = root.querySelector<HTMLInputElement>("#spotlight-input");
+    const previous = boundInput;
+    const selection = previous && input && previous.value === input.value
+      ? {
+          start: previous.selectionStart,
+          end: previous.selectionEnd,
+          direction: previous.selectionDirection,
+        }
+      : undefined;
+    boundInput = input;
     if (input) {
       input.addEventListener("input", () => {
         state.spotlightQuery = input.value;
@@ -878,7 +897,7 @@ export function createSpotlight(options: SpotlightOptions) {
           if (hasElementId(target) && target.id === "spotlight-backdrop") close();
         },
       );
-      focus();
+      focus(selection);
     }
   }
 

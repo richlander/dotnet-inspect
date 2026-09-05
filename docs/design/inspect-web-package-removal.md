@@ -43,7 +43,8 @@ Saving Workspaces, Add, prefix expansion, and Clear are separate work.
   then its heading. Occurrence-query refresh preserves these controls and
   their focus; unavailable Inspect actions do not hide removable membership.
 - Package-bound browser caches and obsolete occurrence actions are invalidated
-  when membership changes. This does not promise deletion from HTTP caches,
+  when membership changes, including membership-dependent Call graph results
+  and pending expansion. This does not promise deletion from HTTP caches,
   package sources, or saved browser history.
 
 ## Convention, rendering, and evidence
@@ -59,7 +60,9 @@ accessible control; Markout is not used for these interactive DOM controls.
 This is not a new multi-format rendering domain or shared product substrate.
 
 The enforcing gates are the existing Node test runner's package-removal,
-Spotlight, and Workspace tests and the Firefox package-removal browser tests.
+Call graph, Spotlight, and Workspace tests and the Firefox package-removal
+browser tests.
 They cover persistence failure, exact identity, active/inactive/last removal,
-click-versus-activation, keyboard removal, query preservation, and membership
+click-versus-activation, keyboard removal, query and text-selection preservation,
+graph refresh without removed callers, history-state retention, and membership
 visibility while Inspect actions are loading or unavailable.

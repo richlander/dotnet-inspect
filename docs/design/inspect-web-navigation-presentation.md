@@ -457,15 +457,19 @@ coordinates with:
 
 The transitional Browser-owned NuGet close control is implemented through
 [Package-row removal](inspect-web-package-removal.md), shared with Home Search.
+That focused owner governs the existing Browser successor and empty `/demos`
+behavior until product-owned Close is adopted.
 
-Opening a demo or closing a coordinate submits its owner-issued identity and
-renders the returned workspace outcome. The UI does not choose a subject, lens,
-successor, or fallback for the product.
+Opening a demo, and closing a coordinate after product-owned Close adoption,
+submits its owner-issued identity and renders the returned workspace outcome.
+For those product-owned actions, the UI does not choose a subject, lens,
+successor, or fallback.
 
 Closing an inactive coordinate preserves the active coordinate's inspection
-state and keeps Workspace selected. Closing the active coordinate selects the
-returned successor while remaining in Workspace. The `/demos` entry route is an
-in-session catalog view: it preserves currently loaded coordinates while open,
+state and keeps Workspace selected. Closing the active coordinate selects its
+successor while remaining in Workspace, as governed by the current Close owner.
+The `/demos` entry route is an in-session catalog view: it preserves currently
+loaded coordinates while open,
 but a direct visit or refresh starts with an empty Workspace. After an Open demo
 or coordinate action returns to a canonical Workspace URL, Share and refresh
 preserve the Workspace subject, its application-scope presentation, and its

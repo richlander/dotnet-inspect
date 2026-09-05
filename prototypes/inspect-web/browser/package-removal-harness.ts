@@ -50,7 +50,10 @@ const removal = createPackageRemoval({
     localStorage.setItem("inspect-recent-packages", JSON.stringify(entries.map(entry => entry.id)));
   },
   activate: next => { state.package = next; },
-  release: () => render(),
+  release: () => {
+    render();
+    if (params.has("refresh")) queueMicrotask(render);
+  },
 });
 const spotlight = createSpotlight({
   state: search, keybindings: keys, lenses: () => [],
