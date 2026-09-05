@@ -1370,6 +1370,19 @@ The `eng/CiChangeDetection` gate, invoked through
 
 ## Interaction model
 
+The Workspace page offers **Save Workspace** for the current nonempty scope.
+Enter a unique name to save its canonical packet locally on this browser;
+resolved versions and frameworks are pinned without changing the live share
+intent. **Open** on a saved entry replaces the live Workspace through the
+existing transactional restoration path. The trailing **x** forgets only the
+saved definition and leaves the live Workspace unchanged. Saving does not
+copy to the clipboard or change the URL. Storage and projection failures stay
+visible, and failed opening retains the previous Workspace and URL.
+Names are unique case-insensitively; saving does not overwrite an existing name.
+These origin-local entries survive refresh, not browser-data deletion, and do
+not provide cloud synchronization. The focused contract is
+[Saved Workspaces](../../docs/design/inspect-web-saved-workspaces.md).
+
 Package tabs and the framework selector are workspace identity, not display
 state: changing either resolves a different workspace. Lenses this engine does
 not answer report the engine's failure rather than fixture results.

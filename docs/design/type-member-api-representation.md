@@ -660,6 +660,15 @@ source sibling prevents uniqueness. Rank-one non-SZ metadata has no ordinary
 C# declaration counterpart. These are correspondence gates, not member-identity
 or source-ownership proofs.
 
+`ConversionSignatureShapeFlowTests` records conversion return shapes and
+canonical transport against compiler-produced methods and independently located
+MethodDef tokens. Same-name conversion candidates remain distinct by return
+type; ordinary-method return types are erased, so their shape cannot establish
+return-type identity. The caller supplies the operator-name group: the shape
+itself does not distinguish implicit from explicit or checked operators. Checked
+explicit operators retain Metadata return evidence, while the current source
+adapter refuses their headers visibly rather than manufacturing correspondence.
+
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
 disagree, or when a declaring TypeDef chain's canonical name arities and
