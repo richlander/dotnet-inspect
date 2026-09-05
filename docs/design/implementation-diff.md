@@ -1454,6 +1454,211 @@ This boundary does not define:
   budget, or global cleanup authority; or
 - an end-to-end operation lifecycle or revival of the abandoned broad design.
 
+## Research authored-source comparison
+
+**Status:** target design for [#5901](https://github.com/richlander/dotnet-inspect/issues/5901),
+Research delivery step 12 of
+[#4706](https://github.com/richlander/dotnet-inspect/issues/4706), advancing
+Slice 4 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
+The independent-population behavior below is **unimplemented and unverified**.
+`ILInspector.Research` is the single owner.
+
+The claim is:
+
+> Requested authored-source comparison accounts for the selected admitted
+> member population independently of C#/IL change verdicts, preserves each
+> endpoint's verified source evidence or non-success, and never changes what
+> either local mechanism reports.
+
+### Existing behavior and design basis
+
+The `Source` mechanism and CLI `--pdb-source` already exist. Research's
+`WithPdbSourceComparisons` can retain a Source-only member, but the CLI currently
+acquires source only for `ImplementationDiffResult.Members`: the local
+changed-member projection. No local changes means no Source acquisition.
+That is enrichment of known implementation changes, not independent discovery
+of authored changes across two versions.
+
+The smallest sufficient change is to compose Source over the admitted target
+population rather than that changed-row list. Reuse the existing Research
+association, Findings topology, and exact text-line mechanism; do not introduce
+a second member matcher, C# parser, or equivalence oracle. Conventional
+two-revision text diffs are the baseline. Their lines are useful evidence, but
+file names and line alignment do not establish member identity.
+
+The analogous local implementation is the existing PDB-source enrichment,
+including its separately labelled unavailable and failed rows. The
+[member source comparison query](member-source-comparison-query.md) demonstrates
+independent endpoint availability, but compares PDB source with decompilation
+for **one** MethodDef. Its
+[presentation adapter](member-source-diff-presentation.md) aligns those unlike
+representations; that normalization is not a two-version authored-source policy.
+
+### Immediate input and output boundary
+
+Research consumes the exact admitted operation, its owner-issued target
+correspondence or designated-pair association, and completed local prerequisite
+accounting. It also consumes the side-associated verified source snapshots or
+typed acquisition non-success supplied by acquisition step 11. That acquisition
+contract and runtime remain prerequisites; the current caller-supplied
+`FindingInspection<string>` plus a display subject is not a substitute for
+their exact association.
+
+The snapshot boundary must supply enough owner-issued evidence to identify the
+retained source occurrence and physical method, the vouched source unit and
+text, document/checksum provenance, and unavailable or failed acquisition.
+Research consumes that evidence; it does not define how Services constructs,
+verifies, slices, bounds, or retains it. Step 11 must settle the concrete
+contract before step 12 implementation. No URL fetch, Git lookup, PDB reader,
+source reparsing, or host capability policy moves into this composition.
+
+The result retains the selected target association, both side-local source
+outcomes, and the native `text.line` inspection/comparison when applicable.
+Document checksum evidence remains attached to the document from which the
+member text was extracted, not mislabelled as a checksum of normalized text.
+It distinguishes exact byte correspondence from the acquisition owner's
+accepted line-ending-normalized correspondence. Neither establishes repository
+authenticity or proves which physical syntax tree produced the shipped IL.
+
+This composition does not add Source to the closed **local** C#/IL catalog or
+redefine local session completion. Successful local prerequisite accounting
+does not mean equal implementations: a completed native producer may contain
+different or unavailable evidence. Source eligibility depends on its exact
+target and source inputs, not a favorable C# or IL verdict. Rejected, failed,
+or cancelled prerequisite operations cannot be promoted into a completed
+Source operation. Their existing outcomes remain visible.
+
+### Population and association
+
+The requested population comes from the admitted selection and its complete
+Research target outcomes, before changed-only presentation filtering. Every
+selected target has Source accounting even when C# and IL are exact. A target
+without the prerequisites for acquisition/comparison retains that reason;
+it is not silently dropped. Source not requested is not Source unchanged.
+
+Each Before and After snapshot stays bound to its side-local source occurrence
+and exact physical target. Cross-version correspondence remains Research-owned;
+an explicit designated pair retains its different identities rather than
+claiming that designation proved correspondence. Matching file names, URLs,
+source text, bare tokens, or line positions cannot supply that association.
+Equal tokens in different images remain different physical endpoints.
+
+The comparison unit is the source owner's vouched member declaration, not the
+whole repository or every declaration in a fetched file. For an accessor that
+unit may be its containing property/event; retain that scope rather than
+labelling the observation an accessor-body-only edit. Research does not expand
+ambiguous, partial, or unsupported source into a plausible member. Missing
+evidence for a compatible comparison unit is unavailable.
+
+### Text and outcome semantics
+
+Two complete, compatible source endpoints use `ILInspector.Text`'s exact
+ordered line semantics and native Findings. CR, LF, and CRLF boundaries are
+equivalent under that owner. Other supplied text remains significant:
+Research does not strip comments, attributes, directives, indentation, or
+literal content, nor regenerate authored C#. Normalization already performed
+by the acquisition/slicing owner stays disclosed as part of the source unit.
+This is textual declaration change, not syntax-tree or semantic equivalence.
+
+Complete source on both sides permits an explicit unchanged or changed
+observation. Both outcomes remain available in typed evidence even when a
+changed-only view omits unchanged rows. In particular, an empty local change
+list cannot erase a Source change, and empty Source edit rows alone cannot
+establish unchanged source.
+
+Missing symbols, mapping, verified bytes, or a vouched declaration for a
+present member mean unavailable Source, not an added/removed declaration.
+Retain native endpoint topology and acquisition reasons; do not project
+one-sided `NoApplicableInput` as an authored edit merely because the other
+side has text. Only Research's positive `SubjectAbsent` proof may support
+one-sided member addition/removal evidence, with verified text on the present
+side. That evidence describes subject topology, not a two-text modification.
+An acquisition or inspection failure stays failed evidence, never unchanged
+or a semantic edit.
+
+Source non-success does not discard completed C#/IL evidence. No combined
+`IsExact` conclusion substitutes for the three mechanism outcomes. Source
+equality does not establish IL equality; IL equality does not establish source
+equality. This operation does not compile source or attribute a discrepancy to
+the decompiler, compiler, author, or build environment.
+
+### Consumer adoption and retirement
+
+The consumers are the existing CLI Implementation Diff and the planned
+browser/Wasm workspace comparison. #4706 remains the single counted adoption
+and retirement ledger: **18 delivery steps**, with **13 on each Source-enabled
+host path**. CLI uses steps 1, 2, 3, 4, 5, 18, 6, 7, 8, 11, 12, 13, 14;
+browser uses 9 instead of 8 and 15 instead of 14. These shared steps are not
+summed, and this design is not another delivery step.
+
+Step 11 supplies acquisition; this section owns Research step 12; Queries
+step 13 supplies public execution/publication; CLI step 14 and browser step 15
+adopt it after their local paths. This is sequencing, not a definition of
+those owners' internals. The user-visible population change lands through
+those host adoptions, not by claiming this documentation changes the command.
+
+During migration, replace the old caller-provided Source attachment, including
+`CompareMembersWithPdbSource`, and CLI changed-member-only acquisition. Preserve
+their supported comparisons and typed failures through the new path rather
+than retaining a hidden legacy route. Queries and Research final retirement
+remain steps 16 and 17; this design does not complete them.
+
+Structured endpoint outcomes, native comparisons, and provenance survive to
+presentation. Host adoptions use the shared Markout lowering for ordinary CLI
+formats and the browser comparison surface. They must preserve the distinction
+between unavailable evidence and no edits without reconstructing identity or
+verdicts from rendered lines. This section defines no row schema, new flag,
+browser transport, or UI interaction.
+
+### Demo and outcome gates
+
+This is a **design mockup**, using two fixture package versions, not current
+command output:
+
+```bash
+dotnet-inspect diff --package SourceDiffFixture@1.0.0..1.1.0 \
+  --type Sample.Counter --member Value \
+  -S "Implementation Diff" --pdb-source
+```
+
+```text
+Before authored declaration: public int Value() => 1 + 2;
+After authored declaration:  public int Value() => 3;
+
+Current behavior: no C#/IL changes, so Source is not acquired.
+After adoption:
+  C#         unchanged under its native comparison
+  IL         unchanged under its native comparison
+  PDB Source changed: the selected declaration text differs
+```
+
+The neighboring case has equal authored text but different shipped IL: Source
+is unchanged while the IL difference remains. With one endpoint's PDB absent,
+Source is unavailable, not a removed declaration. The browser's corresponding
+two-version selection consumes the same outcome evidence, not CLI output.
+
+Planned Release gates below are **unimplemented and unverified**. The existing
+`ResearchDiffTests` Source comparison cases and
+`DiffCommandTests.BuildImplementationDiffView_LabelsPdbSourceAsIndependentLane`
+cover legacy projection only; they do not prove population independence.
+
+| Gate owner | Required observation |
+| --- | --- |
+| Research step 12 | A real compiler-produced constant-folding pair has exact C#/IL and changed verified Source; the member remains accounted for. |
+| Research step 12 | Equal source with differing IL retains both outcomes; unavailable or failed Source preserves completed local evidence. |
+| Research step 12 | Source request accounts for selected unchanged, changed, and unavailable targets; no request makes no Source claim. |
+| Research step 12 | Present member with one unavailable source has no authored addition/removal; positive member absence retains its distinct topology. |
+| Research step 12 | Two exact methods with the same token in different images retain their own source evidence; a source-unit mismatch stays unavailable. |
+| Research step 12 | Changes to comments, directives, literals, and declaration scope follow retained text semantics rather than decompiler formatting policy. |
+| Queries/CLI/browser steps 13-15 | Public two-version selection demonstrates the same Source-only change and unavailable neighbor with explicit acquisition capability and independent local results. |
+
+Acquisition fixtures exercise product-owned verification and member extraction,
+not caller-invented success snapshots. A pinned real-package demonstration
+supplements the hermetic compiler fixture at host adoption; network availability
+does not become a unit-test oracle. This pure evidence composition adds no
+concurrent protocol requiring a new model. It adds no new platform exception;
+all runtime dependencies must preserve the existing CLI/browser contract.
+
 ## Research comparison model
 
 `ResearchDiff` is the operation facade. It returns one `ResearchComparison`

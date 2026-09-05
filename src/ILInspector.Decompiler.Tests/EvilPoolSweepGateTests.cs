@@ -1863,11 +1863,10 @@ public class EvilPoolSweepGateTests
             // below land there. The sweep is told the same directory by environment, and
             // resolves it with this same code, so the two cannot disagree about where it is.
             //
-            // This is process-global state with no reset, and it is left pointing at a
-            // directory Dispose removes. That is deliberate: no other type in this test
-            // assembly references CoreCache or NuGetCache, and if one ever does, resolving
-            // against a removed directory fails loudly, where leaving a usable scratch
-            // cache behind would quietly serve it this fixture instead.
+            // SweepFileAppCollection runs without other collections so authored-fidelity
+            // tests cannot reinitialize this process-global root during fixture seeding
+            // or use. Dispose removes the scratch directory; subsequent cache consumers
+            // must initialize their own root.
             NuGetCache.Initialize("dotnet-inspect", CacheDirectory, skipNuGetCache: true);
 
             _leadCachedAssemblyPath = Commit(LeadPackage, LeadAssembly, LeadBytes);
