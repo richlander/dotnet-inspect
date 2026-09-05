@@ -145,6 +145,17 @@ test("Workspace removal remains available while occurrence activation loads or f
   }
 });
 
+test("Workspace Add is offered independently of occurrence loading and disabled until ready", () => {
+  const options = {
+    packages: [], occurrences: [], demos: [], demoError: "",
+    loading: true, error: "", escapeHtml,
+  };
+  assert.match(renderWorkspaceView({ ...options, canAddPackage: true }),
+    /data-workspace-add-package>Add package/);
+  assert.match(renderWorkspaceView({ ...options, canAddPackage: false }),
+    /data-workspace-add-package disabled/);
+});
+
 test("Workspace selection and activation dispatch separate actions", () => {
   setProductHomeDemoCatalog([{
     id: "stj-serializer",
@@ -175,9 +186,15 @@ test("Workspace selection and activation dispatch separate actions", () => {
     addEventListener: (name: string, listener: EventListener) =>
       listeners.set(`retry:${name}`, listener),
   };
+  const add = {
+    addEventListener: (name: string, listener: EventListener) =>
+      listeners.set(`add:${name}`, listener),
+  };
   const root = {
     querySelector: (selector: string) =>
-      selector === "[data-workspace-default]" ? select : retry,
+      selector === "[data-workspace-default]" ? select
+        : selector === "[data-workspace-retry]" ? retry
+        : selector === "[data-workspace-add-package]" ? add : null,
     querySelectorAll: (selector: string) =>
       selector === "[data-workspace-activate]"
         ? [activate]
@@ -200,6 +217,7 @@ test("Workspace selection and activation dispatch separate actions", () => {
       onRetry: () => {
         calls.push("retry");
       },
+      onAddPackage: () => { calls.push("add"); },
     });
 
   listeners.get("select:click")?.(fakeDom.event());
@@ -207,11 +225,13 @@ test("Workspace selection and activation dispatch separate actions", () => {
   listeners.get("demo:click")?.(fakeDom.event());
   listeners.get("invalid-demo:click")?.(fakeDom.event());
   listeners.get("retry:click")?.(fakeDom.event());
+  listeners.get("add:click")?.(fakeDom.event());
   assert.deepEqual(calls, [
     "select",
     "activate:opaque-action",
     "demo:stj-serializer",
     "retry",
+    "add",
   ]);
 });
 

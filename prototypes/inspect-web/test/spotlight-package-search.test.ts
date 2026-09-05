@@ -240,7 +240,7 @@ test("current package results publish and refresh the mounted surface", async ()
   assert.equal(harness.updates(), 1);
 });
 
-test("current package failures settle as an empty resolved query", async () => {
+test("current package failures are visible and the same query can be retried", async () => {
   const state = searchState({
     spotlightQuery: "Example",
     spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
@@ -256,9 +256,85 @@ test("current package failures settle as an empty resolved query", async () => {
   await harness.scheduled[0]?.callback();
 
   assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "Example");
+  assert.equal(state.spotlightPkgQuery, "");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
+  assert.match(state.spotlightPkgError ?? "", /try again/);
   assert.equal(harness.updates(), 1);
+  search.schedule();
+  assert.equal(harness.scheduled.length, 2);
+  assert.equal(state.spotlightPkgError, "");
+  assert.equal(state.spotlightPkgLoading, true);
+});
+
+for (const transition of ["edit-and-undo", "scope change"] as const) {
+  test(`failed queries retry after ${transition} clears the displayed error`, async () => {
+    const state = searchState({
+      spotlightQuery: "Example",
+      spotlightScope: "packages",
+    });
+    const queries: string[] = [];
+    const hits = [{ id: "Example.Package", version: "1.0.0" }];
+    const harness = searchDependencies(state, {
+      queryPackages: async query => {
+        queries.push(query);
+        if (queries.length === 1) throw new Error("NuGet unavailable");
+        return hits;
+      },
+    });
+    const search = createSpotlightPackageSearch(harness.dependencies);
+
+    search.schedule();
+    await harness.scheduled[0]?.callback();
+    assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
+    if (transition === "edit-and-undo") {
+      state.spotlightQuery = "Example.more";
+      search.schedule();
+      state.spotlightQuery = "Example";
+    } else {
+      state.spotlightScope = "types";
+      search.schedule();
+      state.spotlightScope = "packages";
+    }
+    assert.equal(state.spotlightPkgError, "");
+    search.schedule();
+
+    assert.equal(state.spotlightPkgLoading, true);
+    assert.equal(harness.scheduled.length, transition === "edit-and-undo" ? 3 : 2);
+    assert.deepEqual(harness.cancelled, transition === "edit-and-undo" ? [2] : []);
+    await harness.scheduled.at(-1)?.callback();
+    assert.deepEqual(queries, ["Example", "Example"]);
+    assert.deepEqual(state.spotlightPkgHits, hits);
+    assert.equal(state.spotlightPkgError, "");
+    assert.equal(state.spotlightPkgLoading, false);
+  });
+}
+
+test("successful empty results remain cached after edit-and-undo", async () => {
+  const state = searchState({ spotlightQuery: "Example" });
+  const queries: string[] = [];
+  const harness = searchDependencies(state, {
+    queryPackages: async query => {
+      queries.push(query);
+      return [];
+    },
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  await harness.scheduled[0]?.callback();
+  state.spotlightQuery = "Example.more";
+  search.schedule();
+  state.spotlightQuery = "Example";
+  search.schedule();
+
+  assert.deepEqual(queries, ["Example"]);
+  assert.equal(harness.scheduled.length, 2);
+  assert.deepEqual(harness.cancelled, [2]);
+  assert.deepEqual(state.spotlightPkgHits, []);
+  assert.equal(state.spotlightPkgQuery, "Example");
+  assert.equal(state.spotlightPkgError, "");
+  assert.equal(state.spotlightPkgLoading, false);
 });
 
 test("input changes independently suppress stale package results", async () => {
@@ -335,6 +411,7 @@ test("same-input generations independently suppress stale failures", async () =>
   }]);
   assert.equal(state.spotlightPkgQuery, "Example");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPkgError, "");
   assert.equal(harness.updates(), 1);
 });
 
@@ -427,6 +504,7 @@ test("reset cancels a pending debounce and clears discovery state", () => {
     spotlightQuery: "Example",
     spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
     spotlightPkgQuery: "Old",
+    spotlightPkgError: "Previous failure",
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
@@ -438,4 +516,5 @@ test("reset cancels a pending debounce and clears discovery state", () => {
   assert.deepEqual(state.spotlightPkgHits, []);
   assert.equal(state.spotlightPkgQuery, "");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPkgError, "");
 });

@@ -121,6 +121,7 @@ stderr rather than mixed into structured output.
 | Timeline correlation | `timeline` | Correlate API or member-body Findings across a package version range, with evaluation and transition views. |
 | Implementation matching | `match` | Identity-agnostic structural equivalence for two unambiguously named methods, plus `--similar` seeded discovery that ranks structural candidates for one seed. |
 | Relationships | `graph`, `depends`, `extensions`, `implements` | Integration graphs, type hierarchies, package dependencies, reference graphs, extension methods/properties, implementors, and subclasses. |
+| Direct dependency evidence | `dependency-evidence` | One normalized snapshot of the direct dependencies declared by named package, nuspec, restored-project, or package-prefix roots, with framework scopes, version constraints, restored resolution evidence, and root-set completion. Unlike `depends`, it does not walk the transitive tree. |
 | Source mapping | `library`/`package -S "SourceLink: Files"`, `type -S "Source Files"`, `member -S "Source Locations"` / `"PDB Source"` | SourceLink URLs, member file/line locations, and token+IL-offset to source-line resolution. `PDB Source` is checksum-verified source acquired from the PDB-recorded local path, a caller-supplied Git clone (`--repo`), or remote SourceLink, in that order. |
 | Performance analysis *(experimental)* | `library -S @Performance`, `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly leverage ranking, actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
@@ -143,6 +144,7 @@ stderr rather than mixed into structured output.
 | `timeline X` | Correlate API or member-body Findings across a package version range. |
 | `graph integrations` | Induce extension, observed Integration, and Integration-opportunity relationships over an explicit package set. |
 | `depends X` | Walk type, package, or library dependency graphs; can emit Mermaid diagrams. |
+| `dependency-evidence` | Report the normalized direct dependencies declared by explicitly named `--package`, `--nuspec`, `--project`, or `--package-prefix` roots. Reports declarations and restored resolution evidence for those roots only; use `depends` to traverse. |
 | `extensions X` | Find extension methods and C# extension properties for a type. |
 | `implements X` | Find concrete implementors or subclasses. |
 | `match A B` | Compare two unambiguous `Type.Member` names by identity-agnostic structural equivalence; add `--implementation` for side-by-side decompiled C# and IL. |
@@ -370,6 +372,11 @@ inspect each side on its own.
 
 ```bash
 dotnet-inspect depends Stream --markdown --mermaid
+dotnet-inspect dependency-evidence --package Newtonsoft.Json --tfm net8.0
+dotnet-inspect dependency-evidence \
+  --project ./src/dotnet-inspect \
+  --nuspec ./artifacts/package.nuspec \
+  -v:n
 dotnet-inspect implements IEquatable --project ./src/dotnet-inspect -v:q
 dotnet-inspect extensions string --project ./src/dotnet-inspect -v:q
 dotnet-inspect graph integrations \

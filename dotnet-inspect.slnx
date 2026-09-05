@@ -140,8 +140,6 @@
     <Project Path="src/InertText.Tests/InertText.Tests.csproj" />
     <Project Path="src/InertText/InertText.csproj" />
     <Project Path="src/mdi/mdi.csproj" />
-    <Project Path="src/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
-    <Project Path="src/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
     <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
     <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
@@ -163,6 +161,8 @@
     <Project Path="tests/ILInspector.Metadata.Tests/ILInspector.Metadata.Tests.csproj" />
     <Project Path="tests/ILInspector.JsExportSurface.Tests/ILInspector.JsExportSurface.Tests.csproj" />
     <Project Path="tests/DotnetInspector.MetadataRendering.Tests/DotnetInspector.MetadataRendering.Tests.csproj" />
+    <Project Path="tests/nuget/NuGetFetch.CustomClientFixture/NuGetFetch.CustomClientFixture.csproj" />
+    <Project Path="tests/nuget/NuGetFetch.PluginFixture/NuGetFetch.PluginFixture.csproj" />
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
