@@ -131,32 +131,55 @@ Opportunities, and a composite call-graph workspace over several packages all
 reach the same open group rather than reacquiring every image.
 `BrowserPackageWorkspace` keeps at most four scopes and disposes the least
 recently used one on eviction, which is what returns its retained image bytes.
-Opening, evicting, removing, and releasing the last lease on a scope are
-awaited operations, and **a registry slot belongs to its scope until that
-scope's disposal settles**. A withdrawn scope stops being reusable, leasable,
-and removable immediately, but its slot keeps counting against the four-scope
-limit and keeps holding its package dependency until the close finishes, so
+Opening, evicting, removing, and releasing the last protected use of a scope
+are awaited operations, and **a counted registry entry belongs to its workspace
+from before construction starts until its retirement settles**. The four-entry
+bound counts pending, ready, and retiring entries together, including legacy
+multi-package and Platform entries, and each entry reserves its full aggregate
+image allowance before any construction begins. A withdrawn scope stops being
+reusable and joinable immediately, but its entry keeps counting against that
+bound and keeps holding its package dependency until the close finishes, so
 admission cannot publish into a slot a retained artifact session has not
 released and package eviction cannot drop an archive another removal path is
-still closing. Every removal path — scope-count replacement, explicit removal,
-last-lease release, and package eviction — publishes one joinable closure, so
-competing paths observe the same settle instead of racing it. A capacity
-decision is only sound at the instant the entry is published, so every caller
-that publishes into the bounded cache re-evaluates its room after each
-suspension. A close that fails still frees its slot and releases the package
-leases it pinned, and the failure stays visible to every path that waited on
-it. Nothing counts the room as free while a retained artifact session is still
-closing, and no cleanup runs unobserved in the background. Opening one exact
-coordinate set is single-flighted, so concurrent callers join one realization
-and observe one retained scope; each caller keeps its own cancellation, and a
-cancelled caller receives no scope. A completion that raced an eviction or a
-replacing download cannot republish that content: the exact archive identity is
-revalidated after every suspension and a stale coordinate fails visibly.
+still closing. Every removal path — capacity replacement, explicit removal,
+the last protected use going away, and package eviction — retires through one
+joinable settlement, so competing paths observe the same outcome instead of
+racing it. A capacity decision is only sound at the instant the entry is
+published, so every caller that publishes into the bounded cache re-evaluates
+its room after each suspension. Nothing counts the room as free while a
+retained artifact session is still closing, and no cleanup runs unobserved in
+the background.
+
+Opening returns **protected use**, taken before the caller suspends and held
+through that caller's query including its asynchronous return, so eviction can
+never take a workspace out from under a caller that is still reading it; when
+capacity is held by active work, admission visibly rejects instead. Opening one
+exact demand is single-flighted: concurrent callers join one realization —
+pending or ready — and a caller that queued behind a full registry re-checks
+that join after every capacity wait rather than demanding a second entry.
+Repeated unbound requests join the retained binding before another selection
+token is issued, keyed by the acquired coordinate, its producer, its retained
+content generation, and the selection request, with a default selection
+distinct from an explicit one; a caller that already holds an issued binding
+joins only that exact binding, never a label match. Each caller keeps its own
+cancellation, a cancelled caller receives no scope, and construction carries a
+bounded deadline. A completion that raced an eviction or a replacing download
+cannot republish that content: the exact archive identity is revalidated after
+every suspension, a stale coordinate fails visibly, and an abandoned
+construction disposes what it built rather than publishing into a replacement.
+**A retirement whose cleanup fails terminally leaves its entry charged and
+unavailable** with a bounded observable failure record that later admissions
+name; reloading the browser session is the recovery boundary.
 `BrowserWorkspace_ClosingScopeKeepsItsRegistrySlotUntilDisposalSettles`,
 `BrowserWorkspace_PackageEvictionAwaitsScopeClosedByAnotherPath`,
 `BrowserWorkspace_ConcurrentReservationsStayWithinTheByteBudget`,
-`BrowserWorkspace_FailedScopeCloseReleasesItsPackageLeases`,
+`BrowserWorkspace_FailedScopeCloseStaysChargedAndUnavailable`,
 `BrowserWorkspace_ConcurrentScopeOpensShareOneRealization`,
+`BrowserWorkspace_RepeatedUnboundRequestsJoinOneRetainedBinding`,
+`BrowserWorkspace_IndependentlyIssuedBindingsDoNotJoinOnLabelMatch`,
+`BrowserWorkspace_DefaultAndExplicitSelectionRequestsDoNotJoin`,
+`BrowserWorkspace_ProtectedUseSurvivesWorkspacePressureAcrossAnAsyncReturn`,
+`BrowserWorkspace_CancelledWaiterLeavesTheOtherWaiterUnaffected`,
 `BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable`,
 `BrowserWorkspace_ArtifactScopeDisposalClosesItsSession`,
 `BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`, and
@@ -299,9 +322,12 @@ Inspected assemblies are read with System.Reflection.Metadata only, are never
 written to a file, and are never loaded into the runtime. Browser/Wasm is
 single-threaded, and both caches are written for that host: at most 12 packages
 or 128 MB of package content in aggregate, including nupkg arrays retained by
-open scopes, and at most four open workspaces. Evicting a package first disposes
-every scope that retains it, so cache eviction actually releases the archive
-bytes instead of removing only the cache's reference. The client retains at
+open scopes, and at most four open workspaces. Evicting a package first retires
+every idle scope that retains it, awaiting each retirement, so cache eviction
+actually releases the archive bytes instead of removing only the cache's
+reference; a workspace with a protected use keeps its archive, and the
+reservation that cannot be satisfied without it visibly rejects. The client
+retains at
 most 12 package models as well, and rejects a shared workspace with more than
 12 tuples or 65,536 encoded characters before it starts package acquisition.
 The JavaScript `shared workspaces are bounded before package loading` and
