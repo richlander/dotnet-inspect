@@ -564,7 +564,7 @@ internal static class CliRowSelectionArgumentAdapter
                 {
                     tokenIndex++;
                 }
-                else if (!TryConsumeDelimitedArgument(
+                else if (!TryConsumeAttachedArgument(
                     argument,
                     tokens,
                     ref tokenIndex))
@@ -584,7 +584,7 @@ internal static class CliRowSelectionArgumentAdapter
         return result;
     }
 
-    private static bool TryConsumeDelimitedArgument(
+    private static bool TryConsumeAttachedArgument(
         string argument,
         IReadOnlyList<Token> tokens,
         ref int tokenIndex)
@@ -606,6 +606,19 @@ internal static class CliRowSelectionArgumentAdapter
                 tokens,
                 ref tokenIndex,
                 attachedValue!);
+            return true;
+        }
+
+        if (IsShortAlias(option.Value)
+            && argument.Length > option.Value.Length
+            && argument.StartsWith(option.Value, StringComparison.Ordinal)
+            && tokenIndex + 1 < tokens.Count
+            && tokens[tokenIndex + 1].Type == TokenType.Argument
+            && tokens[tokenIndex + 1].Value.Equals(
+                argument[option.Value.Length..],
+                StringComparison.Ordinal))
+        {
+            tokenIndex += 2;
             return true;
         }
 

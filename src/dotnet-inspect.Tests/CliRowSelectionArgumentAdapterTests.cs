@@ -921,6 +921,29 @@ public sealed class CliRowSelectionArgumentAdapterTests
         Assert.False(fixture.Parse(["demo", modifierName, "false"]).GetValue(modifier));
     }
 
+    [Fact]
+    public void CliRowSelectionRawOwnershipPreservesCompactOptionExpansion()
+    {
+        Fixture fixture = new();
+        string[] arguments = ["demo", "-n1", "--required", "--head", "--tail"];
+        ParseResult result = fixture.Parse(arguments);
+
+        Assert.Empty(result.Errors);
+        Assert.False(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
+            result, arguments, 3, "--head"));
+        Assert.True(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
+            result, arguments, 4, "--tail"));
+
+        fixture.Required.Aliases.Add("-r");
+        string[] compactRequiredArguments = ["demo", "-r--head", "--tail"];
+        ParseResult compactRequired = fixture.Parse(compactRequiredArguments);
+
+        Assert.Empty(compactRequired.Errors);
+        Assert.Equal("--head", compactRequired.GetValue(fixture.Required));
+        Assert.True(CliRowSelectionArgumentAdapter.IsOwnedOptionToken(
+            compactRequired, compactRequiredArguments, 2, "--tail"));
+    }
+
     private sealed class Fixture
     {
         private readonly RootCommand _root;

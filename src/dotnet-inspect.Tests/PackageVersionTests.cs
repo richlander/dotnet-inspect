@@ -465,7 +465,14 @@ public class PackageVersionTests
                 "System.CommandLine",
                 "--versions",
                 "2147483648"
-            ]
+            ],
+            ["package", "-n1", "--versions", "2"],
+            ["package", "-n1", "--versions=2"],
+            ["package", "-n1", "--versions:2147483648"],
+            ["package", "-n1", "--versions-with-feed", "2"],
+            ["package", "-n1", "--versions-with-feed=2"],
+            ["-n1", "--versions", "2"],
+            ["-n1", "--versions-with-feed", "2"]
         ];
 
         foreach (string[] arguments in cases)
@@ -521,13 +528,16 @@ public class PackageVersionTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Versions_ValuedSelectorHonorsRequiredValueOwnership()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Versions_ValuedSelectorHonorsRequiredValueOwnership(bool compactCount)
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args =
         [
             "package",
+            .. compactCount ? new[] { "-n1" } : Array.Empty<string>(),
             "--out",
             "--versions",
             "2"
@@ -541,12 +551,15 @@ public class PackageVersionTests
         Assert.Empty(root.Parse(args).Errors);
     }
 
-    [Fact]
-    public void Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Versions_ImplicitValuedSelectorHonorsRequiredValueOwnership(bool compactCount)
     {
         var root = CommandLineBuilder.CreateRootCommand();
         string[] args =
         [
+            .. compactCount ? new[] { "-n1" } : Array.Empty<string>(),
             "--out",
             "--versions",
             "2"

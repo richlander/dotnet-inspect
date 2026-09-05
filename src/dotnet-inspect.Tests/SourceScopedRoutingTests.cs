@@ -906,6 +906,90 @@ public sealed class SourceScopedRoutingTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("@2.0.0", false, false)]
+    [InlineData("@2.0.0", true, false)]
+    [InlineData("@2.0.0", false, true)]
+    [InlineData("@2.0.0", true, true)]
+    [InlineData("@latest", false, false)]
+    [InlineData("@latest", true, false)]
+    [InlineData("@latest", false, true)]
+    [InlineData("@latest", true, true)]
+    [InlineData("@1.0.0..3.0.0", false, false)]
+    [InlineData("@1.0.0..3.0.0", true, false)]
+    [InlineData("@1.0.0..3.0.0", false, true)]
+    [InlineData("@1.0.0..3.0.0", true, true)]
+    public async Task CoordinateVersionListing_PreservesPartialEvidence(
+        string coordinate,
+        bool includeUnlisted,
+        bool countProjection)
+    {
+        string packageName = $"PartialCoordinate{Guid.NewGuid():N}";
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0", "3.0.0"],
+            [
+                "package",
+                packageName + coordinate,
+                "--versions",
+                "-n",
+                "1",
+                .. includeUnlisted ? new[] { "--include-unlisted" } : Array.Empty<string>(),
+                countProjection ? "--count" : "--json",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Equal(0, exit);
+        Assert.Contains(RefusedSource, requests);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(RefusedSource, error, StringComparison.Ordinal);
+        if (countProjection)
+        {
+            Assert.Equal("1", output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(1, document.RootElement.GetArrayLength());
+            string expected = coordinate switch
+            {
+                "@2.0.0" => "2.0.0",
+                "@latest" => "3.0.0",
+                _ => "1.0.0"
+            };
+            Assert.Equal(expected, document.RootElement[0].GetProperty("version").GetString());
+            if (includeUnlisted)
+                Assert.Equal("listed", document.RootElement[0].GetProperty("listing").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task SingularCoordinateVersionListing_PreservesLegacyFailureDisclosure()
+    {
+        string packageName = $"LegacyCoordinate{Guid.NewGuid():N}";
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                "package",
+                packageName + "@2.0.0",
+                "--version",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Equal(0, exit);
+        Assert.Equal("2.0.0", output.Trim());
+        Assert.Empty(error);
+    }
+
     [Fact]
     public async Task PackageVersionListing_LimitOneStillReportsPartialEvidence()
     {

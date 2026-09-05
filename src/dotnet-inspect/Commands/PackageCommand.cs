@@ -429,6 +429,8 @@ public class PackageCommand
                             return 1;
                         }
 
+                        if (options.VersionRowSelection is not null)
+                            WritePartialVersionFeedWarning(range.PackageId);
                         var unlistedVector = PackageVersionVector.CreateListingAware(
                             range!, rangeListings, options.IncludePrerelease);
                         // Materialized once: counting a lazy sequence and then re-enumerating it
@@ -461,6 +463,8 @@ public class PackageCommand
                         options.SourceOptions,
                         logger.Log,
                         options.IncludePrerelease);
+                    if (options.VersionRowSelection is not null)
+                        WritePartialVersionFeedWarning(range!.PackageId);
                     var rangeVersions = vector.Addresses
                         .Take(options.Limit ?? int.MaxValue)
                         .Select(address => address.Version.ToNormalizedString())
@@ -558,6 +562,8 @@ public class PackageCommand
                     v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase));
                 if (pinnedMatch != null)
                 {
+                    if (options.VersionRowSelection is not null)
+                        WritePartialVersionFeedWarning(normalizedName);
                     // Either spelling renders a single version row, so the projection answers 1
                     // and returns before the render path chooses between them.
                     if (!TrySelectVersionRows(
@@ -624,6 +630,8 @@ public class PackageCommand
                     return 1;
                 }
 
+                if (options.VersionRowSelection is not null)
+                    WritePartialVersionFeedWarning(normalizedName);
                 // A single resolved version is a one-row payload, so --count reports 1.
                 if (!TrySelectVersionRows(
                         new[] { latest },
