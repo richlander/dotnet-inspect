@@ -22,4 +22,21 @@ public sealed class IteratorReceiverNameSamples
         foreach (var date in dates)
             yield return date.Year + _offset;
     }
+
+    public IEnumerable<int> YieldCombinedYears(IteratorReceiverNameSamples other)
+    {
+        foreach (var date in _dates)
+            yield return date.Year + _offset + other._offset;
+    }
+}
+
+public readonly struct IteratorValueReceiverNameSamples(IEnumerable<DateTime> dates)
+{
+    readonly IEnumerable<DateTime> _dates = dates;
+
+    public IEnumerable<int> YieldYears()
+    {
+        foreach (var date in _dates)
+            yield return date.Year;
+    }
 }
