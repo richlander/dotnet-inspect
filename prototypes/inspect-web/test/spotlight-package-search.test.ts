@@ -240,7 +240,7 @@ test("current package results publish and refresh the mounted surface", async ()
   assert.equal(harness.updates(), 1);
 });
 
-test("current package failures settle as an empty resolved query", async () => {
+test("current package failures are visible and the same query can be retried", async () => {
   const state = searchState({
     spotlightQuery: "Example",
     spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
@@ -258,7 +258,13 @@ test("current package failures settle as an empty resolved query", async () => {
   assert.deepEqual(state.spotlightPkgHits, []);
   assert.equal(state.spotlightPkgQuery, "Example");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
+  assert.match(state.spotlightPkgError ?? "", /try again/);
   assert.equal(harness.updates(), 1);
+  search.schedule();
+  assert.equal(harness.scheduled.length, 2);
+  assert.equal(state.spotlightPkgError, "");
+  assert.equal(state.spotlightPkgLoading, true);
 });
 
 test("input changes independently suppress stale package results", async () => {
@@ -335,6 +341,7 @@ test("same-input generations independently suppress stale failures", async () =>
   }]);
   assert.equal(state.spotlightPkgQuery, "Example");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPkgError, "");
   assert.equal(harness.updates(), 1);
 });
 
@@ -427,6 +434,7 @@ test("reset cancels a pending debounce and clears discovery state", () => {
     spotlightQuery: "Example",
     spotlightPkgHits: [{ id: "Old", version: "1.0.0" }],
     spotlightPkgQuery: "Old",
+    spotlightPkgError: "Previous failure",
   });
   const harness = searchDependencies(state);
   const search = createSpotlightPackageSearch(harness.dependencies);
@@ -438,4 +446,5 @@ test("reset cancels a pending debounce and clears discovery state", () => {
   assert.deepEqual(state.spotlightPkgHits, []);
   assert.equal(state.spotlightPkgQuery, "");
   assert.equal(state.spotlightPkgLoading, false);
+  assert.equal(state.spotlightPkgError, "");
 });

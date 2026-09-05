@@ -9,6 +9,7 @@ export interface SpotlightPackageSearchState {
   spotlightPkgHits: SpotlightPackageHit[];
   spotlightPkgQuery: string;
   spotlightPkgLoading: boolean;
+  spotlightPkgError?: string;
 }
 
 export interface SpotlightPackageSearchDependencies<TSchedule> {
@@ -33,11 +34,15 @@ export function createSpotlightPackageSearch<TSchedule>(
         || state.spotlightQuery.trim() !== query) return;
       state.spotlightPkgHits = [...hits];
       state.spotlightPkgQuery = query;
-    } catch {
+      state.spotlightPkgError = "";
+    } catch (error) {
       if (requestGeneration !== generation
         || state.spotlightQuery.trim() !== query) return;
       state.spotlightPkgHits = [];
       state.spotlightPkgQuery = query;
+      const message = error instanceof Error ? error.message : String(error);
+      state.spotlightPkgError =
+        `Package search failed: ${message}. Edit the search to try again.`;
     } finally {
       if (requestGeneration === generation
         && state.spotlightQuery.trim() === query) {
@@ -55,6 +60,7 @@ export function createSpotlightPackageSearch<TSchedule>(
       state.spotlightPkgHits = [];
       state.spotlightPkgQuery = "";
       state.spotlightPkgLoading = false;
+      state.spotlightPkgError = "";
     },
 
     schedule() {
@@ -67,6 +73,7 @@ export function createSpotlightPackageSearch<TSchedule>(
         && state.spotlightScope !== "packages") {
         generation++;
         state.spotlightPkgLoading = false;
+        state.spotlightPkgError = "";
         return;
       }
       if (query.length < 2) {
@@ -74,14 +81,16 @@ export function createSpotlightPackageSearch<TSchedule>(
         state.spotlightPkgHits = [];
         state.spotlightPkgQuery = "";
         state.spotlightPkgLoading = false;
+        state.spotlightPkgError = "";
         return;
       }
-      if (query === state.spotlightPkgQuery) {
+      if (query === state.spotlightPkgQuery && !state.spotlightPkgError) {
         generation++;
         state.spotlightPkgLoading = false;
         return;
       }
       const requestGeneration = ++generation;
+      state.spotlightPkgError = "";
       state.spotlightPkgLoading = true;
       scheduled = dependencies.schedule(async () => {
         scheduled = null;
