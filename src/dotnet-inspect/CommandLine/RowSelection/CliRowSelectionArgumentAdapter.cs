@@ -75,6 +75,10 @@ internal sealed class CliRowSelectionArgumentFailure
     public int Position { get; }
 }
 
+internal readonly record struct CliRowSelectionScopeDependentArgument(
+    int OptionPosition,
+    int FollowingPosition);
+
 internal sealed class CliRowSelectionArgumentResult
 {
     private readonly ReadOnlyCollection<string> _arguments;
@@ -82,7 +86,7 @@ internal sealed class CliRowSelectionArgumentResult
     private readonly ReadOnlyCollection<CliRowSelectionArgumentFailure> _argumentFailures;
     private readonly ReadOnlyCollection<int> _requiredValuePositions;
     private readonly ReadOnlyCollection<int> _shadowedRowOptionPositions;
-    private readonly ReadOnlyCollection<int> _scopeDependentArgumentPositions;
+    private readonly ReadOnlyCollection<CliRowSelectionScopeDependentArgument> _scopeDependentArguments;
     private readonly ReadOnlyCollection<
         CliRowSelectionOccurrence<string>> _occurrences;
 
@@ -92,7 +96,7 @@ internal sealed class CliRowSelectionArgumentResult
         IReadOnlyList<ParseError> parseErrors,
         IReadOnlyList<int> requiredValuePositions,
         IReadOnlyList<int> shadowedRowOptionPositions,
-        IReadOnlyList<int> scopeDependentArgumentPositions,
+        IReadOnlyList<CliRowSelectionScopeDependentArgument> scopeDependentArguments,
         IReadOnlyList<CliRowSelectionOccurrence<string>> occurrences,
         IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
         CliRowSelectionLoweringResult<string>? loweringResult,
@@ -104,7 +108,7 @@ internal sealed class CliRowSelectionArgumentResult
         ArgumentNullException.ThrowIfNull(argumentFailures);
         ArgumentNullException.ThrowIfNull(requiredValuePositions);
         ArgumentNullException.ThrowIfNull(shadowedRowOptionPositions);
-        ArgumentNullException.ThrowIfNull(scopeDependentArgumentPositions);
+        ArgumentNullException.ThrowIfNull(scopeDependentArguments);
         ArgumentNullException.ThrowIfNull(occurrences);
 
         _arguments =
@@ -117,8 +121,8 @@ internal sealed class CliRowSelectionArgumentResult
             Array.AsReadOnly(requiredValuePositions.ToArray());
         _shadowedRowOptionPositions =
             Array.AsReadOnly(shadowedRowOptionPositions.ToArray());
-        _scopeDependentArgumentPositions =
-            Array.AsReadOnly(scopeDependentArgumentPositions.ToArray());
+        _scopeDependentArguments =
+            Array.AsReadOnly(scopeDependentArguments.ToArray());
         _occurrences =
             Array.AsReadOnly(occurrences.ToArray());
         ParseResult = parseResult;
@@ -145,8 +149,8 @@ internal sealed class CliRowSelectionArgumentResult
     public IReadOnlyList<int> ShadowedRowOptionPositions =>
         _shadowedRowOptionPositions;
 
-    public IReadOnlyList<int> ScopeDependentArgumentPositions =>
-        _scopeDependentArgumentPositions;
+    public IReadOnlyList<CliRowSelectionScopeDependentArgument> ScopeDependentArguments =>
+        _scopeDependentArguments;
 
     public IReadOnlyList<CliRowSelectionArgumentFailure> ArgumentFailures =>
         _argumentFailures;
@@ -268,10 +272,10 @@ internal static class CliRowSelectionArgumentAdapter
                     normalized,
                     bindings)
                 : [];
-        int[] scopeDependentArgumentPositions =
+        CliRowSelectionScopeDependentArgument[] scopeDependentArguments =
             expectedScope is null
                 ? []
-                : FindScopeDependentArgumentPositions(
+                : FindScopeDependentArguments(
                     authoritativeArguments,
                     normalized,
                     bindings,
@@ -292,7 +296,7 @@ internal static class CliRowSelectionArgumentAdapter
                 parseErrors,
                 requiredValuePositions,
                 shadowedRowOptionPositions,
-                scopeDependentArgumentPositions,
+                scopeDependentArguments,
                 Array.Empty<
                     CliRowSelectionOccurrence<string>>(),
                 argumentFailures,
@@ -314,7 +318,7 @@ internal static class CliRowSelectionArgumentAdapter
             parseErrors,
             requiredValuePositions,
             shadowedRowOptionPositions,
-            scopeDependentArgumentPositions,
+            scopeDependentArguments,
             occurrences,
             argumentFailures,
             CliRowSelectionLowerer.Lower(
@@ -800,13 +804,13 @@ internal static class CliRowSelectionArgumentAdapter
         return null;
     }
 
-    private static int[] FindScopeDependentArgumentPositions(
+    private static CliRowSelectionScopeDependentArgument[] FindScopeDependentArguments(
         IReadOnlyList<ParsedArgument> parsedArguments,
         NormalizedArguments normalized,
         CliRowSelectionOptionBindings bindings,
         CommandResult expectedScope)
     {
-        var positions = new List<int>();
+        var arguments = new List<CliRowSelectionScopeDependentArgument>();
         BoundOption[] boundOptions = BoundOptions(bindings);
         for (int index = 0; index + 1 < normalized.Arguments.Length; index++)
         {
@@ -835,14 +839,16 @@ internal static class CliRowSelectionArgumentAdapter
                 if (IsKnownOptionToken(following, parsedArguments[index + 1].Scope, bindings.Limit)
                     != IsKnownOptionToken(following, expectedScope, bindings.Limit))
                 {
-                    positions.Add(normalized.Positions[index]);
+                    arguments.Add(new(
+                        normalized.Positions[index],
+                        normalized.Positions[index + 1]));
                 }
 
                 break;
             }
         }
 
-        return [.. positions];
+        return [.. arguments];
     }
 
     private static int[] FindShadowedRowOptionPositions(
