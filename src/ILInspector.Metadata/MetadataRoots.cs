@@ -334,8 +334,7 @@ internal sealed class MetadataRootReader : IDisposable
             SectionHeader section = _peReader.PEHeaders.SectionHeaders[sectionIndex];
             return checked(
                 section.PointerToRawData
-                + Info.RelativeVirtualAddress
-                - section.VirtualAddress);
+                + (Info.RelativeVirtualAddress - section.VirtualAddress));
         }
     }
 

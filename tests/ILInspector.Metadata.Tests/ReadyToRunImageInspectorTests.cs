@@ -581,6 +581,45 @@ public sealed class ReadyToRunImageInspectorTests
     }
 
     [Fact]
+    public void MetadataRoots_HighRvaManifest_ReportsFileOffsetWithoutIntermediateOverflow()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(
+                    ReadyToRunSectionType.ManifestMetadata,
+                    ReadSelfMetadataRoot()),
+            ]);
+        MoveReadyToRunPayloadToHighRva(image);
+        using var peReader = Open(image.Bytes);
+        using var session = OpenSession(image.Bytes);
+
+        MetadataRootInfo manifest = session.MetadataRoots().Single(
+            static root => root.Sources.SequenceEqual(
+                [MetadataRootSource.ReadyToRunManifest]));
+        int sectionIndex = peReader.PEHeaders.GetContainingSectionIndex(
+            manifest.RelativeVirtualAddress);
+        SectionHeader section = peReader.PEHeaders.SectionHeaders[sectionIndex];
+        int expectedOffset = checked(
+            section.PointerToRawData
+            + (manifest.RelativeVirtualAddress - section.VirtualAddress));
+
+        Assert.True(
+            (long)section.PointerToRawData + manifest.RelativeVirtualAddress
+            > int.MaxValue);
+        Assert.NotEmpty(
+            session.MetadataTables(
+                MetadataRootSource.ReadyToRunManifest)!.Value.Tables);
+        Assert.Equal(
+            expectedOffset,
+            session.MetadataImage(
+                MetadataRootSource.ReadyToRunManifest)!.Value.MetadataOffset);
+    }
+
+    [Fact]
     public void MetadataRoots_AliasedManifest_IsOnePhysicalRoot()
     {
         SyntheticImage image = CreateImage(
@@ -1045,6 +1084,77 @@ public sealed class ReadyToRunImageInspectorTests
             exportDirectoryRva,
             exportFunctionOffset,
             exportOrdinalOffset);
+    }
+
+    static void MoveReadyToRunPayloadToHighRva(SyntheticImage image)
+    {
+        PEHeaders headers;
+        PEHeader peHeader;
+        SectionHeader section;
+        int sectionIndex;
+        using (var peReader = Open(image.Bytes))
+        {
+            headers = peReader.PEHeaders;
+            peHeader = headers.PEHeader!;
+            (section, sectionIndex) = headers.SectionHeaders
+                .Select(static (candidate, index) => (
+                    Section: candidate,
+                    Index: index))
+                .OrderBy(static item => item.Section.VirtualAddress)
+                .Last();
+        }
+
+        int newVirtualAddress =
+            (int.MaxValue
+                - peHeader.SectionAlignment
+                - section.VirtualSize)
+            / peHeader.SectionAlignment
+            * peHeader.SectionAlignment;
+        int delta = checked(newVirtualAddress - section.VirtualAddress);
+        int sectionHeadersOffset =
+            headers.PEHeaderStartOffset + headers.CoffHeader.SizeOfOptionalHeader;
+        int sectionHeaderOffset = sectionHeadersOffset + (sectionIndex * 40);
+        WriteUInt32(
+            image.Bytes,
+            sectionHeaderOffset + 12,
+            checked((uint)newVirtualAddress));
+        WriteUInt32(
+            image.Bytes,
+            headers.PEHeaderStartOffset + 56,
+            checked((uint)Align(
+                checked(newVirtualAddress + section.VirtualSize),
+                peHeader.SectionAlignment)));
+
+        uint managedNativeRva = ReadUInt32(
+            image.Bytes,
+            image.ManagedNativeDirectoryOffset);
+        if (managedNativeRva != 0)
+        {
+            WriteUInt32(
+                image.Bytes,
+                image.ManagedNativeDirectoryOffset,
+                checked((uint)(managedNativeRva + delta)));
+        }
+
+        int sectionCount = checked((int)ReadUInt32(
+            image.Bytes,
+            image.HeaderOffset + 12));
+        for (int i = 0; i < sectionCount; i++)
+        {
+            int entryOffset =
+                image.HeaderOffset
+                + ReadyToRunImageInspector.FixedHeaderSize
+                + (i * ReadyToRunImageInspector.SectionEntrySize);
+            uint sectionRva = ReadUInt32(image.Bytes, entryOffset + 4);
+            if (sectionRva >= section.VirtualAddress
+                && sectionRva < section.VirtualAddress + section.VirtualSize)
+            {
+                WriteUInt32(
+                    image.Bytes,
+                    entryOffset + 4,
+                    checked((uint)(sectionRva + delta)));
+            }
+        }
     }
 
     static int ToRva(SectionHeader section, int imageOffset)

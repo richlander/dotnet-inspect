@@ -1382,9 +1382,10 @@ directory, not recovery after the shared PE owner rejects its headers.
 
 `ReadyToRunImageInspectorTests` gates distinct and aliased roots, the
 compiler-produced CoreLib manifest, every root-aware metadata facet, root
-offset and size, malformed prefix/stream/table and SRM-section-boundary
-failures, malformed exact-alias provenance, CLI/R2R failure isolation, COFF
-source non-invention, manifest-only images, and session lifetime.
+offset and size including high-RVA file-offset arithmetic, malformed
+prefix/stream/table and SRM-section-boundary failures, malformed exact-alias
+provenance, CLI/R2R failure isolation, COFF source non-invention, manifest-only
+images, and session lifetime.
 `MetadataFormatAdmissionTests` gates the shared admission policy across every
 raw metadata entry point.
 
