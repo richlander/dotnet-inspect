@@ -48,24 +48,24 @@ internal static class ApiMemorySafetyFactsSamples
             ?? (namedType || distinctTypeScopes || fieldLikeEvent ? EncodeType(declaredType) : [8]);
         byte[] fieldType = fieldTypeOverride
             ?? (distinctTypeScopes ? EncodeType(otherType) : propertyType);
+        byte[] accessorSignature = fieldLikeEvent
+            ? [0, 1, 1, .. propertyType]
+            : [0, 0, .. propertyType];
         var getter = metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName,
             MethodImplAttributes.Runtime,
             metadata.GetOrAddString(fieldLikeEvent ? "add_Value" : "get_Value"),
-            metadata.GetOrAddBlob(fieldLikeEvent
-                ? new byte[] { 0, 1, 1, .. propertyType }
-                : new byte[] { 0, 0, .. propertyType }),
+            metadata.GetOrAddBlob(accessorSignature),
             -1, MetadataTokens.ParameterHandle(1));
         var fields = new List<FieldDefinitionHandle>();
         for (int i = 0; i < fieldCount; i++)
         {
+            byte[] fieldSignature = degradedLastField && i == fieldCount - 1
+                ? [6] : [6, .. fieldType];
             fields.Add(metadata.AddFieldDefinition(
                 FieldAttributes.Private | FieldAttributes.Static,
                 metadata.GetOrAddString(fieldLikeEvent ? "Value" : "<Value>k__BackingField"),
-                metadata.GetOrAddBlob(
-                    degradedLastField && i == fieldCount - 1
-                        ? new byte[] { 6 }
-                        : new byte[] { 6, .. fieldType })));
+                metadata.GetOrAddBlob(fieldSignature)));
         }
         metadata.AddTypeDefinition(
             TypeAttributes.NotPublic, default,
@@ -84,16 +84,17 @@ internal static class ApiMemorySafetyFactsSamples
         }
         else
         {
+            byte[] propertySignature = [8, 0, .. propertyType];
             var property = metadata.AddProperty(
                 PropertyAttributes.None, metadata.GetOrAddString("Value"),
-                metadata.GetOrAddBlob(new byte[] { 8, 0, .. propertyType }));
+                metadata.GetOrAddBlob(propertySignature));
             metadata.AddPropertyMap(type, property);
             metadata.AddMethodSemantics(property, MethodSemanticsAttributes.Getter, getter);
             if (duplicateProperty)
             {
                 var duplicate = metadata.AddProperty(
                     PropertyAttributes.None, metadata.GetOrAddString("Value"),
-                    metadata.GetOrAddBlob(new byte[] { 8, 0, .. propertyType }));
+                    metadata.GetOrAddBlob(propertySignature));
                 metadata.AddMethodSemantics(
                     duplicate, MethodSemanticsAttributes.Getter, getter);
             }

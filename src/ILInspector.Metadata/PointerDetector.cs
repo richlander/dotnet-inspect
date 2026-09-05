@@ -17,68 +17,7 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
     {
         try
         {
-            PointerDetection detection;
-            bool degraded = false;
-            switch (member.Kind)
-            {
-                case HandleKind.MethodDefinition:
-                    var method = GuardedProviderDecode.MethodResult(
-                        reader,
-                        reader.GetMethodDefinition((MethodDefinitionHandle)member),
-                        Instance,
-                        (object?)null,
-                        PointerDetection.Degraded);
-                    detection = PointerDetection.Combine(
-                        method.Value.ReturnType, method.Value.ParameterTypes);
-                    degraded = method.IsDegraded;
-                    break;
-                case HandleKind.PropertyDefinition:
-                    var property = GuardedProviderDecode.PropertyResult(
-                        reader,
-                        reader.GetPropertyDefinition((PropertyDefinitionHandle)member),
-                        Instance,
-                        (object?)null,
-                        PointerDetection.Degraded);
-                    detection = PointerDetection.Combine(
-                        property.Value.ReturnType, property.Value.ParameterTypes);
-                    degraded = property.IsDegraded;
-                    break;
-                case HandleKind.FieldDefinition:
-                    var field = GuardedProviderDecode.FieldResult(
-                        reader,
-                        reader.GetFieldDefinition((FieldDefinitionHandle)member),
-                        Instance,
-                        (object?)null,
-                        PointerDetection.Degraded);
-                    detection = field.Value;
-                    degraded = field.IsDegraded;
-                    break;
-                case HandleKind.EventDefinition:
-                    EntityHandle eventType = reader.GetEventDefinition(
-                        (EventDefinitionHandle)member).Type;
-                    detection = eventType.Kind switch
-                    {
-                        HandleKind.TypeDefinition or HandleKind.TypeReference =>
-                            default,
-                        HandleKind.TypeSpecification =>
-                            GuardedProviderDecode.TypeSpec(
-                                reader,
-                                (TypeSpecificationHandle)eventType,
-                                Instance,
-                                (object?)null,
-                                PointerDetection.Degraded),
-                        _ => PointerDetection.Degraded,
-                    };
-                    break;
-                default:
-                    return MemorySafetyPointerEvidence.Unavailable;
-            }
-
-            return detection.HasPointer
-                ? MemorySafetyPointerEvidence.Present
-                : degraded || detection.IsDegraded
-                    ? MemorySafetyPointerEvidence.Unavailable
-                    : MemorySafetyPointerEvidence.Absent;
+            return DecodeMember(reader, member);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -87,6 +26,74 @@ internal sealed class PointerDetector : ISignatureTypeProvider<PointerDetection,
         {
             return MemorySafetyPointerEvidence.Unavailable;
         }
+    }
+
+    internal static MemorySafetyPointerEvidence DecodeMember(
+        MetadataReader reader,
+        EntityHandle member)
+    {
+        PointerDetection detection;
+        bool degraded = false;
+        switch (member.Kind)
+        {
+            case HandleKind.MethodDefinition:
+                var method = GuardedProviderDecode.MethodResult(
+                    reader,
+                    reader.GetMethodDefinition((MethodDefinitionHandle)member),
+                    Instance,
+                    (object?)null,
+                    PointerDetection.Degraded);
+                detection = PointerDetection.Combine(
+                    method.Value.ReturnType, method.Value.ParameterTypes);
+                degraded = method.IsDegraded;
+                break;
+            case HandleKind.PropertyDefinition:
+                var property = GuardedProviderDecode.PropertyResult(
+                    reader,
+                    reader.GetPropertyDefinition((PropertyDefinitionHandle)member),
+                    Instance,
+                    (object?)null,
+                    PointerDetection.Degraded);
+                detection = PointerDetection.Combine(
+                    property.Value.ReturnType, property.Value.ParameterTypes);
+                degraded = property.IsDegraded;
+                break;
+            case HandleKind.FieldDefinition:
+                var field = GuardedProviderDecode.FieldResult(
+                    reader,
+                    reader.GetFieldDefinition((FieldDefinitionHandle)member),
+                    Instance,
+                    (object?)null,
+                    PointerDetection.Degraded);
+                detection = field.Value;
+                degraded = field.IsDegraded;
+                break;
+            case HandleKind.EventDefinition:
+                EntityHandle eventType = reader.GetEventDefinition(
+                    (EventDefinitionHandle)member).Type;
+                detection = eventType.Kind switch
+                {
+                    HandleKind.TypeDefinition or HandleKind.TypeReference =>
+                        default,
+                    HandleKind.TypeSpecification =>
+                        GuardedProviderDecode.TypeSpec(
+                            reader,
+                            (TypeSpecificationHandle)eventType,
+                            Instance,
+                            (object?)null,
+                            PointerDetection.Degraded),
+                    _ => PointerDetection.Degraded,
+                };
+                break;
+            default:
+                return MemorySafetyPointerEvidence.Unavailable;
+        }
+
+        return detection.HasPointer
+            ? MemorySafetyPointerEvidence.Present
+            : degraded || detection.IsDegraded
+                ? MemorySafetyPointerEvidence.Unavailable
+                : MemorySafetyPointerEvidence.Absent;
     }
 
     public PointerDetection GetPrimitiveType(PrimitiveTypeCode typeCode) => default;

@@ -3396,7 +3396,18 @@ public static class ApiSurfaceExtractor
             foreach (var candidate in candidates)
             {
                 var field = reader.GetFieldDefinition(candidate);
-                bool? match = matches(field);
+                bool? match;
+                try
+                {
+                    match = matches(field);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentException
+                        or InvalidOperationException)
+                {
+                    match = null;
+                }
                 incomplete |= match is null;
                 if (match == true)
                 {

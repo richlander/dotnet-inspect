@@ -609,7 +609,7 @@ public sealed class MemorySafetyMetadataIndex
         try
         {
             return new(
-                PointerDetector.ReadMember(_reader, member),
+                PointerDetector.DecodeMember(_reader, member),
                 member.Kind == HandleKind.FieldDefinition
                     ? ReadFixedBufferEvidence(
                         _reader.GetFieldDefinition((FieldDefinitionHandle)member))

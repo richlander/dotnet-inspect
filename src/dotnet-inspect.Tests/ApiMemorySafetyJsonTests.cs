@@ -31,14 +31,18 @@ public sealed class ApiMemorySafetyJsonTests
         AssertFacts(type, restored);
     }
 
-    [Fact]
-    public void SurfaceContextPreservesExtractedMemorySafetyFacts()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SurfaceContextPreservesExtractedMemorySafetyFacts(bool libraryContext)
     {
         ApiType type = ExtractedType.Value;
         var surface = new ApiSurface { Types = [type] };
+        var context = libraryContext
+            ? JsonContext.Default.ApiSurface
+            : ApiJsonContext.Default.ApiSurface;
         ApiSurface restored = JsonSerializer.Deserialize(
-            JsonSerializer.Serialize(surface, ApiJsonContext.Default.ApiSurface),
-            ApiJsonContext.Default.ApiSurface)!;
+            JsonSerializer.Serialize(surface, context), context)!;
 
         AssertFacts(type, Assert.Single(restored.Types));
     }
