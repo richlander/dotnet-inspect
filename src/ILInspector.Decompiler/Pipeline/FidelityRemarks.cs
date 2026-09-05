@@ -187,7 +187,7 @@ public static class FidelityRemarks
             {
                 yield return Cause(
                     DiagnosticIds.UnrepresentableMetadataName,
-                    LocationOf(node),
+                    nameIssue.Location ?? LocationOf(node),
                     node,
                     nameIssue.Reason,
                     nameIssue.Discriminator);

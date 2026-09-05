@@ -162,6 +162,14 @@ public sealed record DecompilerResultMetadata(
     IReadOnlyList<DecompilerDecision> Decisions)
 {
     public static DecompilerResultMetadata Default { get; } = new(DecompilerOptions.Default, []);
+
+    /// <summary>
+    /// Declaration parameter-name overrides after exact nested binders have
+    /// reserved their names. Empty when final spellings still match the imported
+    /// declaration; otherwise full-source hosts apply the complete list to the
+    /// declaration that owns <see cref="DecompilerResult.Output"/>.
+    /// </summary>
+    public IReadOnlyList<string> ParameterNames { get; init; } = [];
 }
 
 /// <summary>Stable diagnostic identifiers. Never renumber or reuse.</summary>
@@ -376,6 +384,14 @@ public sealed record DecompilerResult(
 
     /// <summary>Product-owned decision evidence explaining intentional render choices.</summary>
     public IReadOnlyList<DecompilerDecision> Decisions => Metadata.Decisions;
+
+    /// <summary>
+    /// Complete parameter-name overrides for the declaration enclosing
+    /// <see cref="Output"/>, or empty when declaration composition needs no
+    /// name coordination. Accessor bodies also report an unchanged final list
+    /// when C#'s implicit <c>value</c> binder cannot represent the body name.
+    /// </summary>
+    public IReadOnlyList<string> ParameterNames => Metadata.ParameterNames;
 
     public static DecompilerResult Success(string output)
         => new(output, DecompilationFidelity.Full, []);

@@ -39,6 +39,25 @@ public sealed class ResearchProducerSessionRequest
         Population = population;
         Resolution = resolution;
         Producers = [.. producers];
+        WorkBases =
+        [
+            .. resolution.Correspondences.Select(
+                static outcome => new ResearchProducerWorkBasis.Correspondence(outcome)),
+        ];
+    }
+
+    public ResearchProducerSessionRequest(
+        ResearchAdmittedPopulation population,
+        ResearchDesignatedPair pair,
+        IEnumerable<ResearchProducerKind> producers)
+    {
+        ArgumentNullException.ThrowIfNull(population);
+        ArgumentNullException.ThrowIfNull(pair);
+        ArgumentNullException.ThrowIfNull(producers);
+        Population = population;
+        Resolution = pair.Resolution;
+        Producers = [.. producers];
+        WorkBases = [new ResearchProducerWorkBasis.DesignatedPair(pair)];
     }
 
     public ResearchAdmittedPopulation Population { get; }
@@ -48,6 +67,8 @@ public sealed class ResearchProducerSessionRequest
     public ImmutableArray<ResearchProducerKind> Producers { get; }
 
     internal object Identity => _identity;
+
+    internal ImmutableArray<ResearchProducerWorkBasis> WorkBases { get; }
 }
 
 /// <summary>Why a producer session request was rejected before execution.</summary>
@@ -106,22 +127,45 @@ public sealed class ResearchProducerWorkItemId
     public ResearchComparisonOperationId Operation => Session.Operation;
 }
 
-/// <summary>One exact correspondence-and-producer unit of sequential work.</summary>
+/// <summary>The exact owner-issued evidence that authorizes a local comparison.</summary>
+public abstract class ResearchProducerWorkBasis
+{
+    private protected ResearchProducerWorkBasis()
+    {
+    }
+
+    public sealed class Correspondence : ResearchProducerWorkBasis
+    {
+        internal Correspondence(ResearchTargetCorrespondenceOutcome outcome)
+            => Outcome = outcome;
+
+        public ResearchTargetCorrespondenceOutcome Outcome { get; }
+    }
+
+    public sealed class DesignatedPair : ResearchProducerWorkBasis
+    {
+        internal DesignatedPair(ResearchDesignatedPair pair) => Pair = pair;
+
+        public ResearchDesignatedPair Pair { get; }
+    }
+}
+
+/// <summary>One exact comparison-and-producer unit of sequential work.</summary>
 public sealed class ResearchProducerWorkItem
 {
     internal ResearchProducerWorkItem(
         ResearchProducerWorkItemId id,
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         ResearchProducerKind producer)
     {
         Id = id;
-        Correspondence = correspondence;
+        Basis = basis;
         Producer = producer;
     }
 
     public ResearchProducerWorkItemId Id { get; }
 
-    public ResearchTargetCorrespondenceOutcome Correspondence { get; }
+    public ResearchProducerWorkBasis Basis { get; }
 
     public ResearchProducerKind Producer { get; }
 }

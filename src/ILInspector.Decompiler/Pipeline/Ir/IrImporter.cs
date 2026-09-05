@@ -682,7 +682,11 @@ public static class IrImporter
         ResolveTypeInfo(source, function);
         RecordUnsupportedTypeDiagnostics(function);
         if (IrInvariants.Enabled)
+        {
             function.CheckInvariant(IrInvariants.CheckSemantics);
+            if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
+                function.ValidateArgumentBindings();
+        }
         return function;
     }
 
@@ -1183,13 +1187,13 @@ public static class IrImporter
                     break;
 
                 case ILOpCode.Ldarg_0 or ILOpCode.Ldarg_1 or ILOpCode.Ldarg_2 or ILOpCode.Ldarg_3:
-                    stack.Push(MakeLoadArgument(method, opcode - ILOpCode.Ldarg_0));
+                    stack.Push(MakeLoadArgument(method, function, opcode - ILOpCode.Ldarg_0));
                     break;
                 case ILOpCode.Ldarg_s:
-                    stack.Push(MakeLoadArgument(method, reader.ReadILByte()));
+                    stack.Push(MakeLoadArgument(method, function, reader.ReadILByte()));
                     break;
                 case ILOpCode.Ldarg:
-                    stack.Push(MakeLoadArgument(method, reader.ReadILUInt16()));
+                    stack.Push(MakeLoadArgument(method, function, reader.ReadILUInt16()));
                     break;
                 case ILOpCode.Starg_s:
                 {
@@ -1201,7 +1205,7 @@ public static class IrImporter
                     {
                         SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
                     }
-                    body.Add(MakeStoreArgument(method, index, value));
+                    body.Add(MakeStoreArgument(method, function, index, value));
                     break;
                 }
                 case ILOpCode.Starg:
@@ -1214,7 +1218,7 @@ public static class IrImporter
                     {
                         SpillPendingBeforeStore(body, stack, state, value => ReadsArgument(value, index));
                     }
-                    body.Add(MakeStoreArgument(method, index, value));
+                    body.Add(MakeStoreArgument(method, function, index, value));
                     break;
                 }
 
@@ -1447,10 +1451,10 @@ public static class IrImporter
                     break;
                 }
                 case ILOpCode.Ldarga_s:
-                    stack.Push(MakeLoadArgumentAddress(method, reader.ReadILByte()));
+                    stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILByte()));
                     break;
                 case ILOpCode.Ldarga:
-                    stack.Push(MakeLoadArgumentAddress(method, reader.ReadILUInt16()));
+                    stack.Push(MakeLoadArgumentAddress(method, function, reader.ReadILUInt16()));
                     break;
 
                 case ILOpCode.Ldelema:
@@ -2230,21 +2234,28 @@ public static class IrImporter
         return new Convert(TypeRef.CoreLib("System", name), isChecked, isUnsigned, operand);
     }
 
-    static LoadArgument MakeLoadArgument(ImportedMethod method, int index)
+    static LoadArgument MakeLoadArgument(
+        ImportedMethod method,
+        IrFunction function,
+        int index)
     {
         if (method.Signature.HasThis)
         {
             if (index == 0)
-                return new LoadArgument(0, "this", method.DeclaringType);
+                return new LoadArgument(
+                    0,
+                    function.ReceiverParameter
+                        ?? throw new InvalidOperationException(
+                            "An instance method must own an implicit receiver binder."));
             var p = method.Signature.Parameters[index - 1];
-            return new LoadArgument(index, p.Name, p.Type)
+            return new LoadArgument(index, p)
             {
                 IsDynamic = p.IsDynamic,
                 ArrayElementIsDynamic = p.ArrayElementIsDynamic,
             };
         }
         var parameter = method.Signature.Parameters[index];
-        return new LoadArgument(index, parameter.Name, parameter.Type)
+        return new LoadArgument(index, parameter)
         {
             IsDynamic = parameter.IsDynamic,
             ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,
@@ -2262,17 +2273,24 @@ public static class IrImporter
             _ => MetadataFactState.Unknown,
         };
 
-    static LoadArgumentAddress MakeLoadArgumentAddress(ImportedMethod method, int index)
+    static LoadArgumentAddress MakeLoadArgumentAddress(
+        ImportedMethod method,
+        IrFunction function,
+        int index)
     {
         if (method.Signature.HasThis)
         {
             if (index == 0)
-                return new LoadArgumentAddress(0, "this", method.DeclaringType);
+                return new LoadArgumentAddress(
+                    0,
+                    function.ReceiverParameter
+                        ?? throw new InvalidOperationException(
+                            "An instance method must own an implicit receiver binder."));
             var p = method.Signature.Parameters[index - 1];
-            return new LoadArgumentAddress(index, p.Name, p.Type);
+            return new LoadArgumentAddress(index, p);
         }
         var parameter = method.Signature.Parameters[index];
-        return new LoadArgumentAddress(index, parameter.Name, parameter.Type);
+        return new LoadArgumentAddress(index, parameter);
     }
 
     /// <summary>Element/indirection type encoded by a typed ldind/stind/ldelem/stelem opcode; null for the .ref forms (the operand's type stands in).</summary>
@@ -2326,17 +2344,26 @@ public static class IrImporter
         _ => null,  // ldelem.ref / stelem.ref
     };
 
-    static StoreArgument MakeStoreArgument(ImportedMethod method, int index, IrExpression value)
+    static StoreArgument MakeStoreArgument(
+        ImportedMethod method,
+        IrFunction function,
+        int index,
+        IrExpression value)
     {
         if (method.Signature.HasThis)
         {
             if (index == 0)
-                return new StoreArgument(0, "this", method.DeclaringType, value);
+                return new StoreArgument(
+                    0,
+                    function.ReceiverParameter
+                        ?? throw new InvalidOperationException(
+                            "An instance method must own an implicit receiver binder."),
+                    value);
             var p = method.Signature.Parameters[index - 1];
-            return new StoreArgument(index, p.Name, p.Type, value);
+            return new StoreArgument(index, p, value);
         }
         var parameter = method.Signature.Parameters[index];
-        return new StoreArgument(index, parameter.Name, parameter.Type, value);
+        return new StoreArgument(index, parameter, value);
     }
 
     static LoadLocal MakeLoadLocal(ImportedMethod method, int index)

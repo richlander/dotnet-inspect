@@ -11,6 +11,7 @@ using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -1648,6 +1649,240 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeSourceAcquisition_SourceFilesUsesSelectedOpener(bool isForwarded)
+    {
+        int opens = 0;
+        string original = typeof(EmbeddedSourceFixture).Assembly.Location;
+        byte[] image = File.ReadAllBytes(original);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("source-opening"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(EmbeddedSourceFixture));
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                RuntimeAssemblyPath = typeof(object).Assembly.Location,
+                Context = new CommandContext(verbose: false, client),
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        Select = [SectionNames.SourceFiles],
+                        DocsExplicitlySet = true,
+                        ShowDocs = false,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains("EmbeddedSourceFixture.cs", output);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeSourceAcquisition_PdbPathUsesSelectedOpener()
+    {
+        int opens = 0;
+        string original = typeof(SourceForwarderResolutionTests).Assembly.Location;
+        byte[] image = File.ReadAllBytes(original);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("pdb-opening"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            });
+        try
+        {
+            string expected = Path.ChangeExtension(fixture.AssemblyPath, ".pdb");
+            File.Copy(Path.ChangeExtension(original, ".pdb"), expected);
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+
+            string? path = await ApiCommand.TryAcquirePdbPathAsync(
+                Path.Combine(fixture.Directory, "unused-path-projection.dll"),
+                fixture.Loaded.GetSourceAssembly(fixture.Type),
+                new TypeOptions(),
+                new VerboseLogger(enabled: false),
+                client,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(expected, path);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.SourceFiles)]
+    [InlineData(SectionNames.DecompiledSource)]
+    public async Task TypeSourceAcquisition_ReportsSelectedOpenFailure(string section)
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("failed-opening"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                throw new IOException("Selected source image could not be opened.");
+            });
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                Context = new CommandContext(verbose: false, client),
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        Select = [section],
+                        DocsExplicitlySet = true,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("Selected source image could not be opened.", error);
+            Assert.Equal(1, opens);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeSourceAcquisition_PreservesMissingSymbols(bool isModule)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "NoSymbols.dll");
+            File.WriteAllBytes(path, BuildAssembly("NoSymbols", isModule: isModule));
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(path, SourceKind.Library) with
+            {
+                TypeName = "N.Type",
+                Context = new CommandContext(verbose: false, client),
+            };
+            var options = new TypeOptions
+            {
+                TypeName = "N.Type",
+                Select = [SectionNames.SourceFiles],
+                DocsExplicitlySet = true,
+            };
+            var loaded = Assert.IsType<ApiServices.LoadedApiSurface>(
+                ApiServices.LoadTypeApi(source, options));
+
+            var (exit, _, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(options, source, loaded));
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+
+            var descriptor = loaded.TryGetSourceAssembly(Assert.Single(loaded.Api.Types));
+            string? pdb = descriptor is null
+                ? await ApiCommand.TryAcquirePdbPathAsync(
+                    path, options, new VerboseLogger(enabled: false), client,
+                    TestContext.Current.CancellationToken)
+                : await ApiCommand.TryAcquirePdbPathAsync(
+                    path, descriptor, options, new VerboseLogger(enabled: false), client,
+                    TestContext.Current.CancellationToken);
+            Assert.Null(pdb);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeSourceAcquisition_ReportsMalformedDebugData(bool deferred)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            byte[] image = File.ReadAllBytes(typeof(EmbeddedSourceFixture).Assembly.Location);
+            using (var reader = new PEReader(new MemoryStream(image, writable: false)))
+            {
+                DebugDirectoryEntry embedded = Assert.Single(
+                    reader.ReadDebugDirectory(),
+                    entry => entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb);
+                image[embedded.DataPointer] = 0;
+            }
+            string path = Path.Combine(directory, "MalformedDebug.dll");
+            File.WriteAllBytes(path, image);
+            var options = new TypeOptions
+            {
+                AssemblyPath = path,
+                TypeName = typeof(EmbeddedSourceFixture).FullName,
+                Select = [SectionNames.SourceFiles],
+                DocsExplicitlySet = true,
+            };
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => deferred
+                    ? MemberCommand.ExecuteAsync(new MemberOptions
+                    {
+                        AssemblyPath = options.AssemblyPath,
+                        TypeName = options.TypeName,
+                        Select = options.Select,
+                        DocsExplicitlySet = true,
+                        RouterDeferredTypeOrMember = true,
+                    })
+                    : TypeCommand.ExecuteAsync(options));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("embedded portable PDB signature is invalid", error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static ApiSourceResult CreateApiSource(string path, string sourceKind) =>
         new(
             SearchPath: path,
@@ -2049,11 +2284,14 @@ public class SourceForwarderResolutionTests
         ApiServices.LoadedApiSurface Loaded)
         CreateTypeSourceFixture(
             AssemblyResolutionProvenance provenance,
-            bool isForwarded)
+            bool isForwarded,
+            Func<Stream>? openRead = null,
+            Type? fixtureType = null)
     {
+        fixtureType ??= typeof(SourceForwarderResolutionTests);
         string directory = CreateDirectory();
         string sourceAssemblyPath =
-            typeof(SourceForwarderResolutionTests).Assembly.Location;
+            fixtureType.Assembly.Location;
         string assemblyPath = Path.Combine(
             directory,
             Path.GetFileName(sourceAssemblyPath));
@@ -2062,9 +2300,9 @@ public class SourceForwarderResolutionTests
             AssemblyReader.ExtractApiSurface(assemblyPath)!;
         ApiType type = Assert.Single(
             api.Types,
-            static candidate =>
+            candidate =>
                 candidate.FullName
-                == "DotnetInspector.Tests.SourceForwarderResolutionTests");
+                == fixtureType.FullName);
         api.Types = [type];
         type.IsForwarded = isForwarded;
         type.SourceAssemblyPath = assemblyPath;
@@ -2072,6 +2310,14 @@ public class SourceForwarderResolutionTests
             ResolvedAssemblyReference.CreateFromPath(
                 assemblyPath,
                 provenance);
+        if (openRead is not null)
+        {
+            assembly = ResolvedAssemblyReference.Create(
+                assembly.Identity,
+                assembly.Path,
+                openRead,
+                provenance);
+        }
         var sourceAssemblies =
             new Dictionary<
                 ApiType,

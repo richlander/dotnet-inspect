@@ -456,6 +456,10 @@ public static class IrPasses
         // inside unsafe.
         new UnsafeAwaitBoundaryPass(),
         new CoercionInsertionPass(),
+        // Parameter metadata is imported before nested bodies are known. Allocate
+        // missing-name fallbacks only after every raise has exposed the final
+        // lexical binder tree, so exact nested names reserve before synthesis.
+        new ParameterNameAllocationPass(),
     ];
 
     /// <summary>
@@ -501,7 +505,11 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
+            {
                 function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
+                    function.ValidateArgumentBindings();
+            }
         }
     }
 

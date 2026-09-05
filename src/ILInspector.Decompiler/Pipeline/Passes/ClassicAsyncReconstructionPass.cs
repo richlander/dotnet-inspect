@@ -71,7 +71,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             kickoff,
             out var body,
             out var locals,
-            out var localNames);
+            out var localNames,
+            out var synthesizedLocalNames);
         if (reconstruction is ReconstructionResult.UnconsumedExecutionRegion
             or ReconstructionResult.UnsafeAwaitOperand)
         {
@@ -86,7 +87,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
 
         context.Stepper.StepOver($"reconstruct classic async '{function.Name}' from {kickoff.StateMachineType.Name}.MoveNext");
         function.MergeTypeFactsFrom(moveNext);
-        function.ResetLocals(locals, localNames);
+        function.ResetLocals(
+            locals,
+            localNames,
+            synthesizedNames: synthesizedLocalNames);
         function.RequiresAsyncBodyModifier = true;
         function.Body.DetachChildren();
         foreach (var block in body.Blocks.ToList())
@@ -126,17 +130,32 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     {
         readonly ImmutableArray<TypeRef>.Builder _locals = ImmutableArray.CreateBuilder<TypeRef>();
         readonly ImmutableArray<string?>.Builder _names = ImmutableArray.CreateBuilder<string?>();
+        readonly ImmutableArray<string?>.Builder _synthesizedNames = ImmutableArray.CreateBuilder<string?>();
 
         public int Add(TypeRef type, string? name)
         {
             var index = _locals.Count;
             _locals.Add(type);
             _names.Add(name);
+            _synthesizedNames.Add(null);
+            return index;
+        }
+
+        public int AddSynthesized(TypeRef type, string name)
+        {
+            var index = _locals.Count;
+            _locals.Add(type);
+            _names.Add(null);
+            _synthesizedNames.Add(name);
             return index;
         }
 
         public ImmutableArray<TypeRef> Locals => _locals.ToImmutable();
         public ImmutableArray<string?> Names => _names.ToImmutable();
+        public ImmutableArray<string?> SynthesizedNames
+            => _synthesizedNames.Any(static name => name is not null)
+                ? _synthesizedNames.ToImmutable()
+                : [];
     }
 
     static bool TryAcknowledgeSupportMethod(IrFunction function, PassContext context)
@@ -233,11 +252,13 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         Kickoff kickoffShape,
         out BlockContainer body,
         out ImmutableArray<TypeRef> locals,
-        out ImmutableArray<string?> localNames)
+        out ImmutableArray<string?> localNames,
+        out ImmutableArray<string?> synthesizedLocalNames)
     {
         body = null!;
         locals = [];
         localNames = [];
+        synthesizedLocalNames = [];
 
         if (HasUnsafeAwaitOperand(moveNext, kickoff))
             return ReconstructionResult.UnsafeAwaitOperand;
@@ -275,6 +296,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         body.Add(block);
         locals = localBuilder.Locals;
         localNames = localBuilder.Names;
+        synthesizedLocalNames = localBuilder.SynthesizedNames;
         return ReconstructionResult.Reconstructed;
     }
 
@@ -512,9 +534,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
             return true;
         }
 
-        if (TryBuildSingleAwaitReturn(moveNext, kickoff, setResult, getResults, out var ret))
+        if (TryBuildSingleAwaitReturn(moveNext, kickoff, setResult, getResults, locals, out var returnStatements))
         {
-            statements.Add(ret);
+            statements.AddRange(returnStatements);
             return true;
         }
 
@@ -533,9 +555,10 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         IrFunction kickoff,
         Call setResult,
         IReadOnlyList<Call> getResults,
-        out Return ret)
+        LocalBuilder locals,
+        out List<IrNode> statements)
     {
-        ret = null!;
+        statements = [];
         if (setResult.Arguments is not [_, LoadLocal result]
             || getResults.Count != 1)
         {
@@ -547,7 +570,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         var store = moveNext.Descendants.OfType<StoreLocal>()
             .LastOrDefault(s => s.Index == result.Index && ContainsNode(s.Value, getResults[0]));
         if (store is null)
-            return false;
+            return TryBuildNamedAwaitReturn(moveNext, kickoff, setResult, result, getResults[0], locals, out statements);
         if (HasUnexpectedStore(moveNext, store))
             return false;
 
@@ -555,8 +578,142 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         if (value is null)
             return false;
 
-        ret = new Return(value);
+        statements.Add(new Return(value));
         return true;
+    }
+
+    static bool TryBuildNamedAwaitReturn(
+        IrFunction moveNext,
+        IrFunction kickoff,
+        Call setResult,
+        LoadLocal completionResult,
+        Call getResult,
+        LocalBuilder locals,
+        out List<IrNode> statements)
+    {
+        statements = [];
+        if (getResult.Parent is not StoreLocal resultStore
+            || resultStore.Value != getResult
+            || resultStore.Index == completionResult.Index
+            || resultStore.Index < 0
+            || resultStore.Index >= moveNext.LocalNames.Length
+            || moveNext.LocalNames[resultStore.Index] is not { } name
+            || resultStore.Parent is not Block continuation
+            || continuation.Children is not [var first, StoreLocal returnStore]
+            || first != resultStore
+            || returnStore.Index != completionResult.Index
+            || !IsSingleAwaitContinuation(moveNext, continuation, getResult, setResult)
+            || HasUnexpectedStore(moveNext, resultStore, returnStore))
+        {
+            return false;
+        }
+
+        IrNode? resultUse = null;
+        foreach (var node in moveNext.Descendants)
+        {
+            if (node is LoadLocal load && load.Index == resultStore.Index
+                || node is LoadLocalAddress address && address.Index == resultStore.Index)
+            {
+                if (resultUse is not null || !ContainsNode(returnStore.Value, node))
+                    return false;
+                resultUse = node;
+            }
+            if (node is LoadLocal result && result.Index == completionResult.Index && node != completionResult
+                || node is LoadLocalAddress resultAddress && resultAddress.Index == completionResult.Index)
+            {
+                return false;
+            }
+        }
+        if (resultUse?.Parent is not { } receiver
+            || !(receiver is LoadProperty property && property.Instance == resultUse
+                || receiver is LoadField field && field.Instance == resultUse
+                || receiver is Call { Callee.HasThis: true } call && call.Arguments.FirstOrDefault() == resultUse)
+            || returnStore.Value.Descendants.Prepend(returnStore.Value).Any(node => node switch
+            {
+                LoadLocal load => load.Index != resultStore.Index,
+                LoadLocalAddress address => address.Index != resultStore.Index,
+                _ => false,
+            }))
+        {
+            return false;
+        }
+
+        var awaited = AwaitForGetResult(moveNext, kickoff, getResult);
+        if (awaited is null)
+            return false;
+
+        int index = locals.Locals.Length;
+        var replacements = new Dictionary<int, (int Index, TypeRef Type)>
+        {
+            [resultStore.Index] = (index, resultStore.Type),
+        };
+        var value = (IrExpression)returnStore.Value.Clone();
+        if (!RemapInPlace(value, kickoff, localReplacements: replacements))
+            return false;
+
+        locals.Add(resultStore.Type, name);
+        statements.Add(new StoreLocal(index, resultStore.Type, awaited));
+        statements.Add(new Return(value));
+        return true;
+    }
+
+    // The retained binder belongs to the same single-await completion shell,
+    // not a user-guarded or multiply entered descendant that happens to match.
+    internal static bool IsSingleAwaitContinuation(
+        IrFunction moveNext,
+        Block continuation,
+        Call getResult,
+        Call setResult)
+    {
+        if (getResult.Arguments is not [LoadLocalAddress awaiter]
+            || StateLocalIndex(moveNext) is not { } state
+            || continuation.Parent is not BlockContainer { Parent: TryCatch handler } body
+            || handler.TryBody != body
+            || body.Blocks is not [var dispatch, var acquire, var suspend, var resume, var last]
+            || last != continuation
+            || dispatch.Children is not [ConditionalBranch
+            {
+                Condition: LogicalNot { Operand: LoadLocal stateLoad },
+            } stateBranch]
+            || stateLoad.Index != state
+            || stateBranch.TargetOffset != resume.StartOffset
+            || acquire.Children is not [StoreLocal
+            {
+                Value: Call { Callee.Name: "GetAwaiter" },
+            } awaiterStore, ConditionalBranch
+            {
+                Condition: LoadProperty { PropertyName: "IsCompleted", Instance: LoadLocalAddress completedAwaiter },
+            } completedBranch]
+            || awaiterStore.Index != awaiter.Index
+            || completedAwaiter.Index != awaiter.Index
+            || completedBranch.TargetOffset != continuation.StartOffset
+            || suspend.Children.LastOrDefault() is not Return { Value: null }
+            || resume.Children.LastOrDefault() is not StoreField { Field.Name: "<>1__state", Value: Constant { Value: -1 } }
+            || moveNext.Body.Blocks is not [var root]
+            || root.Children is not [StoreLocal, var rootHandler, StoreField, ExpressionStatement completion, Return { Value: null }]
+            || rootHandler != handler
+            || completion.Expression != setResult
+            || handler.Clauses is not [var catchClause]
+            || catchClause.Filter is not null
+            || catchClause.Body.Blocks is not [var catchBlock]
+            || catchBlock.Children is not [StoreField, ExpressionStatement
+            {
+                Expression: Call { Callee.Name: "SetException" } setException,
+            }, Return { Value: null }]
+            || !IsCompilerBuilderCallback(moveNext, setException))
+        {
+            return false;
+        }
+
+        // No extra transfer, nested region, or user condition may bypass the
+        // continuation or change the number of executions of its two stores.
+        return body.Blocks.All(block => block.Children.All(node => node switch
+        {
+            StoreLocal or StoreField or InitObject or ExpressionStatement => true,
+            ConditionalBranch branch => branch == stateBranch || branch == completedBranch,
+            Return { Value: null } => block == suspend,
+            _ => false,
+        }));
     }
 
     static bool TryBuildSingleAwaitVoid(
@@ -859,8 +1016,8 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         }
 
         var sumType = accumulatorStore.Type;
-        var sumIndex = locals.Add(sumType, "sum");
-        var taskIndex = locals.Add(taskType, "task");
+        var sumIndex = locals.AddSynthesized(sumType, "sum");
+        var taskIndex = locals.AddSynthesized(taskType, "task");
 
         statements.Add(new StoreLocal(sumIndex, sumType, new Constant(0, sumType)));
         var body = new Block(0);
@@ -1342,6 +1499,9 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
                 case LoadLocal load when localReplacements is not null && localReplacements.TryGetValue(load.Index, out var replacement):
                     swaps.Add((current, new LoadLocal(replacement.Index, replacement.Type)));
                     return;
+                case LoadLocalAddress address when localReplacements is not null && localReplacements.TryGetValue(address.Index, out var replacement):
+                    swaps.Add((current, new LoadLocalAddress(replacement.Index, replacement.Type)));
+                    return;
                 case LoadArgument { Index: 0, Name: "this" }:
                     ok = false;
                     return;
@@ -1353,7 +1513,7 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
     }
 
     static LoadArgument ParameterLoad(int index, Parameter parameter)
-        => new(index, parameter.Name, parameter.Type)
+        => new(index, parameter)
         {
             IsDynamic = parameter.IsDynamic,
             ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,

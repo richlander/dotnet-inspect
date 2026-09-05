@@ -108,6 +108,50 @@ public class SwapIdiomPassTests
     }
 
     [Fact]
+    public void MaterializedNamedSlot_IsNotReclassifiedAsHiddenCarrier()
+    {
+        var function = BuildBlock(
+            SaveSlot(0, Arg(0)),
+            StoreArg(0, Arg(1)),
+            StoreArg(1, LoadSlot(0)));
+
+        new SlotMaterializationPass().Run(function, PassContext.None);
+
+        Assert.Equal([null], function.LocalNames);
+        Assert.Equal(["S_0"], function.SynthesizedLocalNames);
+
+        new SwapIdiomPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<DeconstructionAssignment>());
+    }
+
+    [Fact]
+    public void SameArgumentIndexWithDistinctBinders_RemainsDistinct()
+    {
+        var outer = new Parameter("outer", Int);
+        var nested = new Parameter("nested", Int);
+        var function = BuildBlock(
+            new StoreStackSlot(0, new LoadArgument(0, outer)),
+            new StoreArgument(
+                0,
+                outer,
+                new LoadArgument(0, nested)),
+            new StoreArgument(
+                0,
+                nested,
+                new LoadStackSlot(0, Int)));
+
+        new SwapIdiomPass().Run(function, PassContext.None);
+
+        var deconstruction = Assert.Single(
+            function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.NotSame(
+            deconstruction.Targets[0].ArgumentParameter,
+            deconstruction.Targets[1].ArgumentParameter);
+    }
+
+    [Fact]
     public void SavedValueIsComputed_NotRaised()
     {
         // S = f(a); a = b; b = S;  — the saved value is a call result, not a

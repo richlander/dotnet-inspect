@@ -56,6 +56,10 @@
 
 ### Source and implementation evidence
 
+- Type source-file and portable-PDB acquisition now open the selected supplier
+  descriptor, preserving its opener as well as its symbol policy. Thrown
+  source-context failures are reported as command errors instead of appearing
+  as missing source or symbols; genuine absence remains best-effort (#5888).
 - Renames `Original Source` to `PDB Source` and the Implementation Diff
   `--authored-source` flag to `--pdb-source`, reflecting that checksum and
   SourceLink-origin evidence do not independently prove build provenance.
@@ -72,6 +76,16 @@
   uses a different runtime image (#4588).
 
 ### Package acquisition and audit
+
+- Online metadata-only package version queries now support configured folder
+  feeds for pinned verification, latest and range selection, listing status,
+  and per-feed rows. Payload inspection and offline local discovery remain
+  separate work (#5400).
+- **Breaking:** Online bare `--version`, `--latest-version`, and version ranges
+  now fail when an eligible source is unreadable instead of selecting from
+  incomplete evidence. Fix or exclude the failing source, or use raw
+  `--versions` to inspect explicitly partial results. Online version queries
+  bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
 
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify

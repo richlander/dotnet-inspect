@@ -2371,8 +2371,8 @@ callers. CLI and browser/Wasm adoption are separate slices in
 [#5577](https://github.com/richlander/dotnet-inspect/issues/5577); this slice
 adds no host retention, cache, eviction, or presentation behavior.
 
-The first CLI adoption is the remote `package --all-libraries` grouped
-Integrations path when the command resolves one default target framework and
+The CLI adoption is the remote `package --all-libraries` grouped
+Integrations path when the command resolves one default or explicit target framework and
 the binding's frozen surface role exactly covers the command's visible library
 selection.
 After the existing desktop extraction resolves the exact package and version,
@@ -2401,16 +2401,27 @@ ordinary inspection still receives the surface while the typed implementation
 failure remains visible. Existing package command gates continue to own Markout
 output compatibility.
 
-Local archives and explicit `--tfm` selection remain on the legacy grouped
-workspace. Those modes can select tools or multiple package layout roles that
-are not one compile-role projection; silently narrowing their visible library
-set would not be a behavior-preserving adoption. A default selection also
+Local archives, `--tfm all`, and framework spellings outside the
+acquisition-coordinate grammar remain on the legacy grouped workspace.
+An explicit single-framework selection is eligible for the shared
+path, but it can still include tools or multiple package layout roles that
+are not one compile-role projection; silently narrowing its visible library
+set would not be a behavior-preserving adoption. Any selection
 retains the legacy workspace when it includes nested or implementation-only
 libraries, resolves an explicit empty compile group, or cannot form exact
 surface/implementation assembly-identity correspondence. These are ordinary
 package shapes but not valid inputs to the shared compile-role realization;
 falling back preserves the command's existing visible library set and output.
 Browser/Wasm adoption remains the separate #5576 slice.
+
+`PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles`
+gates the real CLI command over a source-scoped cached package, including
+default, explicit, legacy framework spellings, all-framework, and mixed
+surface/implementation selections.
+The verbose artifact-backed route message is emitted only after successful
+shared realization, so the gate covers actual adoption rather than eligibility
+alone. #5917 owns this bounded expansion under #5577; legacy deletion remains
+the later #5840 cutover.
 
 A host may project Root-owned facts such as exact identity, package documents,
 or manifest dependencies from a Root-only coordinate. Assembly-backed

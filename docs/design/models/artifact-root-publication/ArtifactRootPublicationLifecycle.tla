@@ -12,28 +12,22 @@ EXTENDS FiniteSets, Naturals, TLC
 
 CONSTANTS
     Workspace,
-    PlanWorkspace,
     Receipt,
-    PlanReceipt,
     PlanCancellationAuthority,
     ReceiptCancellationAuthority,
     PlanDeadline,
     ReceiptDeadline,
     InitialComposition,
-    ExpectedComposition,
-    CandidateComposition,
     CompositionIdentities,
     InitialScopeBase,
-    ExpectedScopeBase,
-    CandidateScopeBase,
     ScopeBaseIdentities,
-    InitialRoots,
-    CompleteDesiredRoots,
-    PreparedRoots,
-    SubmittedDesiredRoots,
-    SubmittedPreparedRoots
+    InitialRoots
 
-ASSUME
+VARIABLES ExpectedComposition, ExpectedScopeBase, CompleteDesiredRoots,
+          PreparedRoots, SubmittedDesiredRoots, SubmittedPreparedRoots,
+          PlanWorkspace, PlanReceipt, CandidateComposition, CandidateScopeBase
+
+OwnerAssumptions ==
     /\ IsFiniteSet(CompositionIdentities)
     /\ {InitialComposition, ExpectedComposition, CandidateComposition}
         \subseteq CompositionIdentities
@@ -609,24 +603,6 @@ Next ==
 SafetySpec ==
     Init /\ [][Next]_vars
 
-Fairness ==
-    /\ WF_vars(ExpireDeadline)
-    /\ WF_vars(RejectMalformed)
-    /\ WF_vars(ReleasePrepared)
-    /\ WF_vars(RefuseAtGate)
-    /\ WF_vars(BeginStaging)
-    /\ WF_vars(RefuseStaged)
-    /\ WF_vars(RejectConsumedParticipant)
-    /\ WF_vars(RejectStaleScopeBase)
-    /\ WF_vars(RejectScopeCandidateIdentity)
-    /\ WF_vars(ParticipantRefuses)
-    /\ WF_vars(PrepareCommit)
-    /\ WF_vars(RefuseCommitToken)
-    /\ WF_vars(CommitPublication)
-
-Spec ==
-    SafetySpec /\ Fairness
-
 TypeOK ==
     /\ runtimeState \in RuntimeStates
     /\ currentComposition \in CompositionIdentities
@@ -841,5 +817,182 @@ NoCommittedReplaySequenceObserved ==
 
 NoRuntimeClosedRefusalObserved ==
     "RuntimeClosedRefused" \notin events
+
+(***************************************************************************)
+(* Open-world projection for a composition of publication operations.      *)
+(* Init/Next/SafetySpec above remain the closed one-operation harness       *)
+(* contract. In this projection pointers and issuance counts stay live,    *)
+(* including after this receipt settles. Transaction-local terminal facts *)
+(* do not assert that later operations leave the global pointers frozen.  *)
+(* The two history arguments are shared owner-issued publication sets;    *)
+(* they distinguish reserved identities from identities already current.  *)
+(***************************************************************************)
+LocalState ==
+    <<receiptState, participantState, candidateState, phase,
+      cancellationState, deadlineState, provisionalAuthority,
+      stagingAuthority, result, receiptTerminalCount, receiptPublicationCount,
+      participantUseCount, participantCommitCount, commitCount,
+      validationAtCommit, events, closedBeforePublication>>
+
+SharedState ==
+    <<runtimeState, currentComposition, currentRoots, currentScopeBase,
+      compositionIssueCount, scopeIssueCount>>
+
+DormantInit ==
+    /\ runtimeState = "Open"
+    /\ currentComposition = InitialComposition
+    /\ currentRoots = InitialRoots
+    /\ currentScopeBase = InitialScopeBase
+    /\ receiptState = "Released"
+    /\ participantState = "Available"
+    /\ candidateState = "Unreserved"
+    /\ phase = "Dormant"
+    /\ cancellationState = "Active"
+    /\ deadlineState = "Live"
+    /\ provisionalAuthority = FALSE
+    /\ stagingAuthority = FALSE
+    /\ result = "None"
+    /\ compositionIssueCount =
+        [c \in CompositionIdentities |->
+            IF c = InitialComposition THEN 1 ELSE 0]
+    /\ scopeIssueCount =
+        [s \in ScopeBaseIdentities |->
+            IF s = InitialScopeBase THEN 1 ELSE 0]
+    /\ receiptTerminalCount = 0
+    /\ receiptPublicationCount = 0
+    /\ participantUseCount = 0
+    /\ participantCommitCount = 0
+    /\ commitCount = 0
+    /\ validationAtCommit = [key \in ValidationKeys |-> FALSE]
+    /\ events = {}
+    /\ closedBeforePublication = FALSE
+
+ActivatePublication(hasPreparation) ==
+    /\ phase = "Dormant"
+    /\ runtimeState = "Open"
+    /\ receiptState' = "Prepared"
+    /\ phase' = "Idle"
+    /\ provisionalAuthority' = hasPreparation
+    /\ UNCHANGED <<
+        SharedState, participantState, candidateState, cancellationState,
+        deadlineState, stagingAuthority, result, receiptTerminalCount,
+        receiptPublicationCount, participantUseCount, participantCommitCount,
+        commitCount, validationAtCommit, events, closedBeforePublication
+        >>
+
+ActivatePreparation == ActivatePublication(TRUE)
+
+ReleasePreparation ==
+    /\ phase \in {"Idle", "Rejected"}
+    /\ receiptState = "Prepared"
+    /\ receiptState' = "Released"
+    /\ phase' = "Settled"
+    /\ provisionalAuthority' = FALSE
+    /\ stagingAuthority' = FALSE
+    /\ result' = "Refused"
+    /\ receiptTerminalCount' = receiptTerminalCount + 1
+    /\ UNCHANGED <<
+        SharedState, participantState, candidateState, cancellationState,
+        deadlineState, receiptPublicationCount, participantUseCount,
+        participantCommitCount, commitCount, validationAtCommit, events,
+        closedBeforePublication
+        >>
+
+ScopeOnlyAdvance(nextBase) ==
+    /\ runtimeState = "Open"
+    /\ nextBase \in ScopeBaseIdentities
+    /\ scopeIssueCount[nextBase] = 0
+    /\ currentScopeBase' = nextBase
+    /\ scopeIssueCount' =
+        [scopeIssueCount EXCEPT ![nextBase] = @ + 1]
+    /\ UNCHANGED <<
+        runtimeState, currentComposition, currentRoots, compositionIssueCount,
+        LocalState
+        >>
+
+RefreshPhysical(nextComposition) ==
+    /\ runtimeState = "Open"
+    /\ nextComposition \in CompositionIdentities
+    /\ compositionIssueCount[nextComposition] = 0
+    /\ currentComposition' = nextComposition
+    /\ compositionIssueCount' =
+        [compositionIssueCount EXCEPT ![nextComposition] = @ + 1]
+    /\ UNCHANGED <<
+        runtimeState, currentScopeBase, currentRoots, scopeIssueCount, LocalState
+        >>
+
+ObserveReservation ==
+    /\ runtimeState = "Open"
+    /\ UNCHANGED <<runtimeState, currentComposition, currentScopeBase,
+                   currentRoots, LocalState>>
+    /\ \/ /\ \E c \in CompositionIdentities :
+                /\ compositionIssueCount[c] = 0
+                /\ compositionIssueCount' =
+                    [compositionIssueCount EXCEPT ![c] = 1]
+          /\ UNCHANGED scopeIssueCount
+       \/ /\ \E s \in ScopeBaseIdentities :
+                /\ scopeIssueCount[s] = 0
+                /\ scopeIssueCount' = [scopeIssueCount EXCEPT ![s] = 1]
+          /\ UNCHANGED compositionIssueCount
+
+ObserveOtherCommit(physicalHistory, scopeHistory) ==
+    /\ runtimeState = "Open"
+    /\ currentComposition' \in CompositionIdentities \ physicalHistory
+    /\ currentScopeBase' \in ScopeBaseIdentities \ scopeHistory
+    /\ compositionIssueCount[currentComposition'] = 1
+    /\ scopeIssueCount[currentScopeBase'] = 1
+    /\ IsFiniteSet(currentRoots')
+    /\ UNCHANGED <<runtimeState, compositionIssueCount, scopeIssueCount,
+                   LocalState>>
+
+CompositionNext(physicalHistory, scopeHistory) ==
+    \/ \E hasPreparation \in BOOLEAN : ActivatePublication(hasPreparation)
+    \/ ReleasePreparation
+    \/ CancelPublication
+    \/ ExpireDeadline
+    \/ /\ phase # "Dormant"
+       /\ Next
+    \/ CloseRuntime
+    \/ /\ phase \in {"Dormant", "Idle", "Rejected", "Settled"}
+       /\ \/ \E s \in ScopeBaseIdentities : ScopeOnlyAdvance(s)
+          \/ \E c \in CompositionIdentities : RefreshPhysical(c)
+          \/ ObserveReservation
+          \/ ObserveOtherCommit(physicalHistory, scopeHistory)
+
+RecordPublicationHistory(physicalHistory, scopeHistory) ==
+    /\ (currentComposition' # currentComposition
+        => currentComposition' \notin physicalHistory)
+    /\ (currentScopeBase' # currentScopeBase
+        => currentScopeBase' \notin scopeHistory)
+    /\ physicalHistory' = physicalHistory \union {currentComposition'}
+    /\ scopeHistory' = scopeHistory \union {currentScopeBase'}
+
+CompositionSafetySpec(physicalHistory, scopeHistory) ==
+    /\ DormantInit
+    /\ physicalHistory = {InitialComposition}
+    /\ scopeHistory = {InitialScopeBase}
+    /\ [][CompositionNext(physicalHistory, scopeHistory)
+          /\ RecordPublicationHistory(physicalHistory, scopeHistory)
+         ]_<<vars, physicalHistory, scopeHistory>>
+
+CompositionTypeOK ==
+    IF phase = "Dormant"
+    THEN /\ receiptState = "Released"
+         /\ ~provisionalAuthority
+         /\ ~stagingAuthority
+         /\ receiptTerminalCount = 0
+         /\ commitCount = 0
+    ELSE TypeOK
+
+ActiveReceiptHasExactlyOneTerminalOutcome ==
+    phase # "Dormant" => ReceiptHasExactlyOneTerminalOutcome
+
+CommittedResultIsTerminal ==
+    receiptState = "Published"
+        => /\ result = "Published"
+           /\ participantState = "Committed"
+           /\ receiptPublicationCount = 1
+           /\ participantCommitCount = 1
+           /\ commitCount = 1
 
 =============================================================================

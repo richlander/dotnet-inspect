@@ -115,10 +115,10 @@ public sealed partial class CSharpPrinter
             lambda.Parameters.Any(parameter => parameter.Type.Kind == TypeRefKind.ByRef);
         string parameters = hasByRefParameter
             ? $"({string.Join(", ", lambda.Parameters.Select((parameter, index) =>
-                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.Name)}"))})"
+                $"{ParameterTypeText(parameter, lambda.ParameterRefKinds[index])} {CSharpNaming.ContainedIdentifier(parameter.DisplayName)}"))})"
             : lambda.Parameters is [var single]
-                ? CSharpNaming.ContainedIdentifier(single.Name)
-                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
+                ? CSharpNaming.ContainedIdentifier(single.DisplayName)
+                : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.DisplayName)))})";
 
         if (lambda.ExpressionBody is { } expr)
         {
@@ -303,6 +303,7 @@ public sealed partial class CSharpPrinter
                 body)
             {
                 LocalNames = lambda.LocalNames,
+                SynthesizedLocalNames = lambda.SynthesizedLocalNames,
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };

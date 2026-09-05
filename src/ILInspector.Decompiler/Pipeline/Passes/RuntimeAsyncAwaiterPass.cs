@@ -173,7 +173,11 @@ public sealed class RuntimeAsyncAwaiterPass : IIrPass
         awaited = receiver switch
         {
             LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
-            LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+            LoadArgumentAddress address => new LoadArgument(
+                address.Index,
+                address.Name,
+                address.Type,
+                address.Parameter),
             _ => receiver,
         };
         return true;
