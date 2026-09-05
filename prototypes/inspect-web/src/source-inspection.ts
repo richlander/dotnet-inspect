@@ -6,10 +6,14 @@ import {
   type SourceRequestState,
   type SourceWorkbenchState,
 } from "./data.ts";
-import type { BrowserSource } from "./facades/inspect-web-source.d.ts";
+import type {
+  BrowserSource,
+  BrowserTypeSourceResult,
+} from "./facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "./member-focus.ts";
 import type {
   OperationAuthorityPage,
+  OperationCancelReason,
   OperationDiagnostic,
   OperationFeatureEvent,
   OperationId,
@@ -80,13 +84,20 @@ export interface SourceInspectionDependencies {
   state: SourceInspectionState;
   operationAuthority: OperationAuthorityPage;
   queryMemberSource(request: MemberSourceQuery): Promise<BrowserSource>;
-  queryTypeSource(request: TypeSourceQuery): Promise<BrowserSource>;
+  queryTypeSource(
+    operationId: OperationId,
+    request: TypeSourceQuery,
+  ): Promise<BrowserTypeSourceResult>;
   queryGraphSource(
     request: GraphSourceRequest,
     taste: string,
   ): Promise<BrowserSource>;
   memberSourceHasConcreteOverload(): boolean;
   cancelEngineSourceRequest(): void;
+  cancelTypeSourceRequest(
+    operationId: OperationId,
+    reason: OperationCancelReason,
+  ): void;
   readonly reportOperationDiagnostic: (
     diagnostic: OperationDiagnostic,
   ) => undefined;
@@ -130,7 +141,6 @@ export function createSourceInspectionCoordinator(
 
   const typeSourceOperations =
     new Map<OperationId, TypeSourceOperationContext>();
-  let activeEngineTypeOperation: OperationId | null = null;
   const typeSourceContext = (
     operationId: OperationId,
   ): TypeSourceOperationContext => {
@@ -204,51 +214,79 @@ export function createSourceInspectionCoordinator(
         preservedFocus: null,
       });
       let engineCancellationRequested = false;
-      const cancelEngineIfOwned = (): undefined => {
-        if (engineCancellationRequested
-          || activeEngineTypeOperation !== identity.id) {
+      const cancelEngine = (reason: OperationCancelReason): undefined => {
+        if (engineCancellationRequested) {
           return undefined;
         }
         engineCancellationRequested = true;
-        dependencies.cancelEngineSourceRequest();
+        dependencies.cancelTypeSourceRequest(identity.id, reason);
         return undefined;
       };
-      const finish = (
-        outcome:
-          | { readonly kind: "succeeded"; readonly value: BrowserSource }
-          | { readonly kind: "failed"; readonly error: unknown },
-      ): undefined => {
-        sink.reportTerminal(outcome);
-        if (activeEngineTypeOperation === identity.id)
-          activeEngineTypeOperation = null;
+      const quiesce = (): undefined => {
         typeSourceOperations.delete(identity.id);
         sink.reportQuiesced();
         return undefined;
       };
+      const boundaryFailure = (error: unknown): undefined => {
+        sink.reportUnexpectedTerminal(error, error);
+        return quiesce();
+      };
+      const finish = (result: BrowserTypeSourceResult): undefined => {
+        try {
+          if (result.version !== 1)
+            throw new Error("Unsupported type-source result version.");
+          switch (result.kind) {
+            case "Succeeded":
+              if (result.value === null || typeof result.value !== "object")
+                throw new Error("Type-source success has no source.");
+              sink.reportTerminal({ kind: "succeeded", value: result.value });
+              break;
+            case "Failed": {
+              if (typeof result.error !== "string" || typeof result.diagnostic !== "string")
+                throw new Error("Type-source failure has no error or diagnostic.");
+              const error = new Error(result.error);
+              if (result.failureKind === "Expected")
+                sink.reportTerminal({ kind: "failed", error });
+              else if (result.failureKind === "Unexpected")
+                sink.reportUnexpectedTerminal(error, result.diagnostic);
+              else
+                throw new Error("Unknown type-source failure kind.");
+              break;
+            }
+            case "Canceled":
+              switch (result.reason) {
+                case "user":
+                case "superseded":
+                case "disposed":
+                case "feature-observer-failed":
+                case "timeout":
+                case "worker-restarted":
+                  sink.reportTerminal({ kind: "canceled", reason: result.reason });
+                  break;
+                default:
+                  throw new Error("Unknown type-source cancellation reason.");
+              }
+              break;
+            default:
+              throw new Error("Unknown type-source result kind.");
+          }
+        } catch (error: unknown) {
+          sink.reportUnexpectedTerminal(error, error);
+        }
+        return quiesce();
+      };
       return {
         kind: "prepared",
         binding: {
-          requestCancellation: () => {
-            return cancelEngineIfOwned();
-          },
+          requestCancellation: cancelEngine,
           activate: () => {
-            activeEngineTypeOperation = identity.id;
-            let query: Promise<BrowserSource>;
+            let query: Promise<BrowserTypeSourceResult>;
             try {
-              query = dependencies.queryTypeSource(request);
+              query = dependencies.queryTypeSource(identity.id, request);
             } catch (error: unknown) {
-              try {
-                cancelEngineIfOwned();
-              } catch (cancellationError: unknown) {
-                sink.reportUnexpectedFailure(cancellationError);
-              }
-              finish({ kind: "failed", error });
-              return undefined;
+              return boundaryFailure(error);
             }
-            void query.then(
-              value => finish({ kind: "succeeded", value }),
-              (error: unknown) => finish({ kind: "failed", error }),
-            );
+            void query.then(finish, boundaryFailure);
             return undefined;
           },
           abandon: () => {

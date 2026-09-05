@@ -132,10 +132,43 @@ unchanged, rather than selecting or extracting it again.
 This is the API-surface slice in
 [#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
 descriptor adoption for every `type` operation. Existing source/PDB policy
-consumers keep receiving the selected type's descriptor. Runtime and
-source-context acquisition, deep Analysis/decompiler acquisition, and
+consumers keep receiving the selected type's descriptor; the next subsection
+owns source-context opening. Runtime acquisition, deep Analysis/decompiler acquisition, and
 acquired-PDB propagation remain focused successors under
 [#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
+
+### Type source-context opening
+
+When type source enrichment or portable-PDB-path acquisition receives a
+selected supplier descriptor, that exact descriptor opens the PE/PDB context
+and supplies symbol acquisition policy. Its path projection is not an
+alternative opener. Thrown opening or acquisition failures reach the command's
+visible error boundary instead of becoming absent symbols or empty source
+output. A missing mapping does not replace the selected supplier with a new
+path-based forwarding lookup.
+
+Missing symbols, Windows PDBs, and absent SourceLink retain their existing
+non-throwing absence behavior. Descriptorless callers keep the path-based
+compatibility route. Section authorization and the XML-documentation shortcut
+are unchanged. The API supplier remains distinct from any runtime candidate:
+this adoption does not select another runtime image or establish cross-image
+correspondence.
+
+`TypeSourceAcquisition_SourceFilesUsesSelectedOpener`,
+`TypeSourceAcquisition_PdbPathUsesSelectedOpener`,
+`TypeSourceAcquisition_ReportsSelectedOpenFailure`,
+`TypeSourceAcquisition_PreservesMissingSymbols`, and
+`TypeSourceAcquisition_ReportsMalformedDebugData` gate this composition.
+Existing source-printing and selected-supplier policy cases remain its
+neighboring outcome gates.
+
+This is [#5888](https://github.com/richlander/dotnet-inspect/issues/5888)'s
+three-step CLI adoption path: the loaded surface supplies its descriptor,
+source/PDB acquisition consumes it, and existing rendering or command error
+reporting publishes the result. It uses Metadata/SourceLink's existing
+host-neutral descriptor APIs; their contracts remain owned by
+[PDB acquisition](pdb-acquisition.md). Standalone member, browser, runtime
+selection, and deep-body adoption remain separate #4867 successors.
 
 ## Command families
 

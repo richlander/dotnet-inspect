@@ -30,10 +30,7 @@ internal static class ResearchProducerSessionValidator
                 "The population and target resolution name different operations.");
         }
 
-        if (!ValidatePopulation(request.Population)
-            || !ValidateResolution(
-                request.Population,
-                request.Resolution))
+        if (!HasValidIdentityClosure(request.Population, request.Resolution))
         {
             return Reject(
                 ResearchProducerRejectionKind.InvalidIdentityClosure,
@@ -86,7 +83,7 @@ internal static class ResearchProducerSessionValidator
             || !ReferenceEquals(session.Operation, request.Population.Operation)
             || !session.BelongsTo(request.Identity)
             || workItems.Length
-                != request.Resolution.Correspondences.Length * producers.Length
+                != request.WorkBases.Length * producers.Length
             || results.Length != workItems.Length
             || cleanup.Length != acquisitionOrder.Length)
         {
@@ -96,8 +93,7 @@ internal static class ResearchProducerSessionValidator
         var identities = new HashSet<ResearchProducerWorkItemId>(
             ReferenceEqualityComparer.Instance);
         int index = 0;
-        foreach (ResearchTargetCorrespondenceOutcome correspondence in
-            request.Resolution.Correspondences)
+        foreach (ResearchProducerWorkBasis basis in request.WorkBases)
         {
             foreach (ResearchProducerKind producer in producers)
             {
@@ -106,8 +102,8 @@ internal static class ResearchProducerSessionValidator
                 if (!ReferenceEquals(item.Id.Session, session)
                     || !identities.Add(item.Id)
                     || !ReferenceEquals(
-                        item.Correspondence,
-                        correspondence)
+                        item.Basis,
+                        basis)
                     || item.Producer != producer
                     || !ReferenceEquals(result.Item, item)
                     || !ValidateOutcome(
@@ -143,6 +139,11 @@ internal static class ResearchProducerSessionValidator
             cleanup);
         return true;
     }
+
+    internal static bool HasValidIdentityClosure(
+        ResearchAdmittedPopulation population,
+        ResearchTargetResolution resolution)
+        => ValidatePopulation(population) && ValidateResolution(population, resolution);
 
     static bool ValidatePopulation(ResearchAdmittedPopulation population)
     {
@@ -546,7 +547,9 @@ internal static class ResearchProducerSessionValidator
         ResearchProducerWorkItem item,
         ResearchProducerWorkOutcome outcome)
     {
-        bool correspondenceUnavailable = item.Correspondence
+        ResearchTargetCorrespondenceOutcome? correspondence =
+            (item.Basis as ResearchProducerWorkBasis.Correspondence)?.Outcome;
+        bool correspondenceUnavailable = correspondence
             is ResearchTargetCorrespondenceOutcome.CounterpartUnavailable
                 or ResearchTargetCorrespondenceOutcome.DomainUnavailable;
         return outcome switch
@@ -556,18 +559,18 @@ internal static class ResearchProducerSessionValidator
                 && !correspondenceUnavailable
                 && NativeMatches(
                     resolution,
-                    item.Correspondence,
+                    item.Basis,
                     produced.Result),
             ResearchProducerWorkOutcome.ProducedIlBody produced =>
                 item.Producer == ResearchProducerKind.IlBody
                 && !correspondenceUnavailable
                 && NativeMatches(
                     resolution,
-                    item.Correspondence,
+                    item.Basis,
                     produced.Result),
             ResearchProducerWorkOutcome.Unavailable unavailable =>
                 ValidateUnavailable(
-                    item.Correspondence,
+                    item.Basis,
                     correspondenceUnavailable,
                     unavailable.Reason),
             ResearchProducerWorkOutcome.Failed failed =>
@@ -580,7 +583,7 @@ internal static class ResearchProducerSessionValidator
     }
 
     static bool ValidateUnavailable(
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         bool correspondenceUnavailable,
         ResearchProducerUnavailable unavailable)
     {
@@ -598,18 +601,31 @@ internal static class ResearchProducerSessionValidator
         }
 
         ImmutableArray<ResearchComparisonInputId> endpointInputs =
-            correspondence switch
+            basis switch
             {
-                ResearchTargetCorrespondenceOutcome.Paired paired =>
+                ResearchProducerWorkBasis.DesignatedPair designated =>
+                    [
+                        designated.Pair.Before.Request.Input,
+                        designated.Pair.After.Request.Input,
+                    ],
+                ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome: ResearchTargetCorrespondenceOutcome.Paired paired,
+                } =>
                     [
                         paired.Before.Attempt.Request.Input,
                         paired.After.Attempt.Request.Input,
                     ],
-                ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly =>
+                ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome: ResearchTargetCorrespondenceOutcome.BeforeOnly beforeOnly,
+                } =>
                     [beforeOnly.Before.Attempt.Request.Input],
-                ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly =>
+                ResearchProducerWorkBasis.Correspondence
+                {
+                    Outcome: ResearchTargetCorrespondenceOutcome.AfterOnly afterOnly,
+                } =>
                     [afterOnly.After.Attempt.Request.Input],
-                ResearchTargetCorrespondenceOutcome.Absent => [],
                 _ => [],
             };
         return unavailable.Input is { } input
@@ -619,44 +635,49 @@ internal static class ResearchProducerSessionValidator
 
     static bool NativeMatches(
         ResearchTargetResolution resolution,
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         CSharpMemberEndpointComparison result)
     {
-        string subject = SubjectIdentity(resolution, correspondence);
-        return string.Equals(result.Old.Key, subject, StringComparison.Ordinal)
-            && string.Equals(result.New.Key, subject, StringComparison.Ordinal)
+        (string before, string after) = SubjectIdentities(resolution, basis);
+        return string.Equals(result.Old.Key, before, StringComparison.Ordinal)
+            && string.Equals(result.New.Key, after, StringComparison.Ordinal)
             && AbsenceMatches(
-                correspondence,
+                basis,
                 result.Findings.OldInspection,
                 result.Findings.NewInspection);
     }
 
     static bool NativeMatches(
         ResearchTargetResolution resolution,
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         IlMemberEndpointComparison result)
     {
-        string subject = SubjectIdentity(resolution, correspondence);
+        (string before, string after) = SubjectIdentities(resolution, basis);
         return string.Equals(
                 result.Old.Identity,
-                subject,
+                before,
                 StringComparison.Ordinal)
             && string.Equals(
                 result.New.Identity,
-                subject,
+                after,
                 StringComparison.Ordinal)
             && AbsenceMatches(
-                correspondence,
+                basis,
                 result.Findings.OldInspection,
                 result.Findings.NewInspection);
     }
 
     static bool AbsenceMatches<T>(
-        ResearchTargetCorrespondenceOutcome correspondence,
+        ResearchProducerWorkBasis basis,
         FindingInspection<T> oldInspection,
         FindingInspection<T> newInspection)
         where T : notnull
     {
+        if (basis is ResearchProducerWorkBasis.DesignatedPair)
+            return !IsSubjectAbsent(oldInspection) && !IsSubjectAbsent(newInspection);
+
+        var correspondence =
+            ((ResearchProducerWorkBasis.Correspondence)basis).Outcome;
         (bool oldAbsent, bool newAbsent) = correspondence switch
         {
             ResearchTargetCorrespondenceOutcome.Paired => (false, false),
@@ -676,6 +697,25 @@ internal static class ResearchProducerSessionValidator
         {
             Kind: FindingInspectionAbsenceKind.SubjectAbsent,
         };
+
+    static (string Before, string After) SubjectIdentities(
+        ResearchTargetResolution resolution,
+        ResearchProducerWorkBasis basis)
+    {
+        if (basis is ResearchProducerWorkBasis.DesignatedPair designated)
+        {
+            return (
+                ((ResearchTargetOutcome.Resolved)designated.Pair.Before.Outcome)
+                    .Anchor.CanonicalSignature,
+                ((ResearchTargetOutcome.Resolved)designated.Pair.After.Outcome)
+                    .Anchor.CanonicalSignature);
+        }
+
+        string subject = SubjectIdentity(
+            resolution,
+            ((ResearchProducerWorkBasis.Correspondence)basis).Outcome);
+        return (subject, subject);
+    }
 
     static string SubjectIdentity(
         ResearchTargetResolution resolution,
