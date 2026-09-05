@@ -498,9 +498,11 @@ discovery or selection. The application adoption suite exhaustively proves that
 every shipped pack reference resolves; it uses literal expected identities
 rather than deriving expectations from either registry.
 
-This is a deliberate split between two co-located static tables. The compiled
-pack registration shape carries only `PackageSetId`, not package-set
-descriptors, registrations, coordinates, or registry access. Literal
+This is a deliberate split between two co-located static tables. For its
+curated-set contribution, the pack carries only `PackageSetId`, not package-set
+descriptors, registrations, membership coordinates, or registry access.
+Independent core-package references are governed by the separate
+[retrieval-knowledge contract](#retrieval-hints-and-core-packages). Literal
 application gates prove shipped references resolve, while the generic discovery
 gate retains the no-lookup runtime contract without asserting static
 initialization timing.
@@ -958,6 +960,15 @@ follow-up, not currently passing gates. Existing registry and non-friend
 consumer suites are the intended enforcing surfaces; source/resolution
 interpretation remains with its own future consumer gates.
 
+The implementation must also revise
+`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
+Its current blanket exclusion of coordinate sequences is stronger than the
+retained curated-membership boundary and cannot remain the target gate for
+independent core references. The revised property permits those references
+while retaining ID-only curated composition and the existing no-lookup
+behavior. This gate revision is part of the implementation follow-up and is
+also **unverified** here; curated membership authority does not change.
+
 | Gate scenario | Required outcome |
 | --- | --- |
 | Discover and look up unequal-length hint/core sequences on two packs with an overlapping root | Exact pack association, literal spelling, authored order, and complete independent immutable sequences survive; no positional root-to-package mapping is introduced. |
@@ -999,10 +1010,13 @@ Application adoption adds
 `ProductEcosystemPackTests.ShippedManifestMatchesLiteralPolicy` and
 `ProductEcosystemPackTests.EveryPackageSetReferenceResolves` with literal
 descriptor and reference expectations, plus
-`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity` to
-prove the compiled registration and descriptor property shapes carry
+`ProductEcosystemPackTests.ShippedPackManifestCarriesOnlyPackageSetIdentity`.
+That current gate checks that registration and descriptor property shapes carry
 `PackageSetId` and no package-set descriptor, registration, coordinate
-sequence, or registry property.
+sequence, or registry property. Its blanket coordinate exclusion must narrow
+to the curated-membership boundary when independent core references are
+implemented, as required by the [planned gates](#planned-retrieval-knowledge-gates);
+it is not a permanent prohibition on the separate core contribution.
 `EcosystemPackRegistryTests.SyntheticManifestIsDiscoverableInDeclaredOrder`
 constructs and discovers a pack with an unregistered package-set identity,
 gating the generic registry path's no-lookup behavior.
@@ -1091,7 +1105,9 @@ This design does not define:
 - an implication that a demo uses, exhausts, or activates its pack's curated
   package set;
 - automatic execution of every capability exposed by a pack;
-- recommendation, ranking, popularity, or compatibility policy;
+- general recommendation, cross-pack or query-result ranking, popularity, or
+  compatibility policy; the pack-local core-package preference defined above
+  is the limited exception;
 - generic CLI syntax or browser interaction details;
 - registration of ecosystem identities in the lower shared Vocabulary catalog;
   front ends project the application catalog directly, and any future generic
