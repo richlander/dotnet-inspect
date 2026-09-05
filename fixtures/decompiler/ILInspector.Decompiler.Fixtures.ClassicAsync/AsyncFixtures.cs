@@ -428,3 +428,54 @@ public static class AsyncFixtures
     }
 #pragma warning restore CS1998
 }
+
+public readonly record struct AwaitReply(string Response);
+
+public static class NamedAwaitResultSamples
+{
+    public static async Task<string> NamedReceiver(Task<AwaitReply> task)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        return result.Response;
+    }
+
+    public static async Task<string> NamedReceiverTransform(Task<AwaitReply> task)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        return result.Response.Trim();
+    }
+
+    public static async Task<string> UnnamedReceiver(Task<AwaitReply> task)
+    {
+        return (await task.ConfigureAwait(false)).Response;
+    }
+
+    public static async Task<string> ExtraResultUse(Task<AwaitReply> task)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        return result.Response + result.Response;
+    }
+
+    public static async Task<string> ExtraResultEffect(Task<AwaitReply> task)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        GC.KeepAlive(result);
+        return result.Response;
+    }
+
+    public static async Task<string> GuardedResultUse(Task<AwaitReply> task, bool guard)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        if (guard)
+            return result.Response;
+        return "";
+    }
+
+    public static async Task<string> EscapingResultAddress(Task<AwaitReply> task)
+    {
+        AwaitReply result = await task.ConfigureAwait(false);
+        return ReadByRef(ref result);
+    }
+
+    public static string ReadByRef(ref AwaitReply result) => result.Response;
+}

@@ -377,7 +377,7 @@ internal static class YieldBreakLoopIteratorReconstruction
                 if (field.Name == loopFieldName)
                     return new LoadLocal(local, loopType);
                 if (TryGetParameter(kickoff, field.Name, out var index, out var parameter))
-                    return new LoadArgument(index, parameter.Name, parameter.Type);
+                    return new LoadArgument(index, parameter);
                 return null;
             case Constant constant:
                 return new Constant(constant.Value, constant.Type);
