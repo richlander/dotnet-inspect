@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using ILInspector.Findings;
 using ILInspector.MetadataPrimitives;
 
@@ -37,6 +40,27 @@ public sealed class MetadataExtensionFindingsTests
             "(System.Reflection.Metadata.TypeDefinition)",
             property.Anchor.CanonicalSignature,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GenericExtensionSignaturePreservesBinderAndCollisionFreeFallback()
+    {
+        string path = EmitGenericExtensionWithoutParamRow();
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var member = Assert.Single(
+                ExtensionMethodScanner.FindAllExtensions(stream),
+                static member => member.MethodName == "Echo");
+
+            Assert.Equal(
+                "int Echo<arg0>(this int arg0_1)",
+                member.Signature);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -263,6 +287,42 @@ public sealed class MetadataExtensionFindingsTests
             ReturnType = "System.Void",
             CanonicalExtendedType = canonicalExtendedType,
         };
+    }
+
+    static string EmitGenericExtensionWithoutParamRow()
+    {
+        var assemblyName = new AssemblyName("GenericExtensionParameterRows");
+        var assembly = new PersistedAssemblyBuilder(
+            assemblyName,
+            typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType(
+            "GenericExtensions",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        var extension = new CustomAttributeBuilder(
+            typeof(ExtensionAttribute).GetConstructor(Type.EmptyTypes)!,
+            []);
+        type.SetCustomAttribute(extension);
+
+        var method = type.DefineMethod(
+            "Echo",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(int),
+            [typeof(int)]);
+        method.SetCustomAttribute(extension);
+        method.DefineGenericParameters("arg0");
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ret);
+        type.CreateType();
+
+        string path = Path.Combine(
+            Path.GetTempPath(),
+            $"GenericExtensionParameterRows-{Guid.NewGuid():N}.dll");
+        assembly.Save(path);
+        return path;
     }
 
     static ImmutableArray<Finding<T>> Findings<T>(FindingInspection<T> inspection)

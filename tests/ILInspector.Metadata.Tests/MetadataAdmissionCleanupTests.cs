@@ -151,7 +151,7 @@ public sealed class MetadataAdmissionCleanupTests
         };
         startInfo.ArgumentList.Add(
             typeof(MetadataAdmissionCleanupTests).Assembly.Location);
-        startInfo.ArgumentList.Add("-method");
+        startInfo.ArgumentList.Add("--filter-method");
         startInfo.ArgumentList.Add($"*{workerMethod}*");
         startInfo.Environment[ExtensionScannerWorkerVariable] = workerMethod;
 
