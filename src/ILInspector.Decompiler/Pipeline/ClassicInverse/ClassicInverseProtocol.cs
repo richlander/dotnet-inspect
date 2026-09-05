@@ -78,6 +78,14 @@ internal static class ClassicInverseProtocol
             case Block:
                 return ClassicInverseProtocolRule.Transparent("block-sequence");
 
+            case StoreLocal store when ReferenceEquals(
+                store, candidate.InlinedAwaitReceiver?.RawStore):
+                return ClassicInverseProtocolRule.Frame("await-result-receiver-store", 0);
+
+            case LoadLocalAddress address when ReferenceEquals(
+                address, candidate.InlinedAwaitReceiver?.RawAddress):
+                return ClassicInverseProtocolRule.Owned("await-result-receiver-address");
+
             case TryCatch tryCatch when IsBuilderCompletionShell(tryCatch, shell):
                 return ClassicInverseProtocolRule.Container("builder-completion-try");
 

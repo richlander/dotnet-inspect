@@ -487,8 +487,12 @@ internal static class ClassicInverseRecipes
             return null;
         }
         StoreLocal? store = stores.Count == 0 ? null : stores[^1];
-        if (store is null
-            || !ProvesCompletionTransfer(
+        if (store is null)
+        {
+            return TryNamedAwaitReturn(rawExecution, planning, shell, setResult,
+                result, getResults[0], recipeIndex, budget);
+        }
+        if (!ProvesCompletionTransfer(
                 rawExecution,
                 store,
                 setResult,
@@ -499,6 +503,28 @@ internal static class ClassicInverseRecipes
         {
             ResultLocal = result.Index,
         };
+        if (IsMemberReceiver(getResults[0]) && store.Parent is Block continuation)
+        {
+            bool proven = TryRawAwaitReceiver(rawExecution, continuation, store, setResult,
+                getResults[0], budget, out StoreLocal? rawReceiver,
+                out StoreLocal rawProjection, out IrNode? rawUse);
+            if (rawReceiver is not null)
+            {
+                if (!proven
+                    || rawUse is not LoadLocalAddress rawAddress
+                    || rawReceiver.Index < rawExecution.LocalNames.Length
+                        && rawExecution.LocalNames[rawReceiver.Index] is not null
+                    || !(rawReceiver.Type.DeclaredValueTypeHint == ValueTypeHint.ValueType
+                        || rawExecution.TypeShapes.GetValueOrDefault(rawReceiver.Type) == TypeShape.ValueType)
+                    || !ClassicInverseExpressionRules.SameTree(rawReceiver.Value, getResults[0], budget)
+                    || !ClassicInverseExpressionRules.SameTree(rawProjection.Value, store.Value, budget,
+                        rawAddress, getResults[0]))
+                {
+                    return null;
+                }
+                candidate.InlinedAwaitReceiver = new(rawReceiver, rawAddress, getResults[0]);
+            }
+        }
         var rewriter = new ClassicInverseRewriter(
             planning,
             shell,
@@ -514,6 +540,204 @@ internal static class ClassicInverseRecipes
         candidate.Claim(store, ret, ClassicInverseRealizationRule.ResultStore);
         return candidate;
     }
+
+    static ClassicInverseCandidate? TryNamedAwaitReturn(
+        IrFunction raw,
+        ClassicInversePlanningView planning,
+        ClassicInverseShellFacts shell,
+        Call setResult,
+        LoadLocal completionResult,
+        Call getResult,
+        RecipeIndex index,
+        ClassicInverseBudget budget)
+    {
+        IrFunction execution = planning.ExecutionBody;
+        if (getResult.Parent is not StoreLocal resultStore
+            || !ReferenceEquals(resultStore.Value, getResult)
+            || resultStore.Index == completionResult.Index
+            || resultStore.Index < 0
+            || resultStore.Index >= execution.LocalNames.Length
+            || execution.LocalNames[resultStore.Index] is not { } name
+            || resultStore.Index >= raw.LocalNames.Length
+            || raw.LocalNames[resultStore.Index] != name
+            || !Equals(resultStore.Type, getResult.Callee.ReturnType)
+            || resultStore.Parent is not Block continuation
+            || continuation.Children is not [var first, StoreLocal returnStore]
+            || !ReferenceEquals(first, resultStore)
+            || returnStore.Index != completionResult.Index
+            || !ProvesCompletionTransfer(raw, returnStore, setResult, budget)
+            || !index.TryFind<IrNode>(execution.Body,
+                node => node is StoreLocal or LoadLocal or LoadLocalAddress,
+                budget, out var localNodes)
+            || !OwnsNamedResultLocals(localNodes, resultStore, returnStore,
+                completionResult, budget, out _)
+            || !TryRawAwaitReceiver(raw, continuation, returnStore, setResult,
+                getResult, budget, out StoreLocal? rawResult, out _, out _)
+            || rawResult is null
+            || rawResult.Index != resultStore.Index
+            || !Equals(rawResult.Type, resultStore.Type)
+            || rawResult.SourceOffset != resultStore.SourceOffset)
+        {
+            return null;
+        }
+
+        var candidate = new ClassicInverseCandidate("classic-await-return")
+        {
+            ResultLocal = completionResult.Index,
+        };
+        var locals = new ClassicInverseLocalTable();
+        int local = locals.Add(resultStore.Type, name);
+        candidate.Locals = locals.Types;
+        candidate.LocalNames = locals.Names;
+        candidate.SynthesizedLocalNames = locals.SynthesizedNames;
+        candidate.MapLocal(resultStore.Index, local);
+        var rewriter = new ClassicInverseRewriter(planning, shell, candidate,
+            budget, index.AwaitedOperands);
+        if (rewriter.Rewrite(getResult) is not AwaitExpression awaited
+            || rewriter.Rewrite(returnStore.Value) is not IrExpression projection)
+        {
+            return null;
+        }
+
+        var outputStore = new StoreLocal(local, resultStore.Type, awaited);
+        var outputReturn = new Return(projection);
+        candidate.Statements.Add(outputStore);
+        candidate.Statements.Add(outputReturn);
+        candidate.Claim(resultStore, outputStore, ClassicInverseRealizationRule.ResultStore);
+        candidate.Claim(returnStore, outputReturn, ClassicInverseRealizationRule.ResultStore);
+        return candidate;
+    }
+
+    static bool TryRawAwaitReceiver(
+        IrFunction raw,
+        Block continuation,
+        StoreLocal returnStore,
+        Call setResult,
+        Call getResult,
+        ClassicInverseBudget budget,
+        out StoreLocal? result,
+        out StoreLocal projection,
+        out IrNode? use)
+    {
+        result = null;
+        projection = null!;
+        use = null;
+        Block? rawContinuation = null;
+        Call? rawSetResult = null;
+        var rawLocals = new List<IrNode>();
+        foreach (IrNode node in raw.Body.Descendants)
+        {
+            if (!budget.Charge())
+                return false;
+            if (node is Block block && block.StartOffset == continuation.StartOffset)
+            {
+                if (rawContinuation is not null)
+                    return false;
+                rawContinuation = block;
+            }
+            if (node is Call call && call.SourceOffset == setResult.SourceOffset)
+            {
+                if (rawSetResult is not null || call.Callee != setResult.Callee)
+                    return false;
+                rawSetResult = call;
+            }
+            if (node is Call resultCall && resultCall.SourceOffset == getResult.SourceOffset
+                && resultCall.Parent is StoreLocal temporary && temporary.Index != returnStore.Index)
+            {
+                result = temporary;
+            }
+            if (node is StoreLocal or LoadLocal or LoadLocalAddress)
+                rawLocals.Add(node);
+        }
+        if (rawContinuation?.Children is not
+                [StoreLocal rawResult, StoreLocal rawReturn, Leave]
+            || rawSetResult?.Arguments is not [_, LoadLocal rawCompletionResult]
+            || rawResult.Index == rawReturn.Index
+            || rawResult.Index < 0
+            || rawReturn.Index != returnStore.Index
+            || !Equals(rawReturn.Type, returnStore.Type)
+            || rawReturn.SourceOffset != returnStore.SourceOffset
+            || rawResult.Value is not Call rawGetResult
+            || !Equals(rawResult.Type, getResult.Callee.ReturnType)
+            || rawGetResult.SourceOffset != getResult.SourceOffset
+            || rawGetResult.Callee != getResult.Callee
+            || !OwnsNamedResultLocals(rawLocals, rawResult, rawReturn,
+                rawCompletionResult, budget, out use))
+        {
+            return false;
+        }
+        result = rawResult;
+        projection = rawReturn;
+        return true;
+    }
+
+    static bool OwnsNamedResultLocals(
+        IReadOnlyList<IrNode> nodes,
+        StoreLocal resultStore,
+        StoreLocal returnStore,
+        LoadLocal completionResult,
+        ClassicInverseBudget budget,
+        out IrNode? resultUse)
+    {
+        resultUse = null;
+        if (completionResult.Index != returnStore.Index)
+            return false;
+        foreach (IrNode node in nodes)
+        {
+            if (!budget.Charge())
+                return false;
+            if (node is StoreLocal store)
+            {
+                if (store.Index == resultStore.Index && !ReferenceEquals(store, resultStore)
+                    || store.Index == returnStore.Index && !ReferenceEquals(store, returnStore))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            int local = node is LoadLocal load ? load.Index : ((LoadLocalAddress)node).Index;
+            TypeRef type = node is LoadLocal value ? value.Type : ((LoadLocalAddress)node).Type;
+            bool inProjection = false;
+            for (IrNode? current = node; current is not null; current = current.Parent)
+            {
+                if (!budget.Charge())
+                    return false;
+                if (ReferenceEquals(current, returnStore.Value))
+                {
+                    inProjection = true;
+                    break;
+                }
+            }
+            if (local == resultStore.Index)
+            {
+                if (resultUse is not null || !inProjection || !Equals(type, resultStore.Type))
+                    return false;
+                resultUse = node;
+            }
+            else if (inProjection)
+            {
+                return false;
+            }
+            if (local == returnStore.Index
+                && (!ReferenceEquals(node, completionResult) || !Equals(type, returnStore.Type)))
+            {
+                return false;
+            }
+        }
+
+        return resultUse is not null && IsMemberReceiver(resultUse);
+    }
+
+    static bool IsMemberReceiver(IrNode node)
+        => node.Parent switch
+        {
+            LoadProperty property => ReferenceEquals(property.Instance, node),
+            LoadField field => ReferenceEquals(field.Instance, node),
+            Call { Callee.HasThis: true } call => call.Arguments.Count > 0
+                && ReferenceEquals(call.Arguments[0], node),
+            _ => false,
+        };
 
     // ---- Recipe: await a void-returning operation -----------------------
 
@@ -655,6 +879,7 @@ internal static class ClassicInverseRecipes
 
         candidate.Locals = locals.Types;
         candidate.LocalNames = locals.Names;
+        candidate.SynthesizedLocalNames = locals.SynthesizedNames;
         candidate.MapHoistedLocal(hoist.Field, firstIndex);
         candidate.MapLocal(firstResultStore.Index, firstIndex);
         candidate.MapLocal(secondStore.Index, secondIndex);
@@ -1531,11 +1756,12 @@ internal static class ClassicInverseRecipes
         };
         var locals = new ClassicInverseLocalTable();
         TypeRef sumType = accumulatorStore.Type;
-        int sumIndex = locals.Add(sumType, "sum");
-        int taskIndex = locals.Add(taskType, "task");
+        int sumIndex = locals.AddSynthesized(sumType, "sum");
+        int taskIndex = locals.AddSynthesized(taskType, "task");
 
         candidate.Locals = locals.Types;
         candidate.LocalNames = locals.Names;
+        candidate.SynthesizedLocalNames = locals.SynthesizedNames;
         candidate.MapHoistedLocal(loopAccumulator, sumIndex);
         candidate.MapLocal(accumulatorStore.Index, sumIndex);
         candidate.MapLocal(finalResult.Index, sumIndex);
@@ -2310,16 +2536,28 @@ internal sealed class ClassicInverseLocalTable
         ImmutableArray.CreateBuilder<TypeRef>();
     readonly ImmutableArray<string?>.Builder _names =
         ImmutableArray.CreateBuilder<string?>();
+    readonly ImmutableArray<string?>.Builder _synthesizedNames =
+        ImmutableArray.CreateBuilder<string?>();
 
     internal int Add(TypeRef type, string? name)
     {
         int index = _types.Count;
         _types.Add(type);
         _names.Add(name);
+        _synthesizedNames.Add(null);
+        return index;
+    }
+
+    internal int AddSynthesized(TypeRef type, string name)
+    {
+        int index = Add(type, null);
+        _synthesizedNames[index] = name;
         return index;
     }
 
     internal ImmutableArray<TypeRef> Types => _types.ToImmutable();
 
     internal ImmutableArray<string?> Names => _names.ToImmutable();
+
+    internal ImmutableArray<string?> SynthesizedNames => _synthesizedNames.ToImmutable();
 }

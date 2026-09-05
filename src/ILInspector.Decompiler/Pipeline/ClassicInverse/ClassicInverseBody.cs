@@ -191,6 +191,14 @@ internal sealed record ClassicInverseLoadLocalNode(int Index, TypeRef Type)
     internal override string Signature => $"ldloc[{Index}:{TypeText(Type)}]";
 }
 
+internal sealed record ClassicInverseLoadLocalAddressNode(int Index, TypeRef Type)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new LoadLocalAddress(Index, Type);
+
+    internal override string Signature => $"ldloca[{Index}:{TypeText(Type)}]";
+}
+
 internal sealed record ClassicInverseConstantNode(object? Value, TypeRef Type)
     : ClassicInverseBodyNode
 {
@@ -629,6 +637,9 @@ internal static class ClassicInverseBodyCapture
 
             case LoadLocal load:
                 return new ClassicInverseLoadLocalNode(load.Index, load.Type);
+
+            case LoadLocalAddress load:
+                return new ClassicInverseLoadLocalAddressNode(load.Index, load.Type);
 
             case Constant constant:
                 return new ClassicInverseConstantNode(

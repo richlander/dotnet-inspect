@@ -148,55 +148,5 @@ internal sealed partial class ClassicInverseLoweringProof
         ClassicInverseBudget budget,
         LoadStackSlot? joined = null,
         Coalesce? replacement = null)
-    {
-        if (!budget.Charge())
-            return false;
-        if (ReferenceEquals(raw, joined))
-            return ReferenceEquals(planning, replacement);
-        if (raw.SourceOffset < 0 || raw.SourceOffset != planning.SourceOffset)
-        {
-            return false;
-        }
-        if (raw is Comparison comparison
-            && ClassicInverseExpressionRules.TryMatchBooleanNegation(comparison, planning, budget))
-        {
-            if (planning is LogicalNot not)
-                return SameCoalescingExpression(comparison.Left, not.Operand, budget);
-            var inner = (Comparison)comparison.Left;
-            var inverted = (Comparison)planning;
-            return SameCoalescingExpression(inner.Left, inverted.Left, budget)
-                && SameCoalescingExpression(inner.Right, inverted.Right, budget);
-        }
-        if (raw.Children.Count != planning.Children.Count)
-            return false;
-
-        bool same = (raw, planning) switch
-        {
-            (LoadLocalAddress left, LoadLocalAddress right) =>
-                left.Index == right.Index && Equals(left.Type, right.Type),
-            (LoadLocal left, LoadLocal right) =>
-                left.Index == right.Index && Equals(left.Type, right.Type),
-            (Call { ConstrainedTo: null } call, LoadProperty property) =>
-                call.Callee.Name.StartsWith("get_", StringComparison.Ordinal)
-                && call.Callee == property.Accessor
-                && call.IsVirtual == property.IsVirtual
-                && call.Callee.HasThis == property.HasInstance,
-            (Constant left, Constant right) =>
-                ClassicInverseRealizationRules.PayloadEquals(left, right)
-                || ClassicInverseExpressionRules.IsRetypedBooleanArgument(left, right),
-            _ => raw.GetType() == planning.GetType()
-                && ClassicInverseRealizationRules.PayloadEquals(raw, planning),
-        };
-        if (!same)
-            return false;
-        for (int i = 0; i < raw.Children.Count; i++)
-        {
-            if (!SameCoalescingExpression(raw.Children[i], planning.Children[i], budget,
-                    joined, replacement))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
+        => ClassicInverseExpressionRules.SameTree(raw, planning, budget, joined, replacement);
 }

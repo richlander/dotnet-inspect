@@ -14,6 +14,7 @@ internal sealed record ClassicInversePlan
         ClassicInverseBodyNode Body,
         ImmutableArray<TypeRef> Locals,
         ImmutableArray<string?> LocalNames,
+        ImmutableArray<string?> SynthesizedLocalNames,
         IrTypeFactSnapshot TypeFacts,
         int SourceOffset,
         ImmutableArray<ClassicInversePhysicalRegion> PhysicalPartition,
@@ -24,6 +25,7 @@ internal sealed record ClassicInversePlan
         this.Body = Body;
         this.Locals = Locals;
         this.LocalNames = LocalNames;
+        this.SynthesizedLocalNames = SynthesizedLocalNames;
         this.TypeFacts = TypeFacts;
         this.SourceOffset = SourceOffset;
         this.PhysicalPartition = PhysicalPartition;
@@ -40,6 +42,8 @@ internal sealed record ClassicInversePlan
     internal ImmutableArray<TypeRef> Locals { get; }
 
     internal ImmutableArray<string?> LocalNames { get; }
+
+    internal ImmutableArray<string?> SynthesizedLocalNames { get; }
 
     /// <summary>
     /// Type facts observed on the execution body, snapshotted as immutable
@@ -105,6 +109,7 @@ internal sealed record ClassicInversePlan
                 $"offset={SourceOffset}",
                 $"locals={string.Join(";", Locals.Select(static l => l.ToDisplayString()))}",
                 $"names={string.Join(";", LocalNames.Select(static n => n ?? ""))}",
+                $"synthesizedNames={string.Join(";", SynthesizedLocalNames.Select(static n => n ?? ""))}",
                 $"body={Body.Signature}",
                 $"typefacts={TypeFacts.Signature}",
                 $"physical={ClassicInverseSignature.Join(PhysicalPartition.Select(static r => r.Signature))}",

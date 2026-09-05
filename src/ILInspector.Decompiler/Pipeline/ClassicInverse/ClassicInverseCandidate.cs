@@ -43,6 +43,8 @@ internal sealed class ClassicInverseCandidate
 
     internal ImmutableArray<string?> LocalNames { get; set; } = [];
 
+    internal ImmutableArray<string?> SynthesizedLocalNames { get; set; } = [];
+
     internal IReadOnlyList<ClassicInverseClaim> Claims => _claims;
 
     internal IReadOnlyDictionary<IrNode, string> DeclaredProtocol => _protocol;
@@ -84,6 +86,8 @@ internal sealed class ClassicInverseCandidate
     /// authorized without it.
     /// </summary>
     internal ClassicInverseLoopStorage? LoopStorage { get; set; }
+
+    internal ClassicInverseReceiverTransfer? InlinedAwaitReceiver { get; set; }
 
     /// <summary>False once a recipe hits a state its own rules do not allow.</summary>
     internal bool Sound { get; private set; } = true;
@@ -189,6 +193,11 @@ internal sealed record ClassicInverseControlRegion(
     string Rule,
     ImmutableArray<IrNode> SourceRoots,
     IrNode OutputContext);
+
+internal sealed record ClassicInverseReceiverTransfer(
+    StoreLocal RawStore,
+    LoadLocalAddress RawAddress,
+    Call PlanningValue);
 
 /// <summary>
 /// The exact state-machine fields one foreach recipe proved: the hoisted

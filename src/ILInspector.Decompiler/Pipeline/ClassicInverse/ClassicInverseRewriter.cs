@@ -112,8 +112,13 @@ internal sealed class ClassicInverseRewriter
                 when _candidate.LocalRemap.TryGetValue(local.Index, out int mapped):
                 return new LoadLocal(mapped, local.Type);
 
+            case LoadLocalAddress address
+                when _candidate.LocalRemap.TryGetValue(address.Index, out int mapped):
+                return new LoadLocalAddress(mapped, address.Type);
+
             case LoadArgument { Index: 0 }:
             case LoadLocal:
+            case LoadLocalAddress:
             case LoadStackSlot:
             case StoreStackSlot:
                 return null;

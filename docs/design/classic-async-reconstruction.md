@@ -322,12 +322,29 @@ raised wrapper can be structural only under an explicit closed rule whose
 children and separately consumed effects remain accounted.
 Shell-owned state and awaiter locals are protocol, not user values. A raw local
 read leaves the cross-space value stream only when the recipe positively
-realizes it as one of its own transfers — today, exactly the compiler's hoist of
-a recipe temporary into the state machine, where the recipe mapped both the
-hoisted field and the local onto one output local. Every other raw local use
+realizes it as one of its own transfers: the compiler's hoist of a recipe
+temporary into the state machine, or an unnamed awaited value's proven
+adjacent receiver temporary. A hoist maps its field and local onto one output
+local. An inlined receiver must retain the exact awaited value and member
+projection, with one raw definition and one typed address use; only that
+temporary's store frame and address become protocol. Every other raw local use
 keeps its planning correspondence and its semantic receipt, so a value a
 prerequisite pass drops is visible rather than silently exempt; the typed
 planning-to-output realization remains owned by the recipe lockstep.
+
+The existing single-await-return recipe retains an artifact-named result
+receiver as a local rather than discarding its name to inline it. Its definition
+and return projection are adjacent on the proven continuation in both spaces,
+with one receiver use, no escaping address or additional write, and the exact
+successful completion transfer. Both statements carry ordinary semantic
+realizations; a source name is not authorization to bypass any ledger.
+
+The plan keeps artifact-backed `LocalNames` separate from synthesized naming
+preferences, including loop-role `sum` and `task`. Both immutable channels
+participate in plan equality and publication. Materialized argument reads bind
+to the kickoff's existing parameter binders during application; the detached
+plan does not retain mutable parameter objects. Name allocation remains owned
+by [name and symbol preservation](decompiler-symbol-preservation.md).
 
 The kickoff shell is an ordered, reachable program, not an inventory of method
 names. Raw and planning kickoffs must agree on the admitted single entry block,
@@ -787,6 +804,12 @@ Release gates:
 | `ClassicInverseRejectsLostCoalescingConditionOrEffect` | Proposed output drops the coalescing condition or fallback effect. |
 | `ClassicInverseCoalescingPlanIsDetached` | A published coalesce retains mutable operands or a callee acquisition guard. |
 | `ClassicInverseExpressionBridgeBudgetRemainsLoadBearing` | Expression correspondence exhaustion becomes decline or reconstruction instead of `Failed(BudgetExhausted)`. |
+| `LoopRoleNamesAreSynthesized` and `ClassicInversePlanKeepsSynthesizedNamesSeparate` | Loop-role preferences become artifact names or disappear from plan equality/publication. |
+| `SingleAwaitPreservesNamedResultReceiver` and `ClassicInverseNamedResultPlanPreservesDetachedBinding` | A supported named receiver loses its exact local, typed address, or detached binding. |
+| `SingleAwaitUnownedNamedResultDeclines` and `SingleAwaitNamedResultRejectsUnownedControl` | Extra uses, effects, escaped addresses, or unowned completion/guard/filter control license reconstruction. |
+| `ClassicInverseNamedResultRawOverwriteCannotBeHealedByPlanning` and `ClassicInverseUnnamedReceiverAddressCannotBeHealedByPlanning` | Planning hides a raw overwrite, different receiver slot, or changed receiver type. |
+| `ClassicInverseAppliedArgumentsKeepKickoffBinders` | Reconstructed argument reads lose the kickoff's parameter binders during application. |
+| `ClassicInverseNamedResultBudgetRemainsLoadBearing` | Named or unnamed receiver proof exhaustion becomes ordinary decline or reconstruction. |
 
 `BooleanConstantComparison_PreservesExpressionOrigin`, the coalescing-store
 cases in `BooleanFoldingSourceOffsetTests`, and

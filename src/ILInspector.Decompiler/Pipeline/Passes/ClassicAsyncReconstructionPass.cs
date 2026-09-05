@@ -136,9 +136,23 @@ public sealed class ClassicAsyncReconstructionPass : IIrPass
         // The plan is detached: the body is materialized fresh here, from
         // immutable values, after every request tree has been released.
         BlockContainer body = plan.MaterializeBody();
+        foreach (LoadArgument load in body.Descendants.OfType<LoadArgument>().ToList())
+        {
+            int parameterIndex = load.Index - (function.Signature.HasThis ? 1 : 0);
+            if (parameterIndex < 0 || parameterIndex >= function.Signature.Parameters.Length)
+                continue;
+            var bound = new LoadArgument(load.Index, function.Signature.Parameters[parameterIndex])
+            {
+                IsDynamic = load.IsDynamic,
+                ArrayElementIsDynamic = load.ArrayElementIsDynamic,
+            };
+            bound.InheritSourceOffset(load);
+            load.ReplaceWith(bound);
+        }
 
         function.MergeTypeFactsFrom(plan.TypeFacts);
-        function.ResetLocals(plan.Locals, plan.LocalNames);
+        function.ResetLocals(plan.Locals, plan.LocalNames,
+            synthesizedNames: plan.SynthesizedLocalNames);
         function.RequiresAsyncBodyModifier = true;
         function.Body.DetachChildren();
         foreach (var block in body.Blocks.ToList())

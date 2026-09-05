@@ -3,6 +3,63 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Closed representation changes shared by value and coalescing correspondence.</summary>
 internal static class ClassicInverseExpressionRules
 {
+    internal static bool SameTree(
+        IrNode raw,
+        IrNode planning,
+        ClassicInverseBudget budget,
+        IrNode? sourceReplacement = null,
+        IrNode? outputReplacement = null)
+    {
+        if (!budget.Charge())
+            return false;
+        if (ReferenceEquals(raw, sourceReplacement))
+            return ReferenceEquals(planning, outputReplacement);
+        if (raw.SourceOffset < 0 || raw.SourceOffset != planning.SourceOffset)
+            return false;
+        if (raw is Comparison comparison
+            && TryMatchBooleanNegation(comparison, planning, budget))
+        {
+            if (planning is LogicalNot not)
+                return SameTree(comparison.Left, not.Operand, budget,
+                    sourceReplacement, outputReplacement);
+            var inner = (Comparison)comparison.Left;
+            var inverted = (Comparison)planning;
+            return SameTree(inner.Left, inverted.Left, budget, sourceReplacement, outputReplacement)
+                && SameTree(inner.Right, inverted.Right, budget, sourceReplacement, outputReplacement);
+        }
+        if (raw.Children.Count != planning.Children.Count)
+            return false;
+
+        bool same = (raw, planning) switch
+        {
+            (LoadLocalAddress left, LoadLocalAddress right) =>
+                left.Index == right.Index && Equals(left.Type, right.Type),
+            (LoadLocal left, LoadLocal right) =>
+                left.Index == right.Index && Equals(left.Type, right.Type),
+            (Call { ConstrainedTo: null } call, LoadProperty property) =>
+                call.Callee.Name.StartsWith("get_", StringComparison.Ordinal)
+                && call.Callee == property.Accessor
+                && call.IsVirtual == property.IsVirtual
+                && call.Callee.HasThis == property.HasInstance,
+            (Constant left, Constant right) =>
+                ClassicInverseRealizationRules.PayloadEquals(left, right)
+                || IsRetypedBooleanArgument(left, right),
+            _ => raw.GetType() == planning.GetType()
+                && ClassicInverseRealizationRules.PayloadEquals(raw, planning),
+        };
+        if (!same)
+            return false;
+        for (int i = 0; i < raw.Children.Count; i++)
+        {
+            if (!SameTree(raw.Children[i], planning.Children[i], budget,
+                    sourceReplacement, outputReplacement))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     internal static bool TryMatchBooleanNegation(
         Comparison comparison,
         IrNode replacement,

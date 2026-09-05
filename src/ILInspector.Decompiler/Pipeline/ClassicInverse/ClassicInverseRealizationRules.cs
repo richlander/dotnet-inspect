@@ -393,7 +393,8 @@ internal static class ClassicInverseRealizationRules
                         local.Index,
                         out int mapped)
                     && output is LoadLocal outputLocal
-                    && outputLocal.Index == mapped)
+                    && outputLocal.Index == mapped
+                    && Equals(outputLocal.Type, local.Type))
                 {
                     return true;
                 }
@@ -401,12 +402,24 @@ internal static class ClassicInverseRealizationRules
                 return false;
             }
 
+            case LoadLocalAddress address:
+                if (context.Candidate.LocalRemap.TryGetValue(address.Index, out int addressIndex)
+                    && output is LoadLocalAddress outputAddress
+                    && outputAddress.Index == addressIndex
+                    && Equals(outputAddress.Type, address.Type))
+                {
+                    return true;
+                }
+                failure = $"local address {address.Index} has no declared realization";
+                return false;
+
             case StoreLocal store when output is StoreLocal outputStore:
             {
                 if (!context.Candidate.LocalRemap.TryGetValue(
                         store.Index,
                         out int mapped)
-                    || mapped != outputStore.Index)
+                    || mapped != outputStore.Index
+                    || !Equals(store.Type, outputStore.Type))
                 {
                     failure = $"store to local {store.Index} has no declared realization";
                     return false;

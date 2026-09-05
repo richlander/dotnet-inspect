@@ -1,5 +1,7 @@
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.DecompilerHarness;
+using DotnetInspector.Fixtures;
 using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Decompiler.Tests;
@@ -9,6 +11,75 @@ public class ClassicAsyncReconstructionHonestyTests
 {
     const string FixtureType =
         "ILInspector.Decompiler.Fixtures.ClassicAsync.AsyncFixtures";
+    const string NamedResultFixtureType =
+        "ILInspector.Decompiler.Fixtures.ClassicAsync.NamedAwaitResultSamples";
+
+    [Theory]
+    [InlineData("NamedReceiver", "return result.Response;")]
+    [InlineData("NamedReceiverTransform", "return result.Response.Trim();")]
+    public void SingleAwaitPreservesNamedResultReceiver(
+        string methodName,
+        string expectedReturn)
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        var function = ImportAndRaise(source, methodName, NamedResultFixtureType);
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Equal("result", Assert.Single(function.LocalNames));
+        Assert.Contains("AwaitReply result = await task.ConfigureAwait(false);", result.Output);
+        Assert.Contains(expectedReturn, result.Output);
+        Assert.Single(function.Descendants.OfType<AwaitExpression>());
+        Assert.All(function.Descendants.OfType<LoadLocalAddress>(), address => Assert.Equal(0, address.Index));
+    }
+
+    [Fact]
+    public void SingleAwaitUnnamedReceiverRemainsReconstructed()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        var function = ImportAndRaise(source, "UnnamedReceiver", NamedResultFixtureType);
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.True(result.RequiresAsyncBodyModifier);
+        Assert.Contains("return (await task.ConfigureAwait(false)).Response;", result.Output);
+        Assert.DoesNotContain("AwaitReply result =", result.Output);
+    }
+
+    [Theory]
+    [InlineData("ExtraResultUse")]
+    [InlineData("ExtraResultEffect")]
+    [InlineData("GuardedResultUse")]
+    [InlineData("EscapingResultAddress")]
+    public void SingleAwaitUnownedNamedResultDeclines(string methodName)
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        var function = ImportAndRaise(source, methodName, NamedResultFixtureType);
+        var result = CSharpPrinter.Print(function);
+
+        Assert.Equal(DecompilationFidelity.Partial, result.Fidelity);
+        Assert.False(result.RequiresAsyncBodyModifier);
+        Assert.Contains(".Start<", result.Output);
+        Assert.DoesNotContain(function.Diagnostics, diagnostic => diagnostic.Id == DiagnosticIds.InternalError);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void SingleAwaitNamedResultAndNeighborCompileBack()
+    {
+        var results = FidelityCheck.Evaluate(
+            FixtureCatalog.DecompilerClassicAsync.AssemblyPath(),
+            type => type == NamedResultFixtureType,
+            method => method.Method is "NamedReceiver" or "NamedReceiverTransform" or "UnnamedReceiver");
+
+        Assert.Equal(3, results.Count);
+        Assert.All(results, result => Assert.True(
+            result.Status is FidelityCheck.CompileBackStatus.Exact
+                or FidelityCheck.CompileBackStatus.OpcodeDiff
+                or FidelityCheck.CompileBackStatus.OperandDiff,
+            $"{result.Method}: {result.Status}: {result.Detail}"));
+    }
 
     [Theory]
     [InlineData("SequentialWithFieldStore")]
@@ -201,17 +272,36 @@ public class ClassicAsyncReconstructionHonestyTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void LoopRoleNamesAreSynthesized()
+    {
+        using var source = OpenClassicFixture(readSymbols: true);
+        IrFunction function = ImportAndRaise(
+            source,
+            "AwaitInLoop");
+
+        DecompilerResult result = CSharpPrinter.Print(function);
+
+        Assert.Equal([null, null], function.LocalNames);
+        Assert.Equal(["sum", "task"], function.SynthesizedLocalNames);
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains(
+            "int sum = 0;",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "foreach (Task<int> task in tasks)",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "return sum;",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     static MetadataSource OpenClassicFixture(bool readSymbols)
     {
-        string configuration =
-            new DirectoryInfo(AppContext.BaseDirectory).Name;
-        string path = Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory,
-            "..",
-            "..",
-            "ILInspector.Decompiler.Fixtures.ClassicAsync",
-            configuration,
-            "ILInspector.Decompiler.Fixtures.ClassicAsync.dll"));
+        string path = FixtureCatalog.DecompilerClassicAsync.AssemblyPath();
         return readSymbols
             ? MetadataSource.Open(path)
             : MetadataSource.OpenWithoutSymbols(path);
@@ -219,11 +309,12 @@ public class ClassicAsyncReconstructionHonestyTests
 
     static IrFunction ImportAndRaise(
         MetadataSource source,
-        string methodName)
+        string methodName,
+        string typeName = FixtureType)
     {
         IrFunction? function = IrImporter.Import(
             source,
-            FixtureType,
+            typeName,
             methodName);
         Assert.NotNull(function);
 

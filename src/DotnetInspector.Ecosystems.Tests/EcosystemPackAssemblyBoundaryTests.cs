@@ -30,6 +30,9 @@ public sealed class EcosystemPackAssemblyBoundaryTests
                 .Where(reference =>
                     reference.Name?.StartsWith(
                         "DotnetInspector.",
+                        StringComparison.Ordinal) == true
+                    || reference.Name?.StartsWith(
+                        "ILInspector.",
                         StringComparison.Ordinal) == true)
                 .Select(Assembly.Load),
         ];

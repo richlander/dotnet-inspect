@@ -136,6 +136,14 @@ internal sealed class ClassicInverseAccountant
             _claimByOutput[claim.Output] = claim;
         }
 
+        if (_candidate.InlinedAwaitReceiver is { } receiver
+            && (!_claimBySource.TryGetValue(receiver.PlanningValue, out var receiverClaim)
+                || receiverClaim.Rule != ClassicInverseRealizationRule.AwaitResult))
+        {
+            return Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                "the inlined receiver has no realization of its exact awaited value");
+        }
+
         if (!AccountKickoff())
             return _terminal!;
         if (!VerifyAncestorPaths())
@@ -171,6 +179,7 @@ internal sealed class ClassicInverseAccountant
             blueprint,
             _candidate.Locals,
             _candidate.LocalNames,
+            _candidate.SynthesizedLocalNames,
             _planning.ExecutionBody.CaptureTypeFacts(),
             _request.KickoffSourceOffset,
             [.. _rawRegions],
