@@ -1313,11 +1313,11 @@ progress.
 
 #### Resolver-lineage continuations
 
-> **Status: design-only; product adoption is unverified.** #5801 supplies
-> compiled evidence for the existing behavior, not this representation.
-> #5666 owns this focused decision; #5274 tracks adoption and retirement.
-> Existing policies retain their transitional behavior until their adoption
-> slices land.
+> **Status: Metadata support implemented; production adoption pending.**
+> #5953 carries occurrences through Metadata; Services/CLI and Queries/Browser
+> adoption remain separate steps. #5801 supplies compiled evidence for the
+> prior behavior, not the replacement. #5666 owns this focused decision;
+> #5274 tracks adoption and retirement.
 
 **Claim:** a selected assembly occurrence retains the policy-issued binding
 context required for its subsequent references, without changing the answers
@@ -1476,10 +1476,13 @@ advance the token merely for selecting a continuation.
 The model abstracts two resolver contexts, one shared selected candidate, and
 two terminal dependencies; it is not a PE decoder, a workspace realization
 model, or proof of product adoption. Exact TLC outcomes are enforced by
-`eng/tla-expected-exit-codes.txt`. Product enforcement remains unverified until
-steps 2-4 provide Release gates at the Metadata, Services/CLI, and
-Queries/Browser boundaries. No feature-specific rendering domain is added:
-the existing API and call-graph models and their lowering owners remain.
+`eng/tla-expected-exit-codes.txt`. Metadata's `TypeResolutionContextTests`
+enforce occurrence separation, forwarding and deferred-dependency propagation,
+intrinsic answers, same-version recipe reuse, stale-origin rejection, and
+contextual discovery bounds in Release. Services/CLI and Queries/Browser
+enforcement remains unverified until their adoption steps supply their own
+Release gates. No feature-specific rendering domain is added: the existing
+API and call-graph models and their lowering owners remain.
 
 The comparative baseline is explicit context association, not a new loading
 mechanism. [AssemblyLoadContext][lineage-alc] associates assemblies with loading
