@@ -914,10 +914,13 @@ This boundary does not define:
 
 ## Research designated-pair admission
 
-**Status:** target design for the Research-owned part of
-[#5877](https://github.com/richlander/dotnet-inspect/issues/5877);
-**unimplemented and unverified**. This section does not describe a shipped
-alternative to strict correspondence.
+**Status:** implemented by `ResearchDesignatedPairAdmission` and the
+designated-pair overload of `ResearchProducerSessionRequest`, tracked by
+[#5877](https://github.com/richlander/dotnet-inspect/issues/5877).
+The design was established by
+[#5891](https://github.com/richlander/dotnet-inspect/pull/5891).
+The named Release gates below cover the Research boundary; Queries and host
+adoption remain separate deliveries.
 
 `ILInspector.Research` owns one claim:
 
@@ -1069,11 +1072,12 @@ the same token from the wrong image must remain non-success, not another
 method's comparison. An ordinary same-scope correspondence request with
 divergent resolved keys must still report its existing `SelectionDrift`.
 
-Implementation must add the following outcome gates to the Release
-`ILInspector.Research.Tests` executable. These are planned gates, not present
-evidence; the existing session gates do not prove the new work basis.
+The following outcome gates run in `ResearchProducerSessionTests` in the
+Release `ILInspector.Research.Tests` executable. The existing
+`ResearchProducerCompletion_RetainsNoBorrowedResourcesOrPresentation` gate also
+covers the pair, work-basis, and pair-admission result types.
 
-| Planned gate | Required observation |
+| Gate | Required observation |
 | --- | --- |
 | `ResearchDesignatedPair_AdmitsExactSideLocalMethods` | Real compiled methods with different names, types, domains, and scopes admit; same-method occurrences remain distinct; exact-address opposite-side blocking is irrelevant. |
 | `ResearchDesignatedPair_PreservesAssociationFailures` | A foreign-resolution attempt, cross-question or reversed pair, unresolved/API-only target, blocked selected census, and wrong-image address cannot issue a pair; both endpoint causes survive when applicable. |
@@ -1097,9 +1101,9 @@ simplest sufficient distinction. Admission is an immutable association check;
 the sequential session and its lifetime protocol are unchanged. No new
 stateful interaction calls for a TLA+ model.
 
-This design is part of #5877, delivery step 18 of the counted
+This Research implementation is #5877, delivery step 18 of the counted
 [#4706 adoption/retirement tracker](https://github.com/richlander/dotnet-inspect/issues/4706),
-not completion of that runtime step. At introduction the tracker has 18
+not completion of its Queries or host adoption. At design introduction the tracker had 18
 remaining runtime deliveries: 9 on each local CLI/browser path, 13 on each
 Source-enabled host path, and 7 on the comparison-tool path. Step 18 precedes
 the Queries adapter (step 6), then CLI/browser/tools adopt at steps 8/9/10.
@@ -1136,8 +1140,8 @@ The delivered prerequisites were tracked by
 [#5443](https://github.com/richlander/dotnet-inspect/issues/5443) and
 [#5444](https://github.com/richlander/dotnet-inspect/issues/5444).
 The separately specified
-[designated work basis](#research-designated-pair-admission) is unimplemented
-and unverified; existing gates below cover the correspondence basis.
+[designated work basis](#research-designated-pair-admission) uses the same
+coordinator and completion protocol; its additional gates are listed above.
 
 This boundary is owned by `ILInspector.Research`. It turns one complete target
 resolution into exact local C# and IL/body work, retains each producer's native
@@ -1166,8 +1170,8 @@ endpoint or its semantic and Finding projections disagree.
 
 One request carries the exact `ResearchAdmittedPopulation` and
 `ResearchTargetResolution` for the same implementation-comparison operation,
-and a non-empty set of requested local producer kinds. The shipped request
-uses all correspondence outcomes; the designated-pair extension chooses the
+and a non-empty set of requested local producer kinds. The resolution overload
+uses all correspondence outcomes; the designated-pair overload chooses the
 alternate work basis specified above. Research validates the
 complete question, input, scope, domain, and correspondence identity closure
 before it opens input content or invokes a producer. Equal-looking identities,
