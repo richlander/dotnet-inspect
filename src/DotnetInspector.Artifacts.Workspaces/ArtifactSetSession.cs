@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime.InteropServices;
 
 namespace DotnetInspector.Artifacts.Workspaces;
 
@@ -679,8 +680,26 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
-    public async ValueTask<ArtifactSetPublicationOutcome> SealAsync(
+    public ValueTask<ArtifactSetPublicationOutcome> SealAsync(
+        CancellationToken cancellationToken = default) =>
+        SealCoreAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Projects each retained artifact before publishing the catalog. A
+    /// returned failure rejects the generation; exceptions propagate after
+    /// cleanup. Projected facts are provisional until publication succeeds.
+    /// </summary>
+    public ValueTask<ArtifactSetPublicationOutcome> SealWithProjectionAsync(
+        ArtifactAdmissionContentCallback<ArtifactSetAdmissionFailure?> project,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(project);
+        return SealCoreAsync(project, cancellationToken);
+    }
+
+    private async ValueTask<ArtifactSetPublicationOutcome> SealCoreAsync(
+        ArtifactAdmissionContentCallback<ArtifactSetAdmissionFailure?>? project,
+        CancellationToken cancellationToken)
     {
         List<AcquiredBatch> acquired;
         List<PublishedArtifact> prepared;
@@ -728,12 +747,14 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             return await RejectAsync(failures).ConfigureAwait(false);
         }
 
+        Dictionary<ArtifactIdentity, PublishedArtifact> published;
+        List<ArtifactDescriptor> descriptors;
         try
         {
-            var published =
+            published =
                 new Dictionary<ArtifactIdentity, PublishedArtifact>(
                     ReferenceEqualityComparer.Instance);
-            var descriptors =
+            descriptors =
                 new List<ArtifactDescriptor>(artifactCount);
             var identities = new HashSet<ArtifactIdentity>(
                 ReferenceEqualityComparer.Instance);
@@ -824,35 +845,6 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                     }
                 }
             }
-
-            IReadOnlyList<ArtifactDescriptor> catalog =
-                new ReadOnlyCollection<ArtifactDescriptor>(
-                    descriptors);
-
-            lock (_gate)
-            {
-                ObjectDisposedException.ThrowIf(
-                    _state == SessionState.Disposed,
-                    this);
-                if (_state != SessionState.Sealing)
-                {
-                    throw new InvalidOperationException(
-                        "Artifact publication requires an active sealing operation.");
-                }
-
-                _authority.CompleteAdmission(_admission);
-                _artifacts = published;
-                _catalog = catalog;
-                _acquired.Clear();
-                _prepared.Clear();
-                _preparedIdentities.Clear();
-                _preparedArtifactCount = 0;
-                _preparedRetainedBytes = 0;
-                _failures.Clear();
-                _state = SessionState.Published;
-            }
-
-            return new ArtifactSetPublicationOutcome.Published();
         }
         catch (OperationCanceledException) when (IsDisposed())
         {
@@ -890,12 +882,102 @@ public sealed class ArtifactSetSession : IAsyncDisposable
                     "An artifact exceeds the per-artifact byte limit."));
             return await RejectAsync(failures).ConfigureAwait(false);
         }
-        catch (Exception ex) when (
-            ex is IOException
-                or UnauthorizedAccessException
-                or NotSupportedException
-                or InvalidOperationException
-                or OverflowException)
+        catch (Exception ex) when (IsMaterializationFailure(ex))
+        {
+            if (IsDisposed())
+            {
+                throw new ObjectDisposedException(
+                    nameof(ArtifactSetSession),
+                    "The artifact session was disposed during publication.");
+            }
+
+            failures.Add(
+                Failure(
+                    ArtifactSetAdmissionFailureKind.Failed,
+                    "artifact.session.materialization-failed",
+                    "Artifact content could not be materialized for publication."));
+            return await RejectAsync(failures).ConfigureAwait(false);
+        }
+
+        // Consumer failures must not enter the materialization classifiers.
+        try
+        {
+            if (project is not null)
+            {
+                foreach (ArtifactDescriptor descriptor in descriptors)
+                {
+                    ArtifactContentAccessOutcome<ArtifactSetAdmissionFailure?> outcome =
+                        published[descriptor.Identity].Content.WithAdmissionContent(
+                            _admissionLease,
+                            project,
+                            cancellationToken);
+                    if (outcome is not
+                        ArtifactContentAccessOutcome<ArtifactSetAdmissionFailure?>.Accessed accessed)
+                    {
+                        throw new ObjectDisposedException(
+                            nameof(ArtifactSetSession),
+                            "Admission ended before artifact projection.");
+                    }
+                    if (accessed.Value is ArtifactSetAdmissionFailure failure)
+                    {
+                        failures.Add(failure);
+                        return await RejectAsync(failures).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            IReadOnlyList<Exception> cleanupFailures =
+                await AbortAsync().ConfigureAwait(false);
+            AttachCleanupFailures(ex, cleanupFailures);
+            throw;
+        }
+
+        try
+        {
+            IReadOnlyList<ArtifactDescriptor> catalog =
+                new ReadOnlyCollection<ArtifactDescriptor>(descriptors);
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(
+                    _state == SessionState.Disposed,
+                    this);
+                if (_state != SessionState.Sealing)
+                {
+                    throw new InvalidOperationException(
+                        "Artifact publication requires an active sealing operation.");
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                _authority.CompleteAdmission(_admission);
+                _artifacts = published;
+                _catalog = catalog;
+                _acquired.Clear();
+                _prepared.Clear();
+                _preparedIdentities.Clear();
+                _preparedArtifactCount = 0;
+                _preparedRetainedBytes = 0;
+                _failures.Clear();
+                _state = SessionState.Published;
+            }
+
+            return new ArtifactSetPublicationOutcome.Published();
+        }
+        catch (OperationCanceledException ex)
+        {
+            IReadOnlyList<Exception> cleanupFailures =
+                await AbortAsync().ConfigureAwait(false);
+            AttachCleanupFailures(ex, cleanupFailures);
+            throw;
+        }
+        catch (ObjectDisposedException ex) when (IsDisposed())
+        {
+            IReadOnlyList<Exception> cleanupFailures =
+                await AbortAsync().ConfigureAwait(false);
+            AttachCleanupFailures(ex, cleanupFailures);
+            throw;
+        }
+        catch (Exception ex) when (IsMaterializationFailure(ex))
         {
             if (IsDisposed())
             {
@@ -1033,6 +1115,35 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         }
 
         return retained.OpenRead(lease);
+    }
+
+    public ArtifactContentAccessOutcome<TResult> WithQueryContent<TResult>(
+        ArtifactIdentity identity,
+        ArtifactQueryLease? lease,
+        ArtifactQueryContentCallback<TResult> callback,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        RetainedArtifactContent retained;
+        lock (_gate)
+        {
+            if (_state != SessionState.Published || lease is null)
+                return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+            try
+            {
+                _authority.ValidateQueryLease(lease);
+            }
+            catch (Exception ex) when (
+                ex is UnauthorizedAccessException or ObjectDisposedException)
+            {
+                return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+            }
+            retained = FindArtifact(identity).Content;
+        }
+
+        return retained.WithQueryContent(lease, callback, cancellationToken);
     }
 
     /// <summary>
@@ -1267,7 +1378,7 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         RetainedArtifactContent retained =
             _authority.CreateRetainedContent(
                 contribution.Registration,
-                _ => OpenSnapshot(snapshot));
+                ImmutableCollectionsMarshal.AsImmutableArray(snapshot));
         return new PublishedArtifact(
             contribution.Descriptor,
             contribution.Registration,
@@ -1664,14 +1775,6 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         string code,
         string summary) =>
         new(kind, new SessionDiagnostic(code, summary));
-
-    private static MemoryStream OpenSnapshot(byte[] snapshot) =>
-        new(
-            snapshot,
-            index: 0,
-            count: snapshot.Length,
-            writable: false,
-            publiclyVisible: false);
 
     private enum SessionState
     {

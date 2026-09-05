@@ -9,7 +9,7 @@ import { WORKBENCH_KEYBINDING_PRIORITY } from "./workbench-keybindings.ts";
 // renders; `dotnet-inspect.ts` owns the type index, filters, member grouping, and navigation
 // state transitions behind explicit callbacks. Shared text helpers
 // (kindIcon, shortKind, typeDisplayName, highlight, highlightCSharp, factRows,
-// factEvidence, relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
+// relatedTypeChip) stay in `dotnet-inspect.ts`, since they are used well beyond the
 // type panel, and are passed in rather than duplicated here.
 
 export interface TypeSummary {

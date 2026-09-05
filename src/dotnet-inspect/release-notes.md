@@ -73,6 +73,16 @@
 
 ### Package acquisition and audit
 
+- Online metadata-only package version queries now support configured folder
+  feeds for pinned verification, latest and range selection, listing status,
+  and per-feed rows. Payload inspection and offline local discovery remain
+  separate work (#5400).
+- **Breaking:** Online bare `--version`, `--latest-version`, and version ranges
+  now fail when an eligible source is unreadable instead of selecting from
+  incomplete evidence. Fix or exclude the failing source, or use raw
+  `--versions` to inspect explicitly partial results. Online version queries
+  bypass legacy producer-keyed caches; offline behavior is unchanged (#5400).
+
 - Adds the opt-in `Audit: Findings` package section for bounded scans of
   text-bearing package files and decoded SourceLink maps. Findings identify
   control or bidi text, package-source declarations, cleared restore sources,

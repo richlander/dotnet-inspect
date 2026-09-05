@@ -1,3 +1,6 @@
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
+
 namespace DotnetInspector.Artifacts;
 
 /// <summary>
@@ -173,15 +176,18 @@ public sealed class RetainedArtifactContent
 {
     private readonly ArtifactGenerationAuthority _authority;
     private readonly Func<CancellationToken, Stream> _openRead;
+    private readonly ImmutableArray<byte> _snapshot;
 
     internal RetainedArtifactContent(
         ArtifactGenerationAuthority authority,
         ArtifactAcquisitionRegistration registration,
-        Func<CancellationToken, Stream> openRead)
+        Func<CancellationToken, Stream> openRead,
+        ImmutableArray<byte> snapshot)
     {
         _authority = authority;
         Registration = registration;
         _openRead = openRead;
+        _snapshot = snapshot;
     }
 
     public ArtifactAcquisitionRegistration Registration { get; }
@@ -198,6 +204,59 @@ public sealed class RetainedArtifactContent
         return _authority.OpenRetained(
             access,
             _openRead);
+    }
+
+    public ArtifactContentAccessOutcome<TResult> WithAdmissionContent<TResult>(
+        ArtifactAdmissionLease? lease,
+        ArtifactAdmissionContentCallback<TResult> callback,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        using ArtifactGenerationAuthority.ArtifactContentAccess? access =
+            _authority.TryBeginScopedAccess(lease);
+        if (access is null)
+            return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+
+        EnsureSnapshot();
+        TResult result = callback(
+            new ArtifactAdmissionContentView(
+                Registration.Artifact,
+                _snapshot.AsSpan()),
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
+    }
+
+    public ArtifactContentAccessOutcome<TResult> WithQueryContent<TResult>(
+        ArtifactQueryLease? lease,
+        ArtifactQueryContentCallback<TResult> callback,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        cancellationToken.ThrowIfCancellationRequested();
+        using ArtifactGenerationAuthority.ArtifactContentAccess? access =
+            _authority.TryBeginScopedAccess(lease);
+        if (access is null)
+            return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+
+        EnsureSnapshot();
+        TResult result = callback(
+            new ArtifactQueryContentView(
+                Registration.Artifact,
+                _snapshot.AsSpan()),
+            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new ArtifactContentAccessOutcome<TResult>.Accessed(result);
+    }
+
+    private void EnsureSnapshot()
+    {
+        if (_snapshot.IsDefault)
+        {
+            throw new InvalidOperationException(
+                "Scoped byte access requires owner-retained immutable content, not a compatibility stream opener.");
+        }
     }
 }
 
@@ -289,7 +348,38 @@ public sealed class ArtifactGenerationAuthority
     /// </remarks>
     public RetainedArtifactContent CreateRetainedContent(
         ArtifactAcquisitionRegistration registration,
-        Func<CancellationToken, Stream> openRead)
+        Func<CancellationToken, Stream> openRead) =>
+        CreateRetainedContentCore(registration, openRead, default);
+
+    /// <summary>
+    /// Retains one immutable snapshot for both scoped byte and stream access.
+    /// </summary>
+    /// <remarks>
+    /// The owner must relinquish any mutable alias before supplying the image.
+    /// The immutable array is retained without making another full-image copy.
+    /// </remarks>
+    public RetainedArtifactContent CreateRetainedContent(
+        ArtifactAcquisitionRegistration registration,
+        ImmutableArray<byte> snapshot)
+    {
+        if (snapshot.IsDefault)
+            throw new ArgumentException("A snapshot is required.", nameof(snapshot));
+
+        return CreateRetainedContentCore(
+            registration,
+            _ => new MemoryStream(
+                ImmutableCollectionsMarshal.AsArray(snapshot)!,
+                index: 0,
+                count: snapshot.Length,
+                writable: false,
+                publiclyVisible: false),
+            snapshot);
+    }
+
+    private RetainedArtifactContent CreateRetainedContentCore(
+        ArtifactAcquisitionRegistration registration,
+        Func<CancellationToken, Stream> openRead,
+        ImmutableArray<byte> snapshot)
     {
         ArgumentNullException.ThrowIfNull(registration);
         ArgumentNullException.ThrowIfNull(openRead);
@@ -320,7 +410,8 @@ public sealed class ArtifactGenerationAuthority
             var content = new RetainedArtifactContent(
                 this,
                 registration,
-                openRead);
+                openRead,
+                snapshot);
             _registrations[registration] = true;
             return content;
         }
@@ -565,6 +656,28 @@ public sealed class ArtifactGenerationAuthority
                 expectedAuthorization: null,
                 cancelReads: false);
         return OpenReadable(openRead, access);
+    }
+
+    internal ArtifactContentAccess? TryBeginScopedAccess(
+        ArtifactAccessLease? lease)
+    {
+        if (lease is null)
+            return null;
+
+        // Only admission failure is translated. Consumer code runs after this
+        // catch and keeps its own exception type and identity.
+        try
+        {
+            return BeginAccess(
+                lease,
+                expectedAuthorization: null,
+                cancelReads: false);
+        }
+        catch (Exception ex) when (
+            ex is UnauthorizedAccessException or ObjectDisposedException)
+        {
+            return null;
+        }
     }
 
     private ArtifactContentAccess BeginAccess(

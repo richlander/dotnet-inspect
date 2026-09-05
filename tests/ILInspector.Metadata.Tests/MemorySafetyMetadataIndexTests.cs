@@ -986,7 +986,7 @@ public sealed class MemorySafetyMetadataIndexTests
             $"Type '{fullName}' was not found.");
     }
 
-    static byte[] BuildSyntheticImage(
+    internal static byte[] BuildSyntheticImage(
         int?[] moduleMarkers,
         bool addInvalidScopeMarkers = false,
         bool malformedRequiresUnsafe = false,

@@ -171,7 +171,7 @@ public static class ApiSurfaceExtractor
     public static ApiSurface ExtractSummary(PEReader peReader)
     {
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(reader)
             : null;
@@ -226,6 +226,7 @@ public static class ApiSurfaceExtractor
                             reader,
                             typeDefHandle),
                     Kind = "class",
+                    Layout = (ApiTypeLayout)(typeAttributes & TypeAttributes.LayoutMask),
                     Members = []
                 };
 
@@ -337,7 +338,7 @@ public static class ApiSurfaceExtractor
 
         var constraintResolution =
             new TypeParameterConstraintResolution(
-                peReader.GetMetadataReader(),
+                MetadataFormatAdmission.GetMetadataReader(peReader),
                 source,
                 catalog.MaxTypeResolutionRequests);
         ApiSurface surface = Extract(
@@ -476,12 +477,15 @@ public static class ApiSurfaceExtractor
             throw new ArgumentOutOfRangeException(nameof(scope));
 
         var surface = new ApiSurface();
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
         budget?.AdmitMetadataRows(reader);
+        MemorySafetyMetadataIndex? memorySafetyIndex = null;
+        MemorySafetyMetadataIndex GetMemorySafetyIndex() =>
+            memorySafetyIndex ??= MemorySafetyMetadataIndex.Create(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
         var materializationContext = new AttributeDecoder.MaterializationContext(
@@ -735,6 +739,11 @@ public static class ApiSurfaceExtractor
                         typeDefHandle),
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
+                Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
+                MemorySafety = typesOnly
+                    ? null
+                    : new ApiModuleMemorySafetyFacts(
+                        moduleVersionId, GetMemorySafetyIndex().Rules),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
                 Attributes = AttributeReader.RenderAttributes(
@@ -1137,6 +1146,8 @@ public static class ApiSurfaceExtractor
                             reader,
                             methodCustomAttributes,
                             observeDecodeWork),
+                    MemorySafety = ApiMemorySafetyFacts.Read(
+                        reader, GetMemorySafetyIndex(), moduleVersionId, methodHandle),
                     Accessibility = isExplicitInterfaceImplementation && !isOperator ? null : GetAccessibility(methodAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1237,6 +1248,15 @@ public static class ApiSurfaceExtractor
                             : candidates;
                 }
             }
+
+            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(
+                reader, typeDef, observeDecodeWork);
+            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(
+                reader, typeDef, typeContext, observeText, observeDecodeWork);
+            var backingStorage = ReadBackingStorageAssociations(
+                reader, typeDef, typeContext, moduleVersionId,
+                autoPropertyBackingFields, fieldLikeEventBackingFieldNames,
+                observeText, observeDecodeWork);
 
             // Properties
             foreach (var propHandle in typeDef.GetProperties())
@@ -1348,6 +1368,12 @@ public static class ApiSurfaceExtractor
                     IsOverride = isOverrideProperty,
                     IsSealed = isSealedProperty,
                     IsUnsafe = HasUnsafeSignature(propertySignature.Text),
+                    MemorySafety = ApiMemorySafetyFacts.Read(
+                        reader, GetMemorySafetyIndex(), moduleVersionId, propHandle),
+                    AccessorMemorySafety = ReadAccessorMemorySafety(
+                        reader, GetMemorySafetyIndex(), moduleVersionId,
+                        [accessors.Getter, accessors.Setter, .. accessors.Others]),
+                    BackingStorage = backingStorage[MetadataTokens.GetToken(propHandle)],
                     Accessibility = GetAccessibility(bestAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1402,21 +1428,6 @@ public static class ApiSurfaceExtractor
 
             // Fields (non-backing fields; non-public included with --all)
             bool isEnum = apiType.Kind == "enum";
-
-            // A C# field-like event's compiler-generated backing field is private, is itself
-            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. That
-            // pre-scan and the per-field fold below are factored into shared helpers so
-            // API-surface extraction and compile-back reconstruction agree on the fold.
-            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(
-                reader,
-                typeDef,
-                observeDecodeWork);
-            var autoPropertyBackingFields = AutoPropertyBackingFieldDescriptors(
-                reader,
-                typeDef,
-                typeContext,
-                observeText,
-                observeDecodeWork);
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -1565,6 +1576,8 @@ public static class ApiSurfaceExtractor
                     IsStatic = (field.Attributes & FieldAttributes.Static) != 0,
                     IsReadOnly = (field.Attributes & FieldAttributes.InitOnly) != 0,
                     IsConst = (field.Attributes & FieldAttributes.Literal) != 0,
+                    MemorySafety = ApiMemorySafetyFacts.Read(
+                        reader, GetMemorySafetyIndex(), moduleVersionId, fieldHandle),
                     Accessibility = GetFieldAccessibility(fieldAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
@@ -1778,6 +1791,13 @@ public static class ApiSurfaceExtractor
                 {
                     Name = eventName,
                     Kind = "event",
+                    DeclarationMetadataToken = MetadataTokens.GetToken(eventHandle),
+                    MemorySafety = ApiMemorySafetyFacts.Read(
+                        reader, GetMemorySafetyIndex(), moduleVersionId, eventHandle),
+                    AccessorMemorySafety = ReadAccessorMemorySafety(
+                        reader, GetMemorySafetyIndex(), moduleVersionId,
+                        [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
+                    BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
                     Signature = $"{eventType} {SanitizeIdentifier(eventName)}",
                     SignatureModel = new ApiSignature
@@ -2953,6 +2973,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = extension.IsOverride,
                     IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
+                    MemorySafety = extension.MemorySafety,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,
@@ -3033,6 +3054,7 @@ public static class ApiSurfaceExtractor
     /// folded.
     /// </summary>
     readonly record struct AutoPropertyBackingField(
+        int PropertyToken,
         string PropertyName,
         string PropertyType,
         bool IsStatic);
@@ -3104,6 +3126,7 @@ public static class ApiSurfaceExtractor
             (descriptors ??= new Dictionary<string, AutoPropertyBackingField>(StringComparer.Ordinal))
                 [$"<{propertyName}{GeneratedNameGrammar.BackingFieldSuffix}"]
                     = new AutoPropertyBackingField(
+                        MetadataTokens.GetToken(propertyHandle),
                         propertyName,
                         propertyType,
                         isStatic);
@@ -3203,6 +3226,212 @@ public static class ApiSurfaceExtractor
             context,
             new DegradedTypeNode());
         return !node.IsDegraded && node.Render() == descriptor.PropertyType;
+    }
+
+    static ImmutableArray<ApiMemberMemorySafetyFacts> ReadAccessorMemorySafety(
+        MetadataReader reader,
+        MemorySafetyMetadataIndex index,
+        Guid moduleVersionId,
+        MethodDefinitionHandle[] handles)
+        => [.. handles.Where(handle => !handle.IsNil).Distinct()
+            .Select(handle => ApiMemorySafetyFacts.Read(
+                reader, index, moduleVersionId, handle))];
+
+    static Dictionary<int, ApiBackingStorageAssociation> ReadBackingStorageAssociations(
+        MetadataReader reader,
+        TypeDefinition type,
+        GenericContext context,
+        Guid moduleVersionId,
+        Dictionary<string, AutoPropertyBackingField>? properties,
+        HashSet<string>? eventNames,
+        Action<string>? beforeRetainText,
+        Action<int>? beforeDecodeWork)
+    {
+        var results = new Dictionary<int, ApiBackingStorageAssociation>();
+        var propertyNames = new HashSet<string>(StringComparer.Ordinal);
+        var ambiguousPropertyNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var propertyHandle in type.GetProperties())
+        {
+            string name = DecodeString(
+                reader, reader.GetPropertyDefinition(propertyHandle).Name, beforeDecodeWork);
+            if (!propertyNames.Add(name))
+                ambiguousPropertyNames.Add(name);
+            results.Add(
+                MetadataTokens.GetToken(propertyHandle),
+                Unknown(ApiBackingStorageConvention.AutoProperty));
+        }
+        var events = new Dictionary<string, EventDefinitionHandle>(StringComparer.Ordinal);
+        foreach (var eventHandle in type.GetEvents())
+        {
+            var @event = reader.GetEventDefinition(eventHandle);
+            string name = DecodeString(reader, @event.Name, beforeDecodeWork);
+            if (!events.TryAdd(name, eventHandle))
+                events[name] = default;
+            results.Add(
+                MetadataTokens.GetToken(eventHandle),
+                Unknown(ApiBackingStorageConvention.FieldLikeEvent));
+        }
+        if (results.Count == 0)
+            return results;
+
+        var fields = new Dictionary<string, List<FieldDefinitionHandle>>(StringComparer.Ordinal);
+        foreach (var fieldHandle in type.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            string name = DecodeString(reader, field.Name, beforeDecodeWork);
+            if (!fields.TryGetValue(name, out var sameNamedFields))
+                fields.Add(name, sameNamedFields = []);
+            sameNamedFields.Add(fieldHandle);
+        }
+
+        if (properties is not null)
+        {
+            foreach (var (name, descriptor) in properties)
+            {
+                if (ambiguousPropertyNames.Contains(descriptor.PropertyName))
+                    continue;
+                results[descriptor.PropertyToken] = Match(
+                    name,
+                    ApiBackingStorageConvention.AutoProperty,
+                    field =>
+                    {
+                        if (((field.Attributes & FieldAttributes.Static) != 0) != descriptor.IsStatic
+                            || !AttributeReader.HasAttribute(
+                                reader, field.GetCustomAttributes(),
+                                KnownAttributeNames.CompilerGeneratedAttribute, beforeDecodeWork))
+                        {
+                            return false;
+                        }
+                        return MatchBackingType(
+                            field, MetadataTokens.EntityHandle(descriptor.PropertyToken));
+                    });
+            }
+        }
+        foreach (var (name, eventHandle) in events)
+        {
+            if (eventHandle.IsNil || eventNames?.Contains(name) != true)
+                continue;
+            var @event = reader.GetEventDefinition(eventHandle);
+            var adder = reader.GetMethodDefinition(@event.GetAccessors().Adder);
+            bool isStatic = (adder.Attributes & MethodAttributes.Static) != 0;
+            results[MetadataTokens.GetToken(eventHandle)] = Match(
+                name,
+                ApiBackingStorageConvention.FieldLikeEvent,
+                field =>
+                {
+                    if (((field.Attributes & FieldAttributes.Static) != 0) != isStatic
+                        || !IsFieldLikeEventBackingField(
+                            reader, field, name, eventNames, beforeDecodeWork))
+                    {
+                        return false;
+                    }
+                    return MatchBackingType(field, eventHandle);
+                });
+        }
+        return results;
+
+        ApiBackingStorageAssociation Unknown(ApiBackingStorageConvention convention) =>
+            new(moduleVersionId, convention, ApiBackingStorageState.Unknown, []);
+
+        bool? MatchBackingType(FieldDefinition field, EntityHandle declaration)
+        {
+            TypeNode node = GuardedProviderDecode.Field(
+                reader, field,
+                new TypeNodeProvider(beforeRetainText, beforeDecodeWork),
+                context, (TypeNode)new DegradedTypeNode());
+            if (node.IsDegraded)
+                return null;
+
+            // Exact encoding is sufficient within this module, including token scope,
+            // generic positions and shape. Alternate encodings remain unproven.
+            BlobReader fieldType = reader.GetBlobReader(field.Signature);
+            beforeDecodeWork?.Invoke(fieldType.Length);
+            if (fieldType.ReadSignatureHeader().Kind != SignatureKind.Field)
+                return null;
+
+            BlobReader declaredType;
+            if (declaration.Kind == HandleKind.PropertyDefinition)
+            {
+                declaredType = reader.GetBlobReader(
+                    reader.GetPropertyDefinition((PropertyDefinitionHandle)declaration).Signature);
+                beforeDecodeWork?.Invoke(declaredType.Length);
+                SignatureHeader header = declaredType.ReadSignatureHeader();
+                if (header.Kind != SignatureKind.Property || header.IsGeneric
+                    || declaredType.ReadCompressedInteger() != 0)
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                EntityHandle eventType = reader.GetEventDefinition(
+                    (EventDefinitionHandle)declaration).Type;
+                if (eventType.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference)
+                {
+                    return fieldType.ReadSignatureTypeCode() == SignatureTypeCode.TypeHandle
+                        && fieldType.ReadTypeHandle() == eventType
+                        && fieldType.RemainingBytes == 0;
+                }
+                if (eventType.Kind != HandleKind.TypeSpecification)
+                    return null;
+                declaredType = reader.GetBlobReader(
+                    reader.GetTypeSpecification((TypeSpecificationHandle)eventType).Signature);
+                beforeDecodeWork?.Invoke(declaredType.Length);
+            }
+
+            if (fieldType.RemainingBytes != declaredType.RemainingBytes)
+                return false;
+            while (fieldType.RemainingBytes > 0)
+            {
+                if (fieldType.ReadByte() != declaredType.ReadByte())
+                    return false;
+            }
+            return true;
+        }
+
+        ApiBackingStorageAssociation Match(
+            string name,
+            ApiBackingStorageConvention convention,
+            Func<FieldDefinition, bool?> matches)
+        {
+            if (!fields.TryGetValue(name, out var candidates))
+                return Unknown(convention);
+            var evidence = ImmutableArray.CreateBuilder<ApiBackingFieldEvidence>();
+            bool incomplete = false;
+            foreach (var candidate in candidates)
+            {
+                var field = reader.GetFieldDefinition(candidate);
+                bool? match;
+                try
+                {
+                    match = matches(field);
+                }
+                catch (Exception ex) when (
+                    ex is BadImageFormatException
+                        or ArgumentException
+                        or InvalidOperationException)
+                {
+                    match = null;
+                }
+                incomplete |= match is null;
+                if (match == true)
+                {
+                    evidence.Add(new(
+                        MetadataTokens.GetToken(candidate),
+                        name,
+                        (field.Attributes & FieldAttributes.Static) != 0));
+                }
+            }
+            return new(
+                moduleVersionId,
+                convention,
+                evidence.Count > 1
+                    ? ApiBackingStorageState.Ambiguous
+                    : evidence.Count == 1 && !incomplete
+                        ? ApiBackingStorageState.Associated
+                        : ApiBackingStorageState.Unknown,
+                evidence.ToImmutable());
+        }
     }
 
     /// <summary>
@@ -5104,6 +5333,13 @@ public static class ApiSurfaceExtractor
         AddText(ref count, type.BaseTypeReference?.Assembly);
         AddText(ref count, type.BaseTypeReference?.FullName);
         AddText(ref count, type.BaseTypeReference?.DefinitionName);
+        if (type.MemorySafety is { } memorySafety)
+        {
+            foreach (var observation in memorySafety.Rules.Observations)
+                AddText(ref count, observation.Detail);
+            if (memorySafety.Rules is MemorySafetyRulesResult.Unavailable unavailable)
+                AddText(ref count, unavailable.Failure.Detail);
+        }
         foreach (ApiJsonSerializableRoot root
             in type.JsonSerializableRoots)
         {
@@ -5152,6 +5388,17 @@ public static class ApiSurfaceExtractor
         AddText(ref count, member.JsonPropertyName);
         AddText(ref count, member.GetterAccessibility);
         AddText(ref count, member.SetterAccessibility);
+        AddMemorySafetyText(ref count, member.MemorySafety);
+        if (member.AccessorMemorySafety is { } accessors)
+        {
+            foreach (var accessor in accessors)
+                AddMemorySafetyText(ref count, accessor);
+        }
+        if (member.BackingStorage is { } backing)
+        {
+            foreach (var candidate in backing.Candidates)
+                AddText(ref count, candidate.MatchedName);
+        }
         foreach (string? propertyName
             in member.JsonPropertyNameAttributeValues)
         {
@@ -5163,6 +5410,14 @@ public static class ApiSurfaceExtractor
             AddText(ref count, enumMemberName);
         }
         return count;
+    }
+
+    static void AddMemorySafetyText(
+        ref long count,
+        ApiMemberMemorySafetyFacts? facts)
+    {
+        if (facts?.CallerContract is MemorySafetyMemberContractResult.Unavailable unavailable)
+            AddText(ref count, unavailable.Failure.Detail);
     }
 
     static long CountRetainedText(ApiSurfaceInspectionFailure failure)

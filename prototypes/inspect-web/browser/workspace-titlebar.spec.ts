@@ -407,6 +407,85 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
+test("Member Facts presents a compact summary separate from member identity", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/browser/workspace-titlebar.html?member=1&member-facts=populated");
+  await expect(page.locator(".facts-summary-heading h2"))
+    .toHaveText("Analysis summary");
+  await expect(page.locator(".facts-summary-list dt")).toHaveText([
+    "Allocations", "Calls", "Copies", "Reflection calls",
+    "Throws / catches / finally", "Unsafe", "Allocates in loop",
+  ]);
+  await expect(page.locator(".facts-summary-value"))
+    .toHaveText(["1", "3", "0", "0", "1 / 0 / 0", "no", "no"]);
+  await expect(page.locator(".facts-summary a, .facts-summary button"))
+    .toHaveCount(0);
+  await expect(page.locator(".facts-metadata-identity"))
+    .toHaveText("Metadata token0x06000125");
+  await expect(page.locator(".member-surface-head p"))
+    .toHaveText("method · 1 of 1");
+  await expect(page.locator(".fact-group").first().locator("h2"))
+    .toHaveText("Allocation facts");
+  const header = await box(page, ".member-surface-head");
+  const summary = await box(page, ".facts-summary");
+  expect(summary.y - (header.y + header.height)).toBeCloseTo(12, 0);
+  expect(summary.height).toBeLessThanOrEqual(310);
+  const value = await box(page, ".facts-summary-list > div:first-child .facts-summary-value");
+  const evidence = await box(page, ".facts-summary-list > div:first-child .fact-evidence");
+  expect(Math.abs(value.y - evidence.y)).toBeLessThan(3);
+  expect(evidence.x).toBeGreaterThan(value.x + value.width);
+});
+
+test("Member Facts keeps zero, loading, and failure states distinct", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  for (const mode of ["zero", "loading", "error"]) {
+    await page.goto(
+      `/browser/workspace-titlebar.html?member=1&member-facts=${mode}`);
+    await expect(page.locator(".member-surface-head")).toBeVisible();
+    if (mode === "zero") {
+      await expect(page.locator(".facts-summary-value"))
+        .toHaveText(["0", "0", "0", "0", "0 / 0 / 0", "no", "no"]);
+      await expect(page.locator(".fact-evidence")).toHaveCount(0);
+    } else {
+      await expect(page.locator(".facts-summary")).toHaveCount(0);
+      await expect(page.locator(".member-surface-scroll h2"))
+        .toHaveText(mode === "loading" ? "Analyzing method…" : "Facts query failed");
+      if (mode === "error") {
+        await expect(page.locator(".member-surface-scroll p"))
+          .toHaveText("The selected method could not be decoded.");
+      }
+    }
+  }
+});
+
+test("Member Facts reflows values and evidence within the detail pane", async ({
+  page,
+}) => {
+  for (const width of [900, 480, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      "/browser/workspace-titlebar.html?member=1&member-facts=long");
+    const value = await box(page, ".facts-summary-list > div:first-child .facts-summary-value");
+    const evidence = await box(page, ".facts-summary-list > div:first-child .fact-evidence");
+    expect(evidence.y).toBeGreaterThanOrEqual(value.y + value.height);
+    expect(evidence.x).toBeCloseTo(value.x, 0);
+    for (const selector of [
+      ".facts-summary", ".facts-summary-list > div",
+      ".facts-summary-value", ".fact-evidence", ".member-surface-scroll",
+    ]) {
+      const contained = await page.locator(selector).evaluateAll(elements =>
+        elements.every(element => element.scrollWidth <= element.clientWidth));
+      expect(contained, `${selector} at ${width}px`).toBe(true);
+    }
+    expect(await page.evaluate(() =>
+      document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
 test("Member Overview anchors its declaration below the quiet header", async ({
   page,
 }) => {

@@ -135,6 +135,8 @@ public static class ApiMemberAccessors
             IsUnsafe = owner.IsUnsafe,
             IsReadOnly = accessorEntry?.IsReadOnly == true
                 || owner.IsReadOnly,
+            MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
+                facts => facts.CallerContract.Evidence.MemberToken == token),
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };

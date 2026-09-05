@@ -141,7 +141,16 @@ test("Browser data source maps package-content rows and visible failures", async
   let candidateLimit = 0;
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
-    async run(_prefix, _facets, candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       candidateLimit = candidates;
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
@@ -220,9 +229,10 @@ test("Browser data source streams matches and failures before terminal completio
   };
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
+    requestMatches() { return true; },
     async run(...args) {
       receivedArguments = args;
-      const eventSink = args[5];
+      const eventSink = args[6];
       assert.ok(typeof eventSink === "object" && eventSink !== null);
       Reflect.set(eventSink, "event", JSON.stringify(progressEvent));
       Reflect.set(eventSink, "event", JSON.stringify(matchEvent));
@@ -249,12 +259,13 @@ test("Browser data source streams matches and failures before terminal completio
       `${checkpoint.phase}:${checkpoint.completed}/${checkpoint.limit}`),
     new AbortController().signal);
 
-  assert.deepEqual(receivedArguments.slice(0, 5), [
+  assert.deepEqual(receivedArguments.slice(0, 6), [
     "Microsoft.",
     '["package.query.source-verified"]',
     200,
     100,
     false,
+    20,
   ]);
   assert.deepEqual(rows, ["Microsoft.Extensions.Hosting"]);
   assert.deepEqual(
@@ -264,13 +275,82 @@ test("Browser data source streams matches and failures before terminal completio
   assert.deepEqual(completion, { kind: "exhausted" });
 });
 
+test("Browser data source replenishes match credit through the engine export", () => {
+  const requested: number[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    requestMatches(additionalMatchCredit) {
+      requested.push(additionalMatchCredit);
+      return additionalMatchCredit === 10;
+    },
+    async run() {
+      return completionEvent;
+    },
+  };
+  const source = createBrowserPackageQueryDataSource(engine);
+
+  assert.equal(source.initialMatchCredit, 20);
+  assert.equal(source.requestMore?.(10), true);
+  assert.equal(source.requestMore?.(5), false);
+  assert.deepEqual(requested, [10, 5]);
+});
+
+test("Browser data source batches consecutive matches into one controller page", async () => {
+  const secondMatch = {
+    ...toolMatchEvent,
+    row: {
+      ...toolMatchEvent.row!,
+      packageId: "Contoso.Tool.Next",
+    },
+  } satisfies BrowserPackageQueryEvent;
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
+      assert.ok(typeof sink === "object" && sink !== null);
+      Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
+      Reflect.set(sink, "event", JSON.stringify(secondMatch));
+      return completionEvent;
+    },
+  };
+  const pages: string[][] = [];
+
+  await createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest("Contoso."),
+    page => pages.push(page.map(row => row.packageId)),
+    () => {},
+    () => {},
+    new AbortController().signal);
+
+  assert.deepEqual(
+    pages,
+    [["Contoso.Tool", "Contoso.Tool.Next"]]);
+});
+
 test("Browser progress is delivered while later engine work remains pending", async () => {
   let releaseEngine!: () => void;
   const engineGate = new Promise<void>(resolve => { releaseEngine = resolve; });
   const received: string[] = [];
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify({
         kind: "Progress",
@@ -309,7 +389,16 @@ test("Browser progress is delivered while later engine work remains pending", as
 test("established durable events flush before producer failure is reported", async () => {
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
       throw new Error("producer failed");
@@ -336,7 +425,16 @@ test("established durable events reach the generation guard before cancellation 
     cancel() {
       releaseEngine();
     },
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
       await engineGate;
@@ -365,7 +463,16 @@ test("durable-event delivery failure remains visible during cancellation", async
     cancel() {
       releaseEngine();
     },
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify(toolMatchEvent));
       await engineGate;
@@ -396,6 +503,7 @@ test("Browser data source maps product bounds without calling them exhaustive", 
   };
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
+    requestMatches() { return true; },
     async run() {
       return boundedEvent;
     },
@@ -423,6 +531,7 @@ test("aborting Browser query work invokes the engine cancellation export", async
       cancelCount++;
       release();
     },
+    requestMatches() { return true; },
     async run() {
       await gate;
       return completionEvent;
@@ -445,7 +554,16 @@ test("aborting Browser query work invokes the engine cancellation export", async
 test("malformed streamed events fail visibly instead of becoming empty output", async () => {
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", "{}");
       return completionEvent;
@@ -465,7 +583,16 @@ test("malformed streamed events fail visibly instead of becoming empty output", 
 test("terminal completion is rejected on the nonterminal callback channel", async () => {
   const engine: BrowserPackageQueryEngine = {
     cancel() {},
-    async run(_prefix, _facets, _candidates, _matches, _prerelease, sink) {
+    requestMatches() { return true; },
+    async run(
+      _prefix,
+      _facets,
+      _candidates,
+      _matches,
+      _prerelease,
+      _initialMatchCredit,
+      sink,
+    ) {
       assert.ok(typeof sink === "object" && sink !== null);
       Reflect.set(sink, "event", JSON.stringify(completionEvent));
       return completionEvent;

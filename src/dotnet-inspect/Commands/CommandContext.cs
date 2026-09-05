@@ -8,6 +8,8 @@ namespace DotnetInspector.Commands;
 /// </summary>
 public class CommandContext
 {
+    private readonly Func<DesktopPackageSourceComposition>? _createPackageSourceComposition;
+
     /// <summary>
     /// Logger for verbose output.
     /// </summary>
@@ -28,14 +30,16 @@ public class CommandContext
 
     internal CommandContext(
         bool verbose,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        Func<DesktopPackageSourceComposition>? createPackageSourceComposition = null)
     {
         Logger = new VerboseLogger(verbose);
         HttpClient = httpClient
             ?? throw new ArgumentNullException(nameof(httpClient));
+        _createPackageSourceComposition = createPackageSourceComposition;
     }
 
     internal DesktopPackageSourceComposition
         CreatePackageSourceComposition() =>
-        new(HttpClient.Timeout);
+        _createPackageSourceComposition?.Invoke() ?? new(HttpClient.Timeout);
 }
