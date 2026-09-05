@@ -95,6 +95,7 @@ public sealed class ProductionFacadeContextTests
         [SourceAssembly] =
         [
             "CancelSourceQuery",
+            "CancelTypeSourceQuery",
             "QueryMemberAnnotatedSource",
             "QueryMemberSource",
             "QueryTypeMemberSource",

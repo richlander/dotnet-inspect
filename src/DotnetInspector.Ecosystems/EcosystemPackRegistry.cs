@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -15,15 +16,20 @@ internal sealed record EcosystemPackRegistration(
     string Summary,
     int Order,
     PackageSetId? PackageSet,
-    IReadOnlyList<EcosystemDemoRegistration> Demos);
+    IReadOnlyList<EcosystemDemoRegistration> Demos,
+    EcosystemIntegrationScannerBinding? Scanner = null);
 
 internal sealed class EcosystemPackRegistry
 {
+    private sealed record PackEntry(
+        EcosystemPackDescriptor Descriptor,
+        EcosystemIntegrationScannerBinding? Scanner);
+
     private sealed record DemoEntry(
         EcosystemDemoDescriptor Descriptor,
         ProductDemoSourceBinding Source);
 
-    private readonly Dictionary<EcosystemPackId, EcosystemPackDescriptor> _packsById;
+    private readonly Dictionary<EcosystemPackId, PackEntry> _packsById;
     private readonly Dictionary<string, DemoEntry> _demosById;
 
     internal EcosystemPackRegistry(IEnumerable<EcosystemPackRegistration> registrations)
@@ -40,7 +46,7 @@ internal sealed class EcosystemPackRegistry
         var packDescriptors =
             ImmutableArray.CreateBuilder<EcosystemPackDescriptor>(manifest.Length);
         var demoEntries = new List<DemoEntry>();
-        _packsById = new Dictionary<EcosystemPackId, EcosystemPackDescriptor>();
+        _packsById = new Dictionary<EcosystemPackId, PackEntry>();
         _demosById = new Dictionary<string, DemoEntry>(StringComparer.Ordinal);
         var demoOrders = new HashSet<int>();
         int previousPackOrder = default;
@@ -81,7 +87,8 @@ internal sealed class EcosystemPackRegistry
                         $"Ecosystem pack '{registration.Id}' has no demo sequence.",
                         nameof(registrations)),
             ];
-            if (registration.PackageSet is null && demos.Length == 0)
+            if (registration.PackageSet is null && demos.Length == 0
+                && registration.Scanner is null)
             {
                 throw new ArgumentException(
                     $"Ecosystem pack '{registration.Id}' must expose at least one capability.",
@@ -147,8 +154,11 @@ internal sealed class EcosystemPackRegistry
                 registration.Summary,
                 registration.Order,
                 registration.PackageSet,
-                descriptors.MoveToImmutable());
-            _packsById.Add(packDescriptor.Id, packDescriptor);
+                descriptors.MoveToImmutable(),
+                registration.Scanner is not null);
+            _packsById.Add(
+                packDescriptor.Id,
+                new PackEntry(packDescriptor, registration.Scanner));
             packDescriptors.Add(packDescriptor);
             previousPackOrder = registration.Order;
             hasPreviousPackOrder = true;
@@ -170,9 +180,20 @@ internal sealed class EcosystemPackRegistry
     internal EcosystemPackLookupResult Lookup(EcosystemPackId id)
     {
         ArgumentNullException.ThrowIfNull(id);
-        return _packsById.TryGetValue(id, out EcosystemPackDescriptor? descriptor)
-            ? new EcosystemPackLookupResult.Known(descriptor)
+        return _packsById.TryGetValue(id, out PackEntry? entry)
+            ? new EcosystemPackLookupResult.Known(entry.Descriptor)
             : new EcosystemPackLookupResult.Unknown(id);
+    }
+
+    internal EcosystemScannerSelectionResult SelectScanner(EcosystemPackId id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        if (!_packsById.TryGetValue(id, out PackEntry? entry))
+            return new EcosystemScannerSelectionResult.Unknown(id);
+
+        return entry.Scanner is { } binding
+            ? new EcosystemScannerSelectionResult.Known(binding)
+            : new EcosystemScannerSelectionResult.Unavailable(id);
     }
 
     internal EcosystemDemoSelectionResult SelectDemo(string scenarioId)
@@ -214,6 +235,9 @@ public static class EcosystemPackCatalog
 
     public static EcosystemPackLookupResult Lookup(EcosystemPackId id) =>
         ProductEcosystemPacks.Registry.Lookup(id);
+
+    public static EcosystemScannerSelectionResult SelectScanner(EcosystemPackId id) =>
+        ProductEcosystemPacks.Registry.SelectScanner(id);
 
     public static EcosystemDemoSelectionResult SelectDemo(string scenarioId) =>
         ProductEcosystemPacks.Registry.SelectDemo(scenarioId);

@@ -247,6 +247,140 @@ public class ApiOutputFormatterTests
     }
 
     [Fact]
+    public void FormatSourceWithDeclaration_UsesBodyOwnedParameterNames()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var method = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "M",
+                ReturnType = "System.Int32",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "System.Int32",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("return arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: null,
+            result);
+
+        Assert.StartsWith("public System.Int32 M(System.Int32 arg0_1)", source);
+        Assert.Contains("return arg0_1;", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_AppliesNamesToGenericMethodModel()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var method = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = "M",
+                ReturnType = "T",
+                TypeParameters = [new TypeParameter { Name = "T" }],
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "T",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("return arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: ["T"],
+            result);
+
+        Assert.StartsWith("public T M<T>(T arg0_1)", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_AppliesNamesToConstructorModel()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Widget",
+            Kind = "class",
+        };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = ".ctor",
+                ReturnType = "System.Void",
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "arg0",
+                        Type = "System.Int32",
+                    },
+                ],
+            },
+        };
+        var result = DecompilerResult.Success("this.Value = arg0_1;") with
+        {
+            Metadata = DecompilerResultMetadata.Default with
+            {
+                ParameterNames = ["arg0_1"],
+            },
+        };
+
+        string source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result);
+
+        Assert.StartsWith("public Widget(System.Int32 arg0_1)", source);
+    }
+
+    [Fact]
     public void FormatSourceWithDeclaration_NoDeclaration_KeepsTheCommentAsOneLeadingLine()
     {
         // A member the formatter cannot spell a declaration for still gets the
