@@ -98,6 +98,21 @@ binding is unverified pending
 | `MetadataNamedTypeReference` | One decoded signature detached from its reader | Which exact named type definition and metadata scope the signature denotes | Resolution to an acquired assembly, constructed-type shape, or display spelling |
 | `StateMachineRelationship` and `StateMachineRelationshipResult` | One physical metadata module | Which kickoff, same-module state-machine type, and closed interface-role dispositions form an authenticated compiler-state-machine relationship, or why structural authentication failed | Analysis attribution, decompiler reconstruction eligibility, source ownership, or presentation policy |
 
+`ApiType.HasUnionAttribute` preserves the presence of the exact metadata
+attribute name `System.Runtime.CompilerServices.UnionAttribute`. The marker
+may come from the runtime or a downlevel polyfill; assembly provenance is not
+part of this name-based marker contract. A fully extracted type reports true
+or false, while an older serialized type or summary-only projection reports
+null (not inspected). Marker presence does not establish a valid union, its
+case set, or a serializer contract, and does not replace the type's ordinary
+`Kind` or structured constructor signatures.
+`ApiUnionAttributeTests` gates native declarations, manually attributed types,
+unrelated same-simple-name attributes, nested display-name collisions,
+downlevel marker references, and JSON persistence of all three states.
+This is the Metadata prerequisite for
+[JSON union support #5892](https://github.com/richlander/dotnet-inspect/issues/5892); wire-contract
+discovery, TypeScript emission, and inspect-web adoption remain separate owners.
+
 #### `DotnetInspector.Queries`
 
 | Currency | Scope | Answers | Does not answer |
