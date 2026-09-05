@@ -2612,7 +2612,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_UsesGetterAccessibilityForCompiledProperties()
+    public void Emit_UsesJsonIncludeToReachNonPublicCompiledMembers()
     {
         using FileStream stream = File.OpenRead(
             typeof(GetterAccessibilityFixture).Assembly.Location);
@@ -2636,13 +2636,13 @@ public sealed class DtsEmitterTests
 
         Assert.DoesNotContain("SetterOnlyAtWire", dts, StringComparison.Ordinal);
         Assert.DoesNotContain("NoGetter", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly PublicGetter: string;", dts, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SourceGeneratedJson_OmitsInaccessibleJsonIncludedMembers()
+    public void SourceGeneratedJson_IncludesJsonIncludedNonPublicMembers()
     {
         var value = new SourceGeneratedJsonIncludeAccessibilityFixture
         {
@@ -2655,8 +2655,14 @@ public sealed class DtsEmitterTests
             ControlPropertyNameFixtureJsonContext.Default
                 .SourceGeneratedJsonIncludeAccessibilityFixture);
 
-        Assert.DoesNotContain("IncludedPrivateGetter", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateField", json, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedPrivateGetter\":\"private-getter\"",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"IncludedPrivateField\":\"private-field\"",
+            json,
+            StringComparison.Ordinal);
         Assert.Contains(
             "\"IncludedInternalGetter\":\"internal-getter\"",
             json,
@@ -2668,7 +2674,7 @@ public sealed class DtsEmitterTests
     }
 
     [Fact]
-    public void Emit_MatchesSourceGeneratedJsonIncludeAccessibility()
+    public void Emit_MatchesSourceGeneratedJsonIncludedNonPublicMembers()
     {
         using FileStream stream = File.OpenRead(
             typeof(SourceGeneratedJsonIncludeAccessibilityFixture)
@@ -2692,8 +2698,8 @@ public sealed class DtsEmitterTests
 
         string dts = DtsEmitter.Emit(surface);
 
-        Assert.DoesNotContain("IncludedPrivateGetter", dts, StringComparison.Ordinal);
-        Assert.DoesNotContain("IncludedPrivateField", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateGetter: string;", dts, StringComparison.Ordinal);
+        Assert.Contains("  readonly IncludedPrivateField: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalGetter: string;", dts, StringComparison.Ordinal);
         Assert.Contains("  readonly IncludedInternalField: string;", dts, StringComparison.Ordinal);
     }

@@ -155,6 +155,57 @@ public sealed class JsonWireMemberRulesTests
             JsonWireMemberRules.IsSerialized(
                 privateSetter,
                 JsonWireDirection.Deserialize));
+
+        ApiMember includedPrivateGetter = Property();
+        includedPrivateGetter.HasGetter = true;
+        includedPrivateGetter.GetterAccessibility = "private";
+        includedPrivateGetter.HasSetter = true;
+        includedPrivateGetter.HasJsonInclude = true;
+
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                includedPrivateGetter,
+                JsonWireDirection.Serialize));
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                includedPrivateGetter,
+                JsonWireDirection.Deserialize));
+
+        ApiMember includedPrivateSetter = Property();
+        includedPrivateSetter.HasSetter = true;
+        includedPrivateSetter.SetterAccessibility = "private";
+        includedPrivateSetter.HasJsonInclude = true;
+
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                includedPrivateSetter,
+                JsonWireDirection.Serialize));
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                includedPrivateSetter,
+                JsonWireDirection.Deserialize));
+    }
+
+    [Fact]
+    public void JsonIncludedFieldsParticipateRegardlessOfAccessibility()
+    {
+        var privateField = new ApiMember
+        {
+            Name = "Value",
+            Kind = "field",
+            Accessibility = "private",
+            HasJsonInclude = true,
+        };
+
+        Assert.True(JsonWireMemberRules.IsSerialized(privateField));
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                privateField,
+                JsonWireDirection.Serialize));
+        Assert.True(
+            JsonWireMemberRules.IsSerialized(
+                privateField,
+                JsonWireDirection.Deserialize));
     }
 
     [Fact]

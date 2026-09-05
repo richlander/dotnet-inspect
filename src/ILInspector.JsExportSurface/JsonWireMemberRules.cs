@@ -41,8 +41,7 @@ public static class JsonWireMemberRules
         return member.Kind switch
         {
             "property" => IsSerializedProperty(member, directions),
-            "field" => member.HasJsonInclude
-                && IsSourceGeneratorAccessible(member.Accessibility),
+            "field" => member.HasJsonInclude,
             _ => false,
         };
     }
@@ -180,11 +179,6 @@ public static class JsonWireMemberRules
         string? accessibility = hasAccessor is true
             ? accessorAccessibility
             : memberAccessibility;
-        return hasJsonInclude
-            ? IsSourceGeneratorAccessible(accessibility)
-            : accessibility is null;
+        return hasJsonInclude || accessibility is null;
     }
-
-    static bool IsSourceGeneratorAccessible(string? accessibility) =>
-        accessibility is null or "internal" or "protected internal";
 }
