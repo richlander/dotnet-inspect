@@ -282,6 +282,11 @@ artifact. This duplication is accepted because the artifacts have different
 contracts and the comparison result retains no borrowed decompiler IR that
 could safely substitute for them.
 
+Co-selection does not broaden standalone source-acquisition authorization:
+Fidelity Causes, Applied Taste, Cost Overlay, and Semantics Overlay alone do
+not opt into PDB acquisition. They still receive the companion PDB path when
+Source Diff is also selected.
+
 The CLI's explicit adjacent-PDB capability does not weaken host-owned symbol
 resource limits. Embedded-PDB expansion remains bounded by the same configured
 limits whether adjacent discovery is enabled or disabled.
@@ -348,7 +353,9 @@ The fixture proves:
 
 ## Gates
 
-Release presentation tests prove:
+`DotnetInspector.Presentation.Tests` runs in Release in the ordinary `ci.yml`
+test job covered by `ci-required`, Deep Inspect's `platform-test` lane, and
+the Windows PR `cli` suite. These presentation tests prove:
 
 - the unchanged PDB endpoint remains available beside canonical Before text;
 - one and only one producer-guaranteed type-body placement prefix is replaced

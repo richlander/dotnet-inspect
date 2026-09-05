@@ -16185,8 +16185,19 @@ public partial class CommandExecutionTests
         Assert.Contains("Select value 'Annotated Source Document' not found", error);
     }
 
-    [Fact]
-    public void Member_AnnotatedSourceDocument_AuthorizesPdbResolution()
+    [Theory]
+    [InlineData(SectionNames.DecompiledSource, true)]
+    [InlineData(SectionNames.AnnotatedSource, true)]
+    [InlineData(SectionNames.AnnotatedSourceDocument, true)]
+    [InlineData(SectionNames.BodyShapes, true)]
+    [InlineData(SectionNames.Facts, true)]
+    [InlineData(SectionNames.FidelityCauses, false)]
+    [InlineData(SectionNames.AppliedTaste, false)]
+    [InlineData(SectionNames.CostOverlay, false)]
+    [InlineData(SectionNames.SemanticsOverlay, false)]
+    public void Member_SelectedSections_PreserveStandalonePdbAuthorization(
+        string section,
+        bool expectedAuthorization)
     {
         var type = new ApiType
         {
@@ -16199,10 +16210,15 @@ public partial class CommandExecutionTests
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                SectionNames.AnnotatedSourceDocument,
+                section,
             },
         };
 
+        Assert.Equal(
+            expectedAuthorization,
+            MemberCommand.NeedsMemberSourceResolution(type, options));
+
+        options.IncludeSections.Add(SectionNames.SourceDiff);
         Assert.True(MemberCommand.NeedsMemberSourceResolution(type, options));
     }
 

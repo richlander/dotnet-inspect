@@ -1025,17 +1025,22 @@ public static class MemberCommand
         SectionNames.IL
     ];
 
-    private static readonly string[] MemberPipelinePdbPathSectionNames =
+    private static readonly string[] MemberSourceResolutionSectionNames =
     [
         SectionNames.DecompiledSource,
-        SectionNames.FidelityCauses,
-        SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
-        SectionNames.CostOverlay,
-        SectionNames.SemanticsOverlay,
         SectionNames.BodyShapes,
         SectionNames.Facts,
+    ];
+
+    private static readonly string[] MemberPipelinePdbPathSectionNames =
+    [
+        .. MemberSourceResolutionSectionNames,
+        SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
     ];
 
     private static bool IsPureSelector(string[]? select, string name) =>
@@ -1081,7 +1086,7 @@ public static class MemberCommand
         bool pdbAuthorized = options.IncludeSections is { Count: > 0 }
                              || options.Verbosity >= Verbosity.Detailed;
         return pdbAuthorized
-               && NeedsMemberPipelinePdbPath(sections);
+               && sections.Overlaps(MemberSourceResolutionSectionNames);
     }
 
     internal static bool AuthorizesMemberSourceResolution(
