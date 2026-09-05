@@ -139,6 +139,38 @@ INSTANCE ArtifactRootPublicationLifecycle WITH
     SubmittedDesiredRoots <- SubmittedDesiredRootsMC,
     SubmittedPreparedRoots <- SubmittedPreparedRootsMC
 
+ASSUME
+    /\ IsFiniteSet({composition0, composition1, staleComposition})
+    /\ {composition0, ExpectedCompositionMC, composition1}
+        \subseteq {composition0, composition1, staleComposition}
+    /\ IsFiniteSet({scope0, scope1, staleScope})
+    /\ {scope0, ExpectedScopeBaseMC, scope1}
+        \subseteq {scope0, scope1, staleScope}
+    /\ IsFiniteSet(InitialRootsMC)
+    /\ IsFiniteSet(CompleteDesiredRootsMC)
+    /\ IsFiniteSet(PreparedRootsMC)
+    /\ IsFiniteSet(SubmittedDesiredRootsMC)
+    /\ IsFiniteSet(SubmittedPreparedRootsMC)
+    /\ PreparedRootsMC \subseteq CompleteDesiredRootsMC
+
+Fairness ==
+    /\ WF_vars(ExpireDeadline)
+    /\ WF_vars(RejectMalformed)
+    /\ WF_vars(ReleasePrepared)
+    /\ WF_vars(RefuseAtGate)
+    /\ WF_vars(BeginStaging)
+    /\ WF_vars(RefuseStaged)
+    /\ WF_vars(RejectConsumedParticipant)
+    /\ WF_vars(RejectStaleScopeBase)
+    /\ WF_vars(RejectScopeCandidateIdentity)
+    /\ WF_vars(ParticipantRefuses)
+    /\ WF_vars(PrepareCommit)
+    /\ WF_vars(RefuseCommitToken)
+    /\ WF_vars(CommitPublication)
+
+Spec ==
+    SafetySpec /\ Fairness
+
 BrokenCommitIgnoringValidation ==
     /\ phase = "Idle"
     /\ runtimeState = "Open"
