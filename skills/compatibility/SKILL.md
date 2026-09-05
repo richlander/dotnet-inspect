@@ -106,6 +106,13 @@ source body remotely. Package or PDB acquisition may still use the network;
 other SourceLink hosts do not use the local-repository path. Treat these rows
 as implementation evidence, not semantic-equivalence proof.
 
+For one explicitly selected method and one library per endpoint,
+`--pdb-source` compares authored source even when C# and IL are unchanged.
+For example, changing `1 + 2` to `3` can change Source without changing either
+compiled lane. The selected Source lane also reports unchanged or unavailable
+evidence, retaining acquisition failures rather than treating missing text as
+a deletion. Broader selections still enrich the locally changed members.
+
 ## What can be configured? (feature switches)
 
 `-S Switches` on `library` or `package --library` reports the behavior and
