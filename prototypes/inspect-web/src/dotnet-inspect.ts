@@ -480,6 +480,7 @@ let inspectPlatformIntegrations: AnalysisFacade["queryPlatformIntegrations"];
 let inspectPlatformOpportunities: AnalysisFacade["queryPlatformOpportunities"];
 let inspectPlatformPerformance: AnalysisFacade["queryPlatformPerformance"];
 let cancelSourceInspection: SourceFacade["cancelSourceQuery"];
+let cancelTypeSourceInspection: SourceFacade["cancelTypeSourceQuery"];
 let inspectMemberAnnotatedSource: SourceFacade["queryMemberAnnotatedSource"];
 let inspectMemberSource: SourceFacade["queryMemberSource"];
 let inspectTypeMemberSource: SourceFacade["queryTypeMemberSource"];
@@ -563,6 +564,7 @@ async function loadEngineModule() {
   } = analysisFacade);
   ({
     cancelSourceQuery: cancelSourceInspection,
+    cancelTypeSourceQuery: cancelTypeSourceInspection,
     queryMemberAnnotatedSource: inspectMemberAnnotatedSource,
     queryMemberSource: inspectMemberSource,
     queryTypeMemberSource: inspectTypeMemberSource,
@@ -1083,7 +1085,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.selectorKey,
     request.metadataToken,
     request.taste),
-  queryTypeSource: request => inspectTypeSource(
+  queryTypeSource: (operationId, request) => inspectTypeSource(
+    operationId,
     request.packageId,
     request.version,
     request.framework,
@@ -1102,6 +1105,9 @@ const sourceInspection = createSourceInspectionCoordinator({
     taste),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => cancelSourceInspection?.(),
+  cancelTypeSourceRequest: (operationId, reason) => {
+    cancelTypeSourceInspection(operationId, reason);
+  },
   reportOperationDiagnostic: diagnostic => {
     console.error("Source operation authority failure.", diagnostic);
     return undefined;
