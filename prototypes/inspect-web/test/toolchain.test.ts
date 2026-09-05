@@ -2166,10 +2166,14 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
         .map(([rule, entry]) => [`${override.files.join(", ")} :: ${rule}`, entry] as const)),
   ].filter(([, entry]) => optionsOf(entry).length > 0));
 
-  // The one exception this project configures: `node:test` returns a promise nobody is
+  // Two exceptions this project configures. `node:test` returns a promise nobody is
   // expected to await, so `test(...)` at the top level of a test file is not a floating
-  // promise. Nothing else narrows a rule by option.
+  // promise. Prism ships each language grammar as a module whose only effect is
+  // registering itself onto the core, so there is nothing to bind and the import is
+  // unassigned by construction; the allowance names that path and nothing else, so an
+  // unassigned import anywhere outside `prismjs/components/` still reports.
   assert.deepEqual(configuredOptions, {
+    "import/no-unassigned-import": ["deny", [{ allow: ["prismjs/components/*"] }]],
     "typescript/no-floating-promises": ["deny", [{
       allowForKnownSafeCalls: [{ from: "package", name: "test", package: "node:test" }],
     }]],

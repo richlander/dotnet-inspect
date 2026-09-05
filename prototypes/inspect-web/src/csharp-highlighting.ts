@@ -11,21 +11,17 @@ type PrismTokenContent =
   | PrismToken
   | readonly (string | PrismToken)[];
 
-interface PrismCSharpTokenizer {
-  languages: {
-    csharp?: unknown;
-  };
+export interface PrismCSharpTokenizer {
+  // Prism's registry is keyed by language name and populated by whichever grammar modules
+  // were imported, so it is spelled as the open registry it is rather than as a record
+  // with one optional `csharp`. The latter is a weak type: an all-optional shape shares no
+  // properties with Prism's own index-signature type and will not accept it.
+  languages: { readonly [language: string]: unknown };
   tokenize(value: string, grammar: unknown): readonly (string | PrismToken)[];
 }
 
-interface PrismCSharpHighlighter extends PrismCSharpTokenizer {
+export interface PrismCSharpHighlighter extends PrismCSharpTokenizer {
   highlight(value: string, grammar: unknown, language: string): string;
-}
-
-declare global {
-  interface Window {
-    Prism?: PrismCSharpHighlighter;
-  }
 }
 
 export interface CSharpRangeHighlighter {
