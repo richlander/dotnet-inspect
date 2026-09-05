@@ -518,7 +518,9 @@ internal static class CliRowSelectionRouteEnvelope
                 == CliRowSelectionFailureReason.ModifierRequiresCount
             && observations.Any(
                 observation =>
-                    !observation.HasCompleteOccurrences
+                    observation.ArgumentFailures.Count != 0
+                    || !observation.PreservesOptionScope(
+                        CliRowSelectionOccurrenceKind.Limit)
                     || observation.Occurrences.Any(occurrence =>
                         occurrence.Kind == CliRowSelectionOccurrenceKind.Limit)))
         {
@@ -658,16 +660,20 @@ internal static class CliRowSelectionRouteEnvelope
                         candidateKind);
 
                 if (declared[index]
-                    && meanings[index] is
+                    && meanings[index] is CliRowSelectionOccurrenceKind lineKind
+                    && lineKind is
                         CliRowSelectionOccurrenceKind.Lines
                         or CliRowSelectionOccurrenceKind.TailLines
-                    && !observations[index].LineSelection
-                    && observations[index].ArgumentFailures.FirstOrDefault(
-                        candidateFailure => candidateFailure.Position == position) is { } failure)
+                    && !observations[index].LineSelection)
                 {
-                    // A failed line modifier cannot establish the count unit.
-                    lineSelectionDeferred = true;
-                    deferredPositions.Add(failure.Position);
+                    // Hidden or invalid line evidence cannot imply semantic items.
+                    lineSelectionDeferred |= !observations[index].PreservesOptionScope(lineKind);
+                    if (observations[index].ArgumentFailures.FirstOrDefault(
+                        candidateFailure => candidateFailure.Position == position) is { } failure)
+                    {
+                        lineSelectionDeferred = true;
+                        deferredPositions.Add(failure.Position);
+                    }
                 }
             }
 
@@ -860,7 +866,7 @@ internal static class CliRowSelectionRouteEnvelope
             get;
         }
 
-        // A different command scope can hide options without a row-arity failure.
+        // Whole-request success still belongs to the expected command.
         public bool HasCompleteOccurrences =>
             ExpectedCommandSelected && ArgumentFailures.Count == 0;
 
@@ -880,6 +886,16 @@ internal static class CliRowSelectionRouteEnvelope
         public bool IsDeclared(
             CliRowSelectionOccurrenceKind kind) =>
             DeclaredKinds[(int)kind];
+
+        public bool PreservesOptionScope(
+            CliRowSelectionOccurrenceKind kind) =>
+            ExpectedCommandSelected
+            || !IsDeclared(kind)
+            || CliRowSelectionArgumentAdapter.IsDeclared(
+                ParseResult,
+                Candidate.Bindings,
+                kind,
+                recursiveAncestorsOnly: true);
     }
 
     private sealed record RequestToken(
