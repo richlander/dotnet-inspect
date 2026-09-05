@@ -92,7 +92,10 @@ rather than leaving another unconsumed substrate. Browser ownership
 remains under [#5083](https://github.com/richlander/dotnet-inspect/issues/5083).
 
 CLI rendering consumes the typed pair alongside unchanged native C#/IL
-results and lowers into its existing Markout Implementation Diff rows. The
+results and lowers into its existing Markout Implementation Diff rows.
+Retained line moves remain visible with their old and new declaration-relative
+line numbers, including when no line content changed or moves coexist with
+content edits. Only an exact pair receives an unchanged Source row. The
 browser will consume the same pair and shared text-diff presentation; no
 browser transport or interaction contract is defined here.
 
@@ -114,7 +117,9 @@ dotnet run --project src/dotnet-inspect.Tests -c Release -- \
 The query gate also covers explicit sidecar permission, pathless inputs,
 acquisition byte limits, and owned PDB cleanup failure. The CLI gate exercises
 text and JSON output, selected-document composition, native-lane preservation,
-and resolved package coordinates through symbol acquisition.
+and resolved package coordinates through symbol acquisition. Compiler-produced
+two-line moves, alone and alongside a content edit, gate retained move evidence;
+swapping isolated lines is not a substitute for that boundary case.
 
 Fixtures supply real compiler-produced assemblies, PDBs, and source. Product
 lookup, checksum verification, extraction, and comparison produce the evidence;

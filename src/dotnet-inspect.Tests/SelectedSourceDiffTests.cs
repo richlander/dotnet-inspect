@@ -126,6 +126,70 @@ public sealed class SelectedSourceDiffTests
     }
 
     [Theory]
+    [InlineData("MovedBlock", false, false)]
+    [InlineData("MovedBlock", true, false)]
+    [InlineData("MovedBlock", true, true)]
+    [InlineData("MovedBlockAndEdit", false, false)]
+    [InlineData("MovedBlockAndEdit", true, false)]
+    public async Task SelectedMovedBlock_RetainsSourceEvidence(
+        string member,
+        bool json,
+        bool multipleSections)
+    {
+        var options = Options(member) with
+        {
+            JsonOutput = json,
+            Select = multipleSections
+                ? ["Analysis Diff", "Implementation Diff"]
+                : ["Implementation Diff"],
+        };
+        var local = DiffCommand.BuildImplementationDiff(
+            [FixtureCatalog.SourceDiffPair.OldAssemblyPath()],
+            [FixtureCatalog.SourceDiffPair.NewAssemblyPath()],
+            options);
+        Assert.Equal(member == "MovedBlock", local.IsEmpty);
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => DiffCommand.ExecuteAsync(options));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.DoesNotContain("unchanged", output);
+        if (json)
+        {
+            using var document = JsonDocument.Parse(output);
+            var sourceRows = document.RootElement.GetProperty("implementation_diff").EnumerateArray()
+                .Where(row => row.GetProperty("mechanism").GetString() == "PDB Source").ToArray();
+            var moved = sourceRows.Where(row => row.GetProperty("change").GetString() == "moved").ToArray();
+            Assert.Equal(2, moved.Length);
+            Assert.Equal("declaration line 3 -> 5:     // First annotation.",
+                moved[0].GetProperty("evidence").GetString());
+            Assert.Equal("declaration line 4 -> 6:     // Second annotation.",
+                moved[1].GetProperty("evidence").GetString());
+            Assert.All(moved, row =>
+            {
+                Assert.Equal("Moved", row.GetProperty("difference").GetString());
+            });
+            if (member == "MovedBlock")
+                Assert.Equal(moved.Length, sourceRows.Length);
+            else
+            {
+                Assert.Contains(sourceRows, row => row.GetProperty("change").GetString() == "removed");
+                Assert.Contains(sourceRows, row => row.GetProperty("change").GetString() == "added");
+            }
+        }
+        else
+        {
+            string text = WebUtility.HtmlDecode(output);
+            Assert.Contains("PDB Source", text);
+            Assert.Contains("Moved", text);
+            Assert.Contains("moved", text);
+            Assert.Contains("declaration line", text);
+            Assert.Contains("->", text);
+        }
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task MissingSelectedEndpoint_IsUnavailableNotSourceRemoval(bool json)

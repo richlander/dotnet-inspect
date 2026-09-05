@@ -576,11 +576,20 @@ public static class DiffOutputFormatter
         var subject = ResearchMemberIdentity.SubjectFromAnchor(
             anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
         if (pair.Status == AssemblyMemberSourcePairStatus.Compared
-            && pair.Comparison is { } comparison)
+            && pair.Comparison is FindingComparison<string>.Complete comparison)
         {
-            var changes = ImplementationDiff.ToSourceChanges(comparison, subject);
+            var changes = ImplementationDiff.ToSourceChanges(pair.Comparison, subject);
             foreach (var change in changes)
                 AddImplementationChangeRows(rows, subject.Display, change);
+            foreach (var line in comparison.Pairs)
+            {
+                if (line is PairFinding<string>.Present { Difference: FindingDifferenceKind.Moved } moved)
+                {
+                    rows.Add(new ImplementationDiffRow(
+                        subject.Display, "PDB Source", "Moved", "moved",
+                        $"declaration line {moved.Old.Ordinal + 1} -> {moved.New.Ordinal + 1}: {moved.New.Payload}"));
+                }
+            }
             if (pair.IsExact)
             {
                 rows.Add(new ImplementationDiffRow(

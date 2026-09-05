@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
+using ILInspector.Findings;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -67,6 +68,8 @@ public sealed partial class AssemblyContextSourceQueryTests
     [InlineData("Unchanged", true)]
     [InlineData("SameSource", true)]
     [InlineData("Reordered", false)]
+    [InlineData("MovedBlock", false)]
+    [InlineData("MovedBlockAndEdit", false)]
     public async Task SourcePair_UsesVerifiedAuthoredDeclarationsWithoutDecompilation(
         string memberName,
         bool exact)
@@ -80,6 +83,7 @@ public sealed partial class AssemblyContextSourceQueryTests
         Assert.Equal(AssemblyMemberSourcePairStatus.Compared, result.Status);
         Assert.Equal(exact, result.IsExact);
         Assert.NotNull(result.Comparison);
+        var comparison = Assert.IsType<FindingComparison<string>.Complete>(result.Comparison.Value);
         var beforeEndpoint = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(
             result.Before);
         var afterEndpoint = Assert.IsType<AssemblyMemberSourcePairEndpoint.Resolved>(
@@ -104,6 +108,10 @@ public sealed partial class AssemblyContextSourceQueryTests
             Assert.Contains("1 + 2", beforeSource.Inspection.Text);
             Assert.Contains("=> 3", afterSource.Inspection.Text);
         }
+        if (memberName is "MovedBlock" or "MovedBlockAndEdit")
+            Assert.Contains(comparison.Pairs, pair => pair.Difference == FindingDifferenceKind.Moved);
+        if (memberName == "MovedBlock")
+            Assert.All(comparison.Pairs, pair => Assert.Equal(PairKind.Present, pair.Kind));
     }
 
     [Fact]

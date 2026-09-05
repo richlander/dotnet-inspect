@@ -17,6 +17,24 @@ public sealed class Counter
         return first + second;
     }
 
+    public int MovedBlock()
+    {
+        // First annotation.
+        // Second annotation.
+        int first = 1;
+        int second = 2;
+        return first + second;
+    }
+
+    public int MovedBlockAndEdit()
+    {
+        // First annotation.
+        // Second annotation.
+        int first = 1;
+        int second = 2;
+        return first + second;
+    }
+
     public int BeforeOnly() => 9;
 }
 
