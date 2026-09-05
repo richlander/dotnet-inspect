@@ -3827,10 +3827,9 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
-  const factsRenderer =
-    appSource.match(
-      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
-    ?? "";
+  const factsRenderer = readFileSync(
+    new URL("../src/member-facts.ts", import.meta.url), "utf8");
+  assert.match(appSource, /content = renderMemberFacts\(state\)/);
 
   assert.match(
     coordinator,

@@ -176,6 +176,7 @@ import {
   type GraphSourceRequest,
 } from "./source-inspection.ts";
 import { renderMemberContractSections } from "./member-overview.ts";
+import { renderMemberFacts } from "./member-facts.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -5292,7 +5293,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
     content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
-    content = renderMemberFacts(type, member, overload, overloadIndex);
+    content = renderMemberFacts(state);
   } else if (state.memberSection === "annotated") {
     const destinationError = state.annotatedDestinationError
       ? `<div id="annotated-destination-error" class="graph-drill-error" role="alert">${escapeHtml(state.annotatedDestinationError)}</div>`
@@ -5386,121 +5387,11 @@ function renderAnnotatedSourceRejection(error: TypeError) {
   </section>`;
 }
 
-function renderMemberFacts(
-  type: AppTypeSurface,
-  member: AppMemberGroup,
-  overload: InspectedMemberSurface,
-  overloadIndex: number,
-) {
-  if (state.memberFactsLoading) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
-  }
-  if (!state.memberFacts) {
-    return `<section class="document-section empty-member-section"><h2>Facts query failed</h2><p>${escapeHtml(state.memberFactsError || "No facts result was returned.")}</p></section>`;
-  }
-
-  const facts = state.memberFacts;
-  const signals = facts.signals;
-  const heapAllocations = facts.allocations.filter(a => a.countedAsHeap);
-  const allocOffsets = heapAllocations.map(a => a.offset);
-  const callOffsets = facts.calls.map(c => c.offset);
-  const safetyOffsets = facts.safety
-    .map(s => s.offset)
-    .filter((offset): offset is string => offset != null);
-  const loopAllocOffsets = heapAllocations.filter(a => a.inLoop).map(a => a.offset);
-  return `
-    <section class="document-section facts-section">
-      <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
-      ${factRows([
-        ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
-        ["Kind", overload.kind],
-        ["Metadata token", `0x${facts.metadataToken.toString(16).padStart(8, "0")}`],
-        ["Declaring type", type.id],
-        ["Allocations", String(signals.allocations), allocOffsets],
-        ["Calls", String(facts.calls.length), callOffsets],
-        ["Copies", String(signals.copies)],
-        ["Reflection calls", String(signals.reflection)],
-        ["Throws / catches / finally", `${signals.throws} / ${signals.catches} / ${signals.finallys}`],
-        ["Unsafe", signals.unsafe ? "yes" : "no", signals.unsafe ? safetyOffsets : []],
-        ["Allocates in loop", signals.allocatesInLoop ? "yes" : "no", signals.allocatesInLoop ? loopAllocOffsets : []]
-      ])}
-    </section>
-    ${renderFactTable("Allocation facts", facts.allocations, [
-      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"],
-      ["Heap", row => row.countedAsHeap ? "yes" : "no"], ["Multiplicity", "multiplicity"],
-      ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
-      ["Size", row => typeof row.estimatedSizeBytes === "number"
-        ? `${row.estimatedSizeBytes} B`
-        : ""]
-    ], "No allocation occurrences were found in this method.")}
-    ${renderFactTable("Calls", facts.calls, [
-      ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
-      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""]
-    ], "No direct call sites were found in this method.")}
-    ${renderFactTable("Safety facts", facts.safety, [
-      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Operation", "operation"],
-      ["Requirement", "requirement"], ["Evidence", "evidence"]
-    ], "No unsafe operations or declaration evidence were found.")}
-    ${renderFactTable("Exception regions", facts.exceptionRegions, [
-      ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
-      ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
-      ["Caught type", row => row.caughtType || ""]
-    ], "No exception regions were found in this method.")}
-    <section class="document-section performance-facts">
-      <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
-      ${facts.performanceOpportunities.length
-        ? facts.performanceOpportunities.map(opportunity => `
-          <article class="performance-opportunity">
-            <div><strong>${escapeHtml(opportunity.shape)}</strong><span class="confidence ${escapeHtml(opportunity.confidence)}">${escapeHtml(opportunity.confidence)}</span>${opportunity.offset ? `<code>${escapeHtml(opportunity.offset)}</code>` : ""}</div>
-            <p>${escapeHtml(opportunity.evidence)}</p>
-            <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
-          </article>`).join("")
-        : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
-    </section>
-    ${facts.diagnostics.length
-      ? `<section class="document-section fact-group"><div class="section-title"><h2>Analysis diagnostics</h2><span>${facts.diagnostics.length}</span></div><ul>${facts.diagnostics.map(diagnostic => `<li>${escapeHtml(diagnostic)}</li>`).join("")}</ul></section>`
-      : ""}`;
-}
-
-type FactTableColumn<T> =
-  readonly [label: string, field: keyof T | ((row: T) => unknown)];
-
-function renderFactTable<T extends object>(
-  title: string,
-  rows: readonly T[],
-  columns: readonly FactTableColumn<T>[],
-  emptyText: string,
-) {
-  return `<section class="document-section fact-group">
-    <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
-    ${rows.length
-      ? `<div class="fact-table" style="--fact-columns:${columns.length}">${columns.map(([label]) => `<strong>${escapeHtml(label)}</strong>`).join("")}${rows.map(row => columns.map(([, field]) => {
-          const value = typeof field === "function" ? field(row) : row[field];
-          return `<code>${escapeHtml(value ?? "")}</code>`;
-        }).join("")).join("")}</div>`
-      : `<div class="empty-fact-group">${escapeHtml(emptyText)}</div>`}
-  </section>`;
-}
-
 type FactSummaryRow =
-  readonly [key: string, value: string, evidence?: readonly string[]];
+  readonly [key: string, value: string];
 
 function factRows(rows: readonly FactSummaryRow[]) {
-  return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
-}
-
-// Inline, muted IL-offset evidence riding along a fact's value (e.g. "1  IL_000C").
-// Deduplicated and capped so a hot method never restores the long-line problem; the
-// overflow count carries the full list in a tooltip and the detail table below holds
-// every occurrence. Sourced from the detail collections so the summary and the tables agree.
-function factEvidence(offsets?: readonly string[]) {
-  const unique = [...new Set((offsets ?? []).filter(Boolean))];
-  if (!unique.length) return "";
-  const CAP = 2;
-  const shown = unique.slice(0, CAP);
-  const extra = unique.length - shown.length;
-  const label = shown.join(", ") + (extra > 0 ? ` +${extra}` : "");
-  return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
+  return `<dl class="fact-rows">${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd></div>`).join("")}</dl>`;
 }
 
 function shortTypeName(fullName: string) {
