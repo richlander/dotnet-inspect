@@ -432,6 +432,27 @@ public static partial class AttributeReader
         return false;
     }
 
+    internal static bool HasUnionAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<int>? beforeMaterialize = null)
+    {
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            if (TryGetTopLevelAttributeType(
+                    reader,
+                    attribute.Constructor,
+                    KnownAttributeNames.UnionAttribute,
+                    beforeMaterialize,
+                    out _))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>Checks if the enum has the <c>[Flags]</c> attribute.</summary>
     /// <remarks>
     /// Reports only well-formed authentic rows. Callers that project a wire

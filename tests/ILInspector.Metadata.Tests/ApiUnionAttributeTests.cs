@@ -46,6 +46,29 @@ public sealed class ApiUnionAttributeTests
     }
 
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Extract_UnionMarkerRequiresExactTopLevelNameNotAssemblyProvenance(
+        bool nestedAttributeType,
+        bool expected)
+    {
+        using var stream = new MemoryStream(
+            JsonPropertyNameAttributeTests.BuildImage(
+                "UnionAttribute",
+                trustedAssembly: false,
+                markerConstructor: true,
+                attributeNamespace: "System.Runtime.CompilerServices",
+                assemblyName: "UnionMarkerPolyfill",
+                nestedAttributeType: nestedAttributeType),
+            writable: false);
+        using var peReader = new PEReader(stream);
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(peReader).Types);
+
+        Assert.Equal(expected, type.HasUnionAttribute);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     [InlineData(null)]

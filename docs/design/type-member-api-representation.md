@@ -107,7 +107,8 @@ null (not inspected). Marker presence does not establish a valid union, its
 case set, or a serializer contract, and does not replace the type's ordinary
 `Kind` or structured constructor signatures.
 `ApiUnionAttributeTests` gates native declarations, manually attributed types,
-unrelated same-simple-name attributes, and JSON persistence of all three states.
+unrelated same-simple-name attributes, nested display-name collisions,
+downlevel marker references, and JSON persistence of all three states.
 This is the Metadata prerequisite for
 [JSON union support #5892](https://github.com/richlander/dotnet-inspect/issues/5892); wire-contract
 discovery, TypeScript emission, and inspect-web adoption remain separate owners.
