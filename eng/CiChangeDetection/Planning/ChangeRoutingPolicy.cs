@@ -276,6 +276,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-ts-jsexport-typescript.sh",
             "eng/generate-inspect-web-multi-facade-canary.sh",
             "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",

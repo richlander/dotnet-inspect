@@ -129,7 +129,8 @@ public static class MetadataImageInspector
                 corHeader.MajorRuntimeVersion,
                 corHeader.MinorRuntimeVersion,
                 corHeader.Flags,
-                corHeader.EntryPointTokenOrRelativeVirtualAddress)
+                corHeader.EntryPointTokenOrRelativeVirtualAddress,
+                corHeader.ManagedNativeHeaderDirectory)
             : null;
 
         var pe = headers.PEHeader;
