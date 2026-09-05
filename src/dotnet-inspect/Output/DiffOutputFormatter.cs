@@ -1,6 +1,9 @@
 using ILInspector.Instructions;
 using ILInspector.Metadata;
 using ILInspector.Research;
+using ILInspector.Findings;
+using DotnetInspector.Queries;
+using DotnetInspector.Services;
 using DotnetInspector.Views;
 using InertText;
 using Markout;
@@ -474,45 +477,15 @@ public static class DiffOutputFormatter
         string name,
         ImplementationDiffResult diff,
         string fromVersion,
-        string toVersion)
+        string toVersion,
+        AssemblyMemberSourcePairResult? selectedSource = null)
     {
         List<ImplementationDiffRow> rows = [];
         foreach (var member in diff.Members)
         {
             foreach (var change in member.Changes)
             {
-                var mechanism = change.Mechanism switch
-                {
-                    ResearchChangeMechanism.CSharp => "C#",
-                    ResearchChangeMechanism.IlBody => "IL",
-                    ResearchChangeMechanism.Source => "PDB Source",
-                    _ => change.Mechanism.ToString()
-                };
-                var evidenceLines = ImplementationDiff.UnifiedLines(change);
-                string difference = change.Mechanism == ResearchChangeMechanism.IlBody
-                    ? (change.IlBodyDiff?.Outcome ?? IlBodyDiffOutcome.Unavailable).ToString()
-                    : "";
-                string changeKind = change.Kind.ToString().ToLowerInvariant();
-                if (evidenceLines.IsDefaultOrEmpty)
-                {
-                    rows.Add(new ImplementationDiffRow(
-                        member.Subject.Display,
-                        mechanism,
-                        difference,
-                        changeKind,
-                        change.Detail ?? change.Descriptor.Title));
-                    continue;
-                }
-
-                foreach (var evidence in evidenceLines)
-                {
-                    rows.Add(new ImplementationDiffRow(
-                        member.Subject.Display,
-                        mechanism,
-                        difference,
-                        changeKind,
-                        evidence));
-                }
+                AddImplementationChangeRows(rows, member.Subject.Display, change);
             }
 
             var sourceComparison = member.SourceComparison;
@@ -531,12 +504,18 @@ public static class DiffOutputFormatter
             }
         }
 
+        if (selectedSource is not null)
+            AddSelectedSourceRows(rows, selectedSource);
+
         var csharpCount = rows.Count(row => row.Mechanism == "C#");
         var ilCount = rows.Count(row => row.Mechanism == "IL");
         var sourceCount = rows.Count(row => row.Mechanism == "PDB Source");
-        bool hasSourceLane = diff.Members.Any(member =>
+        bool hasSourceLane = selectedSource is not null || diff.Members.Any(member =>
             member.SourceComparison is not null);
-        var summary = rows.Count == 0
+        var summary = selectedSource is not null
+            ? $"1 selected member; {csharpCount} decompiled C#, {ilCount} IL, and {sourceCount} PDB Source "
+              + $"evidence row{(rows.Count == 1 ? "" : "s")}."
+            : rows.Count == 0
             ? "No implementation differences detected."
             : !hasSourceLane
                 ? $"{diff.Members.Count} changed member{(diff.Members.Count == 1 ? "" : "s")}; "
@@ -560,6 +539,121 @@ public static class DiffOutputFormatter
             Rows = rows.Count > 0 ? rows : null
         };
     }
+
+    static void AddImplementationChangeRows(
+        List<ImplementationDiffRow> rows,
+        string member,
+        ResearchChange change)
+    {
+        string mechanism = change.Mechanism switch
+        {
+            ResearchChangeMechanism.CSharp => "C#",
+            ResearchChangeMechanism.IlBody => "IL",
+            ResearchChangeMechanism.Source => "PDB Source",
+            _ => change.Mechanism.ToString()
+        };
+        var evidenceLines = ImplementationDiff.UnifiedLines(change);
+        string difference = change.Mechanism == ResearchChangeMechanism.IlBody
+            ? (change.IlBodyDiff?.Outcome ?? IlBodyDiffOutcome.Unavailable).ToString()
+            : "";
+        string changeKind = change.Kind.ToString().ToLowerInvariant();
+        if (evidenceLines.IsDefaultOrEmpty)
+        {
+            rows.Add(new ImplementationDiffRow(
+                member, mechanism, difference, changeKind,
+                change.Detail ?? change.Descriptor.Title));
+            return;
+        }
+        foreach (string evidence in evidenceLines)
+            rows.Add(new ImplementationDiffRow(member, mechanism, difference, changeKind, evidence));
+    }
+
+    static void AddSelectedSourceRows(
+        List<ImplementationDiffRow> rows,
+        AssemblyMemberSourcePairResult pair)
+    {
+        var anchor = pair.Request.Member;
+        var subject = ResearchMemberIdentity.SubjectFromAnchor(
+            anchor, $"{anchor.TypeFullName}.{anchor.MemberName}");
+        if (pair.Status == AssemblyMemberSourcePairStatus.Compared
+            && pair.Comparison is FindingComparison<string>.Complete comparison)
+        {
+            var changes = ImplementationDiff.ToSourceChanges(pair.Comparison, subject);
+            foreach (var change in changes)
+                AddImplementationChangeRows(rows, subject.Display, change);
+            foreach (var line in comparison.Pairs)
+            {
+                if (line is PairFinding<string>.Present { Difference: FindingDifferenceKind.Moved } moved)
+                {
+                    rows.Add(new ImplementationDiffRow(
+                        subject.Display, "PDB Source", "Moved", "moved",
+                        $"declaration line {moved.Old.Ordinal + 1} -> {moved.New.Ordinal + 1}: {moved.New.Payload}"));
+                }
+            }
+            if (pair.IsExact)
+            {
+                rows.Add(new ImplementationDiffRow(
+                    subject.Display, "PDB Source", "Exact", "unchanged",
+                    "old: complete; new: complete; checksum-verified declarations are unchanged."));
+            }
+            return;
+        }
+
+        string? failure = pair.Failure?.Detail
+            ?? (pair.Comparison is FindingComparison<string>.Failed failedComparison
+                ? failedComparison.Failure
+                : null);
+        string endpoints =
+            $"old: {SourceEndpointState(pair.Before)}; new: {SourceEndpointState(pair.After)}";
+        bool failed = pair.Status == AssemblyMemberSourcePairStatus.Failed
+            || SourceEndpointFailed(pair.Before)
+            || SourceEndpointFailed(pair.After);
+        rows.Add(new ImplementationDiffRow(
+            subject.Display,
+            "PDB Source",
+            pair.Status.ToString(),
+            failed ? "failed" : "unavailable",
+            failure is null ? endpoints : $"{failure}; {endpoints}"));
+    }
+
+    static bool SourceEndpointFailed(AssemblyMemberSourcePairEndpoint endpoint)
+        => endpoint is AssemblyMemberSourcePairEndpoint.Failed
+            or AssemblyMemberSourcePairEndpoint.Rejected
+            or AssemblyMemberSourcePairEndpoint.Resolved
+            {
+                Source: AssemblyMemberPdbSourceAttempt.Unavailable
+                {
+                    Inspection.Lines.Value: FindingInspection<string>.Failed
+                }
+            };
+
+    static string SourceEndpointState(AssemblyMemberSourcePairEndpoint endpoint)
+        => endpoint switch
+        {
+            AssemblyMemberSourcePairEndpoint.Resolved
+            {
+                Source: AssemblyMemberPdbSourceAttempt.Available
+            } => "complete",
+            AssemblyMemberSourcePairEndpoint.Resolved
+            {
+                Source: AssemblyMemberPdbSourceAttempt.Unavailable unavailable
+            } => SourceInspectionState(unavailable.Inspection),
+            AssemblyMemberSourcePairEndpoint.NotFound missing =>
+                $"{missing.Failure.Kind}: {missing.Failure.Detail}",
+            AssemblyMemberSourcePairEndpoint.Rejected rejected =>
+                $"{rejected.Failure.Kind}: {rejected.Failure.Detail}",
+            AssemblyMemberSourcePairEndpoint.Failed failed =>
+                $"{failed.Failure.Kind}: {failed.Failure.Detail}",
+            _ => throw new InvalidOperationException("Unknown selected source endpoint.")
+        };
+
+    static string SourceInspectionState(PdbMemberSourceInspection inspection)
+        => $"{inspection.Outcome}: " + (inspection.Lines.Value switch
+        {
+            FindingInspection<string>.Failed failed => failed.Error.Reason,
+            FindingInspection<string>.Absent absent => absent.Detail ?? "unavailable",
+            _ => throw new InvalidOperationException("Unavailable source carried complete evidence.")
+        });
 
     static string? SourceState(ILInspector.Findings.FindingComparison<string> comparison)
     {
