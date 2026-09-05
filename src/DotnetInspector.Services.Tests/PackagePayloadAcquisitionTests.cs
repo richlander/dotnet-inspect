@@ -2571,6 +2571,184 @@ public sealed class PackagePayloadAcquisitionTests
         Assert.True(policy.Reservation.Disposed);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_AwaitsCapacityBeforeReadingPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            onReserve: transfer => Assert.Equal(nupkg.LongLength, transfer.AdvertisedLength),
+            onComplete: () => Assert.Equal(1, store.Commits),
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.False(acquisition.IsCompleted);
+        Assert.False(bodyRead);
+        Assert.True(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+
+        release.SetResult();
+        await acquisition;
+
+        Assert.True(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.True(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_CancellationWhileAwaitingCapacityClosesPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, cancellation.Token);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.False(bodyRead);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => acquisition);
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_AsyncRefusalClosesUnreadPayload(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refusal = new InvalidOperationException("No retained capacity is available.");
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                throw refusal;
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        release.SetResult();
+        Assert.Same(refusal,
+            await Assert.ThrowsAsync<InvalidOperationException>(() => acquisition));
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TransferPolicy_CancellationAtCapacityHandoffReleasesReservation(bool typedSource)
+    {
+        byte[] nupkg = TestPackageArchive.Create("lib/net10.0/Sample.dll");
+        bool bodyRead = false;
+        using var stream = new ReadTrackingStream(nupkg, () => bodyRead = true);
+        var store = new CountingPackageStore(new InMemoryPackageStore());
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var policy = new RecordingTransferPolicy(
+            beforeReserve: async token =>
+            {
+                entered.SetResult();
+                await release.Task.WaitAsync(token);
+                cancellation.Cancel();
+            });
+
+        Task acquisition = AcquireWithTransferPolicyAsync(
+            typedSource, stream, store, policy, cancellation.Token);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+        release.SetResult();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => acquisition);
+
+        Assert.False(bodyRead);
+        Assert.False(stream.CanRead);
+        Assert.Equal(0, store.Commits);
+        Assert.False(policy.Reservation.Completed);
+        Assert.True(policy.Reservation.Disposed);
+    }
+
+    static async Task AcquireWithTransferPolicyAsync(
+        bool typedSource,
+        MemoryStream payload,
+        IPackageStore store,
+        IPackagePayloadTransferPolicy policy,
+        CancellationToken cancellationToken)
+    {
+        HttpContent Content()
+        {
+            var content = new StreamContent(payload);
+            content.Headers.ContentLength = payload.Length;
+            return content;
+        }
+
+        if (typedSource)
+        {
+            using IPackageSourceClient source =
+                PackageSourceClientFactory.CreateGallery(
+                    PackageSourceAssociation.Create(),
+                    new GalleryPayloadHandler(Content));
+            Assert.IsType<PackageSourcePayloadResult.Acquired>(
+                await PackagePayloadAcquisition.AcquireAsync(
+                    source,
+                    PackageSourceIdentity.NuGetOrg,
+                    PackageSourceCoordinate.Create(PackageId, Version),
+                    store,
+                    cancellationToken: cancellationToken,
+                    transferPolicy: policy));
+        }
+        else
+        {
+            using var client = new HttpClient(new NuGetOrgHandler(Content));
+            Assert.IsType<PackagePayloadResult.Acquired>(
+                await PackagePayloadAcquisition.AcquireAsync(
+                    client,
+                    Coordinate(NuGetOrg),
+                    store,
+                    cancellationToken: cancellationToken,
+                    transferPolicy: policy));
+        }
+    }
+
     // The reservation the host makes from the advertised length is the allocation the body read
     // performs, so a host accounting for its own memory is not told one number and handed another.
     [Fact]
@@ -3091,15 +3269,19 @@ public sealed class PackagePayloadAcquisitionTests
 
     sealed class RecordingTransferPolicy(
         Action<PackagePayloadTransfer>? onReserve = null,
-        Action? onComplete = null)
+        Action? onComplete = null,
+        Func<CancellationToken, Task>? beforeReserve = null)
         : IPackagePayloadTransferPolicy
     {
         internal RecordingReservation Reservation { get; } =
             new(onComplete);
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
+            if (beforeReserve is not null)
+                await beforeReserve(cancellationToken);
             onReserve?.Invoke(transfer);
             return Reservation;
         }
