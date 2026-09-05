@@ -11277,6 +11277,42 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceDiff_ExplicitInitAccessorPreservesAccessorKind()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.Initial:2",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains("init => _value = value;", output);
+        Assert.DoesNotContain("set =>", output);
+    }
+
+    [Theory]
+    [InlineData("Map")]
+    [InlineData("Pair")]
+    [InlineData("Reference")]
+    public async Task Member_SourceDiff_ExplicitGetterPreservesCompleteReturnType(
+        string propertyName)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:1",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "PDB comparison and Decompiled comparison are identical.",
+            output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -35235,6 +35271,35 @@ public struct CommandExecutionReadonlySourceDiffFixture : ICommandExecutionReado
     {
         get => _value;
         set => GC.KeepAlive(value);
+    }
+}
+
+public interface ISourceDiffPropertyShapeFixture
+{
+    Dictionary<string, int> Map { get; }
+    (int Count, string Name) Pair { get; }
+    ref readonly int Reference { get; }
+    int Initial { get; init; }
+}
+
+public sealed class SourceDiffPropertyShapeFixture : ISourceDiffPropertyShapeFixture
+{
+    Dictionary<string, int> _map = [];
+    (int Count, string Name) _pair = (1, "value");
+    int _value;
+
+    public SourceDiffPropertyShapeFixture(int value) => _value = value;
+
+    Dictionary<string, int> ISourceDiffPropertyShapeFixture.Map => _map;
+
+    (int Count, string Name) ISourceDiffPropertyShapeFixture.Pair => _pair;
+
+    ref readonly int ISourceDiffPropertyShapeFixture.Reference => ref _value;
+
+    int ISourceDiffPropertyShapeFixture.Initial
+    {
+        get => _value;
+        init => _value = value;
     }
 }
 

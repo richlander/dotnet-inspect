@@ -72,6 +72,9 @@ The associated PropertyDef supplies the complete qualified property identity;
 the renderer does not parse accessor markers from the MethodDef name. An
 ordinary explicit method whose source name begins with `get_` or `set_` remains
 a method.
+Property return types come from structured signature evidence, not a prefix of
+the rendered method signature. A selected setter preserves the physical
+`IsExternalInit` return modifier as `init`, rather than widening it to `set`.
 
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No

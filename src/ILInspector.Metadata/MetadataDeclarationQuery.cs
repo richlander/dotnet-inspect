@@ -357,6 +357,31 @@ public static class MetadataDeclarationQuery
         return FormatMethodReturnType(reader, signature.ReturnType, method.GetParameters());
     }
 
+    /// <summary>
+    /// Reads the required IsExternalInit return modifier of a property setter.
+    /// </summary>
+    public static bool IsInitOnlySetter(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        MethodDefinition method)
+    {
+        var signature = GuardedProviderDecode.Method(
+            reader,
+            method,
+            TypeNodeProvider.Instance,
+            GenericContext.ForMethod(reader, typeDef, method),
+            (TypeNode)new DegradedTypeNode());
+        if (signature.ReturnType.IsDegraded)
+        {
+            throw new BadImageFormatException(
+                "The property setter return signature could not be decoded.");
+        }
+
+        return signature.ReturnType.HasRequiredModifier(
+            "System.Runtime.CompilerServices",
+            "IsExternalInit");
+    }
+
     public static MetadataMethodDeclaration GetMethod(
         MetadataReader reader,
         TypeDefinition typeDef,

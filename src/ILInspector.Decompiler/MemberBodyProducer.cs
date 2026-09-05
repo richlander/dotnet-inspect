@@ -1202,15 +1202,13 @@ public static class MemberBodyProducer
                             : null;
                     if (member.Kind == "explicit-interface-implementation"
                         && explicitPropertyPath is { } propertyPath
+                        && memberHandle is { } propertyAccessorHandle
                         && body is not null)
                     {
                         string? accessorPropertyType = isExplicitSetter
                             ? member.SignatureModel?.Parameters.LastOrDefault()?.Type
-                            : member.ReturnType
-                                ?? (member.Signature is { } sig
-                                    && sig.IndexOf(' ') is var sp and > 0
-                                        ? sig[..sp]
-                                        : null);
+                            : member.SignatureModel?.ReturnType
+                                ?? member.ReturnType;
                         if (string.IsNullOrEmpty(accessorPropertyType))
                         {
                             throw new InvalidOperationException(
@@ -1229,9 +1227,15 @@ public static class MemberBodyProducer
                             $"{staticModifier}{readonlyModifier}{unsafeModifier}{propertyType} {propertyPath}";
                         if (isExplicitSetter)
                         {
+                            string accessorKind = MetadataDeclarationQuery.IsInitOnlySetter(
+                                reader,
+                                reader.GetTypeDefinition(typeHandle),
+                                reader.GetMethodDefinition(propertyAccessorHandle))
+                                    ? "init"
+                                    : "set";
                             sb.AppendLf($"    {head}");
                             sb.AppendLf("    {");
-                            CSharpMemberLayout.Append(sb, "set", body, 8, WrapExpressionBodyArrow(printerOptions));
+                            CSharpMemberLayout.Append(sb, accessorKind, body, 8, WrapExpressionBodyArrow(printerOptions));
                             sb.AppendLf("    }");
                         }
                         else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
