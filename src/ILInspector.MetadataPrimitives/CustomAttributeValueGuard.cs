@@ -30,7 +30,7 @@ namespace ILInspector.Metadata;
 /// The value walk uses an explicit heap work-stack rather than native
 /// recursion, so a deeply nested blob cannot overflow the native stack before
 /// <see cref="MaxSerializedDepth"/> is consulted;
-/// <c>CustomAttributeValueGuardTests.BoxedNestingAtLimit_OnSmallNativeStack_IsSafe</c>
+/// <c>CustomAttributeValueGuardTests.DeeplyNestedObjectArray_OnSmallNativeStack_IsSafe</c>
 /// is that gate. Enum argument widths come from
 /// <see cref="EnumUnderlyingPrimitive"/> and the shared type-definition index.
 /// </summary>
@@ -131,16 +131,17 @@ public static class CustomAttributeValueGuard
         fixedArgumentWidthDefaulted = default;
         namedArgumentWidthDefaulted = default;
 
-        var decoder = new Decoder(
-            reader,
-            attribute.Constructor,
-            preserveSerializedTypeNames,
-            materialize,
-            captureDefaultedWidths,
-            beforeMaterialize,
-            enumUnderlyingType);
         try
         {
+            // Constructor access reads and validates metadata too.
+            var decoder = new Decoder(
+                reader,
+                attribute.Constructor,
+                preserveSerializedTypeNames,
+                materialize,
+                captureDefaultedWidths,
+                beforeMaterialize,
+                enumUnderlyingType);
             return decoder.Run(
                 attribute,
                 out value,

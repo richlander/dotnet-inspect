@@ -11,10 +11,10 @@ using ILInspector.Metadata;
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// Gates <see cref="CustomAttributeValueGuard"/> independently of surface
-/// extraction: SRM would allocate builders from declared counts before any
-/// provider callback, so the guard must refuse those blobs and still accept
-/// legal constructor and named-argument layouts.
+/// Gates the owned decoder and its non-materializing
+/// <see cref="CustomAttributeValueGuard"/> bridge independently of surface
+/// extraction: declared counts are bounded before allocation, and legal
+/// constructor and named-argument layouts remain decodable.
 /// </summary>
 public sealed class CustomAttributeValueGuardTests
 {
