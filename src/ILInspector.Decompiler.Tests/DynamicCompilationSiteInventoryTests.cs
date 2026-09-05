@@ -138,9 +138,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
     //     emits checksum-bearing portable-PDB fixtures for live source
     //     acquisition, absence, and failure gates.
-    //   Combined: 44 files, 55 sites.
+    //   Combined: 44 files, 56 sites.
     const int ExpectedDynamicFiles = 44;
-    const int ExpectedDynamicSites = 55;
+    const int ExpectedDynamicSites = 56;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
