@@ -67,7 +67,7 @@ public sealed class SlotMaterializationPass : IIrPass
         // with the analysis decision.
         var indices = new Dictionary<int, int>();
         foreach (var candidate in decided)
-            indices[candidate.Slot] = function.AddLocal(candidate.Type!, $"S_{candidate.Slot}");
+            indices[candidate.Slot] = function.AddSynthesizedLocal(candidate.Type!, $"S_{candidate.Slot}");
         foreach (var candidate in decided)
         {
             foreach (var load in candidate.Loads)

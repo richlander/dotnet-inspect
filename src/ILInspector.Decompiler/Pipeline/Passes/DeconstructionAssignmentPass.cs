@@ -159,9 +159,17 @@ public sealed class DeconstructionAssignmentPass : IIrPass
     static IrExpression? ReceiverValue(IrExpression receiver) => receiver switch
     {
         LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
-        LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+        LoadArgumentAddress address => new LoadArgument(
+            address.Index,
+            address.Name,
+            address.Type,
+            address.Parameter),
         LoadLocal local => new LoadLocal(local.Index, local.Type),
-        LoadArgument argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadArgument argument => new LoadArgument(
+            argument.Index,
+            argument.Name,
+            argument.Type,
+            argument.Parameter),
         _ => null,
     };
 
@@ -247,7 +255,11 @@ public sealed class DeconstructionAssignmentPass : IIrPass
             && seed.Matches(argumentInstance)
             && argumentFieldName == $"Item{ordinal}")
         {
-            return new TargetMatch(argument, () => DeconstructionTarget.Argument(argument.Index, argument.Name, argument.Type));
+            return new TargetMatch(argument, () => DeconstructionTarget.Argument(
+                argument.Index,
+                argument.Name,
+                argument.Type,
+                argument.Parameter));
         }
 
         if (statement is StoreField

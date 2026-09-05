@@ -134,7 +134,6 @@ public class MemberBodyProducerUnionTests
             """);
 
         var source = ComposeType(assembly.Path, "UnionFixtures.Result");
-
         Assert.Contains("public union Result(int, bool)", source);
         Assert.DoesNotContain("Result(int, bool, string", source);
         Assert.DoesNotContain("Result(int, bool, double", source);
