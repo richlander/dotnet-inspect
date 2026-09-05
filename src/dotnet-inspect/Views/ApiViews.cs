@@ -30,7 +30,19 @@ public class TypeView
     [JsonIgnore]
     public List<MarkoutField>? Summary { get; set; }
 
-    // Top fields (rendered inline for -v:q compact summary only)
+    [MarkoutSkipNull] public string? Package { get; set; }
+    [MarkoutSkipNull] public string? Version { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("TFM")]
+    public string? Tfm { get; set; }
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Library")]
+    public string? Assembly { get; set; }
+
+    [MarkoutSkipNull] public string? Source { get; set; }
+
     [MarkoutSkipNull] public string? Kind { get; set; }
     [MarkoutSkipNull] public string? Modifiers { get; set; }
 
@@ -43,14 +55,6 @@ public class TypeView
     public string? TypeParametersInline { get; set; }
 
     [MarkoutIgnore] public string? Implements { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("Library")]
-    public string? Assembly { get; set; }
-
-    [MarkoutSkipNull] public string? Package { get; set; }
-    [MarkoutSkipNull] public string? Version { get; set; }
-    [MarkoutSkipNull] public string? Source { get; set; }
 
     [MarkoutIgnore]
     [JsonIgnore]
@@ -75,10 +79,6 @@ public class TypeView
     [MarkoutIgnore]
     [JsonIgnore]
     public bool CallGraphIncomplete { get; set; }
-
-    [MarkoutSkipNull]
-    [MarkoutPropertyName("TFM")]
-    public string? Tfm { get; set; }
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Samples")]

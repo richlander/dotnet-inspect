@@ -4,7 +4,9 @@ This document defines the output format conventions for `dotnet-inspect`. The pr
 
 ## Document structure
 
-All markdown output follows a consistent four-part structure:
+Document-form Markdown uses a subject heading, optional description, available
+context fields, and content sections. Focused projections may omit the header
+under [progressive disclosure](progressive-disclosure.md#section-selection).
 
 ```markdown
 # Title
@@ -23,9 +25,11 @@ Optional description paragraph.
 
 ### 1. H1 title
 
-Every output starts with a single H1 heading that names the **subject — and only the subject**:
+When a document header is present, its single H1 names the
+**subject — and only the subject**:
 
 - **Type view:** `# Namespace.TypeName`
+- **Selected member:** `# Namespace.TypeName.MemberName`
 - **Package view:** `# PackageName`
 - **Library view:** `# AssemblyName.dll`
 
@@ -59,9 +63,15 @@ Provides functionality to serialize objects or value types to JSON and deseriali
 
 ### 3. Key-value fields
 
-Structured metadata as `**Label:** value` pairs, one per line. These fields form the stable "header" that `--fields-only` preserves.
+Context is structured metadata with named fields, selectable with `--fields`.
+Markout controls inline versus stacked layout; type/member document headers
+use a compact `Label: value | Label: value` line.
 
-**Line break handling:** Each field line ends with two trailing spaces to force a `<br>` in rendered markdown. Without the double space, consecutive field lines would collapse into a single paragraph.
+Header presence follows the existing view and section-selection policy. A
+default member-group document retains its acquisition context outside the
+title; an explicitly focused inventory does not gain a context row. Selected
+members retain their existing Summary context. The default type tree is a
+declaration-oriented shape, not a Markdown document header.
 
 **When to use fields vs tables:**
 
@@ -75,28 +85,42 @@ Fields describe "what this thing is"; tables list "what this thing contains".
 Provenance first — these answer "where did this metadata come from?" and carry what the title
 parenthetical used to (plus the version, TFM, and asset that a single parenthetical could not):
 
-- `**Package:** System.Text.Json 10.0.0` (package name and resolved version; omitted for local-file sources)
-- `**TFM:** net10.0` (the target framework the asset was selected for)
-- `**Library:** lib/net10.0/System.Text.Json.dll` (the exact assembly asset the metadata came from — the in-package path for package sources, or the file path for a local library)
+- `Package: System.Text.Json` (available package identity, not an assembly name)
+- `Version: 10.0.0` (available package or framework selection version)
+- `TFM: net10.0` (the available target framework selection)
+- `Library: lib/net10.0/System.Text.Json.dll` (the selected API input asset, package-relative when its acquisition root is retained; otherwise its acquired filesystem path)
+- `Source: NuGet` (acquisition context such as NuGet, Project, Platform, or Library; not a source-code URL)
+
+The fields describe the API input selected for the query, including a package
+resolved through project assets. For a forwarded type, `Library` remains the
+selected contract/facade asset; it is not silently replaced with the defining
+assembly. Source and implementation acquisition continue to use the retained
+defining-assembly descriptor under their existing owners. A header therefore
+does not claim that every displayed definition or IL body is physically in
+`Library`. [Platform assemblies](platform-assemblies.md#type-forwarders)
+explains this distinction. These are display projections, not new resolution
+authority.
 
 Then the subject's own facts:
 
-- `**Kind:** class` / `interface` / `struct` / `enum`
-- `**Modifiers:** static, sealed` (only if modifiers exist)
-- `**Source:** https://...`
-- `**Samples:** N available` (when the view has sample-reference metadata)
+- `Kind: class` / `interface` / `struct` / `enum`
+- `Modifiers: static, sealed` (only if modifiers exist)
+- `Samples: N available` (when the view has sample-reference metadata)
 
 ```markdown
-**Package:** System.Text.Json 10.0.0
-**TFM:** net10.0
-**Library:** lib/net10.0/System.Text.Json.dll
-**Kind:** class
-**Modifiers:** sealed
-**Source:** https://github.com/.../JsonSerializer.cs
-**Samples:** 2 available
+Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.0/System.Text.Json.dll | Source: NuGet | Kind: class | Modifiers: static
 ```
 
 Fields always appear in a consistent order. Empty/null fields are omitted.
+
+`ApiHeaderProvenanceTests` gates subject-only headings, retained context,
+focused-inventory behavior, and acquired asset paths.
+`Type_SingleType_MarkdownQuiet_RendersCompactSectionView` and
+`Router_FullyQualifiedGenericPlatformType_PreservesContractSource` gate CLI
+header and contract-asset disclosure.
+`ApiServices_RetainsSelectedForwarderDescriptor` gates the separation from
+defining-assembly acquisition. Typed API JSON and declaration trees retain their separate
+output contracts; header presentation does not redefine them.
 
 The `**Samples:**` field is a count indicator, not a guarantee that a target
 exposes a `Samples` section. Discover the current section catalog before

@@ -14,15 +14,11 @@ Unlike decompilers, dotnet-inspect focuses on the **public API surface**—the c
 ## Quick Example
 
 ```bash
-$ dotnet-inspect type JsonSerializer --package System.Text.Json --shape
+$ dotnet-inspect type JsonSerializer --package System.Text.Json@10.0.0 --markdown -v:q -T q
 
-# System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
+# System.Text.Json.JsonSerializer
 
-System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
-   ├─ string Serialize<TValue>(TValue value, JsonSerializerOptions? options = null)
-   ├─ string Serialize(object? value, Type inputType, JsonSerializerOptions? options = null)
-   ├─ void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)
-   └─ ...
+Package: System.Text.Json | Version: 10.0.0 | TFM: net10.0 | Library: lib/net10.0/System.Text.Json.dll | Source: NuGet | Kind: class | Modifiers: static | Properties: 1 | Methods: 103
 ```
 
 ## Documentation

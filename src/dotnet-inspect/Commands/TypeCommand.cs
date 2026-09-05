@@ -284,7 +284,9 @@ public static class TypeCommand
                         }
                     }
 
-                    var foundIn = apiDllPath != null ? Path.GetFileNameWithoutExtension(apiDllPath) : null;
+                    var acquisition = new ApiCommand.TypeAcquisitionContext(
+                        loaded.GetLibraryAssetPath(source.PackageExtractPath),
+                        packageName, packageVersion ?? apiVersion, apiSource, selectedTfm);
 
                     // Default --docs on for single-type view at Normal+ unless explicitly disabled
                     TypeOptions effectiveOptions = options;
@@ -365,8 +367,7 @@ public static class TypeCommand
                     {
                         return ApiCommand.ExecuteEffectiveDiscovery(
                             apiType, memberPipeline, effectiveOptions,
-                            new ApiCommand.TypeAcquisitionContext(
-                                foundIn, packageName, packageVersion, apiSource, selectedTfm));
+                            acquisition);
                     }
 
                     if (effectiveOptions.DllPath is { } sourceFilesDllPath
@@ -411,7 +412,9 @@ public static class TypeCommand
                         // Capture output so we can warn when a requested column produced no data
                         // (e.g. a column not shown at this verbosity).
                         var sw = new StringWriter { NewLine = "\n" };
-                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions, sw);
+                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
+                            apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -420,7 +423,9 @@ public static class TypeCommand
                     }
                     else
                     {
-                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(apiType, foundIn, packageName, packageVersion, apiSource, selectedTfm, effectiveOptions);
+                        var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
+                            apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
+                            acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }

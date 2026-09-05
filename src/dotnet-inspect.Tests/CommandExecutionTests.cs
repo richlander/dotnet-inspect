@@ -61,6 +61,17 @@ public partial class CommandExecutionTests
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
 
+    private static void AssertLibraryAsset(string output, string assemblyName)
+    {
+        string field = Assert.Single(
+            output.Split([" | ", "\n"], StringSplitOptions.None),
+            value => value.StartsWith("Library: ", StringComparison.Ordinal));
+        string path = field["Library: ".Length..];
+        Assert.True(Path.IsPathFullyQualified(path), $"Expected an acquired asset path: {path}");
+        Assert.Equal(assemblyName + ".dll", Path.GetFileName(path));
+        Assert.True(File.Exists(path), $"Expected the acquired asset to exist: {path}");
+    }
+
     private static int CountRenderedMarkdownTableRows(string markdown) =>
         MarkdownTableTestOracle.CountRows(markdown);
 
@@ -3595,7 +3606,8 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("# System.Text.Json.JsonSerializer", output);
+        Assert.StartsWith("# System.Text.Json.JsonSerializer\n\n", output);
+        AssertLibraryAsset(output, "System.Text.Json");
         Assert.Contains("Kind: class", output);
         Assert.DoesNotContain("├─", output);
     }
@@ -3609,7 +3621,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
+        AssertLibraryAsset(output, "System.Collections.Immutable");
         Assert.Contains("Source: Platform", output);
         Assert.Contains("## Method Groups", output);
     }
@@ -3695,7 +3707,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        AssertLibraryAsset(output, "System.Text.RegularExpressions");
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -3707,7 +3719,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
-        Assert.Contains("Library: System.Text.RegularExpressions", output);
+        AssertLibraryAsset(output, "System.Text.RegularExpressions");
         Assert.Contains("Note: Type 'Regex' resolved via platform find", error);
     }
 
@@ -3851,7 +3863,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Generic.List&lt;T&gt;", output);
-        Assert.Contains("Library: System.Collections", output);
+        AssertLibraryAsset(output, "System.Collections");
         Assert.Contains("Note: Type 'List<T>' resolved via platform find", error);
     }
 
@@ -3869,8 +3881,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains($"Library: {expectedLibrary}", output);
-        Assert.DoesNotContain("Library: System.Private.CoreLib", output);
+        AssertLibraryAsset(output, expectedLibrary);
     }
 
     [Theory]
@@ -6254,7 +6265,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.Json.JsonSerializer", output);
-        Assert.Contains("Library: System.Text.Json", output);
+        AssertLibraryAsset(output, "System.Text.Json");
         Assert.DoesNotContain("Package 'JsonSerializer'", error);
         Assert.Contains("Note: Type 'JsonSerializer' resolved via platform find", error);
     }
@@ -6267,7 +6278,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Collections.Frozen.FrozenDictionary", output);
-        Assert.Contains("Library: System.Collections.Immutable", output);
+        AssertLibraryAsset(output, "System.Collections.Immutable");
         Assert.Contains("## Method Groups", output);
         Assert.DoesNotContain("## Type Parameters", output);
         Assert.Contains("Note: Type 'FrozenDictionary' resolved via platform find", error);
@@ -8097,7 +8108,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("ambiguous", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Builder.WebApplication", output);
-        Assert.Contains("Library: Microsoft.AspNetCore", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore");
         Assert.Contains("Source: Platform", output);
     }
 
@@ -8115,7 +8126,7 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
         Assert.Contains(".PooledBuffer", output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Components.Endpoints", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Components.Endpoints");
     }
 
     [Fact]
@@ -8134,7 +8145,7 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "# Microsoft.AspNetCore.Http.HttpResults.Results&lt;",
             output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Http.Results", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Http.Results");
     }
 
     [Fact]
@@ -8167,7 +8178,7 @@ public partial class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.DoesNotContain("best-effort prefix", error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("# Microsoft.AspNetCore.Http.HttpContext", output);
-        Assert.Contains("Library: Microsoft.AspNetCore.Http.Abstractions", output);
+        AssertLibraryAsset(output, "Microsoft.AspNetCore.Http.Abstractions");
         Assert.Contains("Source: Platform", output);
     }
 
