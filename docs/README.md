@@ -141,6 +141,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
+| [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |
