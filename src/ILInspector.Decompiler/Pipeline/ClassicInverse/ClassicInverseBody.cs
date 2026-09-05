@@ -32,16 +32,13 @@ internal abstract record ClassicInverseBodyNode
         => string.Join(",", nodes.Select(static n => n.Signature));
 
     private protected static string TypeText(TypeRef? type)
-        => type?.ToDisplayString() ?? "<null>";
+        => type is null ? "<null>" : ClassicInverseTypedIdentity.Type(type);
 
     internal static string MethodText(MethodRef method)
-        => $"{method.DeclaringType.ToDisplayString()}.{method.Name}"
-            + $"({string.Join(";", method.ParameterTypes.Select(static p => p.ToDisplayString()))})"
-            + $"->{method.ReturnType.ToDisplayString()}";
+        => ClassicInverseTypedIdentity.Method(method);
 
     internal static string FieldText(FieldRef field)
-        => $"{field.DeclaringType.ToDisplayString()}.{field.Name}"
-            + $":{field.Type.ToDisplayString()}";
+        => ClassicInverseTypedIdentity.Field(field);
 
     private protected static IrExpression Expr(ClassicInverseBodyNode node)
         => node.Materialize() as IrExpression
@@ -213,6 +210,24 @@ internal sealed record ClassicInverseTypeOfNode(TypeRef Type) : ClassicInverseBo
     internal override IrNode Materialize() => new TypeOf(Type);
 
     internal override string Signature => $"typeof[{ClassicInverseTypedIdentity.Type(Type)}]";
+}
+
+internal sealed record ClassicInverseDefaultValueNode(TypeRef Type) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new DefaultValue(Type);
+
+    internal override string Signature => $"default[{ClassicInverseTypedIdentity.Type(Type)}]";
+}
+
+internal sealed record ClassicInverseLogicalBinaryNode(
+    LogicalKind Kind,
+    ClassicInverseBodyNode Left,
+    ClassicInverseBodyNode Right) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new LogicalBinary(Kind, (IrExpression)Left.Materialize(), (IrExpression)Right.Materialize());
+
+    internal override string Signature => $"logical[{Kind}]({Left.Signature},{Right.Signature})";
 }
 
 internal sealed record ClassicInverseBinaryNode(
@@ -570,7 +585,24 @@ internal static class ClassicInverseBodyCapture
 {
     internal static ClassicInverseBodyNode? TryCapture(
         IrNode node,
-        ClassicInverseBudget budget)
+        ClassicInverseBudget budget,
+        ClassicInverseTypeBinding? binding = null)
+        => new ClassicInverseBodyCaptureSession(binding ?? ClassicInverseTypeBinding.Identity).TryCapture(node, budget);
+
+    internal static InitializerEntry MaterializeEntry(
+        ClassicInverseInitializerEntry entry)
+        => new(
+            entry.Member,
+            [.. entry.Arguments.Select(static a => (IrExpression)a.Materialize())],
+            entry.ConsumedMethod,
+            entry.ConsumedField,
+            entry.ConsumedMethodIsVirtual);
+
+}
+
+internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding binding)
+{
+    internal ClassicInverseBodyNode? TryCapture(IrNode node, ClassicInverseBudget budget)
     {
         if (!budget.Charge())
             return null;
@@ -618,7 +650,7 @@ internal static class ClassicInverseBodyCapture
                     ? null
                     : new ClassicInverseStoreLocalNode(
                         store.Index,
-                        store.Type,
+                        binding.Type(store.Type, budget),
                         value);
             }
 
@@ -630,7 +662,7 @@ internal static class ClassicInverseBodyCapture
                     ? null
                     : new ClassicInverseForeachNode(
                         loop.LocalIndex,
-                        loop.LocalType,
+                        binding.Type(loop.LocalType, budget),
                         collection,
                         body);
             }
@@ -651,7 +683,7 @@ internal static class ClassicInverseBodyCapture
                     ? null
                     : new ClassicInverseAwaitNode(
                         operand,
-                        await.ResultType,
+                        binding.OptionalType(await.ResultType, budget),
                         await.ResultIsDynamic);
             }
 
@@ -659,23 +691,26 @@ internal static class ClassicInverseBodyCapture
                 return new ClassicInverseLoadArgumentNode(
                     load.Index,
                     load.Name,
-                    load.Type,
+                    binding.Type(load.Type, budget),
                     load.IsDynamic,
                     load.ArrayElementIsDynamic);
 
             case LoadLocal load:
-                return new ClassicInverseLoadLocalNode(load.Index, load.Type);
+                return new ClassicInverseLoadLocalNode(load.Index, binding.Type(load.Type, budget));
 
             case LoadLocalAddress load:
-                return new ClassicInverseLoadLocalAddressNode(load.Index, load.Type);
+                return new ClassicInverseLoadLocalAddressNode(load.Index, binding.Type(load.Type, budget));
 
             case Constant constant:
                 return new ClassicInverseConstantNode(
                     constant.Value,
-                    constant.Type);
+                    binding.Type(constant.Type, budget));
 
             case TypeOf typeOf:
-                return new ClassicInverseTypeOfNode(typeOf.Type);
+                return new ClassicInverseTypeOfNode(binding.Type(typeOf.Type, budget));
+
+            case DefaultValue defaultValue:
+                return new ClassicInverseDefaultValueNode(binding.Type(defaultValue.Type, budget));
 
             case Binary binary:
             {
@@ -715,7 +750,7 @@ internal static class ClassicInverseBodyCapture
                         condition,
                         whenTrue,
                         whenFalse,
-                        conditional.MergedType);
+                        binding.OptionalType(conditional.MergedType, budget));
             }
 
             case LogicalNot not:
@@ -724,6 +759,14 @@ internal static class ClassicInverseBodyCapture
                 return operand is null
                     ? null
                     : new ClassicInverseLogicalNotNode(operand);
+            }
+
+            case LogicalBinary logical:
+            {
+                var left = TryCapture(logical.Left, budget);
+                var right = TryCapture(logical.Right, budget);
+                return left is null || right is null ? null
+                    : new ClassicInverseLogicalBinaryNode(logical.Kind, left, right);
             }
 
             case Coalesce coalesce:
@@ -757,7 +800,7 @@ internal static class ClassicInverseBodyCapture
                 return operand is null
                     ? null
                     : new ClassicInverseConvertNode(
-                        convert.Target,
+                        binding.Type(convert.Target, budget),
                         convert.IsChecked,
                         convert.IsUnsigned,
                         operand);
@@ -766,7 +809,7 @@ internal static class ClassicInverseBodyCapture
             case Coerce coerce:
             {
                 var operand = TryCapture(coerce.Operand, budget);
-                return operand is null ? null : new ClassicInverseCoerceNode(coerce.Target, operand);
+                return operand is null ? null : new ClassicInverseCoerceNode(binding.Type(coerce.Target, budget), operand);
             }
 
             case Box box:
@@ -774,7 +817,7 @@ internal static class ClassicInverseBodyCapture
                 var operand = TryCapture(box.Operand, budget);
                 return operand is null
                     ? null
-                    : new ClassicInverseBoxNode(box.Type, operand);
+                    : new ClassicInverseBoxNode(binding.Type(box.Type, budget), operand);
             }
 
             case CastClass cast:
@@ -782,7 +825,7 @@ internal static class ClassicInverseBodyCapture
                 var operand = TryCapture(cast.Operand, budget);
                 return operand is null
                     ? null
-                    : new ClassicInverseCastClassNode(cast.Type, operand);
+                    : new ClassicInverseCastClassNode(binding.Type(cast.Type, budget), operand);
             }
 
             case UnboxAny unbox:
@@ -790,7 +833,7 @@ internal static class ClassicInverseBodyCapture
                 var operand = TryCapture(unbox.Operand, budget);
                 return operand is null
                     ? null
-                    : new ClassicInverseUnboxAnyNode(unbox.Type, operand);
+                    : new ClassicInverseUnboxAnyNode(binding.Type(unbox.Type, budget), operand);
             }
 
             case IsInstance test:
@@ -798,7 +841,7 @@ internal static class ClassicInverseBodyCapture
                 var operand = TryCapture(test.Operand, budget);
                 return operand is null
                     ? null
-                    : new ClassicInverseIsInstanceNode(test.Type, operand);
+                    : new ClassicInverseIsInstanceNode(binding.Type(test.Type, budget), operand);
             }
 
             case NewArray array:
@@ -806,7 +849,7 @@ internal static class ClassicInverseBodyCapture
                 var length = TryCapture(array.Length, budget);
                 return length is null
                     ? null
-                    : new ClassicInverseNewArrayNode(array.ElementType, length);
+                    : new ClassicInverseNewArrayNode(binding.Type(array.ElementType, budget), length);
             }
 
             case Call call:
@@ -815,9 +858,9 @@ internal static class ClassicInverseBodyCapture
                 return arguments is null
                     ? null
                     : new ClassicInverseCallNode(
-                        Detach(call.Callee),
+                        Detach(call.Callee, budget),
                         call.IsVirtual,
-                        call.ConstrainedTo,
+                        binding.OptionalType(call.ConstrainedTo, budget),
                         call.ExtensionSyntaxConflict,
                         arguments.Value);
             }
@@ -828,7 +871,7 @@ internal static class ClassicInverseBodyCapture
                 return arguments is null
                     ? null
                     : new ClassicInverseNewObjectNode(
-                        Detach(creation.Constructor),
+                        Detach(creation.Constructor, budget),
                         creation.AnonymousPropertyNames,
                         arguments.Value);
             }
@@ -839,7 +882,7 @@ internal static class ClassicInverseBodyCapture
                 return arguments is null
                     ? null
                     : new ClassicInverseLoadPropertyNode(
-                        Detach(load.Accessor),
+                        Detach(load.Accessor, budget),
                         load.IsVirtual,
                         load.HasInstance,
                         arguments.Value);
@@ -849,12 +892,12 @@ internal static class ClassicInverseBodyCapture
             {
                 if (load.Instance is null)
                     return new ClassicInverseLoadFieldNode(
-                        load.Field, load.IsVolatile, null);
+                        binding.Field(load.Field, budget), load.IsVolatile, null);
                 var instance = TryCapture(load.Instance, budget);
                 return instance is null
                     ? null
                     : new ClassicInverseLoadFieldNode(
-                        load.Field, load.IsVolatile, instance);
+                        binding.Field(load.Field, budget), load.IsVolatile, instance);
             }
 
             case LoadElement load:
@@ -864,7 +907,7 @@ internal static class ClassicInverseBodyCapture
                 return array is null || index is null
                     ? null
                     : new ClassicInverseLoadElementNode(
-                        load.ElementType,
+                        binding.OptionalType(load.ElementType, budget),
                         load.ResultIsDynamic,
                         array,
                         index);
@@ -875,7 +918,7 @@ internal static class ClassicInverseBodyCapture
                 var elements = TryCaptureAll(tuple.Children, budget);
                 return elements is null
                     ? null
-                    : new ClassicInverseTupleNode(tuple.TupleType, elements.Value);
+                    : new ClassicInverseTupleNode(binding.Type(tuple.TupleType, budget), elements.Value);
             }
 
             case ObjectInitializerExpression initializer:
@@ -908,33 +951,22 @@ internal static class ClassicInverseBodyCapture
                         receiver,
                         with.ConsumedCloneMethod is null
                             ? null
-                            : Detach(with.ConsumedCloneMethod),
+                            : Detach(with.ConsumedCloneMethod, budget),
                         with.ConsumedCloneIsVirtual,
                         entries.Value);
             }
 
             default:
                 return null;
-        }
     }
 
-    static MethodRef Detach(MethodRef method)
-        => method with
+    MethodRef Detach(MethodRef method, ClassicInverseBudget budget)
+        => binding.Method(method, budget) with
         {
             ExactDefinitionAcquisitionGuard = null,
         };
 
-    internal static InitializerEntry MaterializeEntry(
-        ClassicInverseInitializerEntry entry)
-        => new(
-            entry.Member,
-            [.. entry.Arguments.Select(static a =>
-                (IrExpression)a.Materialize())],
-            entry.ConsumedMethod,
-            entry.ConsumedField,
-            entry.ConsumedMethodIsVirtual);
-
-    static ImmutableArray<ClassicInverseBodyNode>? TryCaptureAll(
+    ImmutableArray<ClassicInverseBodyNode>? TryCaptureAll(
         IReadOnlyList<IrNode> nodes,
         ClassicInverseBudget budget)
     {
@@ -950,7 +982,7 @@ internal static class ClassicInverseBodyCapture
         return builder.ToImmutable();
     }
 
-    static ImmutableArray<ClassicInverseInitializerEntry>? TryCaptureEntries(
+    ImmutableArray<ClassicInverseInitializerEntry>? TryCaptureEntries(
         IReadOnlyList<InitializerEntry> entries,
         ClassicInverseBudget budget)
     {
@@ -972,12 +1004,13 @@ internal static class ClassicInverseBodyCapture
             builder.Add(new ClassicInverseInitializerEntry(
                 entry.Member,
                 entry.ConsumedMethod is { } method
-                    ? Detach(method)
+                    ? Detach(method, budget)
                     : null,
                 entry.ConsumedMethodIsVirtual,
-                entry.ConsumedField,
+                entry.ConsumedField is { } field ? binding.Field(field, budget) : null,
                 arguments.ToImmutable()));
         }
         return builder.ToImmutable();
+    }
     }
 }

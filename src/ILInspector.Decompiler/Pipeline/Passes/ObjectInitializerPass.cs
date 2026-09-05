@@ -725,7 +725,9 @@ public sealed class ObjectInitializerPass : IIrPass
                 .Any(address => address.Index == localIndex && !ReferenceEquals(address, init.Address)))
             return null;
 
-        return new EntryPlan(member, [new DefaultValue(init.Type)], null, ConsumedMethod: method, ConsumedField: fieldRef, ConsumedMethodIsVirtual: methodIsVirtual);
+        var defaultValue = new DefaultValue(init.Type);
+        defaultValue.InheritSourceOffset(init);
+        return new EntryPlan(member, [defaultValue], null, ConsumedMethod: method, ConsumedField: fieldRef, ConsumedMethodIsVirtual: methodIsVirtual);
     }
 
     /// <summary>
@@ -1291,7 +1293,9 @@ public sealed class ObjectInitializerPass : IIrPass
                         .Count(store => store.Index == index);
                     if (loads.Count != 1 || stores != 0 || addressUses != 1)
                         continue;
-                    loads[0].ReplaceWith(new DefaultValue(init.Type));
+                    var defaultValue = new DefaultValue(init.Type);
+                    defaultValue.InheritSourceOffset(init);
+                    loads[0].ReplaceWith(defaultValue);
                     init.Detach();
                     break;
                 }

@@ -14,7 +14,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// classic shell encodes as branches rather than tree ancestors.
 /// </para>
 /// </summary>
-internal sealed class ClassicInverseAccountant
+internal sealed partial class ClassicInverseAccountant
 {
     readonly ClassicInverseRequest _request;
     readonly ClassicInversePlanningView _planning;
@@ -141,7 +141,7 @@ internal sealed class ClassicInverseAccountant
             _claimByOutput[claim.Output] = claim;
         }
 
-        if (_candidate.InlinedAwaitReceiver is { } receiver
+        if (_candidate.InlinedAwaitTemporary is { } receiver
             && (!_claimBySource.TryGetValue(receiver.PlanningValue, out var receiverClaim)
                 || receiverClaim.Rule != ClassicInverseRealizationRule.AwaitResult))
         {
@@ -169,7 +169,7 @@ internal sealed class ClassicInverseAccountant
             return _terminal!;
 
         ClassicInverseBodyNode? blueprint =
-            ClassicInverseBodyCapture.TryCapture(_output, _budget);
+            ClassicInverseBodyCapture.TryCapture(_output, _budget, _planning.TypeBinding);
         if (_budget.Exhausted)
             return Failure("output capture exhausted the planning budget");
         if (blueprint is null)
@@ -179,17 +179,24 @@ internal sealed class ClassicInverseAccountant
                 $"recipe '{_candidate.Recipe}' proposed a node outside the closed body blueprint");
         }
 
+        var locals = _planning.TypeBinding.Types(_candidate.Locals, _budget);
+        var typeFacts = _planning.TypeBinding.Facts(_planning.ExecutionBody.CaptureTypeFacts(), _budget);
+        if (_budget.Exhausted)
+            return Failure("generic output binding exhausted the planning budget");
+        if (_planning.TypeBinding.Failure is { } bindingFailure)
+            return ClassicInverseDecision.FailWith(ClassicInverseFailureKind.InvalidCorrelation, bindingFailure);
         var plan = new ClassicInversePlan(
             _candidate.Recipe,
             blueprint,
-            _candidate.Locals,
+            locals,
             _candidate.LocalNames,
             _candidate.SynthesizedLocalNames,
-            _planning.ExecutionBody.CaptureTypeFacts(),
+            typeFacts,
             _request.KickoffSourceOffset,
             [.. _rawRegions],
             [.. _realizations],
-            [.. _ancestors]);
+            [.. _ancestors],
+            _planning.TypeBinding.Arguments);
         return new ClassicInverseDecision.Reconstruct(plan);
     }
 
@@ -311,8 +318,9 @@ internal sealed class ClassicInverseAccountant
             Instance: LoadLocalAddress local,
             Value: Call { Callee.Name: "Create" } create,
         }
-            && local.Index == _request.StateMachineLocal
+            && IsKickoffMachineLocal(local)
             && ClassicInverseNodeFacts.IsMachineField(field, _shell.Machine)
+            && Equals(field.DeclaringType, local.Type)
             && ClassicInverseNodeFacts.IsAsyncMethodBuilder(create.Callee.DeclaringType)
             && Equals(create.Callee.DeclaringType, field.Type)
             && Equals(create.Callee.ReturnType, field.Type)
@@ -329,8 +337,9 @@ internal sealed class ClassicInverseAccountant
                 Instance: LoadLocalAddress local,
                 Value: LoadArgument argument,
             } store
-            || local.Index != _request.StateMachineLocal
+            || !IsKickoffMachineLocal(local)
             || !ClassicInverseNodeFacts.IsMachineField(store.Field, _shell.Machine)
+            || !Equals(store.Field.DeclaringType, local.Type)
             || !Equals(store.Field.Type, argument.Type))
         {
             return false;
@@ -376,6 +385,17 @@ internal sealed class ClassicInverseAccountant
             {
                 _rawExpressionsByOffset[node.SourceOffset] = null;
             }
+        }
+        if (!ProveDefaultInitializations())
+            return false;
+        foreach (var (offset, origins) in _shell.Protocol.PredicateOrigins)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("predicate origin accounting exhausted the planning budget");
+                return false;
+            }
+            _foldedValueOffsets.Add(offset, origins);
         }
 
         if (!ValidateRawKickoff())
@@ -516,7 +536,8 @@ internal sealed class ClassicInverseAccountant
             return false;
 
         MachineFieldId id = MachineFieldId.Of(field);
-        return _candidate.ParameterFields.ContainsKey(id)
+        return _candidate.ParameterFields.ContainsKey(
+                MachineFieldId.Of(_planning.TypeBinding.Field(field, _budget)))
             || _candidate.HoistedLocals.ContainsKey(id);
     }
 
@@ -587,6 +608,23 @@ internal sealed class ClassicInverseAccountant
 
             if (EnclosingClaimSource(node) is null)
                 return;
+            if (_shell.Protocol.ProvesPredicateStructure(node))
+                return;
+            if (node is TupleExpression tuple)
+            {
+                ClassicInverseAwaitTemporaryTransfer? transfer = _candidate.InlinedAwaitTemporary;
+                if (!_rawExpressionsByOffset.TryGetValue(tuple.SourceOffset, out var raw)
+                    || raw is not NewObject
+                    || !ClassicInverseExpressionRules.SameTree(raw, tuple, _budget,
+                        transfer?.RawUse, transfer?.PlanningValue))
+                {
+                    _terminal = _budget.Exhausted
+                        ? Failure("tuple correspondence exhausted the planning budget")
+                        : Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                            "a tuple has no exact raw typed construction and ordered elements");
+                }
+                return;
+            }
             if (node is Coerce coerce)
             {
                 if (!_rawExpressionsByOffset.TryGetValue(coerce.Operand.SourceOffset, out var raw)
@@ -651,7 +689,7 @@ internal sealed class ClassicInverseAccountant
                 return;
             }
             ClassicInverseProtocolRule protocol =
-                ClassicInverseProtocol.Classify(node, _shell, _candidate);
+                ClassifyRaw(node);
             if (node is LoadStackSlot
                 && _shell.Protocol.SelectionTestForJoin(node) is { } selectionTest)
             {
@@ -661,6 +699,11 @@ internal sealed class ClassicInverseAccountant
             if (protocol.Kind is ClassicInverseProtocolKind.OwnedProtocol
                 or ClassicInverseProtocolKind.Preserved)
             {
+                return;
+            }
+            if (_rawDefaultInitializers.ContainsKey(node))
+            {
+                values.Add(node);
                 return;
             }
 
@@ -789,6 +832,8 @@ internal sealed class ClassicInverseAccountant
 
     bool SemanticValueEquals(IrNode raw, IrNode planning)
     {
+        if (_rawDefaultInitializers.TryGetValue(raw, out DefaultValue? defaultValue))
+            return ReferenceEquals(defaultValue, planning);
         if (_rawBooleanFolds.TryGetValue(raw, out IrNode? replacement))
             return ReferenceEquals(replacement, planning);
         if (_rawTypeOfCalls.TryGetValue(raw, out TypeOf? typeOf))
@@ -971,7 +1016,7 @@ internal sealed class ClassicInverseAccountant
         void Visit(IrNode node)
         {
             ClassicInverseProtocolRule protocol =
-                ClassicInverseProtocol.Classify(node, _shell, _candidate);
+                ClassifyRaw(node);
             if (protocol.Kind == ClassicInverseProtocolKind.OwnedProtocol)
                 return;
 
@@ -1026,6 +1071,8 @@ internal sealed class ClassicInverseAccountant
 
     string NormalizeRawEffect(IrNode node, string signature)
     {
+        if (_rawDefaultInitializers.TryGetValue(node, out DefaultValue? defaultValue))
+            return ClassicInverseNodeFacts.EffectSignature(defaultValue, _shell.Machine)!;
         if (_rawTypeOfCalls.TryGetValue(node, out TypeOf? typeOf))
             return ClassicInverseNodeFacts.EffectSignature(typeOf, _shell.Machine)!;
 
@@ -1089,7 +1136,7 @@ internal sealed class ClassicInverseAccountant
         }
 
         ClassicInverseProtocolRule protocol =
-            ClassicInverseProtocol.Classify(node, _shell, _candidate);
+            ClassifyRaw(node);
         switch (protocol.Kind)
         {
             case ClassicInverseProtocolKind.OwnedProtocol:
@@ -1316,8 +1363,9 @@ internal sealed class ClassicInverseAccountant
             Instance: LoadLocalAddress local,
             Value: Constant { Value: -1 },
         }
-            && local.Index == _request.StateMachineLocal
+            && IsKickoffMachineLocal(local)
             && ClassicInverseNodeFacts.IsMachineField(field, _shell.Machine)
+            && Equals(field.DeclaringType, local.Type)
             && MemberIdentity.IsCoreLibraryType(field.Type, "System", "Int32");
 
     bool IsKickoffStart(IrNode statement)
@@ -1331,11 +1379,10 @@ internal sealed class ClassicInverseAccountant
             && MemberIdentity.IsCoreLibraryType(start.Callee.ReturnType, "System", "Void")
             && start.Callee.ParameterTypes is
                 [TypeRef { Kind: TypeRefKind.ByRef, ElementType: { } machineType }]
-            && Equals(ClassicInverseNodeFacts.Definition(machineType), _shell.Machine)
+            && Equals(machineType, _request.KickoffBody.Locals[_request.StateMachineLocal])
             && start.Children is [IrExpression receiver, LoadLocalAddress machine]
             && IsKickoffBuilderReceiver(receiver)
-            && machine.Index == _request.StateMachineLocal
-            && Equals(ClassicInverseNodeFacts.Definition(machine.Type), _shell.Machine)
+            && IsKickoffMachineLocal(machine)
             && !start.IsVirtual
             && start.ConstrainedTo is null;
 
@@ -1347,7 +1394,11 @@ internal sealed class ClassicInverseAccountant
         }
             && _kickoffBuilderField is { } builder
             && MachineFieldId.Of(field) == MachineFieldId.Of(builder)
-            && local.Index == _request.StateMachineLocal;
+            && IsKickoffMachineLocal(local);
+
+    bool IsKickoffMachineLocal(LoadLocalAddress local)
+        => local.Index == _request.StateMachineLocal
+            && Equals(local.Type, _request.KickoffBody.Locals[_request.StateMachineLocal]);
 
     bool IsKickoffTaskAccessor(MethodRef accessor)
         => Equals(accessor.DeclaringType, _kickoffBuilderField?.Type)
@@ -1594,13 +1645,20 @@ internal sealed class ClassicInverseAccountant
             if (_terminal is not null)
                 return false;
 
-            if (!ClassicInverseRealizationRules.Verify(
+            bool verified = ClassicInverseRealizationRules.Verify(
                     claim,
                     _candidate,
                     _shell,
                     _claimBySource,
                     _claimByOutput,
-                    out string failure))
+                    _budget,
+                    out string failure);
+            if (_budget.Exhausted)
+            {
+                _terminal = Failure("typed realization exhausted the planning budget");
+                return false;
+            }
+            if (!verified)
             {
                 return DeclineFalse(
                     ClassicInverseDeclineReason.UnrealizedSemanticEffect,
@@ -1633,6 +1691,12 @@ internal sealed class ClassicInverseAccountant
                 }
             }
 
+            if (!_planning.TypeBinding.Arguments.IsEmpty)
+            {
+                outputEffects = RegionEffects(claim.Output, isOutput: true, claim.Rule, bindOutputTypes: true);
+                if (_terminal is not null)
+                    return false;
+            }
             _realizations.Add(new ClassicInverseSemanticRealization(
                 ClassicInverseBodyId.Execution,
                 ClassicInverseCoordinateSpace.Planning,
@@ -1918,7 +1982,8 @@ internal sealed class ClassicInverseAccountant
     ImmutableArray<string> RegionEffects(
         IrNode root,
         bool isOutput,
-        ClassicInverseRealizationRule rule)
+        ClassicInverseRealizationRule rule,
+        bool bindOutputTypes = false)
     {
         var effects = ImmutableArray.CreateBuilder<string>();
         Visit(root);
@@ -1926,6 +1991,11 @@ internal sealed class ClassicInverseAccountant
 
         void Visit(IrNode node)
         {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("semantic region accounting exhausted the planning budget");
+                return;
+            }
             if (ClassicInverseNodeFacts.IsUnknownEffectForm(node)
                 && !(rule == ClassicInverseRealizationRule.LoopElement
                     && !isOutput
@@ -1950,7 +2020,7 @@ internal sealed class ClassicInverseAccountant
                     return;
             }
 
-            if (VisitInitializer(node, Visit, effects))
+            if (VisitInitializer(node, Visit, effects, bindOutputTypes: bindOutputTypes))
                 return;
 
             foreach (IrNode child in node.Children)
@@ -1961,7 +2031,8 @@ internal sealed class ClassicInverseAccountant
             }
 
             string? signature =
-                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine);
+                ClassicInverseNodeFacts.EffectSignature(node, _shell.Machine,
+                    bindOutputTypes ? _planning.TypeBinding : null, _budget);
             if (signature is not null
                 && !(rule == ClassicInverseRealizationRule.LoopElement
                     && !isOutput
@@ -2045,7 +2116,8 @@ internal sealed class ClassicInverseAccountant
         IrNode node,
         Action<IrNode> visit,
         ImmutableArray<string>.Builder? effects,
-        Func<string, string>? qualify = null)
+        Func<string, string>? qualify = null,
+        bool bindOutputTypes = false)
     {
         IReadOnlyList<InitializerEntry> entries;
         switch (node)
@@ -2060,7 +2132,7 @@ internal sealed class ClassicInverseAccountant
                     && with.ConsumedCloneMethod is { } clone)
                 {
                     string effect = ClassicInverseConsumedMembers.Effect(
-                        clone,
+                        bindOutputTypes ? _planning.TypeBinding.Method(clone, _budget) : clone,
                         with.ConsumedCloneIsVirtual);
                     effects.Add(qualify?.Invoke(effect) ?? effect);
                 }
@@ -2121,11 +2193,15 @@ internal sealed class ClassicInverseAccountant
                 return;
             if (entry.ConsumedMethod is { } method)
             {
+                if (bindOutputTypes)
+                    method = _planning.TypeBinding.Method(method, _budget);
                 string effect = ClassicInverseConsumedMembers.Effect(method, entry.ConsumedMethodIsVirtual);
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
             if (entry.ConsumedField is { } field)
             {
+                if (bindOutputTypes)
+                    field = _planning.TypeBinding.Field(field, _budget);
                 string effect = $"{(isRead ? "read" : "store")}:{ClassicInverseTypedIdentity.Field(field)}";
                 effects.Add(qualify?.Invoke(effect) ?? effect);
             }
@@ -2303,6 +2379,8 @@ internal sealed class ClassicInverseAccountant
                 return;
             }
             index[node] = path;
+            if (ReferenceEquals(index, _executionPaths) && node is DefaultValue value)
+                _planningDefaults.Add(value);
             for (int i = 0; i < node.Children.Count; i++)
                 Visit(node.Children[i], path.Add(i));
         }

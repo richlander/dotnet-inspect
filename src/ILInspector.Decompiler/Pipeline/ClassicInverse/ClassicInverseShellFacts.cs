@@ -235,34 +235,46 @@ internal static class ClassicInverseNodeFacts
     /// an unrecognized node form that could carry an effect is reported through
     /// <see cref="IsUnknownEffectForm"/> instead of being silently inert.
     /// </summary>
-    internal static string? EffectSignature(IrNode node, TypeRef machine)
-        => node switch
+    internal static string? EffectSignature(
+        IrNode node,
+        TypeRef machine,
+        ClassicInverseTypeBinding? binding = null,
+        ClassicInverseBudget? budget = null)
+    {
+        string Type(TypeRef type) => ClassicInverseTypedIdentity.Type(
+            binding is null ? type : binding.Type(type, budget!));
+        string Method(MethodRef method) => ClassicInverseTypedIdentity.Method(
+            binding is null ? method : binding.Method(method, budget!));
+        string Field(FieldRef field) => ClassicInverseTypedIdentity.Field(
+            binding is null ? field : binding.Field(field, budget!));
+        return node switch
         {
             AwaitExpression => "await",
-            TypeOf typeOf => $"typeof:{ClassicInverseTypedIdentity.Type(typeOf.Type)}",
-            Call call => $"call:{ClassicInverseTypedIdentity.Method(call.Callee)}"
+            TypeOf typeOf => $"typeof:{Type(typeOf.Type)}",
+            DefaultValue value => $"default:{Type(value.Type)}",
+            Call call => $"call:{Method(call.Callee)}"
                 + $":{(call.IsVirtual ? "virt" : "direct")}"
                 + (call.ConstrainedTo is { } constrained
-                    ? $":constrained({ClassicInverseTypedIdentity.Type(constrained)})"
+                    ? $":constrained({Type(constrained)})"
                     : ""),
             CallIndirect indirect =>
-                $"calli:{ClassicInverseTypedIdentity.Type(indirect.ReturnType)}"
+                $"calli:{Type(indirect.ReturnType)}"
                 + $"({string.Join(
                     ",",
                     indirect.ParameterTypes.Select(
-                        ClassicInverseTypedIdentity.Type))})"
+                        Type))})"
                 + $":{indirect.CallingConvention}"
                 + $":{string.Join(",", indirect.ParameterRefKinds)}"
                 + $":{(indirect.IsInstance ? "instance" : "static")}",
             LocalFunctionInvocation invocation =>
                 $"localfn:{invocation.Name}",
             NewObject creation when !IsEffectFreeTuple(creation) =>
-                $"newobj:{ClassicInverseTypedIdentity.Method(creation.Constructor)}",
+                $"newobj:{Method(creation.Constructor)}",
             LoadProperty property =>
-                $"call:{ClassicInverseTypedIdentity.Method(property.Accessor)}"
+                $"call:{Method(property.Accessor)}"
                 + $":{(property.IsVirtual ? "virt" : "direct")}",
             StoreProperty property =>
-                $"store:{ClassicInverseTypedIdentity.Method(property.Accessor)}"
+                $"store:{Method(property.Accessor)}"
                 + $":{(property.IsVirtual ? "virt" : "direct")}",
             ArrayLength => "throw:array-length",
             LoadElement => "throw:element-access",
@@ -280,11 +292,11 @@ internal static class ClassicInverseNodeFacts
                 Kind: BinaryKind.Divide or BinaryKind.Remainder,
             } binary => $"throw:{binary.Kind}",
             LoadField load when !IsMachineRead(load, machine) =>
-                $"read:{ClassicInverseTypedIdentity.Field(load.Field)}",
+                $"read:{Field(load.Field)}",
             LoadFieldAddress load when !IsMachineRead(load, machine) =>
-                $"readref:{ClassicInverseTypedIdentity.Field(load.Field)}",
+                $"readref:{Field(load.Field)}",
             StoreField store when !IsMachineField(store.Field, machine) =>
-                $"store:{ClassicInverseTypedIdentity.Field(store.Field)}",
+                $"store:{Field(store.Field)}",
             StoreElement => "store:element",
             StoreIndirect => "store:indirect",
             StoreArgument => "store:argument",
@@ -304,6 +316,7 @@ internal static class ClassicInverseNodeFacts
             UnsupportedNode unsupported => $"unsupported:{unsupported.Opcode}",
             _ => null,
         };
+    }
 
     internal static bool IsEffectFreeTuple(NewObject creation)
         => creation.Constructor.ConstructorEffectFree

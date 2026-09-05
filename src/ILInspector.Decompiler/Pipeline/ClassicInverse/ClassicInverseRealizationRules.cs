@@ -55,6 +55,7 @@ internal static class ClassicInverseRealizationRules
         ClassicInverseShellFacts shell,
         IReadOnlyDictionary<IrNode, ClassicInverseClaim> claimBySource,
         IReadOnlyDictionary<IrNode, ClassicInverseClaim> claimByOutput,
+        ClassicInverseBudget budget,
         out string failure)
     {
         var context = new Context(
@@ -63,7 +64,8 @@ internal static class ClassicInverseRealizationRules
             claimBySource,
             claimByOutput,
             claim.Source,
-            claim.Output);
+            claim.Output,
+            budget);
 
         switch (claim.Rule)
         {
@@ -326,7 +328,8 @@ internal static class ClassicInverseRealizationRules
         IReadOnlyDictionary<IrNode, ClassicInverseClaim> ClaimBySource,
         IReadOnlyDictionary<IrNode, ClassicInverseClaim> ClaimByOutput,
         IrNode SourceRoot,
-        IrNode OutputRoot);
+        IrNode OutputRoot,
+        ClassicInverseBudget Budget);
 
     static bool Lockstep(
         IrNode source,
@@ -493,7 +496,9 @@ internal static class ClassicInverseRealizationRules
             return true;
         }
 
-        if (context.Candidate.ParameterFields.TryGetValue(id, out int argument)
+        MachineFieldId parameterId = MachineFieldId.Of(
+            context.Candidate.TypeBinding.Field(field, context.Budget));
+        if (context.Candidate.ParameterFields.TryGetValue(parameterId, out int argument)
             && output is LoadArgument loadArgument
             && loadArgument.Index == argument
             && Equals(field.Type, loadArgument.Type))
@@ -566,6 +571,7 @@ internal static class ClassicInverseRealizationRules
             (Return, Return) => true,
             (ExpressionStatement, ExpressionStatement) => true,
             (LogicalNot, LogicalNot) => true,
+            (LogicalBinary left, LogicalBinary right) => left.Kind == right.Kind,
             (ArrayLength, ArrayLength) => true,
             (Unary left, Unary right) => left.Kind == right.Kind,
             (LoadArgument left, LoadArgument right) =>
@@ -597,6 +603,7 @@ internal static class ClassicInverseRealizationRules
             (UnboxAny left, UnboxAny right) => Equals(left.Type, right.Type),
             (IsInstance left, IsInstance right) => Equals(left.Type, right.Type),
             (TypeOf left, TypeOf right) => Equals(left.Type, right.Type),
+            (DefaultValue left, DefaultValue right) => Equals(left.Type, right.Type),
             (NewArray left, NewArray right) =>
                 Equals(left.ElementType, right.ElementType),
             (Call left, Call right) =>

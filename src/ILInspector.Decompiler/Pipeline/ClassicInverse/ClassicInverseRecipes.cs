@@ -514,14 +514,31 @@ internal static class ClassicInverseRecipes
                     || rawUse is not LoadLocalAddress rawAddress
                     || rawReceiver.Index < rawExecution.LocalNames.Length
                         && rawExecution.LocalNames[rawReceiver.Index] is not null
-                    || !TypeFamilies.IsKnownNonNullableValueType(rawReceiver.Type, rawExecution.TypeShapes)
+                    || !IsKnownValueReceiver(rawReceiver.Type, rawExecution.TypeShapes)
                     || !ClassicInverseExpressionRules.SameTree(rawReceiver.Value, getResults[0], budget)
                     || !ClassicInverseExpressionRules.SameTree(rawProjection.Value, store.Value, budget,
                         rawAddress, getResults[0]))
                 {
                     return null;
                 }
-                candidate.InlinedAwaitReceiver = new(rawReceiver, rawAddress, getResults[0]);
+                candidate.InlinedAwaitTemporary = new(rawReceiver, rawAddress, getResults[0]);
+            }
+        }
+        else if (getResults[0].Parent is TupleExpression && store.Parent is Block tupleContinuation)
+        {
+            bool proven = TryRawAwaitReceiver(rawExecution, tupleContinuation, store, setResult,
+                getResults[0], budget, out StoreLocal? rawValue, out StoreLocal rawProjection,
+                out IrNode? rawUse, receiverOnly: false);
+            if (rawValue is not null)
+            {
+                if (!proven || rawUse is not LoadLocal read
+                    || rawValue.Index < rawExecution.LocalNames.Length
+                        && rawExecution.LocalNames[rawValue.Index] is not null
+                    || !ClassicInverseExpressionRules.SameTree(rawValue.Value, getResults[0], budget)
+                    || !ClassicInverseExpressionRules.SameTree(rawProjection.Value, store.Value, budget,
+                        read, getResults[0]))
+                    return null;
+                candidate.InlinedAwaitTemporary = new(rawValue, read, getResults[0]);
             }
         }
         var rewriter = new ClassicInverseRewriter(
@@ -616,7 +633,8 @@ internal static class ClassicInverseRecipes
         ClassicInverseBudget budget,
         out StoreLocal? result,
         out StoreLocal projection,
-        out IrNode? use)
+        out IrNode? use,
+        bool receiverOnly = true)
     {
         result = null;
         projection = null!;
@@ -661,7 +679,7 @@ internal static class ClassicInverseRecipes
             || rawGetResult.SourceOffset != getResult.SourceOffset
             || rawGetResult.Callee != getResult.Callee
             || !OwnsNamedResultLocals(rawLocals, rawResult, rawReturn,
-                rawCompletionResult, budget, out use))
+                rawCompletionResult, budget, out use, receiverOnly))
         {
             return false;
         }
@@ -676,7 +694,8 @@ internal static class ClassicInverseRecipes
         StoreLocal returnStore,
         LoadLocal completionResult,
         ClassicInverseBudget budget,
-        out IrNode? resultUse)
+        out IrNode? resultUse,
+        bool receiverOnly = true)
     {
         resultUse = null;
         if (completionResult.Index != returnStore.Index)
@@ -725,7 +744,7 @@ internal static class ClassicInverseRecipes
             }
         }
 
-        return resultUse is not null && IsMemberReceiver(resultUse);
+        return resultUse is not null && (!receiverOnly || IsMemberReceiver(resultUse));
     }
 
     static bool IsMemberReceiver(IrNode node)
@@ -737,6 +756,12 @@ internal static class ClassicInverseRecipes
                 && ReferenceEquals(call.Arguments[0], node),
             _ => false,
         };
+
+    static bool IsKnownValueReceiver(TypeRef type, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+        => type.DeclaredValueTypeHint == ValueTypeHint.ValueType
+            || TypeFamilies.Of(type) is StackFamily.I4 or StackFamily.I8 or StackFamily.I or StackFamily.F
+            || shapes.GetValueOrDefault(type) is TypeShape.ValueType or TypeShape.Enum
+            || TypeFamilies.IsNullableType(type);
 
     // ---- Recipe: await a void-returning operation -----------------------
 

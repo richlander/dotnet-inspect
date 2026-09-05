@@ -36,6 +36,8 @@ internal sealed class ClassicInverseCandidate
 
     internal string Recipe { get; }
 
+    internal ClassicInverseTypeBinding TypeBinding { get; set; } = ClassicInverseTypeBinding.Identity;
+
     /// <summary>Freshly built output statements; never aliased from the request.</summary>
     internal List<IrNode> Statements { get; } = [];
 
@@ -87,7 +89,7 @@ internal sealed class ClassicInverseCandidate
     /// </summary>
     internal ClassicInverseLoopStorage? LoopStorage { get; set; }
 
-    internal ClassicInverseReceiverTransfer? InlinedAwaitReceiver { get; set; }
+    internal ClassicInverseAwaitTemporaryTransfer? InlinedAwaitTemporary { get; set; }
 
     /// <summary>False once a recipe hits a state its own rules do not allow.</summary>
     internal bool Sound { get; private set; } = true;
@@ -194,9 +196,9 @@ internal sealed record ClassicInverseControlRegion(
     ImmutableArray<IrNode> SourceRoots,
     IrNode OutputContext);
 
-internal sealed record ClassicInverseReceiverTransfer(
+internal sealed record ClassicInverseAwaitTemporaryTransfer(
     StoreLocal RawStore,
-    LoadLocalAddress RawAddress,
+    IrExpression RawUse,
     Call PlanningValue);
 
 /// <summary>

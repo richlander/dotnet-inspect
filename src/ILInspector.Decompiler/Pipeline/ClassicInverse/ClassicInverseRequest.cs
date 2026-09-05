@@ -203,8 +203,11 @@ internal sealed record ClassicInversePlanningView(
     IrFunction KickoffBody,
     IrFunction ExecutionBody)
 {
+    internal ClassicInverseTypeBinding TypeBinding { get; init; } = ClassicInverseTypeBinding.Identity;
+
     internal static ClassicInversePlanningView Derive(
-        ClassicInverseRequest request)
+        ClassicInverseRequest request,
+        ClassicInverseBudget? budget = null)
     {
         var kickoff = (IrFunction)request.KickoffBody.Clone();
         var execution = (IrFunction)request.ExecutionBody.Clone();
@@ -218,7 +221,10 @@ internal sealed record ClassicInversePlanningView(
             // presentation after applying the reconstructed body.
             [.. IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>()
                 .Where(static pass => pass is not ShortCircuitTernaryPass)]);
-        return new ClassicInversePlanningView(kickoff, execution);
+        return new ClassicInversePlanningView(kickoff, execution)
+        {
+            TypeBinding = ClassicInverseTypeBinding.FromRequest(request, budget ?? new ClassicInverseBudget()),
+        };
 
         void Run(IrFunction body, ImmutableArray<IIrPass> passes)
         {

@@ -60,7 +60,9 @@ internal static class ClassicInverseCore
         }
 
         ClassicInversePlanningView planning =
-            ClassicInversePlanningView.Derive(request);
+            ClassicInversePlanningView.Derive(request, budget);
+        if (planning.TypeBinding.Failure is { } bindingFailure)
+            return ClassicInverseDecision.FailWith(ClassicInverseFailureKind.InvalidCorrelation, bindingFailure);
         ClassicInverseShellFacts shell =
             ClassicInverseShellFacts.Derive(
                 planning.ExecutionBody,

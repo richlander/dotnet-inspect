@@ -104,6 +104,7 @@ internal static partial class ClassicInverseExpressionRules
         {
             Call call => ParameterType(call.Callee, node.ChildIndex - (call.Callee.HasThis ? 1 : 0)),
             NewObject creation => ParameterType(creation.Constructor, node.ChildIndex),
+            TupleExpression tuple => TupleSink(tuple.TupleType, node.ChildIndex, budget),
             StoreLocal store when ReferenceEquals(store.Value, node) => store.Type,
             StoreArgument store when ReferenceEquals(store.Value, node) => store.Type,
             StoreField store when ReferenceEquals(store.Value, node) => store.Field.Type,
@@ -116,14 +117,62 @@ internal static partial class ClassicInverseExpressionRules
                 comparison.Right.ResultType,
             Comparison comparison when ReferenceEquals(comparison.Right, node) && comparison.Left is not Constant =>
                 comparison.Left.ResultType,
+            ObjectInitializerExpression initializer =>
+                InitializerSink(node.ChildIndex - 1, initializer.ArgumentCounts,
+                    initializer.ConsumedMethods, initializer.ConsumedFields, budget),
+            InitializerBlock block =>
+                InitializerSink(node.ChildIndex, block.ArgumentCounts,
+                    block.ConsumedMethods, block.ConsumedFields, budget),
+            WithExpression with when node.ChildIndex > 0 =>
+                with.ConsumedMethods[node.ChildIndex - 1] is { } setter
+                    ? ParameterType(setter, 0) : with.ConsumedFields[node.ChildIndex - 1]?.Type,
             Return => FunctionOf(node, budget)?.Signature.ReturnType,
             _ => null,
         };
     }
 
+    static TypeRef? InitializerSink(
+        int argument,
+        System.Collections.Immutable.ImmutableArray<int> counts,
+        System.Collections.Immutable.ImmutableArray<MethodRef?> methods,
+        System.Collections.Immutable.ImmutableArray<FieldRef?> fields,
+        ClassicInverseBudget budget)
+    {
+        if (argument < 0)
+            return null;
+        for (int entry = 0; entry < counts.Length; entry++)
+        {
+            if (!budget.Charge())
+                return null;
+            if (argument >= counts[entry])
+            {
+                argument -= counts[entry];
+                continue;
+            }
+            if (methods[entry] is { } method)
+                return ParameterType(method, argument);
+            return argument == 0 && counts[entry] == 1 ? fields[entry]?.Type : null;
+        }
+        return null;
+    }
+
     static TypeRef? ParameterType(MethodRef method, int index)
         => !method.ParameterTypes.IsDefault && index >= 0 && index < method.ParameterTypes.Length
             ? method.ParameterTypes[index] : null;
+
+    static TypeRef? TupleSink(TypeRef type, int index, ClassicInverseBudget budget)
+    {
+        while (budget.Charge() && MemberIdentity.IsValueTupleType(type, out int arity))
+        {
+            if (index >= 0 && index < (arity == 8 ? 7 : arity))
+                return type.TypeArguments[index];
+            if (arity != 8 || index < 7)
+                return null;
+            type = type.TypeArguments[7];
+            index -= 7;
+        }
+        return null;
+    }
 
     static IrFunction? FunctionOf(IrNode node, ClassicInverseBudget budget)
     {

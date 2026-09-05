@@ -267,6 +267,95 @@ public static class AsyncExpressionFixtures
         return result.ToString();
     }
 
+    public static async Task<SinkShape> CharPropertyInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Character = 'x' });
+
+    public static async Task<SinkShape> CharFieldInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { CharacterField = 'x' });
+
+    public static async Task<SinkShape> BoolPropertyInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Enabled = true });
+
+    public static async Task<SinkShape> EnumPropertyInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Day = DayOfWeek.Friday });
+
+    public static async Task<SinkShape> NestedCharInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Child = { Character = 'x' } });
+
+    public static async Task<List<char>> CharCollectionInitializer(Task<int> a)
+        => KeepChars(await a, new List<char> { 'x', 'y' });
+
+    public static async Task<SinkShape> DefaultGuidInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Id = default(Guid) });
+
+    public static async Task<SinkShape> DefaultDateTimeInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { Date = default(DateTime) });
+
+    public static async Task<T> GenericAwait<T>(Task<T> a) => await a;
+
+    public static async Task<T[]> GenericArrayAwait<T>(Task<T[]> a) => await a;
+
+    public static async Task<GenericBox<T>> GenericConstruct<T>(Task<T> a)
+        => new GenericBox<T>(await a);
+
+    public static async Task<int> NullableDefaultReceiver(Task<int?> a)
+        => (await a).GetValueOrDefault();
+
+    public static async Task<string> NullableIntReceiver(Task<int?> a)
+        => (await a).ToString();
+
+    public static async Task<string> NullableGuidReceiver(Task<Guid?> a)
+        => (await a).ToString();
+
+    public static async Task<string> NullableBoolReceiver(Task<bool?> a)
+        => (await a).ToString();
+
+    public static async Task<string> NamedNullableReceiver(Task<int?> a)
+    {
+        int? result = await a;
+        return result.ToString();
+    }
+
+    public static async Task<(int, int)> AwaitTuple(Task<int> a) => (await a, 2);
+
+    public static async Task<(int, (int, int))> AwaitNestedTuple(Task<int> a) => (await a, (2, 3));
+
+    public static async Task<(int, int)> AwaitTupleEffect(Task<int> a) => (await a, PositiveChoice());
+
+    public static async Task<int> MixedAndOr(Task<bool> v, bool a)
+        => await v && a || !a ? 1 : 2;
+
+    public static async Task<bool> ShortCircuitBoth(Task<bool> v)
+        => await v && Predicate() || OtherPredicate();
+
+    public static async Task<GenericBox<T>> GenericCall<T>(Task<T> a)
+        => BoxValue(await a);
+
+    public static async Task<SinkShape> DefaultGuidFieldInitializer(Task<int> a)
+        => KeepShape(await a, new SinkShape { IdField = default(Guid) });
+
+    public static async Task<List<Guid>> DefaultGuidCollectionInitializer(Task<int> a)
+        => KeepGuids(await a, new List<Guid> { default(Guid) });
+
+    public static async Task<Dictionary<int, char>> MultiArgumentCollectionInitializer(Task<int> a)
+        => KeepCharacters(await a, new Dictionary<int, char> { { 2, 'A' } });
+
+    public static async Task<(int, int, int, int, int, int, int, int)> AwaitLongTuple(Task<int> a)
+        => (await a, 2, 3, 4, 5, 6, 7, 8);
+
+    public static async Task<bool> AndThenOr(Task<bool> v, bool a, bool b)
+        => await v && a || b;
+
+    public static async Task<(int, char, bool, DayOfWeek)> AwaitTypedTuple(Task<int> a)
+        => (await a, 'A', true, DayOfWeek.Monday);
+
+    static SinkShape KeepShape(int value, SinkShape shape) => shape;
+    static List<char> KeepChars(int value, List<char> values) => values;
+    static List<Guid> KeepGuids(int value, List<Guid> values) => values;
+    static Dictionary<int, char> KeepCharacters(int value, Dictionary<int, char> values) => values;
+    static GenericBox<T> BoxValue<T>(T value) => new(value);
+    static bool OtherPredicate() => Environment.TickCount < 0;
+
     public enum LongChoice : long { Negative = -1 }
 
     static int WithByte(int value, byte other) => value + other;
@@ -295,4 +384,35 @@ public static class AsyncExpressionFixtures
         public static int StaticFieldValue;
         public volatile int VolatileValue;
     }
+
+    public sealed class SinkShape
+    {
+        public char Character { get; set; }
+        public char CharacterField;
+        public bool Enabled { get; set; }
+        public DayOfWeek Day { get; set; }
+        public Guid Id { get; set; }
+        public Guid IdField;
+        public DateTime Date { get; set; }
+        public SinkChild Child { get; } = new();
+    }
+
+    public sealed class SinkChild
+    {
+        public char Character { get; set; }
+    }
+
+    public sealed class GenericBox<T>
+    {
+        public T Value { get; }
+        public GenericBox(T value) => Value = value;
+    }
+}
+
+public static class GenericExpressionFixtures<TOuter>
+{
+    public static async Task<T> GenericContextAwait<T>(Task<T> a) => await a;
+
+    public static async Task<(T, TOuter)> GenericContextTuple<T>(Task<T> a, TOuter b)
+        => (await a, b);
 }

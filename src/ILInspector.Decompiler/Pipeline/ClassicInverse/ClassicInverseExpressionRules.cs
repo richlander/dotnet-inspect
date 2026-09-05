@@ -37,6 +37,20 @@ internal static partial class ClassicInverseExpressionRules
             return false;
         if (raw is Call typeCall && planning is TypeOf typeOf)
             return IsTypeOf(typeCall, typeOf);
+        if (raw is NewObject tupleCreation && planning is TupleExpression tuple)
+        {
+            if (!MemberIdentity.IsValueTupleConstructorOfArity(tupleCreation, out int arity)
+                || arity < 2 || !Equals(tupleCreation.ResultType, tuple.TupleType))
+                return false;
+            var elements = new List<IrExpression>();
+            if (!TupleElements(tupleCreation, arity, elements, budget)
+                || elements.Count != tuple.Children.Count)
+                return false;
+            for (int i = 0; i < elements.Count; i++)
+                if (!SameTree(elements[i], tuple.Children[i], budget, sourceReplacement, outputReplacement))
+                    return false;
+            return true;
+        }
         if (raw is Convert conversion && planning is Constant convertedLiteral)
             return IsRetypedLiteral(conversion, convertedLiteral, budget, selectedTarget);
         if (raw is Comparison comparison
@@ -81,6 +95,20 @@ internal static partial class ClassicInverseExpressionRules
             }
         }
         return true;
+    }
+
+    static bool TupleElements(NewObject creation, int arity, List<IrExpression> values, ClassicInverseBudget budget)
+    {
+        int direct = arity == 8 ? 7 : arity;
+        for (int i = 0; i < direct; i++)
+        {
+            if (!budget.Charge())
+                return false;
+            values.Add(creation.Arguments[i]);
+        }
+        return arity != 8 || creation.Arguments[7] is NewObject rest
+            && MemberIdentity.IsValueTupleConstructorOfArity(rest, out int restArity)
+            && TupleElements(rest, restArity, values, budget);
     }
 
     internal static bool TryMatchBooleanNegation(

@@ -21,6 +21,9 @@ internal sealed partial class ClassicInverseLoweringProof
             new(ReferenceEqualityComparer.Instance);
         internal Dictionary<IrNode, TypeRef> SelectedTypes { get; } =
             new(ReferenceEqualityComparer.Instance);
+        internal HashSet<IrNode> PredicateStructures { get; } =
+            new(ReferenceEqualityComparer.Instance);
+        internal Dictionary<int, ImmutableArray<int>> PredicateOrigins { get; } = [];
 
         internal bool Swap(IrNode parent, int left, int right, ClassicInverseBudget budget)
         {
@@ -57,6 +60,12 @@ internal sealed partial class ClassicInverseLoweringProof
 
     internal TypeRef? SelectedValueType(IrNode node)
         => _selections.SelectedTypes.GetValueOrDefault(node);
+
+    internal bool ProvesPredicateStructure(IrNode node)
+        => _selections.PredicateStructures.Contains(node);
+
+    internal IReadOnlyDictionary<int, ImmutableArray<int>> PredicateOrigins
+        => _selections.PredicateOrigins;
 
     static SelectionContinuation? TryFindSelectionResult(
         BodyIndex index,
@@ -105,8 +114,8 @@ internal sealed partial class ClassicInverseLoweringProof
                     ? new(continuation, merge, result, conditional, path.ToImmutable())
                     : null;
             }
-            if (parent is LogicalBinary)
-                return null;
+            // Discovery is not authorization: the raw predicate graph is closed
+            // against every logical operand before a selection receives roles.
         }
         return null;
     }
@@ -229,44 +238,36 @@ internal sealed partial class ClassicInverseLoweringProof
                 || head.StartOffset != moved.Path[generation].StartOffset
                 || head.Children is not [ConditionalBranch test]
                 || head.Parent is not BlockContainer container
-                || raw.BlocksStartingAt(test.TargetOffset) is not [Block whenTrue]
-                || raw.SuccessorsOf(head).Count != 2
+                || raw.BlocksStartingAt(moved.Path[generation + 1].StartOffset) is not [Block merge]
                 || test.SourceOffset < 0 || test.SourceOffset != expression.SourceOffset)
                 return false;
 
-            Block whenFalse = raw.SuccessorsOf(head)[0];
-            if (ReferenceEquals(whenFalse, whenTrue))
-                whenFalse = raw.SuccessorsOf(head)[1];
-            if (whenFalse.Children is not [StoreStackSlot falseStore, Branch exit]
+            int first = raw.PositionOf(head);
+            int end = raw.PositionOf(merge);
+            if (first < 0 || end < first + 3 || !ReferenceEquals(merge.Parent, container)
+                || container.Children[end - 2] is not Block whenFalse
+                || container.Children[end - 1] is not Block whenTrue
+                || whenFalse.Children is not [StoreStackSlot falseStore, Branch exit]
                 || whenTrue.Children is not [StoreStackSlot trueStore]
-                || raw.BlocksStartingAt(exit.TargetOffset) is not [Block merge])
+                || exit.TargetOffset != merge.StartOffset)
                 return false;
             if (raw.SlotLoadsIn(merge) is not [LoadStackSlot joined]
                 || SelectedType(joined, expression, trueStore.Value, falseStore.Value, budget) is not { } target)
                 return false;
-            int first = raw.PositionOf(head);
-            if (first < 0 || first + 3 >= container.Children.Count
-                || !ReferenceEquals(container.Children[first + 1], whenFalse)
-                || !ReferenceEquals(container.Children[first + 2], whenTrue)
-                || !ReferenceEquals(container.Children[first + 3], merge)
-                || merge.StartOffset != moved.Path[generation + 1].StartOffset
-                || !raw.HasOnlySuccessors(head, whenTrue, whenFalse)
-                || !raw.HasOnlyPredecessors(whenTrue, head)
-                || !raw.HasOnlyPredecessors(whenFalse, head)
-                || !raw.HasOnlySuccessors(whenTrue, merge)
+            if (!raw.HasOnlySuccessors(whenTrue, merge)
                 || !raw.HasOnlySuccessors(whenFalse, merge)
                 || !raw.HasOnlyPredecessors(merge, whenTrue, whenFalse)
                 || trueStore.Slot != falseStore.Slot
                 || joined.Slot != trueStore.Slot
-                || !ClassicInverseExpressionRules.SameTree(test.Condition, expression.Condition, budget,
-                    previousJoin, previousExpression)
+                || !ProvePredicateChain(raw, container, first, end - 3, expression,
+                    whenTrue, whenFalse, previousJoin, previousExpression, bindings, budget)
                 || !ClassicInverseExpressionRules.SameTree(trueStore.Value, expression.WhenTrue, budget,
                     selectedTarget: target)
                 || !ClassicInverseExpressionRules.SameTree(falseStore.Value, expression.WhenFalse, budget,
                     selectedTarget: target)
                 || !bindings.TestsByJoin.TryAdd(joined, test)
                 || !bindings.ValuesByTest.TryAdd(test, expression)
-                || !bindings.Swap(container, first + 1, first + 2, budget))
+                || !bindings.Swap(container, end - 2, end - 1, budget))
                 return false;
 
             stores.Add(trueStore);
@@ -292,7 +293,7 @@ internal sealed partial class ClassicInverseLoweringProof
                             outer = next;
                         break;
                     }
-                    if (parent is Coalesce or LogicalBinary)
+                    if (parent is Coalesce)
                         break;
                 }
                 if (outer is null)
@@ -327,6 +328,78 @@ internal sealed partial class ClassicInverseLoweringProof
                     return false;
         }
         return true;
+    }
+
+    static bool ProvePredicateChain(
+        BodyIndex raw,
+        BlockContainer container,
+        int first,
+        int last,
+        Conditional expression,
+        Block whenTrue,
+        Block whenFalse,
+        IrNode? previousJoin,
+        IrNode? previousExpression,
+        SelectionBindings bindings,
+        ClassicInverseBudget budget)
+    {
+        int next = last;
+        var trueEntries = new List<Block>();
+        var falseEntries = new List<Block>();
+        var origins = ImmutableArray.CreateBuilder<int>();
+        Block? entry = Match(expression.Condition, whenTrue, whenFalse);
+        foreach (Block _ in trueEntries.Concat(falseEntries))
+            if (!budget.Charge())
+                return false;
+        return entry is not null && next == first - 1
+            && ReferenceEquals(entry, container.Children[first])
+            && raw.HasOnlyPredecessors(whenTrue, [.. trueEntries])
+            && raw.HasOnlyPredecessors(whenFalse, [.. falseEntries])
+            && bindings.PredicateOrigins.TryAdd(expression.SourceOffset, origins.ToImmutable());
+
+        Block? Match(IrExpression condition, Block trueTarget, Block falseTarget)
+        {
+            if (!budget.Charge())
+                return null;
+            if (condition is LogicalNot { SourceOffset: < 0 } not)
+            {
+                bindings.PredicateStructures.Add(not);
+                return Match(not.Operand, falseTarget, trueTarget);
+            }
+            if (condition is LogicalBinary { SourceOffset: < 0 } logical)
+            {
+                bindings.PredicateStructures.Add(logical);
+                Block? right = Match(logical.Right, trueTarget, falseTarget);
+                return right is null ? null
+                    : logical.Kind == LogicalKind.And
+                        ? Match(logical.Left, right, falseTarget)
+                        : logical.Kind == LogicalKind.Or
+                            ? Match(logical.Left, trueTarget, right) : null;
+            }
+            if (next < first || container.Children[next] is not Block block
+                || block.Children is not [ConditionalBranch test]
+                || test.SourceOffset < 0
+                || test.TargetOffset != trueTarget.StartOffset
+                || !ReferenceEquals(container.Children[next + 1], falseTarget)
+                || !raw.HasOnlySuccessors(block, trueTarget, falseTarget)
+                || next > first && !raw.HasOnlyPredecessors(block, (Block)container.Children[next - 1])
+                || !ClassicInverseExpressionRules.SameTree(test.Condition, condition, budget,
+                    previousJoin, previousExpression))
+                return null;
+            next--;
+            origins.Add(test.SourceOffset);
+            AddEntry(trueTarget, block);
+            AddEntry(falseTarget, block);
+            return block;
+        }
+
+        void AddEntry(Block target, Block block)
+        {
+            if (ReferenceEquals(target, whenTrue))
+                trueEntries.Add(block);
+            else if (ReferenceEquals(target, whenFalse))
+                falseEntries.Add(block);
+        }
     }
 
     static TypeRef? SelectedType(

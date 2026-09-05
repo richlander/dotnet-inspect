@@ -19,7 +19,8 @@ internal sealed record ClassicInversePlan
         int SourceOffset,
         ImmutableArray<ClassicInversePhysicalRegion> PhysicalPartition,
         ImmutableArray<ClassicInverseSemanticRealization> SemanticRealizations,
-        ImmutableArray<ClassicInverseAncestorReceipt> StructuredAncestorReceipts)
+        ImmutableArray<ClassicInverseAncestorReceipt> StructuredAncestorReceipts,
+        ImmutableArray<TypeRef> TypeArguments = default)
     {
         this.Recipe = Recipe;
         this.Body = Body;
@@ -31,6 +32,7 @@ internal sealed record ClassicInversePlan
         this.PhysicalPartition = PhysicalPartition;
         this.SemanticRealizations = SemanticRealizations;
         this.StructuredAncestorReceipts = StructuredAncestorReceipts;
+        this.TypeArguments = TypeArguments.IsDefault ? [] : TypeArguments;
         Signature = BuildSignature();
     }
 
@@ -44,6 +46,9 @@ internal sealed record ClassicInversePlan
     internal ImmutableArray<string?> LocalNames { get; }
 
     internal ImmutableArray<string?> SynthesizedLocalNames { get; }
+
+    /// <summary>Execution type parameters bound into the authenticated kickoff context.</summary>
+    internal ImmutableArray<TypeRef> TypeArguments { get; }
 
     /// <summary>
     /// Type facts observed on the execution body, snapshotted as immutable
@@ -107,7 +112,8 @@ internal sealed record ClassicInversePlan
             [
                 $"recipe={Recipe}",
                 $"offset={SourceOffset}",
-                $"locals={string.Join(";", Locals.Select(static l => l.ToDisplayString()))}",
+                $"locals={string.Join(";", Locals.Select(ClassicInverseTypedIdentity.Type))}",
+                $"typeArguments={ClassicInverseSignature.Sequence(TypeArguments.Select(ClassicInverseTypedIdentity.Type))}",
                 $"names={string.Join(";", LocalNames.Select(static n => n ?? ""))}",
                 $"synthesizedNames={string.Join(";", SynthesizedLocalNames.Select(static n => n ?? ""))}",
                 $"body={Body.Signature}",

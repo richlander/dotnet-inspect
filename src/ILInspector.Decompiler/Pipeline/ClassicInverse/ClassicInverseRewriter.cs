@@ -40,6 +40,7 @@ internal sealed class ClassicInverseRewriter
         _planning = planning;
         _shell = shell;
         _candidate = candidate;
+        candidate.TypeBinding = planning.TypeBinding;
         _budget = budget;
         _awaitOperands = awaitOperands;
         foreach (Block block in planning.KickoffBody.Body.Blocks)
@@ -179,7 +180,8 @@ internal sealed class ClassicInverseRewriter
 
         IrFunction kickoff = _planning.KickoffBody;
         int argumentBase = kickoff.Signature.HasThis ? 1 : 0;
-        if (_candidate.ParameterFields.TryGetValue(id, out int argument))
+        MachineFieldId parameterId = MachineFieldId.Of(_planning.TypeBinding.Field(field, _budget));
+        if (_candidate.ParameterFields.TryGetValue(parameterId, out int argument))
         {
             if (argumentBase == 1 && argument == 0
                 && Equals(field.Type, kickoff.DeclaringType))
@@ -192,12 +194,12 @@ internal sealed class ClassicInverseRewriter
                 return null;
 
             Parameter parameter = kickoff.Signature.Parameters[parameterIndex];
-            if (!Equals(parameter.Type, field.Type))
+            if (!Equals(parameter.Type, _planning.TypeBinding.Type(field.Type, _budget)))
                 return null;
             return new LoadArgument(
                 argument,
                 parameter.Name,
-                parameter.Type)
+                field.Type)
             {
                 IsDynamic = parameter.IsDynamic,
                 ArrayElementIsDynamic = parameter.ArrayElementIsDynamic,

@@ -118,8 +118,9 @@ public sealed partial class ClassicInverseCoreTests
 
         int originalNodes = ClassicInversePlanningView.Derive(scope.Request)
             .ExecutionBody.Body.Descendants.Count() + 1;
+        var planningBudget = new ClassicInverseBudget();
         ClassicInversePlanningView planning =
-            ClassicInversePlanningView.Derive(expanded);
+            ClassicInversePlanningView.Derive(expanded, planningBudget);
         int planningNodes =
             planning.ExecutionBody.Body.Descendants.Count() + 1;
         Assert.True(expansion >= 64);
@@ -135,7 +136,7 @@ public sealed partial class ClassicInverseCoreTests
             + expanded.ExecutionBody.Body.Descendants.Count() + 1;
         int recipeSnapshotUnits = checked(2 * planningNodes);
         int exactUnits = checked(
-            admissionUnits + shellBudget.Consumed + recipeSnapshotUnits);
+            admissionUnits + planningBudget.Consumed + shellBudget.Consumed + recipeSnapshotUnits);
 
         var exactBudget = new ClassicInverseBudget(exactUnits);
         var decline = Assert.IsType<ClassicInverseDecision.Decline>(

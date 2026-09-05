@@ -324,10 +324,12 @@ Shell-owned state and awaiter locals are protocol, not user values. A raw local
 read leaves the cross-space value stream only when the recipe positively
 realizes it as one of its own transfers: the compiler's hoist of a recipe
 temporary into the state machine, or an unnamed awaited value's proven
-adjacent receiver temporary. A hoist maps its field and local onto one output
-local. An inlined receiver must retain the exact awaited value and member
-projection, with one raw definition and one typed address use; only that
-temporary's store frame and address become protocol. Every other raw local use
+adjacent receiver or tuple temporary, or a private default-initialization
+transfer. A hoist maps its field and local onto one output local. An inlined
+awaited temporary retains its exact producer and complete projection, with one
+raw definition and one typed use. Its address must be a value-type receiver;
+its value use must occupy the proved tuple construction. Only that temporary's
+store frame and use become protocol. Every other raw local use
 keeps its planning correspondence and its semantic receipt, so a value a
 prerequisite pass drops is visible rather than silently exempt; the typed
 planning-to-output realization remains owned by the recipe lockstep.
@@ -361,6 +363,18 @@ type together. Parameter bindings come from the proven kickoff transfers;
 an execution field cannot acquire a binding through a parameter's name or a
 similar display string. The realized argument or local retains the bound
 field's type.
+
+Generic coordinates are bound by the authenticated machine instantiation in
+the kickoff, not by parameter names or global equality between type and method
+parameters. Storage and value correspondence use that one request-local
+binding, and detached output carries types in the declared method's context.
+An absent, contradictory, or incomplete binding cannot license a field match.
+The kickoff's local, field receivers, and builder start agree on the exact
+instantiation. Its ordered type-argument binding participates in plan equality.
+Receipts retain execution-context source effects and declared-context output
+effects under that same binding; it does not rewrite a callee's separate
+generic-definition signature. Conflicting projected type facts fail rather
+than selecting one testimony.
 
 ### Proven lowering protocol
 
@@ -459,6 +473,16 @@ does not establish that composition.
 Proof views may keep selected arms explicit while later C# presentation lowers
 a verified conditional into short-circuit syntax. That presentation cannot
 replace proof of the predicate, selected constant, and conditional effect.
+
+A selected predicate may itself compose a forward short-circuit guard chain.
+Every guard remains an exact typed predicate with its true and false targets;
+each inner guard has only the preceding guard as an entry. The two selected
+arms retain their exclusive incoming edges and sole joined use. Recursive
+`&&`, `||`, and negation correspondence must describe those same edges and
+ordered predicates, not merely an equivalent-looking result. Synthesized
+logical wrappers are structural only under that complete proof; the consumed
+branches retain their import origins. Arbitrary graphs, leading guard effects,
+and ambiguous joins are outside this closed rule.
 
 The importer can defer spilling an already evaluated `GetResult` until after
 spilling a newly constructed initializer receiver. That adjacent pair may
@@ -663,6 +687,26 @@ assignment or boxing destination, or the typed join of an independently proven
 selected arm may supply that type. The value, consuming position, type identity,
 and imported origin must agree. A planning annotation alone cannot supply a
 missing raw sink or invent an anchor.
+Initializer raising may retain the same consumer in an entry rather than an
+immediate parent node. Its exact consumed member or field and ordered argument
+position supply the sink for object, nested, and collection entries; the raw
+consumer and dispatch obligations remain unchanged.
+
+An addressed receiver may be nullable: value-type evidence and the legality of
+null syntax answer different questions. The same exact local transfer rules
+apply to nullable and non-nullable values. A tuple may consume a sole typed
+await-result value instead of a receiver address only when the producer, use,
+continuation, order, and tuple construction are proved. A default-valued
+initializer similarly retains its exact zero-initialization and typed use;
+neither form exempts arbitrary missing locals or initialization effects.
+A tuple without a raw temporary needs no transfer exemption, but still proves
+its exact constructor, tuple type, and ordered elements, including inline
+`TRest` construction. A private default transfer binds one local address,
+one exact `initobj`, and the immediately following typed initializer use,
+with no other writer, reader, or escaped address. Its local traffic is
+protocol, while its typed zero-initialization remains a semantic realization
+with all three import origins. Direct field initialization is not a private
+local transfer.
 
 Within those proven positions, integer `0`/`1` may represent `false`/`true`,
 an in-range integer may represent the same UTF-16 character, and an unchanged
@@ -894,6 +938,17 @@ Release gates:
 | `ClassicInverseSinkAndCompositionPlansAreDetached` and `ClassicInverseSinkAndCompositionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or lose visible budget failure. |
 | `ClassicInverseSinkMatchingBudgetExhaustionCannotDecline` | Exhaustion inside a sink-directed value comparison is reported as a semantic mismatch rather than `Failed(BudgetExhausted)`. |
 | `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInversePreservesRetainedExpressionConsumers` and `ClassicInverseRetainedInitializerSinksCannotBeHealed` | A retained initializer consumer loses supported source or licenses a changed value, type, field, or member. |
+| `ClassicInverseGenericOutputKeepsDeclaredContext` and `ClassicInverseGenericContainerBindsDistinctParameterKinds` | A generic method or enclosing generic type loses its exact request-local type-parameter binding in the body or output-effect receipts. |
+| `ClassicInverseGenericBindingRejectsIncompleteContext`, `ClassicInverseGenericBindingRequiresItsKickoffInstantiation`, `ClassicInverseGenericBindingKeepsExactMachineModule`, and `ClassicInverseGenericFieldContextCannotBeHealed` | A missing coordinate, wrong parameter kind/index, contradictory kickoff instantiation/module, or unrelated typed field licenses reconstruction. |
+| `ClassicInverseGenericParameterKindsParticipateInPlanEquality` | Plan equality loses the type/method distinction or the binding's argument order. |
+| `ClassicInverseAwaitedValueTransferCannotBeHealed` | An awaited nullable receiver or tuple temporary loses its sole typed use, changes a value, or gains an extra use. |
+| `ClassicInverseDefaultInitializationCannotBeHealed` and `ClassicInverseDefaultInitializationCarriesSemanticOrigins` | A default value loses its exact initialization/type/use, admits an extra writer or escaping address, or omits the semantic effect and origins. |
+| `ClassicInverseDefaultFieldIsNotAPrivateLocalTransfer` | A direct field initialization acquires the private-local exemption without its required evidence. |
+| `ClassicInverseRetainedValuesRequireTheirOrigins` and `ClassicInverseRetainedOutputKeepsExactValueType` | A tuple or default value loses its raw origin or exact published type. |
+| `ClassicInverseComposedPredicateRawControlCannotBeHealed` and `ClassicInverseComposedPredicatePlanningKeepsExactControl` | A changed guard edge, predicate, arm, joined slot, or effect licenses short-circuit reconstruction. |
+| `ClassicInverseRetainedExpressionPlansAreDetached`, `ClassicInverseRetainedExpressionBudgetsRemainLoadBearing`, and `ClassicInverseRetainedExpressionBudgetCutsNeverDecline` | A retained form aliases mutable input or exhaustion becomes decline instead of visible failure. |
+| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current EH-blind comparison contract. |
 
 `BooleanConstantComparison_PreservesExpressionOrigin`, the coalescing-store
 cases in `BooleanFoldingSourceOffsetTests`, and

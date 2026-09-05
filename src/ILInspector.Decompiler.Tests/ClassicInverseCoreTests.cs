@@ -1179,7 +1179,7 @@ public sealed partial class ClassicInverseCoreTests
             ClassicInverseDeclineReason.UnrealizedSemanticEffect,
             decline.Reason);
         Assert.Contains(
-            "different semantic value sequences",
+            "a tuple has no exact raw typed construction and ordered elements",
             decline.Detail,
             StringComparison.Ordinal);
     }
