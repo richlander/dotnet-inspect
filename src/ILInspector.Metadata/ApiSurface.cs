@@ -1094,6 +1094,16 @@ public class ApiMember
     public int? GetterToken { get; set; }
     public int? SetterToken { get; set; }
 
+    /// <summary>
+    /// Whether each property accessor MethodDef has a managed body RVA.
+    /// Null preserves older or hand-composed surfaces that predate the exact
+    /// accessor-level metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? GetterHasMethodBody { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SetterHasMethodBody { get; set; }
+
     [JsonIgnore]
     public bool? HasGetter { get; set; }
 
@@ -1120,6 +1130,16 @@ public class ApiMember
     public int? AdderToken { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
+
+    /// <summary>
+    /// Whether each event accessor MethodDef has a managed body RVA.
+    /// Null preserves older or hand-composed surfaces that predate the exact
+    /// accessor-level metadata fact.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AdderHasMethodBody { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RemoverHasMethodBody { get; set; }
 
     public bool IsStatic { get; set; }
     public bool IsVirtual { get; set; }
@@ -1171,6 +1191,21 @@ public class ApiMember
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? HasMethodBody { get; set; }
+
+    /// <summary>
+    /// Raw implementation evidence for this MethodDef. Null means the member
+    /// has no retained MethodDef evidence, not that it is an ordinary IL method.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiMethodImplementationFacts? MethodImplementation { get; set; }
+
+    /// <summary>
+    /// Implementation evidence for each distinct accessor MethodDef, including
+    /// accessors not exposed as separate API members.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ApiMethodImplementationFacts>? AccessorImplementations
+        { get; set; }
 
     /// <summary>
     /// Whether metadata contains an exact-name runtime-wrapper MethodDef and a

@@ -521,32 +521,6 @@ public class PdbContext : IDisposable
     }
 
     /// <summary>
-    /// Opens an acquisition descriptor and probes its embedded and adjacent PDBs while bounding
-    /// embedded-PDB expansion.
-    /// </summary>
-    public static PdbContext Open(
-        ResolvedAssemblyReference assembly,
-        int maxEmbeddedPdbBytes,
-        Action<string>? log = null,
-        PdbExpansionBudget? expansionBudget = null)
-    {
-        ArgumentNullException.ThrowIfNull(assembly);
-        ArgumentOutOfRangeException.ThrowIfNegative(maxEmbeddedPdbBytes);
-        return Open(
-            assembly.OpenRead(),
-            assembly.Path,
-            assembly.Identity.Name,
-            log,
-            PEStreamOptions.Default,
-            assembly.LastWriteTimeUtc,
-            loadLocalPdb: true,
-            loadEmbeddedPdb: true,
-            maxEmbeddedPdbBytes: maxEmbeddedPdbBytes,
-            expansionBudget: expansionBudget,
-            assemblyRegistration: assembly);
-    }
-
-    /// <summary>
     /// Runs one synchronous product-layer inspection against this context's
     /// open reader without transferring ownership.
     /// </summary>

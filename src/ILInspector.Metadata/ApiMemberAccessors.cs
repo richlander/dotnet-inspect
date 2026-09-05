@@ -25,6 +25,7 @@ public static class ApiMemberAccessors
                         declaringType,
                         $"get_{member.Name}",
                         getter,
+                        member.GetterHasMethodBody,
                         "get",
                         valueReturning: true);
                 }
@@ -35,6 +36,7 @@ public static class ApiMemberAccessors
                         declaringType,
                         $"set_{member.Name}",
                         setter,
+                        member.SetterHasMethodBody,
                         "set",
                         valueReturning: false);
                 }
@@ -47,6 +49,7 @@ public static class ApiMemberAccessors
                         declaringType,
                         $"add_{member.Name}",
                         adder,
+                        member.AdderHasMethodBody,
                         "add",
                         valueReturning: false);
                 }
@@ -57,6 +60,7 @@ public static class ApiMemberAccessors
                         declaringType,
                         $"remove_{member.Name}",
                         remover,
+                        member.RemoverHasMethodBody,
                         "remove",
                         valueReturning: false);
                 }
@@ -69,6 +73,7 @@ public static class ApiMemberAccessors
         string declaringType,
         string fallbackName,
         int token,
+        bool? hasMethodBody,
         string accessorKind,
         bool valueReturning)
     {
@@ -113,6 +118,11 @@ public static class ApiMemberAccessors
         bool isExplicitImplementation =
             accessorEntry?.IsExplicitInterfaceImplementation
             ?? name.Contains('.', StringComparison.Ordinal);
+        ApiMethodImplementationFacts? implementation =
+            owner.AccessorImplementations?.FirstOrDefault(
+                facts => facts.MethodToken == token);
+        bool? accessorHasBody =
+            implementation?.HasBodyRva ?? hasMethodBody;
         return new ApiMember
         {
             Name = name,
@@ -132,7 +142,7 @@ public static class ApiMemberAccessors
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract,
+            IsAbstract = owner.IsAbstract && accessorHasBody != true,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
@@ -140,6 +150,8 @@ public static class ApiMemberAccessors
                 || owner.IsReadOnly,
             MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
                 facts => facts.CallerContract.Evidence.MemberToken == token),
+            MethodImplementation = implementation,
+            HasMethodBody = accessorHasBody,
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };

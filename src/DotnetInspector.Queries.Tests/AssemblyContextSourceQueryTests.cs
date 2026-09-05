@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 
 using DotnetInspector.Packages;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
@@ -17,7 +18,7 @@ using Pipeline = ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Queries.Tests;
 
-public sealed class AssemblyContextSourceQueryTests
+public sealed partial class AssemblyContextSourceQueryTests
 {
     static readonly Guid SourceLinkKind =
         new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
@@ -2892,6 +2893,32 @@ public sealed class AssemblyContextSourceQueryTests
             rejected.Failure.Kind);
     }
 
+    [Fact]
+    public async Task SourcePair_OwnedPdbCleanupFailurePreventsComparison()
+    {
+        TestAssembly before = TestAssembly.Create();
+        TestAssembly after = TestAssembly.Create();
+        var error = new IOException("Synthetic paired-source PDB disposal failure.");
+        var pdbStore = new StateChangingPdbStore(
+            afterLocalPath: null,
+            disposeFailure: error);
+        using var host = QueryHost.WithPdb(
+            before.PdbPath,
+            SourceFileBytes(),
+            pdbStore: pdbStore);
+
+        AssemblyMemberSourcePairResult result = await ExecuteSourcePairAsync(
+            before, after, nameof(SourceFixture.Describe), host,
+            typeName: nameof(SourceFixture));
+
+        Assert.Equal(AssemblyMemberSourcePairStatus.Failed, result.Status);
+        Assert.Same(error, result.Failure?.Error);
+        Assert.Null(result.Comparison);
+        Assert.False(result.IsExact);
+        Assert.Equal(0, before.Policy.SelectionCount);
+        Assert.Equal(0, after.Policy.SelectionCount);
+    }
+
     static byte[] SourceFileBytes(
         [CallerFilePath] string path = "") =>
         File.ReadAllBytes(path);
@@ -3495,10 +3522,13 @@ public sealed class AssemblyContextSourceQueryTests
         internal static TestAssembly Create(
             string? selectedName = null,
             bool retainPath = false,
-            Func<Stream>? openRead = null)
+            Func<Stream>? openRead = null,
+            FixtureDefinition? fixture = null,
+            string packageVersion = "1.0.0")
         {
             string path =
-                typeof(AssemblyContextSourceQueryTests)
+                fixture?.AssemblyPath()
+                ?? typeof(AssemblyContextSourceQueryTests)
                     .Assembly.Location;
             byte[] bytes = File.ReadAllBytes(path);
             AssemblyReferenceIdentity identity =
@@ -3523,7 +3553,7 @@ public sealed class AssemblyContextSourceQueryTests
                             writable: false)),
                     AssemblyResolutionProvenance.Package(
                         "Example.Source",
-                        "1.0.0",
+                        packageVersion,
                         "net10.0",
                         rid: null));
             var policy = new FrameworkBindingPolicy();
@@ -3681,8 +3711,8 @@ public sealed class AssemblyContextSourceQueryTests
             ISourceContentStore? sourceContentStore = null,
             IPdbStore? pdbStore = null,
             bool allowLocalSourceReads = false,
-            bool allowAdjacentPdbReads = false,
-            SymbolAcquisitionLimits? symbolAcquisitionLimits = null)
+            SymbolAcquisitionLimits? symbolAcquisitionLimits = null,
+            bool allowAdjacentPdbReads = false)
         {
             _symbolClient = new HttpClient(symbolHandler);
             _sourceClient = new HttpClient(sourceHandler);
@@ -3755,11 +3785,41 @@ public sealed class AssemblyContextSourceQueryTests
             => new(
                 new SymbolPackageHandler(snupkg: null),
                 new SourceHandler(content: null),
-                allowLocalSourceReads:
-                    allowLocalSourceReads,
-                allowAdjacentPdbReads:
-                    allowAdjacentPdbReads,
-                symbolAcquisitionLimits: symbolAcquisitionLimits);
+                symbolAcquisitionLimits: symbolAcquisitionLimits,
+                allowLocalSourceReads: allowLocalSourceReads,
+                allowAdjacentPdbReads: allowAdjacentPdbReads);
+
+        internal static QueryHost WithPairPdb(
+            TestAssembly before,
+            TestAssembly after,
+            byte[] beforeSource,
+            byte[]? afterSource,
+            Action? duringAfterSource = null,
+            bool missingAfterPdb = false)
+        {
+            byte[] beforeSymbols = BuildSnupkg(
+                Path.GetFileName(before.PdbPath),
+                File.ReadAllBytes(before.PdbPath));
+            byte[]? afterSymbols = missingAfterPdb
+                ? null
+                : BuildSnupkg(
+                    Path.GetFileName(after.PdbPath),
+                    File.ReadAllBytes(after.PdbPath));
+            return new QueryHost(
+                new SymbolPackageHandler(null, uri =>
+                    uri.AbsolutePath.Contains("2.0.0", StringComparison.Ordinal)
+                        ? afterSymbols
+                        : beforeSymbols),
+                new SourceHandler(null, uri =>
+                {
+                    if (uri.AbsolutePath.StartsWith("/v2/", StringComparison.Ordinal))
+                    {
+                        duringAfterSource?.Invoke();
+                        return afterSource;
+                    }
+                    return beforeSource;
+                }));
+        }
 
         public void Dispose()
         {
@@ -3788,7 +3848,9 @@ public sealed class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class SymbolPackageHandler(byte[]? snupkg)
+    sealed class SymbolPackageHandler(
+        byte[]? snupkg,
+        Func<Uri, byte[]?>? response = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
@@ -3798,7 +3860,10 @@ public sealed class AssemblyContextSourceQueryTests
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
-            if (snupkg is not null
+            byte[]? content = response is null
+                ? snupkg
+                : response(request.RequestUri!);
+            if (content is not null
                 && request.RequestUri!.AbsolutePath.EndsWith(
                     ".snupkg",
                     StringComparison.OrdinalIgnoreCase))
@@ -3806,7 +3871,7 @@ public sealed class AssemblyContextSourceQueryTests
                 return Task.FromResult(
                     new HttpResponseMessage(HttpStatusCode.OK)
                     {
-                        Content = new ByteArrayContent(snupkg),
+                        Content = new ByteArrayContent(content),
                         RequestMessage = request,
                     });
             }
@@ -3820,7 +3885,9 @@ public sealed class AssemblyContextSourceQueryTests
         }
     }
 
-    sealed class SourceHandler(byte[]? content)
+    sealed class SourceHandler(
+        byte[]? content,
+        Func<Uri, byte[]?>? response = null)
         : HttpMessageHandler
     {
         internal List<Uri> RequestUris { get; } = [];
@@ -3830,15 +3897,18 @@ public sealed class AssemblyContextSourceQueryTests
             CancellationToken cancellationToken)
         {
             RequestUris.Add(request.RequestUri!);
+            byte[]? source = response is null
+                ? content
+                : response(request.RequestUri!);
             return Task.FromResult(
                 new HttpResponseMessage(
-                    content is null
+                    source is null
                         ? HttpStatusCode.NotFound
                         : HttpStatusCode.OK)
                 {
-                    Content = content is null
+                    Content = source is null
                         ? null
-                        : new ByteArrayContent(content),
+                        : new ByteArrayContent(source),
                     RequestMessage = request,
                 });
         }

@@ -302,7 +302,7 @@ public static class MemberCommand
                     options.Select,
                     actualPipeline.SelectableSectionNames,
                     actualPipeline.InfoSectionNames,
-                    actualPipeline.GetCategoryMap(),
+                    ApiMemberSectionPipelines.GetCategoryMap(actualPipeline),
                     selectDefault: options.SelectDefault);
                 if (SelectOutput.WriteUnresolved(actualSelect))
                     return 1;
@@ -816,7 +816,8 @@ public static class MemberCommand
                 return ApiCommand.ExecuteEffectiveDiscovery(
                     apiType,
                     ApiInspectionCatalogRegistry.CreateMemberPipeline(
-                        executionPlan.Selection.Catalog),
+                        executionPlan.Selection.Catalog,
+                        executionPlan.Intent.Members.OverloadIndex),
                     effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
@@ -1194,6 +1195,7 @@ public static class MemberCommand
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
+        SectionNames.FindingCensus,
         SectionNames.CostOverlay,
         SectionNames.SemanticsOverlay,
         SectionNames.PdbSource,
@@ -1218,6 +1220,7 @@ public static class MemberCommand
         SectionNames.DecompiledSource,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
+        SectionNames.FindingCensus,
         SectionNames.BodyShapes,
         SectionNames.Facts,
     ];

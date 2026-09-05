@@ -417,35 +417,53 @@ public static partial class PackageExports
     }
 
     [JSExport]
-    public static string ActivateWorkspacePackageOccurrence(string action)
+    public static async Task<string> ActivateWorkspacePackageOccurrence(
+        string action)
+    {
+        BrowserWorkspacePackageOccurrenceActivation activation =
+            await ActivateWorkspacePackageOccurrenceAsync(action);
+        return JsonSerializer.Serialize(
+            activation,
+            BrowserPackageJsonContext.Default
+                .BrowserWorkspacePackageOccurrenceActivation);
+    }
+
+    static async Task<BrowserWorkspacePackageOccurrenceActivation>
+        ActivateWorkspacePackageOccurrenceAsync(string action)
     {
         BrowserWorkspaceOccurrenceSelection? selection =
             BrowserWorkspaceOccurrenceOperations
                 .Activate(action);
         if (selection is null)
         {
-            return JsonSerializer.Serialize(
-                new BrowserWorkspacePackageOccurrenceActivation(
-                    Activated: false,
-                    Superseded: true,
-                    Package: null),
-                BrowserPackageJsonContext.Default
-                    .BrowserWorkspacePackageOccurrenceActivation);
+            return new BrowserWorkspacePackageOccurrenceActivation(
+                Activated: false,
+                Superseded: true,
+                Package: null);
         }
 
-        BrowserInspectionScope scope =
-            BrowserPackageWorkspace.OpenScope([selection.Coordinate]);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [selection.Coordinate]);
+        if (!ReferenceEquals(
+                selection,
+                BrowserWorkspaceOccurrenceOperations.Activate(action)))
+        {
+            return new BrowserWorkspacePackageOccurrenceActivation(
+                Activated: false,
+                Superseded: true,
+                Package: null);
+        }
+
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageSurface package =
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinate(selection.Coordinate)));
-        return JsonSerializer.Serialize(
-            new BrowserWorkspacePackageOccurrenceActivation(
-                Activated: true,
-                Superseded: false,
-                package),
-            BrowserPackageJsonContext.Default
-                .BrowserWorkspacePackageOccurrenceActivation);
+        return new BrowserWorkspacePackageOccurrenceActivation(
+            Activated: true,
+            Superseded: false,
+            package);
     }
 }

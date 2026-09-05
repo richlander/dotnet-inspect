@@ -37,4 +37,13 @@ public sealed class ArtifactContentReference
 
     public Stream OpenRead() =>
         _owner.OpenRead(Descriptor.Identity, _lease);
+
+    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default) =>
+        _owner.GetContentDigest(
+            Descriptor.Identity,
+            _lease,
+            chargeWork,
+            cancellationToken);
 }

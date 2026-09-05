@@ -1176,6 +1176,17 @@ public class MemberCodeView
     [JsonIgnore]
     public ILInspector.Decompiler.DecompilerResult? AnnotatedSourceDocumentFailure { get; set; }
 
+    [MarkoutSection(Name = SectionNames.FindingCensus)]
+    public CodeSection FindingCensusCode { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal MemberFindingCensusEnvelope? FindingCensus { get; set; }
+
+    [MarkoutIgnore]
+    [JsonIgnore]
+    internal string? FindingCensusFailure { get; set; }
+
     [MarkoutSection(Name = "Cost Overlay")]
     public CodeSection CostOverlayCode { get; set; }
 
@@ -1510,7 +1521,11 @@ public record FactRow(
     string Category,
     string Id,
     [property: MarkoutSkipNull] string? Detail,
-    string Conditionality);
+    string Conditionality,
+    [property: MarkoutPropertyName("Census Receipt"), MarkoutSkipNull]
+    string? CensusReceipt,
+    [property: MarkoutPropertyName("Instance Key"), MarkoutSkipNull]
+    int? InstanceKey);
 
 [MarkoutSerializable]
 public record UnsafeMemberRow(

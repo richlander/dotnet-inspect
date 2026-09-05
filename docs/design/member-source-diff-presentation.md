@@ -428,7 +428,8 @@ Release CLI tests prove:
 - the PDB Source and Source Diff co-selection performs one equivalent PDB
   acquisition;
 - co-selecting Source Diff with a decompiler-backed section preserves that
-  section's portable-PDB local names and annotations;
+  section's portable-PDB local names and annotations, including the
+  Annotated Source document inside Finding Census;
 - the headers are `PDB comparison` and `Decompiled comparison`, while the
   separate PDB Source and Decompiled Source sections keep their own labels and
   content;
@@ -442,6 +443,7 @@ Text, Metadata, MetadataPrimitives, and CSharpText dependency graph to
 and accepting the query result directly prevents hosts from pairing
 independently acquired endpoints.
 
-Layering tests prove `DotnetInspector.Presentation` remains L2, consumes L1
-query results, and is referenced by both the CLI and the planned Browser/Wasm
-adapter without introducing a CLI or browser dependency.
+Layering tests prove `DotnetInspector.Presentation` remains L2 and consumes L1
+query results without introducing a CLI or browser dependency. The CLI
+references this shared presentation. A Browser/Wasm adapter reference and its
+adoption gate remain planned work under #5684, not current-head evidence.

@@ -1496,6 +1496,7 @@ public static class ApiOutputFormatter
             DecompiledSource: requestedSections.Contains(SectionNames.DecompiledSource),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
+            FindingCensus: requestedSections.Contains(SectionNames.FindingCensus),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1522,12 +1523,12 @@ public static class ApiOutputFormatter
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
         var singleMethod = overloadIndex.HasValue
-            ? methods.Count == 1
-                ? methods[0]
-                : overloadIndex.Value < methods.Count
-                    ? methods[overloadIndex.Value]
-                    : null
+            ? SelectBodyMethod(type, methods, overloadIndex.Value)
             : null;
+        if (singleMethod?.IsAbstract == true && !request.UnsafeOperations)
+            singleMethod = null;
+        if (request.FindingCensus && singleMethod?.HasMethodBody != true)
+            singleMethod = null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
         // Code and caller sections address a single selected member. When an overload
         // (or property/event accessor, issue #3265) is selected, restrict them to that
@@ -1768,7 +1769,10 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay
+            || request.SemanticsOverlay || request.IL || request.Attributes
+            || request.Facts || request.FidelityCauses || request.AppliedTaste
+            || request.SourceDocument || request.FindingCensus)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1813,10 +1817,16 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            hasCode |= PopulateAnnotatedSourceDocument(
-                memberCode,
-                code.SourceDocument,
-                code.SourceDocumentFailure);
+            if (request.SourceDocument)
+            {
+                hasCode |= PopulateAnnotatedSourceDocument(
+                    memberCode,
+                    code.SourceDocument,
+                    code.SourceDocumentFailure);
+            }
+
+            if (request.FindingCensus)
+                hasCode |= PopulateFindingCensus(memberCode, code);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1829,7 +1839,9 @@ public static class ApiOutputFormatter
                         fact.Category,
                         fact.Id,
                         fact.Detail is { } detail ? MarkoutInline.Code(detail) : null,
-                        fact.Conditionality))
+                        fact.Conditionality,
+                        fact.CensusReceipt?.ToString(),
+                        fact.InstanceKey?.Value))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.Facts))
                 {
@@ -1841,6 +1853,24 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    private static ApiMember? SelectBodyMethod(
+        ApiType type,
+        List<ApiMember> methods,
+        int overloadIndex)
+    {
+        if (type.Members is [{ } owner]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(owner))
+        {
+            return AccessorMethods(owner, type).ElementAtOrDefault(overloadIndex);
+        }
+
+        return methods.Count == 1
+            ? methods[0]
+            : overloadIndex < methods.Count
+                ? methods[overloadIndex]
+                : null;
     }
 
     internal static bool PopulateCSharpSections(
@@ -1933,6 +1963,44 @@ public static class ApiOutputFormatter
             return true;
         }
         return false;
+    }
+
+    internal static bool PopulateFindingCensus(
+        MemberCodeView memberCode,
+        MemberCodeProvider.Item code)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (code.SourceDocument is null)
+        {
+            memberCode.FindingCensusFailure =
+                code.SourceDocumentFailure is { } failure
+                    ? string.Join(
+                        "; ",
+                        failure.Diagnostics.Select(static diagnostic =>
+                            diagnostic.ToString()))
+                    : $"section '{SectionNames.FindingCensus}' produced no Annotated Source document.";
+            return true;
+        }
+
+        try
+        {
+            MemberFindingCensusEnvelope envelope = MemberFindingCensus.Create(
+                code.FactCensusReceipt,
+                code.Facts,
+                code.SourceDocument,
+                code.SourceDocumentFactIdentities);
+            memberCode.FindingCensus = envelope;
+            memberCode.FindingCensusCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    envelope,
+                    MemberFindingCensusJsonContext.Default.MemberFindingCensusEnvelope));
+        }
+        catch (InvalidOperationException ex)
+        {
+            memberCode.FindingCensusFailure = ex.Message;
+        }
+        return true;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

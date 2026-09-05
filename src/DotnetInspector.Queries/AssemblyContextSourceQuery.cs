@@ -61,9 +61,8 @@ public sealed class AssemblyContextSourceQueryContext
     public bool AllowLocalSourceReads { get; init; }
 
     /// <summary>
-    /// Allows a path-backed host to probe the portable PDB adjacent to the
-    /// selected assembly. Disabled by default so content-only hosts keep the
-    /// pathless acquisition boundary.
+    /// Allows loading a matching portable PDB beside the retained assembly's
+    /// optional path. Disabled by default for content-only hosts.
     /// </summary>
     public bool AllowAdjacentPdbReads { get; init; }
     public Action<string>? Log { get; init; }
@@ -800,7 +799,7 @@ public static class AssemblyContextSourceQuery
                 decompiledAttempt);
     }
 
-    static async Task<MemberPdbInspection> InspectMemberPdbAsync(
+    internal static async Task<MemberPdbInspection> InspectMemberPdbAsync(
         AssemblyContextParticipant participant,
         AssemblyMemberSourceRequest request,
         AssemblyContextSourceQueryContext context,
@@ -1068,13 +1067,8 @@ public static class AssemblyContextSourceQuery
         SourceLinkService source;
         try
         {
-            source = context.AllowAdjacentPdbReads
-                ? SourceLinkService.Open(
-                    retained,
-                    readLimits,
-                    context.Log,
-                    context.SourceLinkCache)
-                : SourceLinkService.OpenEmbeddedPdbOnly(
+            source =
+                SourceLinkService.OpenEmbeddedPdbOnly(
                     retained,
                     readLimits,
                     context.Log,
@@ -1092,6 +1086,7 @@ public static class AssemblyContextSourceQuery
         {
             try
             {
+                LoadAdjacentPdb(source, retained, context, cancellationToken);
                 await AcquirePdbAsync(
                         source,
                         retained,
@@ -1122,6 +1117,55 @@ public static class AssemblyContextSourceQuery
         }
     }
 
+    static void LoadAdjacentPdb(
+        SourceLinkService source,
+        ResolvedAssemblyReference retained,
+        AssemblyContextSourceQueryContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!context.AllowAdjacentPdbReads
+            || source.Context.HasPdb
+            || retained.Path is not { } assemblyPath)
+            return;
+
+        string path = Path.ChangeExtension(assemblyPath, ".pdb");
+        FileStream? owned;
+        try
+        {
+            owned = File.OpenRead(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (context.SymbolAcquisitionLimits is { } limits
+                && owned.Length > Math.Min(limits.MaxPortablePdbBytes, limits.MaxExpandedPdbBytes))
+            {
+                throw new InvalidDataException(
+                    "The adjacent portable PDB exceeds the source query's acquisition byte limit.");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            FileStream transferred = owned;
+            owned = null;
+            source.Context.LoadPdbFromStream(
+                transferred,
+                pdbLocation: "Standalone",
+                portablePdbPath: path,
+                throwOnReadFailure: true);
+        }
+        finally
+        {
+            owned?.Dispose();
+        }
+    }
+
     static ApiType? ResolveType(
         AssemblyInspectionSession session,
         MetadataTypeDefinitionName type)
@@ -1143,17 +1187,32 @@ public static class AssemblyContextSourceQuery
     static (ApiType Type, ApiMember Member)? ResolveMember(
         AssemblyInspectionSession session,
         AssemblyMemberSourceRequest request)
+        => ResolveMember(
+            session,
+            request.Type,
+            request.Member,
+            request.MetadataToken);
+
+    internal static (ApiType Type, ApiMember Member)? ResolveMember(
+        AssemblyInspectionSession session,
+        MetadataTypeDefinitionName typeName,
+        MemberAnchor member,
+        int? metadataToken = null)
     {
-        ApiType? type = ResolveType(session, request.Type);
+        ApiType? type = ResolveType(session, typeName);
         if (type is null)
             return null;
 
         ApiMember? match = null;
         foreach (ApiMember candidate in type.Members)
         {
-            if (candidate.MetadataToken != request.MetadataToken
+            if (candidate.MetadataToken is not { } token
+                || MetadataTokens.EntityHandle(token).Kind
+                    != HandleKind.MethodDefinition
+                || (metadataToken is { } expectedToken
+                    && token != expectedToken)
                 || ApiMemberIdentity.GetMemberAnchor(type, candidate)
-                    != request.Member)
+                    != member)
             {
                 continue;
             }
@@ -1167,20 +1226,26 @@ public static class AssemblyContextSourceQuery
             return (type, match);
 
         foreach (ApiMember accessor in type.Members.SelectMany(
-            member => ApiMemberAccessors.Create(member, type)))
+            owner => ApiMemberAccessors.Create(owner, type)))
         {
-            if (accessor.MetadataToken != request.MetadataToken
+            if ((metadataToken is { } expectedToken
+                    && accessor.MetadataToken != expectedToken)
                 || ApiMemberIdentity.GetMemberAnchor(type, accessor)
-                    != request.Member)
+                    != member)
             {
                 continue;
             }
 
-            type.Members = [accessor];
-            return (type, accessor);
+            if (match is not null)
+                return null;
+            match = accessor;
         }
 
-        return null;
+        if (match is null)
+            return null;
+
+        type.Members = [match];
+        return (type, match);
     }
 
     static AssemblyPdbSourceProvenance PdbProvenance(
@@ -1198,13 +1263,13 @@ public static class AssemblyContextSourceQuery
                 .PdbAndDecompiledUnavailable,
             "Neither PDB-mapped nor decompiled source is available for the selected target.");
 
-    static AssemblySourceFailure InspectionFailure(Exception error)
+    internal static AssemblySourceFailure InspectionFailure(Exception error)
         => new(
             AssemblySourceFailureKind.InspectionFailed,
             $"Source inspection failed: {error.Message}",
             error);
 
-    static bool IsInspectionFailure(Exception error)
+    internal static bool IsInspectionFailure(Exception error)
         => error is IOException
             or UnauthorizedAccessException
             or BadImageFormatException
@@ -1217,7 +1282,7 @@ public static class AssemblyContextSourceQuery
             or StackOverflowException
             or AccessViolationException);
 
-    static void EnsureBindingPolicyVersion(
+    internal static void EnsureBindingPolicyVersion(
         AssemblyContextParticipant participant,
         AssemblyBindingPolicyVersion expected)
     {
@@ -1393,7 +1458,7 @@ public static class AssemblyContextSourceQuery
         ResolvedAssemblyReference Retained,
         (ApiType Type, ApiMember Member)? Target);
 
-    sealed record MemberPdbInspection(
+    internal sealed record MemberPdbInspection(
         PdbMemberSourceInspection Inspection,
         AssemblyPdbSourceProvenance? Provenance);
 

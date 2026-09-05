@@ -45,16 +45,26 @@ public static partial class PackageExports
         string version,
         string targetFramework)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
         BrowserPackageSurface surface =
-            BrowserPackageWireProjection.Project(
-                BrowserPackageSurfaceProjection.ProjectSurface(scope, scope.Coordinates[0]));
+            await PackageSurfaceAsync(packageId, version, targetFramework);
         return JsonSerializer.Serialize(
             surface,
             BrowserPackageJsonContext.Default.BrowserPackageSurface);
+    }
+
+    static async Task<BrowserPackageSurface> PackageSurfaceAsync(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
+        return BrowserPackageWireProjection.Project(
+            BrowserPackageSurfaceProjection.ProjectSurface(scope, scope.Coordinates[0]));
     }
 
     /// <summary>
@@ -70,10 +80,28 @@ public static partial class PackageExports
         string targetFramework,
         string assemblyId)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
             packageId,
             version,
-            targetFramework);
+            targetFramework,
+            assemblyId);
+        return JsonSerializer.Serialize(
+            dependencies,
+            BrowserPackageJsonContext.Default.BrowserPackageDependencies);
+    }
+
+    static async Task<BrowserPackageDependencies> PackageDependenciesAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserPackageWireProjection.Project(
@@ -164,8 +192,7 @@ public static partial class PackageExports
                 == PackageDependencyGroupSelectionStatus.NoMatchingTargetFramework
                     ? "The manifest declares no dependency group for the active target framework."
                     : null;
-        return JsonSerializer.Serialize(
-            new BrowserPackageDependencies(
+        return new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
                 BrowserFrameworkText.Active(coordinate),
@@ -186,8 +213,7 @@ public static partial class PackageExports
                 assemblyReferences,
                 dependencyGroupError,
                 assemblyReferenceError,
-                compileLibrary),
-            BrowserPackageJsonContext.Default.BrowserPackageDependencies);
+                compileLibrary);
     }
 
     /// <summary>
