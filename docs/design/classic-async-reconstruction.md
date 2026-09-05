@@ -338,6 +338,9 @@ and return projection are adjacent on the proven continuation in both spaces,
 with one receiver use, no escaping address or additional write, and the exact
 successful completion transfer. Both statements carry ordinary semantic
 realizations; a source name is not authorization to bypass any ledger.
+The unnamed receiver rule consumes the existing value-type classification,
+including primitive stack families; an absent declaration hint does not make
+an `int`, `long`, or `bool` a reference type.
 
 The plan keeps artifact-backed `LocalNames` separate from synthesized naming
 preferences, including loop-role `sum` and `task`. Both immutable channels
@@ -444,6 +447,18 @@ expression. No external entry or intervening work is admitted. Semantic
 enumeration follows the proven true/false association rather than treating
 physical arm layout as evaluation order; physical receipts still address the
 unchanged import tree.
+
+Closed conditional diamonds may compose when one proven joined value is the
+sole input use feeding the next predicate. Each generation retains its exact
+slot definitions, typed use, true/false arms, exclusive entries and exits,
+and imported origins. Reusing a stack-slot number does not merge generations.
+The bounded proof must reach the same final result use, account for every
+intermediate join, and charge every traversal; an empty planning path alone
+does not establish that composition.
+
+Proof views may keep selected arms explicit while later C# presentation lowers
+a verified conditional into short-circuit syntax. That presentation cannot
+replace proof of the predicate, selected constant, and conditional effect.
 
 The importer can defer spilling an already evaluated `GetResult` until after
 spilling a newly constructed initializer receiver. That adjacent pair may
@@ -642,10 +657,27 @@ accounting for its array-length operation and receiver. Checked, unsigned,
 widening, narrowing, and floating-point conversions are not covered by that
 exception.
 
-The `0`/`1` literals consumed by an exactly bool-typed call parameter may
-correspond to `false`/`true` after `TypedConstantsPass`; the value, parameter
-position, and import offset must remain the same. This does not authorize
-integer retyping in other positions or recovery from a missing import anchor.
+A sink-directed representation change requires the exact consuming type in
+both raw and planning space. A declared call or constructor parameter,
+assignment or boxing destination, or the typed join of an independently proven
+selected arm may supply that type. The value, consuming position, type identity,
+and imported origin must agree. A planning annotation alone cannot supply a
+missing raw sink or invent an anchor.
+
+Within those proven positions, integer `0`/`1` may represent `false`/`true`,
+an in-range integer may represent the same UTF-16 character, and an unchanged
+integer payload may carry the exact enum identity at its proven enum sink
+under the existing enum-coercion rule. Available backing-type facts must agree
+and constrain the storage family and range; missing backing information is
+not replaced with an invented type fact. A constant's
+explicit unchecked 64-bit widening may fuse into that enum literal only with
+the same signed or zero extension and retained origins. Other conversions
+retain their IL history and are not erased.
+
+A `Coerce` preserves the target and complete operand while spelling a value at
+such a sink. Its added wrapper requires the existing value-preserving
+constant or stack-family coercion rule and the raw sink; it is not authority
+to narrow arbitrary arithmetic, change a literal, or discard a `Convert`.
 
 An exact bool comparison with `false` (or inequality with `true`) may correspond
 to negation or a typed comparison dual. The operand, literal type and value,
@@ -854,6 +886,14 @@ Release gates:
 | `ClassicInverseDeferredAwaitSpillRetainsItsOrderingWitness` | A deferred await spill is reordered without its imported evaluation-order evidence. |
 | `ClassicInverseExtendedExpressionPlansAreDetached` and `ClassicInverseExtendedExpressionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or budget exhaustion stops being visible failure. |
 | `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInversePreservesSinkAndCompositionExpressions` | Sink coercions, typed literals, primitive receivers, or composed selections lose supported reconstructed source. |
+| `ClassicInverseSinkLiteralCannotBeHealedByPlanning` | Planning hides a changed literal value/type, an out-of-range coercion, or a checked/unsigned enum conversion. |
+| `ClassicInverseCoerceRetainsExactTarget` and `ClassicInverseCoerceRequiresAnActualSink` | A coercion changes its target or appears without an exact raw typed consumer. |
+| `ClassicInverseComposedSelectionCannotBeHealedByPlanning` | A later diamond changes target, slot generation, or sole-use ownership. |
+| `ClassicInversePrimitiveReceiverCannotBorrowAnAwaiterSlot` | An unnamed primitive receiver acquires a protocol local's address. |
+| `ClassicInverseSinkAndCompositionPlansAreDetached` and `ClassicInverseSinkAndCompositionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or lose visible budget failure. |
+| `ClassicInverseSinkMatchingBudgetExhaustionCannotDecline` | Exhaustion inside a sink-directed value comparison is reported as a semantic mismatch rather than `Failed(BudgetExhausted)`. |
+| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current EH-blind comparison contract. |
 
 `BooleanConstantComparison_PreservesExpressionOrigin`, the coalescing-store
 cases in `BooleanFoldingSourceOffsetTests`, and

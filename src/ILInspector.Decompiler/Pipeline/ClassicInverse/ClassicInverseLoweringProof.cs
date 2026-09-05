@@ -1622,6 +1622,10 @@ internal sealed partial class ClassicInverseLoweringProof
         readonly Dictionary<int, List<ConditionalBranch>> _stateTests = [];
         readonly Dictionary<int, List<StoreStackSlot>> _slotStores = [];
         readonly Dictionary<int, List<LoadStackSlot>> _slotLoads = [];
+        readonly Dictionary<IrNode, List<LoadStackSlot>> _slotLoadsByBlock =
+            new(ReferenceEqualityComparer.Instance);
+        readonly Dictionary<IrNode, Block?> _containingBlocks =
+            new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, List<Call>> _getResultsByBlock =
             new(ReferenceEqualityComparer.Instance);
         readonly Dictionary<IrNode, int> _positions =
@@ -1725,6 +1729,9 @@ internal sealed partial class ClassicInverseLoweringProof
 
         internal IReadOnlyList<LoadStackSlot> SlotLoadsFor(int slot)
             => _slotLoads.TryGetValue(slot, out var loads) ? loads : [];
+
+        internal IReadOnlyList<LoadStackSlot> SlotLoadsIn(Block block)
+            => _slotLoadsByBlock.TryGetValue(block, out var loads) ? loads : [];
 
         internal List<Call> GetResultsIn(Block block)
             => _getResultsByBlock.GetValueOrDefault(block, s_noCalls);
@@ -1840,6 +1847,8 @@ internal sealed partial class ClassicInverseLoweringProof
                         return null;
                     index._positions[node.Children[i]] = i;
                 }
+                index._containingBlocks[node] = node as Block
+                    ?? (node.Parent is { } parent ? index._containingBlocks.GetValueOrDefault(parent) : null);
                 index.Add(node, stateLocal, awaiterLocals);
             }
 
@@ -2162,6 +2171,8 @@ internal sealed partial class ClassicInverseLoweringProof
                 case LoadStackSlot load:
                     SlotLoads.Add(load);
                     Group(_slotLoads, load.Slot, load);
+                    if (_containingBlocks.GetValueOrDefault(load) is { } containing)
+                        Group(_slotLoadsByBlock, containing, load);
                     return;
 
                 case StoreStackSlot slotStore:

@@ -214,7 +214,10 @@ internal sealed record ClassicInversePlanningView(
                 pass => pass is not ClassicAsyncReconstructionPass)]);
         Run(
             execution,
-            IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>());
+            // Keep the proven arms explicit; the host runs short-circuit
+            // presentation after applying the reconstructed body.
+            [.. IrPasses.ForReconstruction<ClassicAsyncReconstructionPass>()
+                .Where(static pass => pass is not ShortCircuitTernaryPass)]);
         return new ClassicInversePlanningView(kickoff, execution);
 
         void Run(IrFunction body, ImmutableArray<IIrPass> passes)

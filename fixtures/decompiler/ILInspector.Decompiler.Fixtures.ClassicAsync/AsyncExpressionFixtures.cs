@@ -201,6 +201,80 @@ public static class AsyncExpressionFixtures
         return holder;
     }
 
+    public static async Task<int> ByteArgument(Task<int> value)
+        => WithByte(await value, 42);
+
+    public static async Task<int> ByteMinimumArgument(Task<int> value)
+        => WithByte(await value, 0);
+
+    public static async Task<int> ByteMaximumArgument(Task<int> value)
+        => WithByte(await value, 255);
+
+    public static async Task<decimal> DecimalConstant(Task<int> value)
+        => await value + 0.5m;
+
+    public static async Task<int> CharacterArgument(Task<int> value)
+        => WithCharacter(await value, 'x');
+
+    public static async Task<int> CharacterMaximumArgument(Task<int> value)
+        => WithCharacter(await value, '\uffff');
+
+    public static async Task<int> EnumArgument(Task<int> value)
+        => WithEnum(await value, DayOfWeek.Friday);
+
+    public static async Task<int> LongEnumArgument(Task<int> value)
+        => WithLongEnum(await value, LongChoice.Negative);
+
+    public static async Task<bool> ShortCircuitCall(Task<bool> value)
+        => await value && Predicate();
+
+    public static async Task<bool> ShortCircuitOrCall(Task<bool> value)
+        => await value || Predicate();
+
+    public static async Task<int> NestedBooleanChoice(Task<bool> value, bool other)
+        => (await value ? other : !other) ? 7 : 9;
+
+    public static async Task<int> NestedChoiceCalls(Task<bool> value, bool other)
+        => (await value ? other : !other) ? PositiveChoice() : NegativeChoice();
+
+    public static async Task<string> ComposedSelectionTypes(Task<bool> value, bool other)
+        => ((await value ? other : !other) ? 13 : 17) > 15 ? "yes" : "no";
+
+    public static async Task<string> Concatenation(Task<int> value)
+        => "value=" + await value;
+
+    public static async Task<string> IntReceiver(Task<int> value)
+        => (await value).ToString();
+
+    public static async Task<string> LongReceiver(Task<long> value)
+        => (await value).ToString();
+
+    public static async Task<string> BoolReceiver(Task<bool> value)
+        => (await value).ToString();
+
+    public static async Task<bool> VariableAnd(Task<bool> value, bool other)
+        => await value && other;
+
+    public static async Task<string> DateTimeReceiver(Task<DateTime> value)
+        => (await value).ToString();
+
+    public static async Task<string> DecimalReceiver(Task<decimal> value)
+        => (await value).ToString();
+
+    public static async Task<string> NamedIntReceiver(Task<int> value)
+    {
+        int result = await value;
+        return result.ToString();
+    }
+
+    public enum LongChoice : long { Negative = -1 }
+
+    static int WithByte(int value, byte other) => value + other;
+    static int WithCharacter(int value, char other) => value + other;
+    static int WithEnum(int value, DayOfWeek other) => value + (int)other;
+    static int WithLongEnum(int value, LongChoice other) => value + (int)other;
+    static bool Predicate() => Environment.TickCount > 0;
+
     public sealed class InitializerHolder
     {
         public InitializerChild Child { get; } = new();

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace ILInspector.Decompiler.Pipeline;
 
 internal sealed partial class ClassicInverseLoweringProof
@@ -6,7 +8,8 @@ internal sealed partial class ClassicInverseLoweringProof
         Block Continuation,
         Block Merge,
         Call GetResult,
-        IrExpression Expression);
+        IrExpression Expression,
+        ImmutableArray<Block> Path);
 
     sealed class SelectionBindings
     {
@@ -15,6 +18,8 @@ internal sealed partial class ClassicInverseLoweringProof
         internal Dictionary<IrNode, IrExpression> ValuesByTest { get; } =
             new(ReferenceEqualityComparer.Instance);
         internal Dictionary<IrNode, IrNode[]> EvaluationChildren { get; } =
+            new(ReferenceEqualityComparer.Instance);
+        internal Dictionary<IrNode, TypeRef> SelectedTypes { get; } =
             new(ReferenceEqualityComparer.Instance);
 
         internal bool Swap(IrNode parent, int left, int right, ClassicInverseBudget budget)
@@ -50,6 +55,9 @@ internal sealed partial class ClassicInverseLoweringProof
         => _selections.EvaluationChildren.TryGetValue(node, out var children)
             ? children : node.Children;
 
+    internal TypeRef? SelectedValueType(IrNode node)
+        => _selections.SelectedTypes.GetValueOrDefault(node);
+
     static SelectionContinuation? TryFindSelectionResult(
         BodyIndex index,
         Block continuation,
@@ -57,11 +65,24 @@ internal sealed partial class ClassicInverseLoweringProof
         TypeRef awaiterType,
         ClassicInverseBudget budget)
     {
-        if (!budget.Charge()
-            || continuation.Children.Count != 0
-            || index.SuccessorsOf(continuation) is not [Block merge]
-            || !index.HasOnlySuccessors(continuation, merge)
-            || !index.HasOnlyPredecessors(merge, continuation)
+        var path = ImmutableArray.CreateBuilder<Block>();
+        var visited = new HashSet<Block>(ReferenceEqualityComparer.Instance);
+        Block merge = continuation;
+        path.Add(merge);
+        visited.Add(merge);
+        while (merge.Children.Count == 0)
+        {
+            if (!budget.Charge()
+                || index.SuccessorsOf(merge) is not [Block next]
+                || !ReferenceEquals(next.Parent, continuation.Parent)
+                || !index.HasOnlySuccessors(merge, next)
+                || !index.HasOnlyPredecessors(next, merge)
+                || !visited.Add(next))
+                return null;
+            merge = next;
+            path.Add(merge);
+        }
+        if (path.Count < 2 || !budget.Charge()
             || index.GetResultsIn(merge) is not [Call result]
             || !IsAwaiterGetResult(result, awaiter, awaiterType))
         {
@@ -74,14 +95,14 @@ internal sealed partial class ClassicInverseLoweringProof
                 return null;
             if (parent is Coalesce coalesce)
             {
-                return ReferenceEquals(coalesce.Left, current)
-                    ? new(continuation, merge, result, coalesce)
+                return path.Count == 2 && ReferenceEquals(coalesce.Left, current)
+                    ? new(continuation, merge, result, coalesce, path.ToImmutable())
                     : null;
             }
             if (parent is Conditional conditional)
             {
                 return ReferenceEquals(conditional.Condition, current)
-                    ? new(continuation, merge, result, conditional)
+                    ? new(continuation, merge, result, conditional, path.ToImmutable())
                     : null;
             }
             if (parent is LogicalBinary)
@@ -192,56 +213,147 @@ internal sealed partial class ClassicInverseLoweringProof
         ClassicInverseBudget budget)
     {
         if (!budget.Charge()
-            || raw.BlocksStartingAt(moved.Continuation.StartOffset) is not [Block head]
-            || head.Children is not [ConditionalBranch test]
-            || head.Parent is not BlockContainer container
-            || raw.BlocksStartingAt(moved.Merge.StartOffset) is not [Block merge]
-            || raw.BlocksStartingAt(test.TargetOffset) is not [Block whenTrue]
-            || raw.SuccessorsOf(head).Count != 2
-            || test.SourceOffset < 0 || test.SourceOffset != expression.SourceOffset)
+            || raw.BlocksStartingAt(moved.Continuation.StartOffset) is not [Block head])
             return false;
 
-        Block whenFalse = raw.SuccessorsOf(head)[0];
-        if (ReferenceEquals(whenFalse, whenTrue))
-            whenFalse = raw.SuccessorsOf(head)[1];
-        int first = raw.PositionOf(head);
-        if (first < 0 || first + 3 >= container.Children.Count
-            || !ReferenceEquals(container.Children[first + 1], whenFalse)
-            || !ReferenceEquals(container.Children[first + 2], whenTrue)
-            || !ReferenceEquals(container.Children[first + 3], merge)
-            || !raw.HasOnlySuccessors(head, whenTrue, whenFalse)
-            || !raw.HasOnlyPredecessors(whenTrue, head)
-            || !raw.HasOnlyPredecessors(whenFalse, head)
-            || !raw.HasOnlySuccessors(whenTrue, merge)
-            || !raw.HasOnlySuccessors(whenFalse, merge)
-            || !raw.HasOnlyPredecessors(merge, whenTrue, whenFalse)
-            || whenTrue.Children is not [StoreStackSlot trueStore]
-            || whenFalse.Children is not [StoreStackSlot falseStore, Branch exit]
-            || exit.TargetOffset != merge.StartOffset
-            || trueStore.Slot != falseStore.Slot
-            || raw.SlotStoresFor(trueStore.Slot).Count != 2
-            || !raw.SlotStoresFor(trueStore.Slot).Contains(trueStore)
-            || !raw.SlotStoresFor(trueStore.Slot).Contains(falseStore)
-            || raw.SlotLoadsFor(trueStore.Slot) is not [LoadStackSlot joined]
-            || !Equals(joined.Type, expression.ResultType)
-            || merge.Children is not [StoreLocal result, Leave]
-            || moved.Merge.Children is not [StoreLocal plannedResult]
-            || result.Index != plannedResult.Index || !Equals(result.Type, plannedResult.Type)
-            || result.SourceOffset != plannedResult.SourceOffset
-            || !ClassicInverseExpressionRules.SameTree(test.Condition, expression.Condition, budget)
-            || !ClassicInverseExpressionRules.SameTree(trueStore.Value, expression.WhenTrue, budget)
-            || !ClassicInverseExpressionRules.SameTree(falseStore.Value, expression.WhenFalse, budget)
-            || !ClassicInverseExpressionRules.SameTree(result.Value, plannedResult.Value, budget,
-                joined, expression)
-            || !bindings.TestsByJoin.TryAdd(joined, test)
-            || !bindings.ValuesByTest.TryAdd(test, expression)
-            || !bindings.Swap(container, first + 1, first + 2, budget))
-            return false;
+        var slots = new HashSet<int>();
+        var stores = new HashSet<StoreStackSlot>(ReferenceEqualityComparer.Instance);
+        var reads = new HashSet<LoadStackSlot>(ReferenceEqualityComparer.Instance);
+        IrNode? previousJoin = null;
+        IrNode? previousExpression = null;
+        int generation = 0;
+        while (true)
+        {
+            if (!budget.Charge()
+                || generation + 1 >= moved.Path.Length
+                || head.StartOffset != moved.Path[generation].StartOffset
+                || head.Children is not [ConditionalBranch test]
+                || head.Parent is not BlockContainer container
+                || raw.BlocksStartingAt(test.TargetOffset) is not [Block whenTrue]
+                || raw.SuccessorsOf(head).Count != 2
+                || test.SourceOffset < 0 || test.SourceOffset != expression.SourceOffset)
+                return false;
 
-        roles[trueStore] = SelectionStore;
-        roles[falseStore] = SelectionStore;
-        roles[joined] = SelectionRead;
+            Block whenFalse = raw.SuccessorsOf(head)[0];
+            if (ReferenceEquals(whenFalse, whenTrue))
+                whenFalse = raw.SuccessorsOf(head)[1];
+            if (whenFalse.Children is not [StoreStackSlot falseStore, Branch exit]
+                || whenTrue.Children is not [StoreStackSlot trueStore]
+                || raw.BlocksStartingAt(exit.TargetOffset) is not [Block merge])
+                return false;
+            if (raw.SlotLoadsIn(merge) is not [LoadStackSlot joined]
+                || SelectedType(joined, expression, trueStore.Value, falseStore.Value, budget) is not { } target)
+                return false;
+            int first = raw.PositionOf(head);
+            if (first < 0 || first + 3 >= container.Children.Count
+                || !ReferenceEquals(container.Children[first + 1], whenFalse)
+                || !ReferenceEquals(container.Children[first + 2], whenTrue)
+                || !ReferenceEquals(container.Children[first + 3], merge)
+                || merge.StartOffset != moved.Path[generation + 1].StartOffset
+                || !raw.HasOnlySuccessors(head, whenTrue, whenFalse)
+                || !raw.HasOnlyPredecessors(whenTrue, head)
+                || !raw.HasOnlyPredecessors(whenFalse, head)
+                || !raw.HasOnlySuccessors(whenTrue, merge)
+                || !raw.HasOnlySuccessors(whenFalse, merge)
+                || !raw.HasOnlyPredecessors(merge, whenTrue, whenFalse)
+                || trueStore.Slot != falseStore.Slot
+                || joined.Slot != trueStore.Slot
+                || !ClassicInverseExpressionRules.SameTree(test.Condition, expression.Condition, budget,
+                    previousJoin, previousExpression)
+                || !ClassicInverseExpressionRules.SameTree(trueStore.Value, expression.WhenTrue, budget,
+                    selectedTarget: target)
+                || !ClassicInverseExpressionRules.SameTree(falseStore.Value, expression.WhenFalse, budget,
+                    selectedTarget: target)
+                || !bindings.TestsByJoin.TryAdd(joined, test)
+                || !bindings.ValuesByTest.TryAdd(test, expression)
+                || !bindings.Swap(container, first + 1, first + 2, budget))
+                return false;
+
+            stores.Add(trueStore);
+            stores.Add(falseStore);
+            reads.Add(joined);
+            slots.Add(joined.Slot);
+            roles[trueStore] = SelectionStore;
+            roles[falseStore] = SelectionStore;
+            roles[joined] = SelectionRead;
+            bindings.SelectedTypes.Add(trueStore.Value, target);
+            bindings.SelectedTypes.Add(falseStore.Value, target);
+
+            if (merge.Children is [ConditionalBranch])
+            {
+                Conditional? outer = null;
+                for (IrNode current = expression; current.Parent is IrExpression parent; current = parent)
+                {
+                    if (!budget.Charge())
+                        return false;
+                    if (parent is Conditional next)
+                    {
+                        if (ReferenceEquals(next.Condition, current))
+                            outer = next;
+                        break;
+                    }
+                    if (parent is Coalesce or LogicalBinary)
+                        break;
+                }
+                if (outer is null)
+                    return false;
+                previousJoin = joined;
+                previousExpression = expression;
+                expression = outer;
+                head = merge;
+                generation++;
+                continue;
+            }
+            if (generation + 2 != moved.Path.Length
+                || merge.Children is not [StoreLocal result, Leave]
+                || moved.Merge.Children is not [StoreLocal plannedResult]
+                || result.Index != plannedResult.Index || !Equals(result.Type, plannedResult.Type)
+                || result.SourceOffset != plannedResult.SourceOffset
+                || !ClassicInverseExpressionRules.SameTree(result.Value, plannedResult.Value, budget,
+                    joined, expression))
+                return false;
+            break;
+        }
+
+        foreach (int slot in slots)
+        {
+            if (!budget.Charge())
+                return false;
+            foreach (StoreStackSlot store in raw.SlotStoresFor(slot))
+                if (!budget.Charge() || !stores.Contains(store))
+                    return false;
+            foreach (LoadStackSlot read in raw.SlotLoadsFor(slot))
+                if (!budget.Charge() || !reads.Contains(read))
+                    return false;
+        }
         return true;
+    }
+
+    static TypeRef? SelectedType(
+        LoadStackSlot joined,
+        Conditional expression,
+        IrExpression whenTrue,
+        IrExpression whenFalse,
+        ClassicInverseBudget budget)
+    {
+        if (!budget.Charge())
+            return null;
+        if (Equals(joined.Type, expression.ResultType))
+            return joined.Type;
+        if (MemberIdentity.IsCoreLibraryType(joined.Type, "System", "Int32")
+            && MemberIdentity.IsCoreLibraryType(expression.ResultType, "System", "Boolean")
+            && MemberIdentity.IsCoreLibraryType(
+                ClassicInverseExpressionRules.SinkType(joined, budget), "System", "Boolean")
+            && IsBooleanValue(whenTrue) && IsBooleanValue(whenFalse))
+        {
+            return expression.ResultType;
+        }
+        return null;
+
+        static bool IsBooleanValue(IrExpression value)
+            => MemberIdentity.IsCoreLibraryType(value.ResultType, "System", "Boolean")
+                || value is Constant { Value: int integer } constant && integer is 0 or 1
+                    && MemberIdentity.IsCoreLibraryType(constant.Type, "System", "Int32");
     }
 
     /// <summary>

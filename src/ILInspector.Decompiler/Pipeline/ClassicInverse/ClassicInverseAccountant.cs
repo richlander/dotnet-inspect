@@ -55,6 +55,9 @@ internal sealed class ClassicInverseAccountant
     readonly Dictionary<int, ImmutableArray<int>> _foldedValueOffsets = [];
     readonly Dictionary<IrNode, TypeOf> _rawTypeOfCalls =
         new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<IrNode, Constant> _rawLiteralFolds =
+        new(ReferenceEqualityComparer.Instance);
+    readonly Dictionary<int, IrExpression?> _rawExpressionsByOffset = [];
     ImmutableArray<string> _planningEffectOrder = [];
     ClassicInverseConsumedMembers? _consumedMembers;
     bool _consumedMembersIndexed;
@@ -361,6 +364,20 @@ internal sealed class ClassicInverseAccountant
         if (_terminal is not null)
             return false;
 
+        foreach (IrNode node in _rawExecutionPaths.Keys)
+        {
+            if (!_budget.Charge())
+            {
+                _terminal = Failure("raw value correspondence indexing exhausted the planning budget");
+                return false;
+            }
+            if (node is IrExpression expression && node.SourceOffset >= 0
+                && !_rawExpressionsByOffset.TryAdd(node.SourceOffset, expression))
+            {
+                _rawExpressionsByOffset[node.SourceOffset] = null;
+            }
+        }
+
         if (!ValidateRawKickoff())
             return false;
         RecordRawRegion(
@@ -431,8 +448,14 @@ internal sealed class ClassicInverseAccountant
         {
             IrNode raw = rawValues[i];
             IrNode planning = planningValues[i];
-            if (raw.SourceOffset != planning.SourceOffset
-                || !SemanticValueEquals(raw, planning))
+            bool matches = raw.SourceOffset == planning.SourceOffset
+                && SemanticValueEquals(raw, planning);
+            if (_budget.Exhausted)
+            {
+                _terminal = Failure("typed value correspondence exhausted the planning budget");
+                return false;
+            }
+            if (!matches)
             {
                 return DeclineFalse(
                     ClassicInverseDeclineReason.UnrealizedSemanticEffect,
@@ -564,6 +587,22 @@ internal sealed class ClassicInverseAccountant
 
             if (EnclosingClaimSource(node) is null)
                 return;
+            if (node is Coerce coerce)
+            {
+                if (!_rawExpressionsByOffset.TryGetValue(coerce.Operand.SourceOffset, out var raw)
+                    || raw is null
+                    || !ClassicInverseExpressionRules.IsSinkCoercion(raw, coerce, _budget,
+                        _shell.Protocol.SelectedValueType(raw))
+                    || !ClassicInverseExpressionRules.SameTree(raw, coerce.Operand, _budget,
+                        selectedTarget: _shell.Protocol.SelectedValueType(raw)))
+                {
+                    _terminal = _budget.Exhausted
+                        ? Failure("coercion correspondence exhausted the planning budget")
+                        : Decline(ClassicInverseDeclineReason.UnrealizedSemanticEffect,
+                            "a planning coercion has no exact raw typed sink");
+                }
+                return;
+            }
             if (IsSemanticValueAtom(node))
             {
                 values.Add(node);
@@ -664,6 +703,19 @@ internal sealed class ClassicInverseAccountant
                 return;
             }
 
+            if (node is Convert conversion
+                && planningByOffset.TryGetValue(node.SourceOffset, out IrNode? literalNode)
+                && literalNode is Constant literal
+                && ClassicInverseExpressionRules.IsRetypedLiteral(conversion, literal, _budget,
+                    _shell.Protocol.SelectedValueType(conversion)))
+            {
+                _rawLiteralFolds.Add(conversion, literal);
+                _rawSemanticValues.Add(conversion.Operand);
+                _foldedValueOffsets[conversion.SourceOffset] = [conversion.Operand.SourceOffset];
+                values.Add(conversion);
+                return;
+            }
+
             foreach (IrNode child in _shell.Protocol.RawEvaluationChildren(node))
             {
                 if (_terminal is not null)
@@ -741,6 +793,8 @@ internal sealed class ClassicInverseAccountant
             return ReferenceEquals(replacement, planning);
         if (_rawTypeOfCalls.TryGetValue(raw, out TypeOf? typeOf))
             return ReferenceEquals(typeOf, planning);
+        if (_rawLiteralFolds.TryGetValue(raw, out Constant? literal))
+            return ReferenceEquals(literal, planning);
         if (raw is ConditionalBranch && planning is Coalesce or Conditional)
             return _shell.Protocol.ProvesSelectionValue(raw, planning);
 
@@ -768,7 +822,8 @@ internal sealed class ClassicInverseAccountant
             (Constant left, Constant right) =>
                 (Equals(left.Value, right.Value)
                     && Equals(left.Type, right.Type))
-                || ClassicInverseExpressionRules.IsRetypedBooleanArgument(left, right),
+                || ClassicInverseExpressionRules.IsRetypedLiteral(left, right, _budget,
+                    _shell.Protocol.SelectedValueType(left)),
             (Binary left, Binary right) =>
                 left.Kind == right.Kind
                 && left.IsChecked == right.IsChecked

@@ -1,7 +1,7 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>Closed representation changes shared by value and coalescing correspondence.</summary>
-internal static class ClassicInverseExpressionRules
+internal static partial class ClassicInverseExpressionRules
 {
     internal static bool IsTypeOf(Call call, TypeOf expression)
         => MemberIdentity.IsTypeGetTypeFromHandle(call)
@@ -21,16 +21,24 @@ internal static class ClassicInverseExpressionRules
         IrNode planning,
         ClassicInverseBudget budget,
         IrNode? sourceReplacement = null,
-        IrNode? outputReplacement = null)
+        IrNode? outputReplacement = null,
+        TypeRef? selectedTarget = null)
     {
         if (!budget.Charge())
             return false;
         if (ReferenceEquals(raw, sourceReplacement))
             return ReferenceEquals(planning, outputReplacement);
+        if (raw is IrExpression value && planning is Coerce coerce && raw is not Coerce)
+        {
+            return IsSinkCoercion(value, coerce, budget, selectedTarget)
+                && SameTree(raw, coerce.Operand, budget, sourceReplacement, outputReplacement, selectedTarget);
+        }
         if (raw.SourceOffset < 0 || raw.SourceOffset != planning.SourceOffset)
             return false;
         if (raw is Call typeCall && planning is TypeOf typeOf)
             return IsTypeOf(typeCall, typeOf);
+        if (raw is Convert conversion && planning is Constant convertedLiteral)
+            return IsRetypedLiteral(conversion, convertedLiteral, budget, selectedTarget);
         if (raw is Comparison comparison
             && TryMatchBooleanNegation(comparison, planning, budget))
         {
@@ -58,7 +66,7 @@ internal static class ClassicInverseExpressionRules
                 && call.Callee.HasThis == property.HasInstance,
             (Constant left, Constant right) =>
                 ClassicInverseRealizationRules.PayloadEquals(left, right)
-                || IsRetypedBooleanArgument(left, right),
+                || IsRetypedLiteral(left, right, budget, selectedTarget),
             _ => raw.GetType() == planning.GetType()
                 && ClassicInverseRealizationRules.PayloadEquals(raw, planning),
         };
@@ -143,20 +151,4 @@ internal static class ClassicInverseExpressionRules
         return false;
     }
 
-    internal static bool IsRetypedBooleanArgument(Constant raw, Constant planning)
-    {
-        if (raw.Value is not int value || value is not (0 or 1)
-            || planning.Value is not bool boolean || boolean != (value == 1)
-            || !MemberIdentity.IsCoreLibraryType(raw.Type, "System", "Int32")
-            || !MemberIdentity.IsCoreLibraryType(planning.Type, "System", "Boolean")
-            || raw.Parent is not Call call)
-        {
-            return false;
-        }
-
-        int parameter = raw.ChildIndex - (call.Callee.HasThis ? 1 : 0);
-        return parameter >= 0 && parameter < call.Callee.ParameterTypes.Length
-            && MemberIdentity.IsCoreLibraryType(
-                call.Callee.ParameterTypes[parameter], "System", "Boolean");
-    }
 }

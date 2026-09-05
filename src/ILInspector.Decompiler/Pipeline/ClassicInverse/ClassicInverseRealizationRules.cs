@@ -591,6 +591,7 @@ internal static class ClassicInverseRealizationRules
                 Equals(left.Target, right.Target)
                 && left.IsChecked == right.IsChecked
                 && left.IsUnsigned == right.IsUnsigned,
+            (Coerce left, Coerce right) => Equals(left.Target, right.Target),
             (Box left, Box right) => Equals(left.Type, right.Type),
             (CastClass left, CastClass right) => Equals(left.Type, right.Type),
             (UnboxAny left, UnboxAny right) => Equals(left.Type, right.Type),

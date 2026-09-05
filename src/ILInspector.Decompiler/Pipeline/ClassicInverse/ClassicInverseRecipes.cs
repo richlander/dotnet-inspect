@@ -514,8 +514,7 @@ internal static class ClassicInverseRecipes
                     || rawUse is not LoadLocalAddress rawAddress
                     || rawReceiver.Index < rawExecution.LocalNames.Length
                         && rawExecution.LocalNames[rawReceiver.Index] is not null
-                    || !(rawReceiver.Type.DeclaredValueTypeHint == ValueTypeHint.ValueType
-                        || rawExecution.TypeShapes.GetValueOrDefault(rawReceiver.Type) == TypeShape.ValueType)
+                    || !TypeFamilies.IsKnownNonNullableValueType(rawReceiver.Type, rawExecution.TypeShapes)
                     || !ClassicInverseExpressionRules.SameTree(rawReceiver.Value, getResults[0], budget)
                     || !ClassicInverseExpressionRules.SameTree(rawProjection.Value, store.Value, budget,
                         rawAddress, getResults[0]))
