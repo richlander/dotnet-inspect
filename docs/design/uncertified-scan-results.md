@@ -10,10 +10,15 @@ metadata format admission contract in
 
 ## The problem
 
-A command that scans several candidate assemblies can lose one of them. The
-surviving evidence is still sound: every edge, row, or match it produced is
-real. What is unknown is whether the answer is *complete*, because the excluded
-candidate might have contributed more.
+A command that scans several candidate assemblies can lose one of them while
+retaining an outcome from the others. The excluded candidate might have
+contributed more, so the command must qualify that outcome rather than present
+it as complete.
+
+Here, certification refers only to reported candidate coverage. The CLI does
+not establish metadata validity or independently prove the soundness of
+retained edges. The producing owner's decoder and resolver limits still apply,
+including the unreported generic-context limitation tracked by #5856.
 
 Two opposite failures are available here, and both are wrong:
 
@@ -39,36 +44,44 @@ fixing the first.
    values. Folding the second into the first destroys the outcome the caller
    dispatches on.
 
-3. **Exit code `3` marks an uncertified result.** It says: output was produced
-   and is sound, but completeness is unknown. It is distinct from success (`0`),
-   from a certified not-found (`1`/`2`), and from an error.
+3. **Exit code `3` marks a qualified scan outcome.** The scan returned a result
+   or an absence with at least one reported exclusion. It does not certify the
+   validity of retained evidence. A scan without reported exclusions keeps its
+   ordinary result status; an operation that fails to produce an outcome keeps
+   its error status.
 
-4. **An independent answer stays certified.** An answer that provably did not
+4. **An independent answer keeps its own status.** An answer that did not
    consult the excluded candidate — for example one resolved by name through a
    path that never reads the candidate list — keeps its own exit code. Only a
-   claim whose truth depends on having seen every candidate is uncertified.
+   result from the affected scan carries that scan's qualification.
 
 5. **An absence claim is never certified once a candidate was excluded.**
    "Not found" asserts completeness by construction, so an exclusion always
    qualifies it.
 
-6. **No stream disagrees with another.** Structured output presents an
-   uncertified scan exactly as the human-readable output does, and no stream
-   promises output that another does not deliver.
+6. **Qualification does not depend on output format.** Exclusion warnings stay
+   on standard error and the exit status qualifies the scan outcome regardless
+   of the selected result format. This contract does not add metadata-validity
+   evidence or a new structured-output schema.
 
 Rule 2 is the load-bearing one. Rules 4 and 5 are its two consequences, and
 they are the ones an implementation gets wrong: collapsing uncertainty into the
-exit code suppressed a caller's fallback dispatch, withholding an answer that
-rule 4 says is certified.
+exit code can suppress either the caller's absence diagnosis or an otherwise
+eligible fallback.
+
+An explicit source option, such as `--library`, makes the positional argument
+unambiguously a type. It does not permit the library-name fallback. Examples
+and gates must preserve that search-scope contract rather than rely on the
+earlier fallback behavior.
 
 ## Why a distinct exit code
 
 An uncertified result is not a success and not an error, and a caller
 scripting against the command needs to tell the difference without parsing
-standard error. Reusing `0` re-creates success-shaped output; reusing an error
-code discards a sound result. The cost is that `3` is a new value callers must
-learn, which is why the pattern is adopted one command at a time rather than
-applied everywhere at once.
+standard error. Reusing `0` hides the qualification; reusing an error code
+conflates an incomplete outcome with failure to produce one. The cost is that
+`3` is a new value callers must learn, which is why the pattern is adopted one
+command at a time rather than applied everywhere at once.
 
 ## Adoption
 
@@ -78,18 +91,23 @@ does not claim otherwise, and no gate requires universal adoption. A command
 adopts it when a concrete report or defect shows that its scan can lose a
 candidate silently.
 
+Delivery is step 2 of 2 in #4877: #5631 supplies shared Metadata admission and
+direct-consumer transport, and #5632 supplies this CLI-owned presentation.
+The shared admission step also serves the existing Browser/Wasm query paths;
+this step does not add a browser dependency-scan presentation.
+
 ## Gates
 
 - `CommandExecutionTests.Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph`
-  — rules 1 and 3: the exclusion is named, the healthy neighbor still resolves,
+  — rules 1–3: the exclusion is named, the healthy neighbor still resolves,
   and the exit code is `3`.
 - `CommandExecutionTests.Depends_DoesNotCertifyAbsenceWhenACandidateWasExcluded`
   — rule 5: a not-found answer is delivered *and* qualified, and its diagnosis
   still reaches standard error.
-- `CommandExecutionTests.Depends_ExcludedCandidateDoesNotWithholdAnIndependentLibraryAnswer`
-  — rules 2 and 4: an answer that did not consult the excluded candidate is
-  delivered with its own exit code.
 
-Rule 6 is `unverified` for structured output: `--json` on the library-fallback
-path emits a tree rather than JSON, which is pre-existing behavior on `main`
-and is not addressed here.
+The former `Depends_ExcludedCandidateDoesNotWithholdAnIndependentLibraryAnswer`
+gate was removed because its explicit `--library` input no longer permits
+fallback. Rule 4 with a preceding exclusion, warning-before-result ordering,
+and rule 6's cross-format parity are `unverified` by the focused gates above.
+The library-fallback path also emits a tree under `--json`; that pre-existing
+formatting limitation is not fixed by this exclusion-reporting contract.
