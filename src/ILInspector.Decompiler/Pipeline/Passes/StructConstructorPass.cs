@@ -102,7 +102,12 @@ public sealed class StructConstructorPass : IIrPass
     static IrNode Assign(IrExpression receiver, NewObject value) => receiver switch
     {
         LoadLocalAddress local => new StoreLocal(local.Index, local.Type, value),
-        LoadArgumentAddress argument => new StoreArgument(argument.Index, argument.Name, argument.Type, value),
+        LoadArgumentAddress argument => new StoreArgument(
+            argument.Index,
+            argument.Name,
+            argument.Type,
+            value,
+            argument.Parameter),
         LoadFieldAddress field => new StoreField(field.Field, DetachInstance(field), value),
         _ => throw new InvalidOperationException($"Unexpected struct-ctor target {receiver.Describe()}."),
     };
