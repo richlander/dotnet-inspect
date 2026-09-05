@@ -551,10 +551,10 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     expect(String(malformedSurface.compileLibrary.status)).toBe("Selected");
 
     const brokenLibrary = malformedSurface.assemblies.find(
-      library => library.name === brokenAssemblyFileName,
+      library => library.asset === `ref/${fixtureFramework}/${brokenAssemblyFileName}`,
     );
     const healthyLibrary = malformedSurface.assemblies.find(
-      library => library.name === healthyAssemblyFileName,
+      library => library.asset === `ref/${fixtureFramework}/${healthyAssemblyFileName}`,
     );
     if (brokenLibrary === undefined || healthyLibrary === undefined) {
       throw new Error("Expected both Library descriptors in the malformed package.");
@@ -649,7 +649,7 @@ test.describe("bounded network-backed two-host demo", () => {
     // HTTP Client integration evidence matches the CLI default demo
     // (IHttpClientFactory / AddHttpClient) for the same real coordinate.
     const library = surface.assemblies.find(
-      candidate => candidate.name === "Microsoft.Extensions.Http.dll",
+      candidate => candidate.name === "Microsoft.Extensions.Http",
     );
     if (library === undefined) {
       throw new Error("Expected the Microsoft.Extensions.Http Library descriptor.");
