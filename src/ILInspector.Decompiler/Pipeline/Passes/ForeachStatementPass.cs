@@ -674,7 +674,11 @@ public sealed class ForeachStatementPass : IIrPass
 
     static IrExpression CollectionValue(IrExpression expression) => expression switch
     {
-        LoadArgumentAddress address => new LoadArgument(address.Index, address.Name, address.Type),
+        LoadArgumentAddress address => new LoadArgument(
+            address.Index,
+            address.Name,
+            address.Type,
+            address.Parameter),
         LoadLocalAddress address => new LoadLocal(address.Index, address.Type),
         LoadFieldAddress address => new LoadField(address.Field, DetachCollectionReceiver(address.Instance)),
         LoadElementAddress address => MakeLoadElement(address),

@@ -29,6 +29,8 @@ public static class DecompilerFidelityDiscriminators
     public const string UnspellableInitializerMemberName = "unspellable-initializer-member-name";
     public const string UnspellableLocalFunctionName = "unspellable-local-function-name";
     public const string UnspellableMethodName = "unspellable-method-name";
+    public const string UnspellableLocalName = "unspellable-local-name";
+    public const string UnspellableParameterName = "unspellable-parameter-name";
     public const string UnspellablePropertyName = "unspellable-property-name";
     public const string UnspellableTypeName = "unspellable-type-name";
 }
