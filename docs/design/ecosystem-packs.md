@@ -29,8 +29,10 @@ required currency; existing search and full Integration behavior is unchanged.
 target experience for compact namespace hints, core-package starting points,
 Integration-owned contract knowledge, and Platform as an ecosystem selecting
 source-owned discovery/acquisition bindings. Those additions are not part of
-the implemented registration above; their catalog adoption and prerequisite
-owner-issued values remain focused follow-up work under #6012 and #5728.
+the implemented registration above. The [retrieval-knowledge contract](#retrieval-hints-and-core-packages)
+under #6028 defines inert namespace hints and core-package priorities; its
+implementation and runtime properties remain **unverified**. Executable
+source contributions retain separate prerequisites under #6012 and #5728.
 
 Participating normative owner:
 
@@ -87,6 +89,7 @@ build.
 One pack registration may contain:
 
 - stable ecosystem identity and product-owned discovery metadata;
+- compact namespace hints and ordered core-package starting points;
 - one optional package-set identity;
 - zero or more ordered package-prefix discovery entries; and
 - one optional Integration-owned static scanner binding; and
@@ -123,7 +126,9 @@ The exact claim is:
 > The host-neutral application catalog defines how one ecosystem contribution
 > is described, discovered, and selected. Source in that catalog defines which
 > static contributions ship and supplies their data, product-demo sources, and
-> scanner implementations. Product-demo inventory, grouping, display metadata,
+> scanner implementations. Namespace hints and core-package priorities are
+> inert discovery knowledge, not type identity, package-set membership, source
+> availability, or traversal permission. Product-demo inventory, grouping, display metadata,
 > and product order are application-catalog concerns; demo records, resolution,
 > section admission, run plans, and execution remain Workspace Definitions
 > concerns. The co-located Package Set Registry remains a separate owner, while
@@ -163,6 +168,8 @@ The conceptual static data shape is:
 ```text
 EcosystemPackRegistration
   Descriptor   EcosystemPackDescriptor
+  NamespaceRoots immutable ordered namespace-root sequence
+  CorePackages immutable ordered PackageCoordinate sequence
   PackageSet   PackageSetId?
   Prefixes     immutable ordered EcosystemPackagePrefix sequence
   Scanner      EcosystemIntegrationScannerBinding?
@@ -206,7 +213,8 @@ a parallel demo ID or infer identity from title, order, package coordinate, or
 ecosystem.
 
 The public discovery boundary exposes immutable pack, prefix-action, and demo
-descriptor metadata, package-set identity, and whether a scanner is available.
+descriptor metadata, namespace roots, core-package priorities, package-set
+identity, and whether a scanner is available.
 `EcosystemPackDescriptor.HasScanner` reports scanner availability without
 exposing the binding. `EcosystemPackCatalog.SelectScanner` accepts the exact
 typed pack ID and returns `EcosystemScannerSelectionResult`: `Known` carries
@@ -506,6 +514,113 @@ registration, but the two static manifests remain separate and the pack stores
 only `PackageSetId`. No reusable package, source, query, service, Vocabulary,
 or browser-Core component references the application registry.
 
+## Retrieval hints and core packages
+
+This is the focused catalog contract for #6028, within stage 2 of the
+[eight-stage lazy-traversal adoption plan](approved-lazy-traversal.md#ownership-and-adoption).
+It is not implemented; the new runtime obligations in this section are
+**unverified** until the following catalog implementation supplies the
+[planned gates](#planned-retrieval-knowledge-gates).
+
+Each pack may contribute two independent, immutable ordered sequences:
+
+| Contribution | Meaning |
+| --- | --- |
+| Namespace roots | A small curated set of distinctive namespace subtrees that may help prioritize retrieval. |
+| Core packages | Package-coordinate starting points in product-authored preference order, not an exhaustive population. |
+
+Both sequences remain attached to the descriptor's exact `EcosystemPackId`.
+Discovery and exact lookup return the same knowledge without selecting or
+executing any capability. Either sequence may be empty; empty means no
+contribution, not evidence that the ecosystem has no namespaces or packages.
+
+### Namespace roots
+
+A root denotes its literal namespace and descendants at dot-separated
+namespace boundaries. The stored value contains no wildcard: `Example.Hosting`
+describes that namespace subtree, not `Example.HostingExtra`. Spelling is
+preserved with ordinal, case-sensitive equality. This is descriptive scope;
+the catalog does not match a type, discover a candidate, or resolve a reference.
+
+Roots are nonblank, contain no whitespace or `*`/`?` wildcards, and have no
+leading/trailing dot or empty dot-separated component. This intrinsic shape
+does not impose C# identifier grammar or establish that a namespace exists.
+Duplicate roots within one pack are invalid. Distinct overlapping roots and
+the same root in different packs are permitted; neither implies exclusive
+ownership. Discovery preserves authored order without sorting or collapsing
+overlapping subtrees.
+
+A hint is not an exhaustive namespace inventory, type-to-package map, or
+package-eligibility predicate. A match does not establish a definition, and a
+miss is not absence. Metadata remains authoritative. The focused
+source/resolution consumer will own candidate discovery and interpretation of
+the hint alongside actual reference evidence and permitted source domains.
+
+### Core-package priorities
+
+Core entries use the package owner's `PackageCoordinate`, validated through
+that owner's existing contract. As with the co-located package-set registry,
+these entries have no version, framework, or runtime-identifier override.
+The catalog does not reinterpret coordinate grammar, resolve a version,
+authorize a source, or inspect a package to publish this data.
+
+The sequence itself supplies preference order within the pack; there is no
+second numeric priority or catalog-wide ranking. It is not a query-result
+ordering, operation bound, selected population, or instruction to acquire the
+entries. Null entries, invalid coordinates, target/version overrides, and
+duplicate package IDs under ordinal, case-insensitive equality (as in the
+Package Set Registry) are invalid static declarations. Discovery preserves the
+complete authored sequence.
+
+Core references and the curated `PackageSetId` have different purposes.
+Core entries need not belong to a curated set, and a pack need not contribute
+one. Overlap is permitted without copying, deriving, changing, or resolving
+curated membership. The Package Set Registry remains its only authority.
+Selecting the curated set still means its explicit members, not the core
+sequence or a prefix sample.
+
+There is no positional pairing between namespace roots and core entries.
+Two roots and three core packages are a valid contribution, not a truncated
+zip or a declaration that each root belongs to one package. Any actual
+namespace/type correspondence requires evidence outside the catalog.
+
+### Knowledge is not traversal availability
+
+These additions do not create actions or satisfy the manifest's requirement
+for at least one contributed capability by themselves. Existing action
+selection, missing-capability results, and discovery materialization remain
+unchanged. Hosts must not infer executable traversal from a nonempty hint or
+core sequence, a curated set, or the presence of a pack identity.
+
+In particular, `ecosystem.platform` already groups product demos. It can retain
+that identity without pretending that its package-backed demos supply
+source-native Platform traversal. This slice neither creates a Platform
+package set nor substitutes a `System.*` package prefix for a platform target.
+The applicable source owner must issue its discovery/acquisition binding
+before the catalog can expose that separate capability.
+
+The first implementation will publish inert knowledge through the shared
+catalog. The CLI and `InspectWeb.Engine.CatalogExports` are its production
+consumers; host metadata and operational adoption stay in #6012 stages 6 and 7.
+This focused contract and its following catalog implementation are two
+slices within catalog stage 2, not a replacement roadmap. No existing
+architecture is retired, and no new host rendering strategy is introduced.
+
+### Producer prerequisites
+
+| Handoff | Disposition |
+| --- | --- |
+| Validated package-prefix/source intent | #5602 remains the prerequisite for executable prefix slots; a protocol search method does not replace that declaration. |
+| Namespace-guided candidate discovery | Requires focused source/resolution work under #6012. Neither #5602 nor the exact dependency-candidate adapter in #5765 already supplies it. |
+| Source-native Platform discovery/acquisition | Requires a focused producer binding. #3671's context/availability work is relevant, but an advertised index entry is not an acquired candidate or a binding. |
+
+These are residual owner obligations, not interfaces defined by this document.
+Existing source production, Gallery access, and payload-authority work may
+supply implementations. Their operational progress does not block this inert
+catalog contract and does not transfer their semantics into it. Scope
+admission, query populations, Workspace editing, persistence, and #6024's
+editor/Save/Inspect boundary remain outside this slice.
+
 ## Recorded package prefixes
 
 Each prefix entry is an explicit discovery action with product-owned title and
@@ -750,6 +865,30 @@ candidate packs, not registrations authorized by this design.
 
 ## Demo
 
+The retrieval-knowledge example below is a target API-data mockup, not a new
+CLI command or current runtime output:
+
+```text
+ecosystem.microsoft-extensions
+  Namespace roots
+    Microsoft.Extensions.DependencyInjection
+    Microsoft.Extensions.Configuration
+    Microsoft.Extensions.Logging
+  Core packages (preference order; unversioned)
+    Microsoft.Extensions.DependencyInjection.Abstractions
+    Microsoft.Extensions.Configuration.Abstractions
+    Microsoft.Extensions.Logging.Abstractions
+  Curated set
+    package-set.microsoft-extensions
+```
+
+The three core entries do not replace the curated membership. There is no
+root-to-package pairing despite the parallel-looking names. This mockup does
+not lock the shipped inventory, grant traversal, or perform package work.
+A neighboring pack can have no roots, no core entries, and an existing demo
+capability; a hint-only registration remains invalid. A second pack may
+declare one of the same roots without either claiming exclusive ownership.
+
 Scanner selection is a shared application-catalog API, not a new CLI or
 browser action:
 
@@ -811,6 +950,23 @@ does not resolve `package-set.aspire`, expand a prefix, construct the Redis
 demo, or return a scanner binding.
 
 ## Required gates
+
+### Planned retrieval-knowledge gates
+
+The following are target Release outcomes for the #6028 implementation
+follow-up, not currently passing gates. Existing registry and non-friend
+consumer suites are the intended enforcing surfaces; source/resolution
+interpretation remains with its own future consumer gates.
+
+| Gate scenario | Required outcome |
+| --- | --- |
+| Discover and look up unequal-length hint/core sequences on two packs with an overlapping root | Exact pack association, literal spelling, authored order, and complete independent immutable sequences survive; no positional root-to-package mapping is introduced. |
+| Publish malformed roots or invalid, duplicate, versioned, or target-specific core coordinates | Complete registry construction fails visibly before any descriptor is published; overlapping but distinct roots remain valid. |
+| Discover empty knowledge on a demo-capable pack and attempt a knowledge-only registration | Empty contributions remain empty without changing the existing capability requirement or manufacturing traversal availability. |
+| Read metadata, then select one existing demo, scanner, or curated-set action | Knowledge discovery invokes no capability; explicit selection preserves the selected owner's existing input and outcome without activating neighbors. |
+| Discover a shipped core sequence beside its curated-set reference through a non-friend consumer | Literal application expectations preserve the two distinct roles; catalog discovery does not resolve curated membership or package coordinates. |
+
+### Existing and staged capability gates
 
 The pattern's target Release suite is `EcosystemPackRegistryTests` plus an
 ordinary non-friend consumer.
