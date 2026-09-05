@@ -4057,7 +4057,7 @@ public sealed class BrowserEngineBoundaryTests
         string PackageId = $"Browser.Library.Exact.{useAssetId}";
         const string SelectedLibrary = "Selected.Library";
         const string OtherLibrary = "Other.Library";
-        BrowserPackageWorkspace.RegisterAcquiredPackage(
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
@@ -4148,7 +4148,7 @@ public sealed class BrowserEngineBoundaryTests
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
         byte[] reference = BuildEmptySurfaceImage(
             typeof(BrowserEngineBoundaryTests).Assembly.GetName());
-        _ = Coordinate(
+        _ = await Coordinate(
             packageId,
             PackagePair(reference, implementation, fileName));
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -4198,7 +4198,7 @@ public sealed class BrowserEngineBoundaryTests
     [Fact]
     public async Task LibraryParticipant_RejectsAmbiguousNamesAndMissingIds()
     {
-        BrowserPackageCoordinate coordinate = Coordinate(
+        BrowserPackageCoordinate coordinate = await Coordinate(
             "Browser.Library.Ambiguous",
             PackageEntries(
                 ("lib/net11.0/First.dll",
@@ -4227,7 +4227,7 @@ public sealed class BrowserEngineBoundaryTests
     {
         const string packageId = "Browser.Library.ReferenceOnly";
         const string assemblyName = "Reference.Library";
-        _ = Coordinate(
+        _ = await Coordinate(
             packageId,
             Package(
                 BuildIntegrationImage(
@@ -4503,7 +4503,7 @@ public sealed class BrowserEngineBoundaryTests
         const string SelectedLibrary = "Selected.Empty";
         byte[] otherLibrary = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
-        BrowserPackageWorkspace.RegisterAcquiredPackage(
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
@@ -4556,12 +4556,12 @@ public sealed class BrowserEngineBoundaryTests
     {
         byte[] selected = File.ReadAllBytes(
             typeof(BrowserEngineBoundaryTests).Assembly.Location);
-        BrowserPackageCoordinate coordinate = Coordinate(
+        BrowserPackageCoordinate coordinate = await Coordinate(
             packageId,
             PackageEntries(
                 ("lib/net11.0/A.Other.dll", neighbor),
                 ("lib/net11.0/Z.Selected.dll", selected)));
-        BrowserPackageCoordinate isolated = Coordinate(
+        BrowserPackageCoordinate isolated = await Coordinate(
             $"{packageId}.Isolated",
             Package(selected, "lib/net11.0/Z.Selected.dll"));
         string selectedId = coordinate.Selection.Assets.Single(
