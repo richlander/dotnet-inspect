@@ -3,9 +3,12 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.Versioning;
 using System.Text.Json;
 using ILInspector.Analysis;
 using ILInspector.JsExportSurface.Fixtures;
+using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.Metadata;
 
@@ -2767,6 +2770,33 @@ public sealed class DtsEmitterTests
             "\"HiddenField\":0",
             json,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_IncludesProtectedValueTypesThroughDerivedNestedContext()
+    {
+        string json =
+            NestedContextProtectedValueDto.GetProtectedValues();
+
+        Assert.Contains(
+            "\"ProtectedField\":0",
+            json,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"PrivateProtectedField\":0",
+            json,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    [SupportedOSPlatform("browser")]
+    public void SourceGeneratedJson_BindsConstructorOnlyNestedContextValueTypes()
+    {
+        int value = NestedContextConstructorBoundDto.ReadHidden(
+            """{"Hidden":1}""");
+
+        Assert.Equal(1, value);
     }
 
     [Theory]

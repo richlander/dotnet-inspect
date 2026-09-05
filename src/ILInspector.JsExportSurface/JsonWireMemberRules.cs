@@ -181,6 +181,7 @@ public static class JsonWireMemberRules
     /// member.
     /// </summary>
     public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
+        ApiType declaringType,
         ApiMember member,
         JsonWireDirection directions,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -191,7 +192,10 @@ public static class JsonWireMemberRules
         if (assemblyIdentity is null
             || contextDefinitionName is null
             || !member.HasJsonInclude
-            || !IsSerialized(member, directions))
+            || !RequiresWireParticipationOrConstructorBinding(
+                declaringType,
+                member,
+                directions))
         {
             return false;
         }
@@ -225,6 +229,7 @@ public static class JsonWireMemberRules
             typesByScopedIdentity,
         MetadataTypeDefinitionName? contextDefinitionName) =>
         RequiresContextRelativeValueTypeAccessibilityEvidence(
+            new ApiType(),
             member,
             JsonWireDirection.Both,
             assemblyIdentity,
@@ -314,6 +319,17 @@ public static class JsonWireMemberRules
         return hasJsonInclude || accessibility is null;
     }
 
+    static bool RequiresWireParticipationOrConstructorBinding(
+        ApiType declaringType,
+        ApiMember member,
+        JsonWireDirection directions) =>
+        IsSerialized(member, directions)
+        || ((directions & JsonWireDirection.Deserialize)
+                != JsonWireDirection.None
+            && RequiresConstructorBindingEvidence(
+                declaringType,
+                member));
+
     static bool HasAccessibleValueType(
         ApiMember member,
         ApiAssemblyIdentity? assemblyIdentity,
@@ -373,6 +389,8 @@ public static class JsonWireMemberRules
     {
         if (!IsSourceGeneratorTypeAccessible(
                 type,
+                assemblyIdentity,
+                typesByScopedIdentity,
                 contextDefinitionName))
             return false;
 
@@ -420,20 +438,180 @@ public static class JsonWireMemberRules
 
     static bool IsSourceGeneratorTypeAccessible(
         ApiType type,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
         MetadataTypeDefinitionName? contextDefinitionName)
     {
         if (type.Accessibility is null or "internal" or "protected internal")
             return true;
 
-        return type.Accessibility is "private"
-            or "protected"
-            or "private protected"
-            && contextDefinitionName is not null
-            && type.DefinitionName is { Segments.Length: > 1 } definitionName
-            && contextDefinitionName.Namespace == definitionName.Namespace
-            && ContextIsNestedWithin(
+        if (contextDefinitionName is null
+            || type.DefinitionName is not { Segments.Length: > 1 } definitionName
+            || contextDefinitionName.Namespace != definitionName.Namespace)
+        {
+            return false;
+        }
+
+        return type.Accessibility switch
+        {
+            "private" => ContextIsNestedWithin(
                 contextDefinitionName.Segments,
-                definitionName.Segments[..^1]);
+                definitionName.Segments[..^1]),
+            "protected" or "private protected" =>
+                ContextCanReachProtectedDeclaringType(
+                    definitionName,
+                    contextDefinitionName,
+                    assemblyIdentity,
+                    typesByScopedIdentity),
+            _ => false,
+        };
+    }
+
+    static bool ContextCanReachProtectedDeclaringType(
+        MetadataTypeDefinitionName definitionName,
+        MetadataTypeDefinitionName contextDefinitionName,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        IReadOnlyList<string> declaringSegments =
+            definitionName.Segments[..^1];
+        foreach (MetadataTypeDefinitionName contextContainer
+            in ContextContainerDefinitionNames(contextDefinitionName))
+        {
+            if (DefinitionNamesEqual(
+                    contextContainer.Namespace,
+                    contextContainer.Segments,
+                    definitionName.Namespace,
+                    declaringSegments))
+            {
+                return true;
+            }
+
+            if (TryGetType(
+                    contextContainer,
+                    assemblyIdentity,
+                    typesByScopedIdentity,
+                    out ApiType? contextType)
+                && contextType is not null
+                && InheritsFrom(
+                    contextType,
+                    definitionName.Namespace,
+                    declaringSegments,
+                    assemblyIdentity,
+                    typesByScopedIdentity))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static IEnumerable<MetadataTypeDefinitionName>
+        ContextContainerDefinitionNames(
+        MetadataTypeDefinitionName contextDefinitionName)
+    {
+        for (int count = 1;
+            count < contextDefinitionName.Segments.Length;
+            count++)
+        {
+            MetadataTypeDefinitionNameResult containerName =
+                MetadataTypeDefinitionName.Create(
+                    contextDefinitionName.Namespace,
+                    [.. contextDefinitionName.Segments[..count]]);
+            if (containerName is MetadataTypeDefinitionNameResult.Valid
+                { Name: var definitionName })
+            {
+                yield return definitionName;
+            }
+        }
+    }
+
+    static bool TryGetType(
+        MetadataTypeDefinitionName definitionName,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        out ApiType? type)
+    {
+        string fullName = string.IsNullOrEmpty(definitionName.Namespace)
+            ? string.Join(".", definitionName.Segments)
+            : $"{definitionName.Namespace}."
+                + string.Join(".", definitionName.Segments);
+        return typesByScopedIdentity.TryGetValue(
+            new ApiTypeReferenceIdentity(
+                assemblyIdentity,
+                fullName,
+                definitionName),
+            out type);
+    }
+
+    static bool InheritsFrom(
+        ApiType type,
+        string expectedNamespace,
+        IReadOnlyList<string> expectedSegments,
+        ApiAssemblyIdentity assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity)
+    {
+        var visited = new HashSet<ApiType>(
+            ReferenceEqualityComparer.Instance);
+        ApiType? current = type;
+        while (current is not null
+            && visited.Add(current)
+            && current.BaseTypeReference is { } baseTypeReference
+            && baseTypeReference.Assembly.Equals(assemblyIdentity))
+        {
+            if (DefinitionNamesEqual(
+                    baseTypeReference.DefinitionName?.Namespace,
+                    baseTypeReference.DefinitionName?.Segments,
+                    expectedNamespace,
+                    expectedSegments))
+            {
+                return true;
+            }
+
+            if (!typesByScopedIdentity.TryGetValue(
+                    baseTypeReference,
+                    out current))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    static bool DefinitionNamesEqual(
+        string? leftNamespace,
+        IReadOnlyList<string>? leftSegments,
+        string rightNamespace,
+        IReadOnlyList<string> rightSegments)
+    {
+        if (!string.Equals(
+                leftNamespace,
+                rightNamespace,
+                StringComparison.Ordinal)
+            || leftSegments is null
+            || leftSegments.Count != rightSegments.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < leftSegments.Count; index++)
+        {
+            if (!string.Equals(
+                    leftSegments[index],
+                    rightSegments[index],
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     static bool ContextIsNestedWithin(

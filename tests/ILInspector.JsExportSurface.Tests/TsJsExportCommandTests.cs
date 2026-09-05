@@ -1,5 +1,6 @@
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.MemberConverterFixtures;
+using ILInspector.JsExportSurface.NestedContextConstructorFixtures;
 using ILInspector.JsExportSurface.NestedContextFixtures;
 using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
@@ -230,6 +231,22 @@ public sealed class TsJsExportCommandTests
                 """,
                 source,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                """
+                export interface CrossContextTopDto {
+                  readonly Public: string;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                """
+                export interface CrossContextNestedDto {
+                  readonly Value: number;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
             Assert.DoesNotContain(
                 "UnreachedNestedContextDto",
                 source,
@@ -238,6 +255,7 @@ public sealed class TsJsExportCommandTests
             Assert.DoesNotContain("Shared", source, StringComparison.Ordinal);
             Assert.DoesNotContain("Item", source, StringComparison.Ordinal);
             Assert.DoesNotContain("HiddenValue", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Hidden:", source, StringComparison.Ordinal);
         }
         finally
         {
@@ -261,6 +279,45 @@ public sealed class TsJsExportCommandTests
             int exitCode = TsJsExportCommand.Invoke(
                 [
                     typeof(NestedContextProtectedValueDto)
+                        .Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "same-assembly value types depend on nested JsonSerializerContext accessibility are unsupported",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existing, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_RejectsNestedContextConstructorBoundValueTypes()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-nested-context-constructor-{Guid.NewGuid():N}.ts");
+        const string existing = "// existing output\n";
+        try
+        {
+            File.WriteAllText(outputPath, existing);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(NestedContextConstructorBoundDto)
                         .Assembly.Location,
                     "--runtime-module",
                     "./dotnet.js",

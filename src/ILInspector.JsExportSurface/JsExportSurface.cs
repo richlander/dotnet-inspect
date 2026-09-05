@@ -176,6 +176,27 @@ public sealed class JsExportFunction
     [JsonIgnore]
     public IReadOnlyList<string> ParameterWireContextScopeKeys
         { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated per-call associations between a wire-contract root type,
+    /// the source-generated serializer context scope that supplied it, and the
+    /// direction it participates in.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<JsExportWireTypeContextPath> WireTypeContextPaths
+        { get; init; } = [];
+}
+
+public sealed class JsExportWireTypeContextPath
+{
+    public required JsonWireDirection Direction { get; init; }
+
+    [JsonIgnore]
+    public IReadOnlyList<ApiTypeReferenceIdentity> TypeReferences
+        { get; init; } = [];
+
+    [JsonIgnore]
+    public IReadOnlyList<string> ContextScopeKeys { get; init; } = [];
 }
 
 public enum JsExportDelegateKind

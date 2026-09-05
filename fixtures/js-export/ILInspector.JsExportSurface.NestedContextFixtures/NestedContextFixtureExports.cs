@@ -7,7 +7,29 @@ namespace ILInspector.JsExportSurface.NestedContextFixtures;
 
 public sealed record SimpleDto(string Value);
 
+public sealed partial class CrossContextTopDto
+{
+    public string Public { get; set; } = "";
+
+#pragma warning disable CS0414
+    [JsonInclude]
+    private HiddenValue Hidden = HiddenValue.Value;
+#pragma warning restore CS0414
+
+    private enum HiddenValue
+    {
+        Value,
+    }
+
+    [JsonSerializable(typeof(CrossContextNestedDto))]
+    internal sealed partial class CrossContextNestedJsonContext
+        : JsonSerializerContext;
+}
+
+public sealed record CrossContextNestedDto(int Value);
+
 [JsonSerializable(typeof(SimpleDto))]
+[JsonSerializable(typeof(CrossContextTopDto))]
 internal sealed partial class TopLevelFixtureJsonContext
     : JsonSerializerContext;
 
@@ -19,6 +41,21 @@ public static partial class NestedContextFixtureExports
         JsonSerializer.Serialize(
             new SimpleDto("simple"),
             TopLevelFixtureJsonContext.Default.SimpleDto);
+
+    [JSExport]
+    public static int ReadThroughDifferentContexts(
+        string first,
+        string second)
+    {
+        CrossContextTopDto top = JsonSerializer.Deserialize(
+            first,
+            TopLevelFixtureJsonContext.Default.CrossContextTopDto)!;
+        CrossContextNestedDto nested = JsonSerializer.Deserialize(
+            second,
+            CrossContextTopDto.CrossContextNestedJsonContext.Default
+                .CrossContextNestedDto)!;
+        return top.Public.Length + nested.Value;
+    }
 }
 
 #pragma warning disable CS0414

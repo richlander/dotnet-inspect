@@ -7,8 +7,7 @@ namespace ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
 
 #pragma warning disable CS0414
 #pragma warning disable SYSLIB1038
-[SupportedOSPlatform("browser")]
-public partial class NestedContextProtectedValueDto
+public class NestedContextBaseOwner
 {
     [JsonInclude]
     private HiddenProtected ProtectedField = HiddenProtected.Value;
@@ -26,15 +25,20 @@ public partial class NestedContextProtectedValueDto
     {
         Value,
     }
+}
 
+[SupportedOSPlatform("browser")]
+public partial class NestedContextProtectedValueDto
+    : NestedContextBaseOwner
+{
     [JSExport]
     public static string GetProtectedValues() =>
         JsonSerializer.Serialize(
-            new NestedContextProtectedValueDto(),
+            new NestedContextBaseOwner(),
             NestedContextJsonContext.Default
-                .NestedContextProtectedValueDto);
+                .NestedContextBaseOwner);
 
-    [JsonSerializable(typeof(NestedContextProtectedValueDto))]
+    [JsonSerializable(typeof(NestedContextBaseOwner))]
     private sealed partial class NestedContextJsonContext
         : JsonSerializerContext;
 }

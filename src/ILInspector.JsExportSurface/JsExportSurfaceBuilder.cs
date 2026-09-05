@@ -722,6 +722,7 @@ public static class JsExportSurfaceBuilder
                 {
                     if (!JsonWireMemberRules
                         .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                            type,
                             member,
                             contextDirectionsForType,
                             assemblyIdentity,
@@ -782,14 +783,14 @@ public static class JsExportSurfaceBuilder
 
         foreach (JsExportFunction function in functions)
         {
-            Seed(
-                function.ReturnWireTypeReferences,
-                function.ReturnWireContextScopeKeys,
-                JsonWireDirection.Serialize);
-            Seed(
-                function.ParameterWireTypeReferences,
-                function.ParameterWireContextScopeKeys,
-                JsonWireDirection.Deserialize);
+            foreach (JsExportWireTypeContextPath path
+                in function.WireTypeContextPaths)
+            {
+                Seed(
+                    path.TypeReferences,
+                    path.ContextScopeKeys,
+                    path.Direction);
+            }
         }
 
         while (queue.Count > 0)

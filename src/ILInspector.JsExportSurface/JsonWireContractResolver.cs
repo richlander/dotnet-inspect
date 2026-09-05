@@ -108,6 +108,8 @@ public static class JsonWireContractResolver
         var parameterTypes = new List<TypeRef>();
         var parameterContextScopeKeys = new HashSet<string>(
             StringComparer.Ordinal);
+        var wireTypeContextPaths =
+            new List<JsExportWireTypeContextPath>();
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
         {
@@ -139,6 +141,14 @@ public static class JsonWireContractResolver
             {
                 parameterTypes.Add(dto);
                 parameterContextScopeKeys.UnionWith(contextScopeKeys);
+                wireTypeContextPaths.Add(
+                    new JsExportWireTypeContextPath
+                    {
+                        Direction = JsonWireDirection.Deserialize,
+                        TypeReferences =
+                            [.. ReferencedTypes(dto).Distinct()],
+                        ContextScopeKeys = contextScopeKeys,
+                    });
             }
         }
 
@@ -179,6 +189,18 @@ public static class JsonWireContractResolver
                     .Distinct()],
             ParameterWireContextScopeKeys =
                 [.. parameterContextScopeKeys],
+            WireTypeContextPaths = returnType is not null
+                ? [.. wireTypeContextPaths,
+                    new JsExportWireTypeContextPath
+                    {
+                        Direction = JsonWireDirection.Serialize,
+                        TypeReferences =
+                            [.. ReferencedTypes(
+                                returnType.Value.Type).Distinct()],
+                        ContextScopeKeys =
+                            [.. returnType.Value.ContextScopeKeys],
+                    }]
+                : [.. wireTypeContextPaths],
         };
     }
 

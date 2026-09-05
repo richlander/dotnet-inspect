@@ -374,6 +374,198 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void ContextRelativeAccessibilityIncludesConstructorBoundDeserializeMembers()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName dtoDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto"]))
+                .Name;
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "HiddenValue"]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "NestedContextJsonContext"]))
+                .Name;
+        ApiTypeReferenceIdentity dtoReference = new(
+            assembly,
+            "Fixture.Dto",
+            dtoDefinition);
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Fixture.Dto.HiddenValue",
+            hiddenDefinition);
+        var declaringType = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "Dto",
+            DefinitionName = dtoDefinition,
+            Kind = "class",
+        };
+        var member = new ApiMember
+        {
+            Name = "Hidden",
+            Kind = "property",
+            HasGetter = true,
+            HasSetter = false,
+            HasJsonInclude = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+        declaringType.Members =
+        [
+            member,
+            new ApiMember
+            {
+                Name = ".ctor",
+                Kind = "constructor",
+                SignatureModel = new ApiSignature
+                {
+                    Parameters =
+                    [
+                        new ApiParameter
+                        {
+                            Name = "hidden",
+                            Type = "Fixture.Dto.HiddenValue",
+                        },
+                    ],
+                },
+            },
+        ];
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [dtoReference] = declaringType,
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Dto.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = "private",
+                    Kind = "enum",
+                },
+            };
+
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    declaringType,
+                    member,
+                    JsonWireDirection.Deserialize,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+    }
+
+    [Fact]
+    public void ContextRelativeAccessibilityTreatsDerivedContextAsProtectedAccess()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName baseDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["BaseOwner"]))
+                .Name;
+        MetadataTypeDefinitionName derivedDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["DerivedOwner"]))
+                .Name;
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["BaseOwner", "HiddenValue"]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["DerivedOwner", "NestedContextJsonContext"]))
+                .Name;
+        ApiTypeReferenceIdentity baseReference = new(
+            assembly,
+            "Fixture.BaseOwner",
+            baseDefinition);
+        ApiTypeReferenceIdentity derivedReference = new(
+            assembly,
+            "Fixture.DerivedOwner",
+            derivedDefinition);
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Fixture.BaseOwner.HiddenValue",
+            hiddenDefinition);
+        var declaringType = new ApiType
+        {
+            Namespace = "Fixture",
+            Name = "BaseOwner",
+            DefinitionName = baseDefinition,
+            Kind = "class",
+        };
+        ApiMember member = new()
+        {
+            Name = "Hidden",
+            Kind = "field",
+            HasJsonInclude = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [baseReference] = declaringType,
+                [derivedReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "DerivedOwner",
+                    DefinitionName = derivedDefinition,
+                    Kind = "class",
+                    BaseTypeReference = baseReference,
+                },
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "BaseOwner.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = "protected",
+                    Kind = "enum",
+                },
+            };
+
+        Assert.True(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    declaringType,
+                    member,
+                    JsonWireDirection.Serialize,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+    }
+
+    [Fact]
     public void GetterOnlyDeserializePropertyRequiresConstructorEvidence()
     {
         ApiMember getterOnly = Property();
