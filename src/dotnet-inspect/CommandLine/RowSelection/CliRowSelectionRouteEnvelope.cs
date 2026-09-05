@@ -511,6 +511,16 @@ internal static class CliRowSelectionRouteEnvelope
             return null;
         }
 
+        // A shared prefix can prove a bad value or a completed conflict,
+        // but missing-count absence requires evidence through end of argv.
+        if (first.Failure!.Reason
+                == CliRowSelectionFailureReason.ModifierRequiresCount
+            && observations.Any(
+                observation => !observation.HasCompleteOccurrences))
+        {
+            return null;
+        }
+
         return observations
             .Skip(1)
             .Select(observation => observation.LoweringResult)
@@ -696,6 +706,12 @@ internal static class CliRowSelectionRouteEnvelope
         CliRowSelectionOccurrence<string>>? CommonOccurrences(
             IReadOnlyList<CandidateObservation> observations)
     {
+        if (observations.Any(
+                observation => !observation.HasCompleteOccurrences))
+        {
+            return null;
+        }
+
         IReadOnlyList<CliRowSelectionOccurrence<string>> first =
             observations[0].Occurrences;
         return observations
@@ -861,6 +877,8 @@ internal static class CliRowSelectionRouteEnvelope
         {
             get;
         }
+
+        public bool HasCompleteOccurrences => ArgumentFailure is null;
 
         public IReadOnlyList<int> RequiredValuePositions { get; }
 
