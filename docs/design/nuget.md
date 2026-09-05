@@ -398,7 +398,10 @@ spelling or adopting another coordinate's facts.
 Start at the per-ID index, compare inclusive page bounds using NuGet version
 precedence, and consume only matching pages. Use an inline `items` array when
 present; otherwise follow that page's `@id`, resolved against the index
-without normalizing its advertised path/query escaping.
+without normalizing its advertised path/query escaping. HTTP page requests
+omit fragments and use `/` for an empty path; escaped delimiters and an
+explicit empty query remain unchanged. The existing source-owned endpoint
+normalizer supplies this projection, not a Registration-specific URL grammar.
 The selected page's required embedded `catalogEntry` supplies the package
 ID/version and optional metadata. No standalone leaf or separate Catalog
 request is needed. Required identity and structure are checked before the
@@ -410,8 +413,10 @@ exceeded page bound is indeterminate, not absence. The existing source loop
 may try an equivalent advertised endpoint; it does not borrow a lower
 source's facts after an indeterminate higher source. A page response must
 contain leaves, not another link to recursively traverse.
-A page link rejected by the preserving HTTP transport's URI validation is
-also indeterminate.
+A page link rejected by the preserving HTTP transport's URI validation or
+the source-owned endpoint normalizer is also indeterminate. Embedded user
+information is not accepted in page links; credentials continue to come
+from the configured source under existing origin scoping.
 
 The index admits at most 128 page descriptors. Existing bounded HTTP reads,
 request deadlines, credential-origin scoping, and failure disclosure also

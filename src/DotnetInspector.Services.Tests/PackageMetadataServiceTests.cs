@@ -2280,7 +2280,8 @@ public class PackageMetadataServiceTests : IDisposable
     [InlineData("../pages/page%2.json")]
     [InlineData("../pages/{id}.json")]
     [InlineData("../pages/page-\u00fc.json")]
-    public async Task FetchAllMetadataAsync_IgnoresMalformedRegistrationPageLink(
+    [InlineData("https://user:password@private.example/pages/page.json")]
+    public async Task FetchAllMetadataAsync_RejectsUnusableRegistrationPageLink(
         string pageReference)
     {
         const string source = "https://private.example/v3/index.json";
@@ -2337,6 +2338,9 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.DoesNotContain(
             handler.Requests,
             request => request.Uri.Host == "lower.example");
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.Uri.UserInfo.Length > 0);
 
         HttpResponseMessage Registration()
         {
@@ -2468,14 +2472,34 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("https://private.example/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
-    [InlineData("../pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData(
+        "https://private.example/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb",
+        "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData(
+        "../pages/%70-42.json?%74oken=%76alue&part=a%2fb",
+        "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData(
+        "https://private.example?%74oken=%76alue&part=a%2fb",
+        "/?%74oken=%76alue&part=a%2fb")]
+    [InlineData("https://private.example", "/")]
+    [InlineData("https://private.example?", "/?")]
+    [InlineData(
+        "https://private.example/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb#description",
+        "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData(
+        "../pages/%70-42.json?%74oken=%76alue&part=a%2fb#description",
+        "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData(
+        "https://private.example/%70%23age.json?%74oken=%23value#description",
+        "/%70%23age.json?%74oken=%23value")]
+    [InlineData(
+        "https://private.example/%70age.json?#description",
+        "/%70age.json?")]
     public async Task FetchAllMetadataAsync_PreservesAdvertisedPageEscaping(
-        string pageReference)
+        string pageReference,
+        string target)
     {
         const string source = "https://private.example/v3/index.json";
-        const string target =
-            "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb";
         var handler = new RoutingHandler(request =>
             request.RequestUri!.PathAndQuery switch
             {
@@ -2490,7 +2514,7 @@ public class PackageMetadataServiceTests : IDisposable
                 "/registration/private.package/index.json" => Json(
                     RegistrationIndex(LinkedRegistrationPage(
                         pageReference, "1.0.0", "1.0.0"))),
-                target => Json(
+                var pathAndQuery when pathAndQuery == target => Json(
                     RegistrationPageDocument(RegistrationLeaf(
                         "Private.Package",
                         "1.0.0",

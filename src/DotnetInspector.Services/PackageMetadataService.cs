@@ -649,9 +649,11 @@ public static class PackageMetadataService
 
                 string pageUrl = ResolveReference(indexUrl, pageId.GetString()!);
                 if (!NuGetFetch.NuGetHttpRequest.TryCreatePreservingPathAndQuery(
-                    pageUrl, out _))
+                        pageUrl, out _)
+                    || !NuGetFetch.NuGetSourceRequest.TryEndpointUrl(
+                        pageUrl, out pageUrl))
                     throw new JsonException(
-                        "Registration page link must be a well-formed HTTP or HTTPS URI.");
+                        "Registration page link must be a usable HTTP or HTTPS endpoint.");
 
                 log?.Invoke(
                     "Fetching registration page: "
