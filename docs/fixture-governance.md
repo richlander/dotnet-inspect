@@ -21,6 +21,11 @@ Classify by consumption, not by project name. For example,
 `NuGetFetch.CustomClientFixture` is compiled and invoked as an external API
 consumer. Both live under `tests/nuget/`, not in the inspected-artifact catalog.
 
+An executable can still be an inspected fixture: `RunFaster.AllocationFixture`
+supplies allocation IL correlated with a recorded `.nettrace`. Its project and
+trace live together under `fixtures/runfaster/`; the trace's copied test-output
+location is a separate catalog contract, not its source location.
+
 `tests/DotnetInspector.FixtureInfrastructure` owns fixture registration and
 resolution. It records repository-relative project directories explicitly;
 source location must not be inferred from a project or assembly name. Shared
