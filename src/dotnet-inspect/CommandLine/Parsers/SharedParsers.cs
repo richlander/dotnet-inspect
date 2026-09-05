@@ -1,6 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using CSharpText;
+using DotnetInspector.Options;
 using DotnetInspector.Packages;
+using DotnetInspector.Planning;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -54,6 +57,103 @@ public static class SharedParsers
             hasExplicitSource);
     }
 
+    public static OptionError? GetStructuralPositionalVersionError(
+        SourceSelectionInputs inputs,
+        bool hasProjectSource)
+    {
+        if (!inputs.HasExplicitSource
+            && !hasProjectSource
+            && inputs.Args.Length >= 2
+            && CommandLineHelpers.LooksLikeVersionNumber(
+                inputs.Args[1]))
+        {
+            return new OptionError(
+                $"'{inputs.Args[1]}' looks like a version number. "
+                + $"Use '{inputs.Args[0]}@{inputs.Args[1]}' to specify a version.");
+        }
+
+        return null;
+    }
+
+    public static OptionError? GetStructuralUnrecognizedOptionError(
+        SourceSelectionInputs inputs)
+    {
+        string? option = inputs.Args.FirstOrDefault(
+            static value => value.StartsWith('-'));
+        if (option is null)
+            return null;
+
+        return new OptionError(
+            $"Unrecognized option '{option}'.");
+    }
+
+    internal static OptionError? GetStructuralParseError(ParseResult interpretation)
+    {
+        if (interpretation.Errors.FirstOrDefault() is { } error)
+        {
+            return new OptionError(CommandLineBuilder.FormatParseError(error.Message));
+        }
+
+        string? option = interpretation.CommandResult.Children
+            .OfType<ArgumentResult>()
+            .SelectMany(argument => argument.Tokens)
+            .Select(token => token.Value)
+            .Concat(interpretation.UnmatchedTokens)
+            .FirstOrDefault(value => value.StartsWith('-'));
+        if (option is null)
+            return null;
+        return new OptionError($"Unrecognized option '{option}'.");
+    }
+
+    internal static OptionError? GetOptionParseError(ParseResult interpretation)
+    {
+        foreach (ParseError error in interpretation.Errors)
+        {
+            for (SymbolResult? result = error.SymbolResult; result is not null; result = result.Parent)
+            {
+                if (result is OptionResult)
+                    return new OptionError(CommandLineBuilder.FormatParseError(error.Message));
+            }
+        }
+        return null;
+    }
+
+    public static int GetStructuralTypeArgumentIndex(
+        SourceSelectionInputs inputs,
+        bool hasProjectSource)
+    {
+        if (inputs.HasExplicitSource || hasProjectSource)
+            return 0;
+
+        if (inputs.Args.Length == 0)
+            return -1;
+
+        if (CommandLineHelpers.TryClassifyAsFilePath(
+                inputs.Args[0],
+                out string? dllPath,
+                out string? nupkgPath)
+            && (dllPath is not null || nupkgPath is not null))
+        {
+            return 1;
+        }
+
+        if (inputs.Args.Length >= 2)
+            return 1;
+
+        string value = inputs.Args[0];
+        bool primitiveAlias =
+            PrimitiveTypeNames.TryToClrFullName(
+                value.ToLowerInvariant(),
+                out _);
+        return primitiveAlias
+            || TypeMatcher.HasExplicitGenericNotation(value)
+            || TypeMatcher.IsTypeGlobPattern(value)
+            || StructuralViewRegistry
+                .HasUnambiguousMemberTail(value)
+                ? 0
+                : -1;
+    }
+
     public static async Task<SourceSelection> ResolveSourceSelectionAsync(
         SourceSelectionInputs inputs,
         NuGetSourceOptions? sourceOptions,
@@ -79,16 +179,36 @@ public static class SharedParsers
         var (digestHead, _) = ParseDigestShorthand(typeName);
         var (overloadHead, _) = ParseOverloadShorthand(digestHead);
         var suffixLength = typeName.Length - overloadHead.Length;
-        if (overloadHead.EndsWith("..ctor", StringComparison.Ordinal))
-            return (overloadHead[..^6], ".ctor" + typeName[^suffixLength..]);
-        if (overloadHead.EndsWith("..cctor", StringComparison.Ordinal))
-            return (overloadHead[..^7], ".cctor" + typeName[^suffixLength..]);
-
-        foreach (var marker in (ReadOnlySpan<string>)[".operator:", ".explicit:", ".extension:"])
+        foreach (var marker in
+                 (ReadOnlySpan<string>)
+                 [
+                     "..cctor",
+                     "..ctor",
+                     ".operator",
+                     ".op_",
+                     ".explicit:",
+                     ".extension:",
+                 ])
         {
-            var markerIndex = typeName.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            int markerIndex = FindLastTopLevelMarker(
+                overloadHead,
+                marker);
             if (markerIndex > 0)
-                return (typeName[..markerIndex], typeName[(markerIndex + 1)..]);
+            {
+                string memberName =
+                    overloadHead[(markerIndex + 1)..]
+                    + typeName[^suffixLength..];
+                if ((marker is ".operator" or ".op_")
+                    && !OperatorNames.IsMetadataOperatorName(
+                        MemberTargetSelector.Parse(memberName).Name))
+                {
+                    continue;
+                }
+
+                return (
+                    overloadHead[..markerIndex],
+                    memberName);
+            }
         }
 
         var lastDot = FqnParser.LastTopLevelDot(typeName);
@@ -99,6 +219,31 @@ public static class SharedParsers
         return rightPart.Contains('<') && !HasGenericMemberSelectorSuffix(rightPart)
             ? (typeName, null)
             : (typeName[..lastDot], rightPart);
+    }
+
+    private static int FindLastTopLevelMarker(
+        string value,
+        string marker)
+    {
+        var genericDepth = 0;
+        var match = -1;
+        for (var i = 0; i <= value.Length - marker.Length; i++)
+        {
+            if (genericDepth == 0
+                && value.AsSpan(i).StartsWith(
+                    marker,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                match = i;
+            }
+
+            if (value[i] == '<')
+                genericDepth++;
+            else if (value[i] == '>' && genericDepth > 0)
+                genericDepth--;
+        }
+
+        return match;
     }
 
     internal static (SourceResolver.LocalProbeResult Probe, string MemberName)? TrySplitQualifiedTypeMember(
@@ -238,6 +383,62 @@ public static class SharedParsers
         return (value, null);
     }
 
+    public static OptionError? ParseAnalysisQueryOptions(
+        ParseResult parseResult,
+        SharedOptions options,
+        bool typeScoped,
+        string? typeName,
+        out BodyKindQueryOptions bodyKindQuery,
+        out PerformanceTriageOptions performanceTriage,
+        TypeGestureIntent? typeGesture = null)
+    {
+        string[] whereExpressions =
+            parseResult.GetValue(options.RowWhere) ?? [];
+        if (!BodyKindQueryOptions.TryExtract(
+                whereExpressions,
+                out bodyKindQuery,
+                out string[] performanceWhere,
+                out OptionError bodyKindError))
+        {
+            performanceTriage = new PerformanceTriageOptions();
+            return bodyKindError;
+        }
+
+        if (typeScoped
+            && bodyKindQuery.HasFilter
+            && (string.IsNullOrWhiteSpace(typeName)
+                || typeName.Contains('*')
+                || typeName.Contains('?')
+                || typeGesture?.SelectsListingCatalog(typeName) == true))
+        {
+            performanceTriage = new PerformanceTriageOptions();
+            return new OptionError(
+                "A type-scoped Body Shapes query requires one exact type name.");
+        }
+
+        performanceTriage =
+            options.ParsePerformanceTriageOptions(
+                parseResult,
+                performanceWhere);
+        if (!PerformanceTriageOptions.TryValidate(
+                performanceTriage,
+                out OptionError triageShapeError))
+        {
+            return triageShapeError;
+        }
+
+        if (bodyKindQuery.HasFilter
+            && performanceTriage.HasFilters)
+        {
+            return new OptionError(
+                typeScoped
+                    ? "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one type query."
+                    : "A Body Shapes predicate cannot yet be combined with Performance Triage filters or --order-by in one query.");
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Parses package@version syntax into separate components.
     /// Handles special @latest marker.
@@ -306,8 +507,12 @@ public static class SharedParsers
             var selector = MemberTargetSelector.Parse(members[i]);
             if (selector.Kind is { Length: > 0 })
                 kindFilter.Add(selector.Kind);
-            if (selector.DigestPrefix is { Length: > 0 })
-                memberDigest = selector.DigestPrefix;
+            if (selector.DigestPrefix is { Length: > 0 } digest
+                && (memberDigest is null
+                    || digest.Length > memberDigest.Length))
+            {
+                memberDigest = digest;
+            }
             if (selector.GenericArity is { } arity)
             {
                 if (genericArity is { } existingArity && existingArity != arity)

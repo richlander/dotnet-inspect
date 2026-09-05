@@ -2,6 +2,7 @@ using System.CommandLine;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Planning;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
@@ -17,7 +18,9 @@ public static class ApiCommandDefinitions
     /// <summary>
     /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>
-    public static Command CreateTypeCommand(SharedOptions opts)
+    public static Command CreateTypeCommand(
+        SharedOptions opts,
+        out TypeOptionsParser.TypeCommandArgs structuralArgs)
     {
         var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
 
@@ -94,9 +97,45 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
+        structuralArgs = commandArgs;
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
+            if (TypeOptionsParser.TryCreateStructuralPlan(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    out StructuralDiscoveryPlan? structuralPlan,
+                    out OptionError? structuralError,
+                    out bool targetFree))
+            {
+                if (structuralError is not null)
+                {
+                    CommandError.Write(structuralError.Value);
+                    return 1;
+                }
+
+                StructuralDiscoveryRequest request =
+                    StructuralDiscoveryRequest.From(
+                        parseResult,
+                        opts,
+                        targetFree
+                            ? OutputFormat.Table
+                            : OutputFormat.Markdown);
+                return structuralPlan switch
+                {
+                    StructuralDiscoveryPlan.Resolved resolved =>
+                        StructuralViewRegistry.Execute(
+                            resolved.Route,
+                            request),
+                    StructuralDiscoveryPlan.Alternatives alternatives =>
+                        StructuralViewRegistry.Execute(
+                            alternatives.Value,
+                            request),
+                    _ => 1,
+                };
+            }
+
             var result = await TypeOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -128,7 +167,9 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case TypeOptionsParser.Success success:
-                    return await TypeCommand.ExecuteAsync(success.Options);
+                    return await TypeCommand.ExecuteAsync(
+                        success.Options,
+                        success.Plan);
 
                 default:
                     return 1;
@@ -141,7 +182,9 @@ public static class ApiCommandDefinitions
     /// <summary>
     /// Creates the member command for deep member inspection (docs on by default).
     /// </summary>
-    public static Command CreateMemberCommand(SharedOptions opts)
+    public static Command CreateMemberCommand(
+        SharedOptions opts,
+        out MemberOptionsParser.MemberCommandArgs structuralArgs)
     {
         var memberCommand = new Command(MemberCommand.Name, "Inspect type members (docs on by default)");
 
@@ -254,9 +297,63 @@ public static class ApiCommandDefinitions
             unsafeOption, indexOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             shapeOption, routerDeferredTargetOption);
+        structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {
+            if (MemberOptionsParser.TryCreateStructuralPlan(
+                    parseResult,
+                    opts,
+                    commandArgs,
+                    out StructuralDiscoveryPlan? structuralPlan,
+                    out OptionError? structuralError,
+                    out bool targetFree))
+            {
+                if (structuralError is not null)
+                {
+                    CommandError.Write(structuralError.Value);
+                    return 1;
+                }
+
+                StructuralDiscoveryRequest request =
+                    StructuralDiscoveryRequest.From(
+                        parseResult,
+                        opts,
+                        targetFree
+                            ? OutputFormat.Table
+                            : OutputFormat.Markdown);
+                return structuralPlan switch
+                {
+                    StructuralDiscoveryPlan.Resolved resolved =>
+                        StructuralViewRegistry.Execute(
+                            resolved.Route,
+                            request),
+                    StructuralDiscoveryPlan.Alternatives alternatives =>
+                        StructuralViewRegistry.Execute(
+                            alternatives.Value,
+                            request),
+                    _ => 1,
+                };
+            }
+
+            if (ApiCommand.RejectUniversallyInvalidMemberSelect(
+                    opts.ParseDiscover(parseResult),
+                    opts.ParseSelect(parseResult),
+                    opts.ParseSelectDefault(parseResult),
+                    allowListingPipeline:
+                        parseResult.GetValue(
+                            routerDeferredTargetOption) is not null,
+                    includeMemberTypeView:
+                        parseResult.GetValue(
+                            routerDeferredTargetOption) is not null
+                        || !MemberOptionsParser
+                            .HasAcquisitionFreeMemberGesture(
+                                parseResult,
+                                commandArgs)))
+            {
+                return 1;
+            }
+
             var result = await MemberOptionsParser.ParseAsync(parseResult, opts, commandArgs);
 
             switch (result)
@@ -289,7 +386,9 @@ public static class ApiCommandDefinitions
                     return 1;
 
                 case MemberOptionsParser.Success success:
-                    return await MemberCommand.ExecuteAsync(success.Options);
+                    return await MemberCommand.ExecuteAsync(
+                        success.Options,
+                        success.Plan);
 
                 default:
                     return 1;
