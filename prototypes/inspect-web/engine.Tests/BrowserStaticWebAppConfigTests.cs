@@ -70,13 +70,30 @@ public class BrowserStaticWebAppConfigTests
             "$(PublishDir)wwwroot",
             (string?)runtimeLoaderCommand.Attribute("Command"));
 
+        XElement contentSecurityPolicyTarget = Assert.Single(
+            project.Descendants("Target"),
+            element =>
+                (string?)element.Attribute("Name") ==
+                "PublishInspectWebContentSecurityPolicy");
+        Assert.Equal(
+            "PublishInspectWebRuntimeLoader",
+            (string?)contentSecurityPolicyTarget.Attribute("AfterTargets"));
+        XElement contentSecurityPolicyCommand = Assert.Single(
+            contentSecurityPolicyTarget.Elements("Exec"));
+        Assert.Contains(
+            "publish-content-security-policy.ts",
+            (string?)contentSecurityPolicyCommand.Attribute("Command"));
+        Assert.Contains(
+            "$(PublishDir)wwwroot",
+            (string?)contentSecurityPolicyCommand.Attribute("Command"));
+
         XElement verificationTarget = Assert.Single(
             project.Descendants("Target"),
             element =>
                 (string?)element.Attribute("Name") ==
                 "VerifyPublishedInspectWebSite");
         Assert.Equal(
-            "PublishInspectWebRuntimeLoader",
+            "PublishInspectWebContentSecurityPolicy",
             (string?)verificationTarget.Attribute("AfterTargets"));
         XElement verificationCommand = Assert.Single(
             verificationTarget.Elements("Exec"));
