@@ -8,10 +8,13 @@ operations. It is the normative owner for issue
 
 The dynamic operation lifecycle through quiescent release is implemented by
 `BrowserManagedOperationBridge` and gated by
-`BrowserManagedOperationBridgeTests` in the Release browser-engine suite. Its
-abstract lifecycle is checked by the companion
+`BrowserManagedOperationBridgeTests` in the Release browser-engine suite. The
+generated `[JSExport]` boundary is implemented by the
+`inspect-web-managed-operation-bridge-browser-boundary` Release canary under
+Mono and CoreCLR Browser/Wasm. Its abstract lifecycle is checked by the
+companion
 [managed operation bridge model](models/inspect-web-managed-operation-bridge/README.md).
-The generated `[JSExport]` Browser/Wasm canary also gates authenticated
+The generated multi-facade Browser/Wasm canary also gates authenticated
 nonterminal callback shape, ordered progress and durable event delivery,
 terminal-after-events settlement, callback-failure rejection, and callback
 closure after release. Shared-producer attachment, epoch-work leases, and the
@@ -302,8 +305,9 @@ on the bridge retaining an unbounded set of completed IDs.
 
 This ordering is checked abstractly by
 `RegistrationPrecedesManagedWork` and `OneActiveEntryPerId` in the companion
-model. `BrowserManagedOperationBridgeTests` and the compiled Browser/Wasm
-canary gate the concrete admission ordering for the implemented lifecycle.
+model. `BrowserManagedOperationBridgeTests` checks the concrete managed
+ordering. The browser-boundary canary additionally observes the synchronous
+event callout before the generated operation function returns its Promise.
 
 ### Cancellation
 
@@ -339,9 +343,9 @@ applied.
 The companion model checks `FirstCancellationReasonWins`,
 `CancellationSignalsAtMostOnce`, and
 `SettlingOperationRejectsCancellation`. It also requires settlement to drain
-the cancellation callout before classification and release. Concrete reentrancy
-and throwing-token callback behavior remain unverified until the required
-Release gate exists.
+the cancellation callout before classification and release.
+`BrowserManagedOperationBridgeTests` checks the concrete reentrancy,
+throwing-token callback, race, and drain behavior.
 
 ### Nonterminal events
 
@@ -400,10 +404,10 @@ does not replace the rejection, and the worker must not publish it as the
 managed terminal result. #5093 maps the rejection to its boundary-failure path.
 
 `NoCallbackAfterClose` in the companion model checks the abstract release
-invariant. Authenticated callback shape is already gated by `ts-jsexport`;
-the compiled Browser/Wasm canary gates same-operation ordered nonterminal
-routing, callback rejection, and no callback after return. In-flight close
-remains gated by `BrowserManagedOperationBridgeTests`.
+invariant. Authenticated callback shape is gated by `ts-jsexport`. The managed
+sub-gate checks in-flight close. The compiled Browser/Wasm canaries check
+same-operation routing, ordered nonterminal delivery, JavaScript callback
+rejection, and no callback after the generated Promise settles.
 
 ### Settlement and terminal classification
 
@@ -454,8 +458,9 @@ owner supplies the discriminator that prevents stale unexpected failures from
 becoming silent.
 
 The companion model checks `OneTerminalClassification` and
-`CancellationReasonIsFaithful`. Concrete exception and envelope projection
-remain unverified until the required Release gate exists.
+`CancellationReasonIsFaithful`. The managed sub-gate checks concrete exception
+precedence, and the browser-boundary canary checks the generated succeeded,
+expected-failed, unexpected-failed, and canceled envelope projection.
 
 ### Release and quiescence
 
@@ -490,8 +495,10 @@ that unrelated or shared physical work has stopped.
 
 `CalloutsDrainBeforeClassification`, `CallbackClosesBeforeRemoval`, and
 `QuiescenceRequiresRelease` in the companion model check the abstract ordering.
-Concrete resource disposal, cleanup-failure precedence, and Task-to-Promise
-ordering remain unverified until the Release gate exists.
+The managed sub-gate checks locally owned resource disposal and cleanup-failure
+precedence. The browser-boundary canary checks that Task-to-Promise settlement
+occurs only after the callback has closed and the operation is no longer
+addressable.
 
 ## Shared producer attachment
 
@@ -620,11 +627,15 @@ reportManagedTerminal(start.operationId, result);
 After managed invocation begins, a separate admitted cancellation path calls:
 
 ```ts
-const status = await facade.requestOperationCancellation(
+const status = facade.requestOperationCancellation(
   cancellation.operationId,
   cancellation.reason,
 );
 ```
+
+The synchronous status observes the cancellation linearization point without
+adding a Promise turn. It acknowledges only the managed cancellation request,
+not feature-work completion.
 
 Issue #5093 owns cancellation queued before invocation, worker message
 ordering, boundary rejection, and the point at which managed Task settlement
@@ -662,13 +673,16 @@ Implementation proceeds in independently coherent slices:
 1. introduce the dynamic lifecycle core and
    `BrowserManagedOperationBridgeTests` Release sub-gate without changing
    feature event semantics;
-2. add the generated `[JSExport]` Browser/Wasm canary for the complete
+2. add the generated `[JSExport]`
+   `inspect-web-managed-operation-bridge-browser-boundary` Release lifecycle
+   sub-gate and extend the multi-facade Browser/Wasm canary for the complete
    nonterminal union and callback lifetime;
 3. adapt one current export to pass an operation ID, concrete result envelope,
    and authenticated synchronous nonterminal event callback;
 4. replace parameterless cancellation with keyed cancellation for that export;
 5. migrate shared acquisition waits through broker subscriptions and
-   epoch-work leases where needed; and
+   epoch-work leases where needed, then complete the aggregate
+   `inspect-web-managed-operation-bridge` gate; and
 6. remove singleton coordinators only after every caller uses keyed operation
    identity.
 
@@ -710,71 +724,61 @@ concrete Release gates rather than added as another bridge state machine.
 ## Required implementation gate
 
 `BrowserManagedOperationBridgeTests` is the Release managed-core sub-gate. It
-covers synchronous admission, duplicate rejection, keyed first-reason
-cancellation, counted non-blocking callout drain, ordered advisory and durable
-nonterminal events, event callback closure, terminal precedence, exact-entry
-removal, failure-complete local cleanup, and quiescent task settlement. It does
-not stand in for browser interop evidence.
+covers synchronous admission; duplicate rejection; keyed, first-reason
+cancellation; reentrancy; token- and progress-callback failures; counted
+non-blocking callout drain; ordered advisory and durable nonterminal events;
+event callback closure; terminal precedence; exact-entry removal;
+failure-complete local cleanup; and quiescent Task settlement. It does not
+stand in for Browser/Wasm interop evidence.
 
-`inspect-web-managed-operation-bridge` is the complete Release browser-host
-gate. Its compiled Browser/Wasm canary now covers authenticated callback and
-result shapes, ordered Progress, Item, and ItemFailure delivery before the
-terminal result, callback-failure rejection, and no invocation through a
-retained sink after release. The canary runs through
-`eng/test-inspect-web-multi-facade-canary.sh`. The complete gate remains open
-and must combine the managed-core sub-gate and canary with:
+The multi-facade Browser/Wasm canary covers authenticated callback and result
+shapes, ordered Progress, Item, and ItemFailure delivery before the terminal
+result, callback-failure rejection, and no invocation through a retained sink
+after release. It runs through
+`eng/test-inspect-web-multi-facade-canary.sh`.
 
-- two concurrent feature operations with distinct IDs and keyed cancellation
-  reaching only the selected token;
-- duplicate active-ID rejection with no second body, token, or callback;
-- synchronous registration before a body reaches its first incomplete wait;
-- exact `user`, `superseded`, `disposed`, `feature-observer-failed`, `timeout`,
-  and `worker-restarted` reason fidelity across cancel/settle races;
-- repeated same- and different-reason cancellation preserving the first reason
-  and signaling the token once;
-- cancellation reentrancy and a throwing token callback after reason commit,
-  including settlement racing the in-flight cancellation callout and an
-  otherwise expected feature failure;
-- cancellation losing to an already-started settlement and returning
-  `NotActive`;
-- late ordinary success after accepted cancellation becoming canceled;
-- unexpected failure after accepted cancellation remaining failed;
-- `OperationCanceledException` without an accepted operation reason remaining
-  failed;
-- concrete succeeded, failed, and canceled envelope serialization, including
-  malformed required-payload negatives;
-- expected terminal variants fulfilling the Promise and bridge/runtime,
-  malformed-contract, serialization, and event-callback failures rejecting
-  it;
-- synchronous nonterminal events before cancellation and suppression during
-  close, after close, after table removal, and after Task settlement;
-- callback close racing an in-flight report without deadlock or a later
-  JavaScript invocation, with callback failure recorded before settlement
-  classification;
-- no callback reference retained after settlement, including failed and
-  canceled bodies;
-- exact-entry removal preventing an old `finally` from removing another entry;
-- one terminal classification and one managed quiescence barrier per admitted
-  operation;
-- injected failure at every locally owned cleanup stage, proving later cleanup
-  still runs and primary/secondary failures remain visible;
-- two waiters sharing one controlled producer, with either waiter canceling and
-  quiescing independently while the other continues;
-- last-waiter policy remaining feature-owned and no waiter token becoming the
-  producer token;
-- epoch-work start before final waiter quiescence when a controlled producer
-  outlives its wrappers;
-- atomic lease installation into the exact producer before final waiter
-  removal, plus start failure transferring to a callback-free epoch-fault
-  record;
-- a later waiter attaching to an already leased producer and detaching without
-  allocating, exhausting, or replacing that lease;
-- producer-finally work finish, at-most-once finish, start/finish callback
-  failure, and normal reporter unregister only after all leases finish;
+`inspect-web-managed-operation-bridge-browser-boundary` is the Release
+Browser/Wasm sub-gate. It runs a purpose-built host through the generated
+TypeScript facade under both Mono and CoreCLR. It covers:
+
+- a compiled `[JSExport]` method invoking the authenticated synchronous
+  progress callback before its returned Promise reaches an incomplete wait;
+- two concurrent IDs with JavaScript-requested keyed cancellation reaching
+  only the selected operation;
+- all six normalized reasons and repeated different-reason cancellation
+  preserving the first reason through generated DTOs;
+- duplicate active-ID Promise rejection without a second body or callback,
+  followed by readmission after release to prove no completed-ID tombstone;
+- concrete succeeded, expected-failed, unexpected-failed, and canceled
+  envelopes fulfilling the Promise, including exact safe error and diagnostic
+  payload projection for both failure kinds;
+- duplicate-admission and event-callback boundary failures rejecting the
+  Promise without inferring their kind from exception text;
+- callback closure after fulfilled, canceled, failed, and rejected settlement,
+  witnessed by retained managed reporters that can no longer call JavaScript;
+- strict rejection of an empty ID, unknown operation mode, and unknown
+  cancellation reason; and
+- a standalone operation without a progress callback or shared producer.
+
+The browser-boundary gate is Node-hosted Browser/Wasm evidence. It makes no
+real-browser, DOM, Worker placement, Worker protocol, or responsiveness claim.
+Generated DTO projection authenticates the producer serializer and static
+TypeScript shape; runtime validation of malformed Worker messages belongs to
+the #5093 adapter and protocol gate rather than `ts-jsexport`.
+
+`inspect-web-managed-operation-bridge` remains the complete Release
+browser-host gate. It must combine the implemented managed-core and both
+browser-boundary canaries with later evidence for:
+
+- two waiters sharing one controlled producer, including independent
+  cancellation and quiescence, exact final detach, feature-owned last-waiter
+  policy, and no waiter token becoming the producer token;
+- atomic epoch-work lease installation before final waiter release, including
+  start failure, later attachment, producer-finally finish, callback failures,
+  and normal reporter unregister only after every lease finishes; and
 - monotonic work sequences at the JavaScript safe-integer boundary, visible
-  exhaustion, and no wrap or reuse;
-- a neighboring operation without progress or shared work, proving the bridge
-  does not require those optional capabilities.
+  exhaustion, bounded receiver validation, and no wrap, reuse, unmatched
+  finish, or duplicate finish.
 
 The #5093 Release protocol gate separately proves high-water replay validation,
 active work-lease matching, malformed allowance handling, worker quiescence
@@ -796,5 +800,5 @@ This owner does not claim:
 - that an epoch-work allowance is bounded.
 
 Those claims require their adjacent owner and named gate. Until the remaining
-browser, shared-producer, and epoch-work gates exist, those implementation
-behaviors described by this target design are unverified.
+shared-producer and epoch-work gates exist, those implementation behaviors
+described by this target design are unverified.
