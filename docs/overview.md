@@ -70,7 +70,7 @@ substrates, and inspection producers that will extend that space.
   joins a facade's Metadata forwarding outcome through the sealed
   Queries-to-Research population receipt to one already admitted terminal
   Research attempt.
-- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), and assembly details. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
+- `src/ILInspector.Metadata/` reads PE metadata and portable-PDB structure: named documents, checksums, sequence-point relationships/ranges, raw custom-debug-information blobs, API surfaces, method classification, authenticated [state-machine relationships](design/state-machine-relationship-index.md), assembly details, and the sibling [ReadyToRun image projection](design/readytorun-image-projection.md) for PE-envelope discovery, headers, and section directories. `MetadataFindings` projects API and portable-PDB build-context observations onto the shared Finding spine while retaining compatibility classification through `ApiDiff`.
 - `src/ILInspector.SourceLink/` sits above Metadata and SourceLinkFetch. It owns SourceLink map extraction, canonical document paths, URL decoration, provenance, high-level type/member/IL-offset resolution, source-document/member-source Findings, and SourceLink-aware debug audits.
 - `src/SourceLinkFetch/` owns the dependency-free SourceLink map matcher and provenance grammar.
 - `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
@@ -386,7 +386,7 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.
-- [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency; its proposed [scanner binding](design/integration-scanner-binding.md) separates decoded observations from application-authored interpretation.
+- [Integrations](design/integrations.md): library ecosystem integration roll-ups and focused API currency; its [scanner binding](design/integration-scanner-binding.md) separates decoded observations from application-authored interpretation.
 - [Section model](design/section-model.md): section selection and query behavior.
 - [Capability section registry spike](design/capability-section-registry-spike.md): measured static lambda-table and precompiled-plan pilot layered on `SectionPipeline`.
 - [Hidden-fact annotations](design/hidden-fact-annotations.md): offset-keyed fact overlay semantics, validation, and projections.
@@ -421,6 +421,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   timeout identity, and source-safe post-return stream failures. It consumes
   source-result identity; source eligibility, failover policy, cache behavior,
   and presentation remain with their focused owners.
+- [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
+  NuGetFetch-owned termless/type-filtered discovery, source ordering,
+  search-selector catalog, typed metadata observations, and Gallery-specific
+  row-delegation evidence. Row meaning, generic source contracts, and host
+  adoption remain with their focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.

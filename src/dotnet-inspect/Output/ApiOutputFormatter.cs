@@ -1572,6 +1572,8 @@ public static class ApiOutputFormatter
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
             HasMethodBody = hasMethodBody,
+            MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
+                facts => facts.CallerContract.Evidence.MemberToken == token),
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };

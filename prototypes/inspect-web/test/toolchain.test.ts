@@ -179,7 +179,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
     testTsconfig.include,
-    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts"],
+    ["./**/*.ts", "../browser/**/*.ts", "../playwright.config.ts", "../playwright.worker.config.ts"],
   );
   // The toolchain scripts and the Vite config are Node programs rather than browser
   // source, so they get Node globals from their own project instead of widening the
@@ -390,6 +390,7 @@ const generatedFacadeSources =
   facadeModules.map(module => `engine/facades/${module}.ts`);
 const publishedFacadeModules =
   facadeModules.map(module => `engine/wwwroot/${module}.js`);
+const runtimeLoaderSource = "engine/wwwroot/runtime-loader.js";
 
 const typeScriptExtensions = typeScriptSourceExtensions;
 const javaScriptExtensions = javaScriptSourceExtensions;
@@ -400,9 +401,12 @@ test("no source file suppresses type checking", () => {
   // Round 3 (Sol) hid a suppression directive in `scripts/probe.mts`: the scan asked only
   // for `.ts` while the compiler happily reads all four TypeScript extensions, so a file
   // the program did type-check could turn that checking off and say nothing.
-  const files = projectFiles(typeScriptExtensions);
+  const files = [
+    ...projectFiles(typeScriptExtensions),
+    resolve(root, runtimeLoaderSource),
+  ];
 
-  assert.ok(files.length > 50, `expected the TypeScript sources, found ${files.length}`);
+  assert.ok(files.length > 50, `expected the checked sources, found ${files.length}`);
   const suppressionPattern = new RegExp(
     ["nocheck", "ignore"].map(directive => `@ts-${directive}`).join("|"),
   );
@@ -425,11 +429,9 @@ test("no source file suppresses type checking", () => {
 // exemption for free. Those files are TypeScript now, and the one remaining exemption is
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
-// Rather than restate that file name twice, the two sets are asserted against each other:
-// the JavaScript actually present must be exactly the JavaScript actually exempted. A new
-// authored file fails, a widened exemption fails, and an exemption left behind by a
-// deleted file fails too.
-test("the only JavaScript is the file the lint exemption names", () => {
+// The authored runtime loader is checked against the SDK declaration in the facade
+// compiler program. Only the compiler-derived facades receive lint exemptions.
+test("JavaScript is either compiler-derived or the SDK-checked runtime loader", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const present = projectFiles(javaScriptExtensions)
     .map(file => projectRelative(root, file))
@@ -440,11 +442,11 @@ test("the only JavaScript is the file the lint exemption names", () => {
     .filter(file => javaScriptExtensions.some(extension => file.endsWith(extension)))
     .sort();
 
-  assert.deepEqual(present, [...publishedFacadeModules].sort(),
+  assert.deepEqual(present, [...publishedFacadeModules, runtimeLoaderSource].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");
-  assert.deepEqual(exempted, present,
-    "the lint exemption and the JavaScript it covers must name the same files");
+  assert.deepEqual(exempted, [...publishedFacadeModules].sort(),
+    "only compiler-derived facades may receive the JavaScript lint exemption");
 });
 
 // Every gate in this file accounts for *files*: the compiler builds a program out of
@@ -1118,6 +1120,14 @@ test("the generated facade TypeScript uses its SDK-owned compiler gates", () => 
   assert.match(
     engineGenerationScript,
     /"\$tsc" -p "\$scratch\/sources\/tsconfig\.json"/);
+  assert.match(engineGenerationScript, /"allowJs": true/);
+  assert.match(engineGenerationScript, /"checkJs": true/);
+  assert.match(
+    engineGenerationScript,
+    /cp "\$js_output_directory\/runtime-loader\.js" "\$scratch\/sources\/runtime-loader\.js"/);
+  assert.match(
+    engineGenerationScript,
+    /printf ', "runtime-loader\.js"\]/);
   // The whole set is compiled by one program built from an exact file inventory, not from a
   // directory glob that would admit an unowned source.
   assert.match(
@@ -1515,6 +1525,7 @@ test("the lint covers every file the bundler reads", async () => {
   // `src/styles.css` is style content. It sits under a lint target, but oxlint reads
   // script and the compiler has no account of a stylesheet at all, so it cannot clear
   // either half of the test below. A browser will not execute it either.
+  // The module Worker build also reads `tsconfig.json` as configuration, not source.
   //
   // Pinning the exact list is what makes this fail closed. Anything else the build reads
   // changes it and fails -- including a second stylesheet, which is a small cost for a
@@ -1525,6 +1536,7 @@ test("the lint covers every file the bundler reads", async () => {
     "../annotated-source-viewer/src/document-model.js",
     "index.html",
     "src/styles.css",
+    "tsconfig.json",
   ];
 
   const targets = lintTargets;
@@ -2842,8 +2854,8 @@ test("the analysis host check matches locked native packages and lint wiring", (
       + "managed-operation-bridge-canary/initialize.ts "
       + "managed-operation-bridge-canary/exercise.ts "
       + "managed-operation-bridge-canary/facades engine/facades "
-      + `${publishedFacadeModules.join(" ")} vite.config.ts `
-      + "playwright.config.ts && "
+      + `${publishedFacadeModules.join(" ")} ${runtimeLoaderSource} vite.config.ts `
+      + "playwright.config.ts playwright.worker.config.ts && "
       + "html-validate --config .htmlvalidate.json \"**/*.{html,htm,xhtml}\"",
   );
 });

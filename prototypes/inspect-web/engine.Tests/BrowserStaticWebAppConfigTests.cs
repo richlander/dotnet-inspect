@@ -53,13 +53,30 @@ public class BrowserStaticWebAppConfigTests
             "PreserveNewest",
             (string?)content.Attribute("CopyToPublishDirectory"));
 
+        XElement runtimeLoaderTarget = Assert.Single(
+            project.Descendants("Target"),
+            element =>
+                (string?)element.Attribute("Name") ==
+                "PublishInspectWebRuntimeLoader");
+        Assert.Equal(
+            "PublishInspectWebFrontendIndex",
+            (string?)runtimeLoaderTarget.Attribute("AfterTargets"));
+        XElement runtimeLoaderCommand = Assert.Single(
+            runtimeLoaderTarget.Elements("Exec"));
+        Assert.Contains(
+            "publish-runtime-loader.ts",
+            (string?)runtimeLoaderCommand.Attribute("Command"));
+        Assert.Contains(
+            "$(PublishDir)wwwroot",
+            (string?)runtimeLoaderCommand.Attribute("Command"));
+
         XElement verificationTarget = Assert.Single(
             project.Descendants("Target"),
             element =>
                 (string?)element.Attribute("Name") ==
                 "VerifyPublishedInspectWebSite");
         Assert.Equal(
-            "PublishInspectWebFrontendIndex",
+            "PublishInspectWebRuntimeLoader",
             (string?)verificationTarget.Attribute("AfterTargets"));
         XElement verificationCommand = Assert.Single(
             verificationTarget.Elements("Exec"));
