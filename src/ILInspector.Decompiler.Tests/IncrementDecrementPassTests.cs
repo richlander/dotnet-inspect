@@ -654,4 +654,21 @@ public class IncrementDecrementPassTests
         var store = Assert.IsType<StoreLocal>(Assert.Single(statements));
         Assert.Same(plain, store.Value);
     }
+
+    [Fact]
+    public void UserOperatorSelfUpdate_DistinctSameIndexBindersAreNotFolded()
+    {
+        var storedParameter = new Parameter("outer", ValueType);
+        var readParameter = new Parameter("nested", ValueType);
+        var update = IncrementCall(
+            "op_Increment",
+            ValueType,
+            new LoadArgument(0, readParameter));
+        var statements = Run(Function(
+            new StoreArgument(0, storedParameter, update)));
+
+        Assert.Empty(
+            statements.SelectMany(statement => statement.Descendants)
+                .OfType<IncrementDecrement>());
+    }
 }

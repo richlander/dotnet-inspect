@@ -43,6 +43,36 @@ public class NestedScopeNameCollisionTests
     }
 
     [Fact]
+    public void MaterializedLambdaSlot_AvoidsOuterStackSlotName()
+    {
+        var lambdaBody = Body(
+            new StoreLocal(0, Int32, new Constant(2, Int32)),
+            new ExpressionStatement(new LoadLocal(0, Int32)));
+        var lambda = new Lambda(
+            Action,
+            [],
+            [Int32],
+            [],
+            usesUpdatedMemorySafetyRules: false,
+            skipLocalsInit: false,
+            lambdaBody)
+        {
+            SynthesizedLocalNames = ["S_2"],
+        };
+
+        string body = RenderBody(
+            [Int32, Action],
+            new StoreStackSlot(2, new Constant(1, Int32)),
+            new StoreLocal(0, Int32, new LoadStackSlot(2, Int32)),
+            new StoreLocal(1, Action, lambda));
+
+        Assert.Contains("int S_2 = 1;", body);
+        Assert.Contains("int S_2_1 = 2;", body);
+        Assert.DoesNotContain("() => { int S_2 = 2;", body);
+        AssertCompiles(body);
+    }
+
+    [Fact]
     public void LambdaFallbackLocal_AvoidsOuterFallbackLocalName()
     {
         var lambdaBody = Body(

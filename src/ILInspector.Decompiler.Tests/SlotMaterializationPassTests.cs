@@ -503,7 +503,8 @@ public class SlotMaterializationPassTests
 
         new SlotMaterializationPass().Run(function, PassContext.None);
 
-        Assert.Equal(["S_1", "S_0"], function.LocalNames[^2..]);
+        Assert.Equal([null, null], function.LocalNames[^2..]);
+        Assert.Equal(["S_1", "S_0"], function.SynthesizedLocalNames[^2..]);
     }
 
     [Fact]
