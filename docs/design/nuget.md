@@ -179,6 +179,9 @@ Release .NET 11.0.0-preview.7.26381.103 runtime compared:
   SHA-256 was
   `9b75cc0044d6a55c5776b4728e1154e8d45dc17b5c56b8b2d4fb4539e745a3f9`.
 
+These samples predate the advertised-link escaping correction below. They
+characterize the index/page route; the corrected revision was not re-timed.
+
 The coordinates, in order, were `Microsoft.AspNetCore.App@2.2.8`,
 `Newtonsoft.Json@13.0.3`, and `Microsoft.Extensions.Logging@8.0.0`.
 They include an older deprecated version, inline registration, and a linked
@@ -394,7 +397,8 @@ spelling or adopting another coordinate's facts.
 
 Start at the per-ID index, compare inclusive page bounds using NuGet version
 precedence, and consume only matching pages. Use an inline `items` array when
-present; otherwise follow that page's `@id`, resolved against the index.
+present; otherwise follow that page's `@id`, resolved against the index
+without normalizing its advertised path/query escaping.
 The selected page's required embedded `catalogEntry` supplies the package
 ID/version and optional metadata. No standalone leaf or separate Catalog
 request is needed. Required identity and structure are checked before the

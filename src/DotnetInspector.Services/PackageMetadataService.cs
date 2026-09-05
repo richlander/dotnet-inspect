@@ -922,8 +922,9 @@ public static class PackageMetadataService
         return builder.Uri.AbsoluteUri;
     }
 
+    // Keep escaping intact for callers that preserve the advertised request target.
     private static string ResolveReference(string baseUrl, string reference) =>
-        new Uri(new Uri(baseUrl, UriKind.Absolute), reference).AbsoluteUri;
+        new Uri(new Uri(baseUrl, UriKind.Absolute), reference).OriginalString;
 
     internal static PackageDeprecation ParseDeprecation(JsonElement deprecationElement)
     {

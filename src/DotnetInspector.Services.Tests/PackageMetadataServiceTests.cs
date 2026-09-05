@@ -2443,6 +2443,55 @@ public class PackageMetadataServiceTests : IDisposable
                     == "/registration/pages/p-42.json").Uri.Query);
     }
 
+    [Theory]
+    [InlineData("https://private.example/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    [InlineData("../pages/%70-42.json?%74oken=%76alue&part=a%2fb")]
+    public async Task FetchAllMetadataAsync_PreservesAdvertisedPageEscaping(
+        string pageReference)
+    {
+        const string source = "https://private.example/v3/index.json";
+        const string target =
+            "/registration/pages/%70-42.json?%74oken=%76alue&part=a%2fb";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.PathAndQuery switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        pageReference, "1.0.0", "1.0.0"))),
+                target => Json(
+                    RegistrationPageDocument(RegistrationLeaf(
+                        "Private.Package",
+                        "1.0.0",
+                        """
+                        "published": "2024-05-06T07:08:09Z"
+                        """))),
+                _ => new HttpResponseMessage(System.Net.HttpStatusCode.BadRequest),
+            });
+
+        using var client = new HttpClient(handler);
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero),
+            result.Published);
+        Assert.Equal(
+            ["/v3/index.json", "/registration/private.package/index.json", target],
+            handler.Requests.Select(request => request.Uri.PathAndQuery));
+    }
+
     [Fact]
     public async Task FetchAllMetadataAsync_FetchesOnlyThePageCoveringTheRequestedVersion()
     {
