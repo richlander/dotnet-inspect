@@ -88,7 +88,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [View-Facet Registry](design/view-facet-registry.md) | View-facet identity and discovery: how facets are registered and looked up across CLI and browser hosts. |
 | [Package Set Registry](design/package-set-registry.md) | Front-end-only static application identities, descriptors, and package membership over reusable package-coordinate validation. |
 | [Static Ecosystem Packs](design/ecosystem-packs.md) | Front-end-only application catalog of private static ecosystem registrations composing discovery metadata with optional package-set, prefix-request, and opaque Integration scanner bindings. |
-| [Integration Scanner Binding](design/integration-scanner-binding.md) | Proposed Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution. |
+| [Integration Scanner Binding](design/integration-scanner-binding.md) | Integration-owned static scanner handoff over immutable decoded observations, preserving evidence and owner-controlled execution; catalog and host adoption remain staged. |
 | [Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) | Committed logical Root membership and order, closed-by-default selective dependency expansion, revision-bound edits, and complete scope-operation results. |
 | [Schema Query](design/schema-query.md) | `-D`/`-S` schema/query implementation notes. |
 | [Query Vocabulary](design/vocabulary.md) | Shared static catalogs for legal query values across CLI and browser hosts. |
@@ -119,6 +119,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Metadata Semantic Substrates](design/metadata-semantic-substrates.md) | Admission, typed outcomes, identity, evidence, bounds, and consumer boundaries for shared metadata-derived meaning. |
 | [Workspace Research Target Composition](design/research-workspace-target-composition.md) | Queries-owned association from a workspace facade through Metadata forwarding evidence and the Queries-to-Research population receipt to one exact Research target attempt. |
 | [Direct-member Comparison](design/direct-member-comparison.md) | Queries-owned designated local C#/IL comparison, explicit Research/publication prerequisites, and production adoption and legacy-retirement ledger. |
+| [Local Comparison Publication](design/local-comparison-publication.md) | Queries-owned result association and terminal evidence for the first borrowed-input, two-host method-comparison route. |
 | [Analysis Universe Realization](design/analysis-universe-realization.md) | Operation-scoped binding from one exact finite analysis universe and validated plan to owner-issued executable capabilities, deterministic access, retained lifetimes, and visible failure. |
 | [Artifact Acquisition and Workspaces](design/artifact-acquisition-and-workspaces.md) | How artifacts are acquired and composed into an inspection workspace. |
 | [Inspect-web Managed Operation Bridge](design/inspect-web-managed-operation-bridge.md) | Dynamic managed-operation admission, keyed cancellation, progress callback release, typed outcomes, shared-waiter detachment, and epoch-work leases. |
