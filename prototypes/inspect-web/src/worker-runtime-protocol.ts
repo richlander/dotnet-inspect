@@ -51,6 +51,7 @@ export interface RawInitializeMainToWorkerEnvelope
   readonly kind: "initialize";
   readonly bootstrap: unknown;
   readonly idleHeartbeatIntervalMilliseconds: number;
+  readonly idleAllowanceMilliseconds: number;
 }
 
 export interface RawStartMainToWorkerEnvelope
@@ -85,6 +86,7 @@ export interface InitializeMainToWorkerEnvelope<TBootstrap>
   readonly kind: "initialize";
   readonly bootstrap: TBootstrap;
   readonly idleHeartbeatIntervalMilliseconds: number;
+  readonly idleAllowanceMilliseconds: number;
 }
 
 export interface StartMainToWorkerEnvelope<TPayload>
@@ -755,6 +757,7 @@ function decodeInitializeStructure(
       "kind",
       "bootstrap",
       "idleHeartbeatIntervalMilliseconds",
+      "idleAllowanceMilliseconds",
     ],
     path,
   );
@@ -767,12 +770,19 @@ function decodeInitializeStructure(
   );
   if (idleHeartbeatIntervalMilliseconds.kind === "failure")
     return idleHeartbeatIntervalMilliseconds;
+  const idleAllowanceMilliseconds = decodePositiveSafeInteger(
+    record.value.get("idleAllowanceMilliseconds"),
+    "$.idleAllowanceMilliseconds",
+  );
+  if (idleAllowanceMilliseconds.kind === "failure")
+    return idleAllowanceMilliseconds;
   return success({
     ...header.value,
     kind: "initialize",
     bootstrap: record.value.get("bootstrap"),
     idleHeartbeatIntervalMilliseconds:
       idleHeartbeatIntervalMilliseconds.value,
+    idleAllowanceMilliseconds: idleAllowanceMilliseconds.value,
   });
 }
 

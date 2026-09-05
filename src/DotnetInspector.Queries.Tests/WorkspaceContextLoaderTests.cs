@@ -3916,11 +3916,13 @@ public sealed class WorkspaceContextLoaderTests
         public bool Completed { get; private set; }
         public bool Disposed { get; private set; }
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
             Transfer = transfer;
-            return new Reservation(this);
+            return ValueTask.FromResult<IPackagePayloadReservation>(
+                new Reservation(this));
         }
 
         sealed class Reservation(RecordingTransferPolicy owner)

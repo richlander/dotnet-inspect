@@ -45,8 +45,7 @@ and cannot produce an `Exact` receipt under the current contract; until then the
 causal control is unavailable.
 
 The focused [authored-source rebuild fidelity reporting
-contract](#authored-source-rebuild-fidelity) distinguishes current aggregate
-context reporting from the lane-specific evidence planned in
+contract](#authored-source-rebuild-fidelity) defines the lane-specific evidence in
 [#5851](https://github.com/richlander/dotnet-inspect/issues/5851).
 
 The existing `CB_CLUSTER=1` path already has a strong generic answer for closure
@@ -906,19 +905,22 @@ Examples:
 **Owner:** ReturnToSender / DecompilerHarness, within this reporting contract.
 **Tracker:** [#5851](https://github.com/richlander/dotnet-inspect/issues/5851),
 Slice 3 of [#2673](https://github.com/richlander/dotnet-inspect/issues/2673).
-The strengthened contract below is **planned and unverified**; its adoption
-gates are specified below, not claimed to exist.
+The lane-specific reporting contract is implemented in the existing harness,
+with the focused Release gates named below. Original-build reconstruction and
+owner-issued replacement-artifact digests remain unavailable; this reporting
+does not certify them.
 
 #### Existing lane and design basis
 
 `--authored-rebuild-fidelity` already compiles an acquired authored body in the
 final RTS artifact/reference context and retains an independent decompiler
 result. This slice extends that lane rather than introducing a new oracle.
-The present context assessment compares recorded options to RTS defaults even
-though the authored compilation applies some PDB-recorded options. Its reference
-comparison uses filenames; `Recorded` can coexist with missing compiler,
-generator, and project evidence. That is not a reconstruction of the original
-build context.
+Before #5851, context assessment compared recorded options to RTS defaults even
+though the authored compilation applied some PDB-recorded options. Its reference
+comparison used filenames; `Recorded` could coexist with missing compiler,
+generator, and project evidence. The lane-specific result replaces that
+projection, retaining each actual attempt's product source artifact, parse and
+compilation settings, and frozen-reference provenance.
 
 The exact claim is: **for one shipped target, report independent authored and
 decompiled IL comparisons with the recorded-versus-effective context of each
@@ -1015,6 +1017,11 @@ shows both outcomes, acquisition/checksum and determinism, both context
 summaries, and the material differing/unknown/failed facts. A favorable authored
 outcome cannot by itself filter out a failing decompiler example. Keep the
 example limit explicit; it limits presentation, not retained evidence.
+Agreeing references may be summarized by count with their comparison coverage;
+their individual facts remain in the typed result. If no compilation ran, show
+the recorded inventory count and unavailable effective inventory rather than
+repeating the same unavailable comparison for every reference. The retained
+PDB inspection still contains the individual original records.
 
 Illustrative mockup, not current command output, for the existing invocation:
 
@@ -1051,10 +1058,10 @@ MVIDs are a context difference, not agreement.
 The production host is the existing DecompilerHarness mode. The complete
 focused adoption path has **two steps**, tracked in #5851 under #2673:
 
-1. Land this documentation-only contract and its examples.
+1. Land the documentation-only contract and its examples (#5852).
 2. Adopt lane-specific evidence in the existing typed result, assessor, and
-   bounded report together; replace the old unqualified context projection in
-   that same slice, with focused Release gates and a pinned real-source demo.
+   bounded report together, replacing the old unqualified context projection
+   with focused Release gates and a pinned real-source demo.
 
 There is no alternative harness architecture to retain or retire. This extends
 test infrastructure, not shared product substrate; existing product CLI and
@@ -1063,28 +1070,41 @@ exercise product-owned artifact construction, not introduce tools-side shell
 repair. If an adjacent prerequisite prevents that, record the blocker rather
 than broadening this issue.
 
-Existing tests in `AuthoredRebuildFidelityTests` cover narrower behavior:
+Tests in `AuthoredRebuildFidelityTests` retain the original outcome coverage:
 `BuildContextAssessment_KeepsDeterminismSeparateFromRecordedContext`,
 `BuildContextAssessment_ReportsContextDriftIndependently`, and
-`AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff`. They are not evidence for
-the new per-lane contract. The following are proposed outcome gates, all
-**unverified** until implemented and run by
+`AuthoredBody_ReusesFinalRtsRequestAndProductIlDiff`. The per-lane contract is
+gated by the following methods in `AuthoredBuildContextTests`, run by
 `src/ILInspector.Decompiler.Tests` in Release:
 
-| Proposed gate | Required observation |
+| Gate | Required observation |
 | --- | --- |
-| Applied-options witness | A applies recorded debug options while B uses release; the report assesses each actual attempt correctly. |
-| Incomplete-context witness | Exact normalized A plus deterministic/checksum agreement still discloses unknown compiler/generator/project facts. |
-| Reference-identity neighbors | Same filename/different MVID reports drift; unavailable identity reports unknown; comparable matching fields report only their scoped agreement. |
-| Independent-outcome matrix | A exact/different/failed/unavailable with differing B outcomes preserves both results; replacing an attempt cannot retain stale context. |
-| Failed-inspection witness | A recorded-context inspection error stays failed evidence, distinguishable from absence and from the independently obtained B result. |
-| Bounded-report witness | An exact A does not hide a failed B; each emitted example contains both lane contexts and counts remain independent of the example cap. |
+| `AppliedOptions_UseEachActualAttempt` | Compiler-recorded checked arithmetic is applied by A while B remains unchecked. The PDB's omitted default debug optimization is unknown, not inferred. |
+| `ExactAuthoredIl_DoesNotCertifyUnknownContext` | Exact normalized A plus deterministic/checksum agreement still discloses unknown compiler/generator/project facts. |
+| `ReferenceIdentity_DoesNotUseFilenameAsProof` | Same filename/different MVID reports drift; unavailable identity reports unknown; comparable matching fields report only their scoped agreement. |
+| `ReplacingAuthoredAttempt_DoesNotReuseItsContextOrVerdict` | Explicitly recorded debug/release settings and differing/failed A observations preserve B; the replacement has its own context. |
+| `FloorReplacement_DropsPreviousCompilationContext` | An independent compile-back floor does not retain the superseded RTS attempt's context. |
+| `FailedInspection_RemainsSeparateFromBothComparisons`, `FailedReferences_DoNotDiscardRecordedOptions` | Decode failure stays failed evidence without erasing an independently obtained comparison or usable option records. |
+| `MissingAuthoredAttempt_DoesNotBorrowDecompilerContext` | Source absence does not borrow B's effective settings for an A compilation that never ran. |
+| `UnsupportedAndMissingOptions_DiscloseActualDefaults` | Unsupported values and unhandled options remain unknown; actual fallback settings are disclosed. |
+| `Report_PreservesBothLanesAndIndependentCountsUnderCap` | Exact A does not hide failed B; both contexts survive the example cap, and expanded field text uses `InertString` at the text-rendering boundary. |
+| `LocalAuthoredSource_RetainsBothActualContextsAfterEvaluation` | Local PDB and checksum-verified local source exercise acquisition through reporting evidence without a network dependency; contexts survive release of the final request. |
 
-Use compiled fixtures for option/reference boundaries and run the actual
-harness report over retained results. A pinned package/source/PDB demo in
-step 2 supplies real-input evidence without turning live network availability
-into a contract gate. This design adds no state machine or concurrency
-protocol requiring a new formal model.
+The cataloged `decompiler.authored-rebuild` fixture is compiled with optimization
+disabled, checked arithmetic, and local source. It supplies
+compiler-produced option/IL boundaries; the reference neighbors consume the
+actual retained compilation provenance. PDB readers omit some default options:
+their absence is not a license to reconstruct defaults from compiler lore.
+Independently available options are now retained even if the reference-metadata
+inspection is absent or failed; A still uses its frozen RTS reference closure.
+The command's existing outcome-based exit policy is unchanged.
+
+Pinned Markout 0.36.0 and NuGet.Versioning 7.3.0 probes supply real-input
+absence/failure evidence without turning live network availability into a gate.
+The former acquires checksum-matching source but its first three accessor
+bodies remain unsupported by extraction; those A attempts are unavailable,
+not compilations in B's context. This design adds no state machine or
+concurrency protocol requiring a new formal model.
 
 ## Migration plan
 

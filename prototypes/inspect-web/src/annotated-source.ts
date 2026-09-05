@@ -68,6 +68,11 @@ export interface AnnotatedSourceBindingActions {
   onAction(action: AnnotatedSourceAction): void;
 }
 
+export type AnnotatedSourceScrollSnapshot = ReadonlyMap<
+  string,
+  readonly [scrollLeft: number, scrollTop: number]
+>;
+
 interface SourceRenderContext {
   model: AnnotatedSourceViewerModel;
   session: AnnotatedSourceSession;
@@ -141,7 +146,7 @@ export function renderAnnotatedSourceModal(
               data-annotated-action="close-modal">Close</button>
           </div>
         </header>
-        <div class="annotated-modal-controls">
+        <div class="annotated-modal-controls" data-annotated-scroll="modal-controls">
           <fieldset class="annotated-control-group">
             <legend>Annotations <span>${reported}</span></legend>
             <div class="annotated-control-row">
@@ -191,10 +196,12 @@ export function renderAnnotatedSourceModal(
           </fieldset>
         </div>
         <div class="annotated-modal-workspace">
-          <section class="annotated-modal-source" aria-label="Annotated source text">
+          <section class="annotated-modal-source" aria-label="Annotated source text"
+            data-annotated-scroll="modal-source">
             ${renderSource(context)}
           </section>
-          <aside class="annotated-modal-inspector" aria-label="Annotated source inspector">
+          <aside class="annotated-modal-inspector" aria-label="Annotated source inspector"
+            data-annotated-scroll="modal-inspector">
             ${renderPrimary(context)}
             ${renderFindingInspector(context)}
           </aside>
@@ -230,6 +237,30 @@ export function bindAnnotatedSource(
   modal?.addEventListener("keydown", event => {
     if (event.key !== "Tab") return;
     trapModalTab(modal, event);
+  });
+}
+
+export function captureAnnotatedSourceScroll(
+  root: ParentNode,
+): AnnotatedSourceScrollSnapshot {
+  const snapshot = new Map<string, readonly [number, number]>();
+  root.querySelectorAll<HTMLElement>("[data-annotated-scroll]").forEach(element => {
+    const key = element.dataset.annotatedScroll;
+    if (key) snapshot.set(key, [element.scrollLeft, element.scrollTop]);
+  });
+  return snapshot;
+}
+
+export function restoreAnnotatedSourceScroll(
+  root: ParentNode,
+  snapshot: AnnotatedSourceScrollSnapshot,
+): void {
+  root.querySelectorAll<HTMLElement>("[data-annotated-scroll]").forEach(element => {
+    const key = element.dataset.annotatedScroll;
+    const position = key ? snapshot.get(key) : undefined;
+    if (!position) return;
+    element.scrollLeft = position[0];
+    element.scrollTop = position[1];
   });
 }
 
@@ -335,7 +366,8 @@ function renderSource(context: SourceRenderContext): string {
   }
 
   return `
-    <div class="annotated-source-code" data-annotated-surface="${session.surface}">
+    <div class="annotated-source-code" data-annotated-surface="${session.surface}"
+      data-annotated-scroll="${session.surface}-source-code">
       ${view.lines.map(line => {
         const annotationRows =
           groupLineAnnotations(lineAnnotations.get(line.number) ?? []);
