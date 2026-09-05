@@ -27,8 +27,9 @@ required currency; existing search and full Integration behavior is unchanged.
 
 [Approved lazy traversal](approved-lazy-traversal.md) records the approved
 target experience for compact namespace hints, core-package starting points,
-and Integration-owned contract knowledge. Those additions are not part of the
-implemented registration above; their catalog adoption and prerequisite
+Integration-owned contract knowledge, and Platform as an ecosystem selecting
+source-owned discovery/acquisition bindings. Those additions are not part of
+the implemented registration above; their catalog adoption and prerequisite
 owner-issued values remain focused follow-up work under #6012 and #5728.
 
 Participating normative owner:
