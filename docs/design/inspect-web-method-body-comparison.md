@@ -49,12 +49,13 @@ comparison; existing Browser owners supply execution and presentation lifetime.
 
 | Owner | Consumed contract |
 | --- | --- |
-| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence |
+| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; the Browser-usable exact-target projection remains a step-6 prerequisite in #5925 |
 | [Local comparison publication](local-comparison-publication.md#result-contract) | Original query-origin or Research-terminal evidence associated with one invocation |
-| Existing Browser implementation-member resolution and inspection scope | Reference/surface-to-implementation selection, retained participant access, and Metadata-issued method addresses |
+| Existing Browser implementation-member resolution and inspection scope | Reference/surface-to-implementation selection, retained participant access, and validated implementation body selection |
 | [Operation authority](inspect-web-operation-authority.md) | Current-view publication, cancellation, supersession, disposal, and quiescence |
 | [Managed operation bridge](inspect-web-managed-operation-bridge.md) and [Worker runtime](inspect-web-worker-runtime.md) | Generated feature transport, physical execution, cancellation forwarding, and managed release |
 | [Shell interaction](inspect-web-shell-interaction.md) | Shared modal accessibility, Escape, and ordinary focus return |
+| [Surface composition](inspect-web-surface-composition.md#contextual-working-surface-actions) | Contextual-action placement and responsive continuity |
 | [Navigation consumer](inspect-web-navigation-consumer.md) | Ordinary member navigation, canonical location, and history |
 
 These are dependencies, not additional normative owners of this feature.
@@ -66,8 +67,9 @@ it does not change their identity, validity, cleanup, or replacement rules.
 ### Explicit pair interaction
 
 Offer **Compare method bodies** as a contextual action for a selected physical
-method or explicitly selected accessor/body. It belongs with the member's
-working content, not the Application menu or persistent workspace chrome.
+method or explicitly selected accessor/body. Surface Composition owns its
+placement and responsive continuity, including the dedicated action region
+when launched from full-area Source. It is not an Application menu item.
 A selection without an available implementation target exposes its reason;
 it must not silently select the first accessor or another overload.
 
@@ -104,11 +106,19 @@ and resolves their implementation methods through the existing Browser
 member-resolution boundary. A token from a reference/surface row is selector
 input, not an asserted token in the implementation image.
 
-Only the resulting exact implementation participant and its Metadata-issued
-method address are supplied to the public Queries adapter. Both endpoints must
-belong to the selected implementation assembly. Display labels, bare tokens,
-or equal signatures in another image cannot substitute for that association.
-An asserted physical address is never retargeted to make the request succeed.
+Existing Browser resolution returns a validated implementation body token,
+not a `MetadataMethodAddress`. The Browser cannot construct the missing
+module association by opening a metadata reader below Queries.
+The Queries-owned exact-target projection needed to consume that selection
+is an explicit prerequisite within #5925's step-6 adapter delivery. Its public
+API shape stays Queries-owned; this design does not claim it already exists.
+
+The comparison consumes the resulting exact implementation participant and
+owner-issued physical method association through that public Queries boundary.
+Both endpoints must belong to the selected implementation assembly. Display
+labels, bare tokens, or equal signatures in another image cannot substitute
+for that association. An asserted physical address is never retargeted to make
+the request succeed.
 
 An unavailable context, unresolved body selection, wrong-image address, or
 ambiguous designation stays visible non-success. This feature neither opens a
@@ -171,8 +181,9 @@ text rendering, highlighting, scrolling, and accessibility conventions.
 Do not compute another text diff from displayed bodies or normalize code to
 manufacture matching lines. The CLI continues to use shared Markout lowering.
 
-On narrow screens the same typed Before/After association survives a stacked
-layout. Labels, code, and diagnostics use the existing text-rendering
+Within Surface Composition's responsive constraints, the dialog preserves the
+same typed Before/After association when its paired content stacks. Labels,
+code, and diagnostics use the existing text-rendering
 conventions. The shared shell owns modal behavior; this feature only supplies
 its accessible title, controls, content, and loading/result announcements.
 
