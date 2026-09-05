@@ -4522,7 +4522,6 @@ public class PackageCommand
         {
             if (ShouldUseArtifactBackedPackageIntegrations(
                     isLocalFile,
-                    options.Tfm,
                     selectionResult.TargetFramework,
                     selectedProducerKey,
                     selected.Select(selection =>
@@ -4565,6 +4564,11 @@ public class PackageCommand
                             acquisition,
                             includeIntegrationOpportunities:
                                 includeIntegrationOpportunities);
+                }
+                else
+                {
+                    logger.Log(
+                        $"Using artifact-backed package Integrations for {selectionResult.TargetFramework}.");
                 }
             }
             else
@@ -5076,12 +5080,10 @@ public class PackageCommand
 
     internal static bool ShouldUseArtifactBackedPackageIntegrations(
         bool isLocalFile,
-        string? requestedTargetFramework,
         string? selectedTargetFramework,
         string? selectedProducerKey,
         IEnumerable<string> selectedPackagePaths) =>
         !isLocalFile
-        && string.IsNullOrWhiteSpace(requestedTargetFramework)
         && !string.IsNullOrWhiteSpace(selectedTargetFramework)
         && !string.IsNullOrWhiteSpace(selectedProducerKey)
         && selectedPackagePaths.All(static path =>
