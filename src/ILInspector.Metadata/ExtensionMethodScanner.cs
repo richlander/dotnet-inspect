@@ -89,10 +89,10 @@ public static class ExtensionMethodScanner
     public static IEnumerable<ExtensionMethodInfo> FindExtensions(
         PEReader peReader, string targetType, bool includeAll = false)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             yield break;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var normalizedTarget = FqnParser.NormalizeTypeName(targetType);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
@@ -198,10 +198,12 @@ public static class ExtensionMethodScanner
     /// </summary>
     public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
         Stream peStream, bool includeAll = false)
-    {
-        using var peReader = new PEReader(peStream);
-        return FindAllExtensions(peReader, includeAll).ToList();
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            peReader => FindAllExtensions(
+                peReader,
+                includeAll).ToList(),
+            []);
 
     /// <summary>
     /// Finds all extension methods in an assembly (no target type filter).
@@ -209,10 +211,10 @@ public static class ExtensionMethodScanner
     public static IEnumerable<ExtensionMethodInfo> FindAllExtensions(
         PEReader peReader, bool includeAll = false)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             yield break;
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -302,11 +304,13 @@ public static class ExtensionMethodScanner
     /// </summary>
     public static IEnumerable<ExtensionMethodInfo> FindExtensions(
         Stream peStream, string targetType, bool includeAll = false)
-    {
-        using var peReader = new PEReader(peStream);
-        // Must materialize results before PEReader is disposed
-        return FindExtensions(peReader, targetType, includeAll).ToList();
-    }
+        => OwnedResourceCleanup.ReadAdmittedPeImage(
+            peStream,
+            peReader => FindExtensions(
+                peReader,
+                targetType,
+                includeAll).ToList(),
+            []);
 
     /// <summary>
     /// Indexes type names without decoding their member signatures.
@@ -314,10 +318,10 @@ public static class ExtensionMethodScanner
     public static List<ExtensionReachabilityType> IndexReachableTypes(
         PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         var types = new List<ExtensionReachabilityType>(
             reader.TypeDefinitions.Count);
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
@@ -340,7 +344,7 @@ public static class ExtensionMethodScanner
         PEReader peReader,
         int metadataToken)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
         EntityHandle entity = MetadataTokens.EntityHandle(metadataToken);
@@ -351,7 +355,7 @@ public static class ExtensionMethodScanner
                 nameof(metadataToken));
         }
 
-        MetadataReader reader = peReader.GetMetadataReader();
+        MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         return FindReachableEdges(
             reader,
             (TypeDefinitionHandle)entity);
@@ -383,20 +387,32 @@ public static class ExtensionMethodScanner
         {
             foreach (var assemblyPath in assemblyPaths)
             {
+                Stream? stream = null;
+                PEReader? peReader = null;
+                bool retained = false;
+                bool unavailableEstablished = false;
                 try
                 {
-                    var stream = File.OpenRead(assemblyPath);
-                    var peReader = new PEReader(stream);
-                    if (!peReader.HasMetadata)
+                    stream = File.OpenRead(assemblyPath);
+                    peReader = new PEReader(
+                        stream,
+                        PEStreamOptions.LeaveOpen);
+                    if (!MetadataFormatAdmission.AdmitImage(peReader))
                     {
-                        peReader.Dispose();
-                        stream.Dispose();
+                        unavailableEstablished = true;
                         continue;
                     }
+
+                    var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
+
+                    // Index entries below alias this reader for the whole walk,
+                    // so ownership transfers before indexing begins. A later
+                    // decode failure must leave the reader alive rather than
+                    // disposing one the dictionaries still reference.
                     disposables.Add(peReader);
                     disposables.Add(stream);
+                    retained = true;
 
-                    var reader = peReader.GetMetadataReader();
                     foreach (var typeDefHandle in reader.TypeDefinitions)
                     {
                         var typeDef = reader.GetTypeDefinition(typeDefHandle);
@@ -405,8 +421,41 @@ public static class ExtensionMethodScanner
                         bySimpleName.TryAdd(reader.GetString(typeDef.Name), (reader, typeDefHandle));
                     }
                 }
+                catch (Exception ex) when (
+                    ex is UnsupportedMetadataFormatException
+                        or MalformedMetadataRootException)
+                {
+                    OwnedResourceCleanup.DisposeAfterFailure(
+                        ref peReader,
+                        ref stream,
+                        ex);
+                    throw;
+                }
                 // Skip assemblies with unreadable metadata
-                catch { }
+                catch (Exception ex) when (
+                    ex is not UnsupportedMetadataFormatException
+                        and not MalformedMetadataRootException)
+                {
+                    unavailableEstablished = true;
+                }
+                finally
+                {
+                    if (!retained)
+                    {
+                        if (unavailableEstablished)
+                        {
+                            OwnedResourceCleanup
+                                .DisposeWithoutReplacingOutcome(
+                                    ref peReader,
+                                    ref stream);
+                        }
+                        else
+                        {
+                            peReader?.Dispose();
+                            stream?.Dispose();
+                        }
+                    }
+                }
             }
 
             while (toProcess.Count > 0)

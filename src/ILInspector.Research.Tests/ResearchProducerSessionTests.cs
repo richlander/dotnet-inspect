@@ -14,7 +14,7 @@ using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Research.Tests;
 
-public class ResearchProducerSessionTests
+public partial class ResearchProducerSessionTests
 {
     const string SampleType =
         "ILInspector.Research.TargetFixtures.TargetSample";
@@ -140,12 +140,16 @@ public class ResearchProducerSessionTests
             completion.WorkItems,
             item =>
             {
-                Assert.Same(resolution.Correspondences[0], item.Correspondence);
+                Assert.Same(
+                    resolution.Correspondences[0],
+                    Assert.IsType<ResearchProducerWorkBasis.Correspondence>(item.Basis).Outcome);
                 Assert.Equal(ResearchProducerKind.CSharp, item.Producer);
             },
             item =>
             {
-                Assert.Same(resolution.Correspondences[0], item.Correspondence);
+                Assert.Same(
+                    resolution.Correspondences[0],
+                    Assert.IsType<ResearchProducerWorkBasis.Correspondence>(item.Basis).Outcome);
                 Assert.Equal(ResearchProducerKind.IlBody, item.Producer);
             });
         Assert.Collection(
@@ -688,8 +692,8 @@ public class ResearchProducerSessionTests
                 first.WorkItems[index].Id,
                 second.WorkItems[index].Id);
             Assert.Same(
-                first.WorkItems[index].Correspondence,
-                second.WorkItems[index].Correspondence);
+                first.WorkItems[index].Basis,
+                second.WorkItems[index].Basis);
         }
     }
 
@@ -819,6 +823,7 @@ public class ResearchProducerSessionTests
             typeof(MetadataSource),
             typeof(Stream),
             typeof(Delegate),
+            typeof(ResearchAdmittedPopulation),
         ];
 
         Type[] producerTypes =
@@ -834,6 +839,13 @@ public class ResearchProducerSessionTests
             typeof(ResearchProducerWorkOutcome.Failed),
             typeof(ResearchProducerCleanupOutcome.Succeeded),
             typeof(ResearchProducerCleanupOutcome.Failed),
+            typeof(ResearchProducerWorkBasis.Correspondence),
+            typeof(ResearchProducerWorkBasis.DesignatedPair),
+            typeof(ResearchDesignatedPair),
+            typeof(ResearchDesignatedPairUnavailable),
+            typeof(ResearchDesignatedPairOutcome.Admitted),
+            typeof(ResearchDesignatedPairOutcome.Rejected),
+            typeof(ResearchDesignatedPairOutcome.Unavailable),
         ];
         foreach (Type type in producerTypes)
         {
@@ -958,7 +970,7 @@ public class ResearchProducerSessionTests
 
     sealed class SessionFixture
     {
-        SessionFixture(ResearchAdmittedPopulation population)
+        public SessionFixture(ResearchAdmittedPopulation population)
             => Population = population;
 
         public ResearchAdmittedPopulation Population { get; }
@@ -1005,6 +1017,17 @@ public class ResearchProducerSessionTests
         ResearchTargetResolution Resolve(
             params (string DeclaringType, MemberTargetSelector Selector)[]
                 selections)
+            => ResolveSelections(
+                [
+                    .. selections.Select(
+                        selection => new ResearchCarriedMemberSelection(
+                            Population.Questions[0].Id,
+                            selection.DeclaringType,
+                            selection.Selector)),
+                ]);
+
+        public ResearchTargetResolution ResolveSelections(
+            params ResearchMemberSelectionOccurrence[] selections)
         {
             ImmutableArray<ResearchTargetInputRoleAssignment?> roles =
             [
@@ -1018,14 +1041,7 @@ public class ResearchProducerSessionTests
                     new ResearchTargetPlanningRequest(
                         Population,
                         roles,
-                        [
-                            .. selections.Select(
-                                selection =>
-                                    new ResearchCarriedMemberSelection(
-                                        Population.Questions[0].Id,
-                                        selection.DeclaringType,
-                                        selection.Selector)),
-                        ]))).Resolution;
+                        selections))).Resolution;
         }
     }
 

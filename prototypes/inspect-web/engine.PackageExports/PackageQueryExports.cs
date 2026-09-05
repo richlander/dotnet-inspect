@@ -40,8 +40,10 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumCandidates,
             int maximumMatches,
             bool includePrerelease,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -49,8 +51,10 @@ namespace InspectWeb.Engine.PackageFacade
                 maximumMatches,
                 includePrerelease,
                 contentProvider: null,
+                matchCredit,
                 emit,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                deadline).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -59,8 +63,10 @@ namespace InspectWeb.Engine.PackageFacade
             int maximumMatches,
             bool includePrerelease,
             IPackageQueryContentProvider? contentProvider,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
@@ -83,14 +89,18 @@ namespace InspectWeb.Engine.PackageFacade
                     plan,
                     contentProvider,
                     cancellationToken),
+                matchCredit,
                 emit,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                deadline).ConfigureAwait(false);
         }
 
         internal static async Task<BrowserPackageQueryEvent> PumpAsync(
             IAsyncEnumerable<PackageQueryEvent> events,
+            BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
         {
             ArgumentNullException.ThrowIfNull(events);
             ArgumentNullException.ThrowIfNull(emit);
@@ -110,6 +120,34 @@ namespace InspectWeb.Engine.PackageFacade
                 {
                     completedEvent = projected;
                     continue;
+                }
+
+                if (projected.Kind == BrowserPackageQueryEventKind.Match
+                    && matchCredit is not null)
+                {
+                    try
+                    {
+                        if (deadline is null)
+                        {
+                            await matchCredit.WaitAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await deadline.WaitForConsumerAsync(matchCredit.WaitAsync)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                        when (cancellationToken.IsCancellationRequested
+                            && (deadline is null
+                                || deadline.CallerCancellation.IsCancellationRequested))
+                    {
+                        // Only caller cancellation revokes Browser publication;
+                        // a timeout must not hand off this uncredited match.
+                        emit(projected);
+                        throw;
+                    }
                 }
 
                 emit(projected);
@@ -254,12 +292,18 @@ public static partial class PackageExports
         BrowserPackageQueryOperationCoordinator.CancelCurrent();
 
     [JSExport]
+    public static bool RequestPackageQueryMatches(int additionalMatchCredit) =>
+        BrowserPackageQueryOperationCoordinator.RequestCurrentMatches(
+            additionalMatchCredit);
+
+    [JSExport]
     public static async Task<string> RunPackageQuery(
         string prefix,
         string facetIdsJson,
         int maximumCandidates,
         int maximumMatches,
         bool includePrerelease,
+        int initialMatchCredit,
         JSObject eventSink)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
@@ -268,7 +312,8 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.StringArray) ?? [];
 
         using BrowserPackageQueryOperationLease operation =
-            await BrowserPackageQueryOperationCoordinator.BeginAsync();
+            await BrowserPackageQueryOperationCoordinator.BeginAsync(
+                initialMatchCredit);
         BrowserPackageQueryEvent completed =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
             async deadline =>
@@ -282,10 +327,12 @@ public static partial class PackageExports
                     maximumMatches,
                     includePrerelease,
                     contentProvider,
+                    operation.MatchCredit,
                     queryEvent => eventSink.SetProperty(
                         "event",
                         BrowserPackageQueryOperations.Serialize(queryEvent)),
-                    deadline.Token);
+                    deadline.Token,
+                    deadline);
             },
             BrowserPackageWorkspace.PackageOperationTimeout,
             operation.CancellationToken);

@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;

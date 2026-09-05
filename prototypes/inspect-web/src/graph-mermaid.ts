@@ -13,6 +13,15 @@ import {
   type PackageIdentity,
 } from "./data.ts";
 
+export function resolveMermaidCssVariables(
+  definition: string,
+  readProperty: (name: string) => string,
+): string {
+  return definition.replace(
+    /var\((--[\w-]+)\)/g,
+    (whole: string, name: string) => readProperty(name).trim() || whole);
+}
+
 function shortTypeName(fullName: string): string {
   const generic = fullName.indexOf("<");
   const head = generic < 0 ? fullName : fullName.slice(0, generic);

@@ -14386,6 +14386,83 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_DoesNotCertifyAbsenceWhenACandidateWasExcluded()
+    {
+        string unsupported = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-absent-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            unsupported,
+            TimelineCommandTests.BuildWindowsMetadataImage());
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "depends", "Totally.Absent.TypeName`9",
+                "--library", TestAssemblyPath,
+                "--library", unsupported,
+                "--count");
+
+            Assert.Equal(
+                DependsCommand.UncertifiedScanExitCode,
+                exit);
+            Assert.NotEqual(DependsCommand.TypeNotFoundExitCode, exit);
+            Assert.Contains(
+                Path.GetFileName(unsupported),
+                error,
+                StringComparison.Ordinal);
+
+            // Marking the scan uncertified must not swallow the diagnosis. An
+            // exit code that only says "uncertified" leaves the user with no
+            // statement of what happened to the type they asked about.
+            Assert.Contains(
+                "not found in the specified scope",
+                error,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(unsupported);
+        }
+    }
+
+    [Fact]
+    public async Task Depends_NamesAnExcludedUnsupportedAssemblyInsteadOfReportingACleanPartialGraph()
+    {
+        string unsupported = Path.Combine(
+            Path.GetTempPath(),
+            $"depends-unsupported-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(
+            unsupported,
+            TimelineCommandTests.BuildWindowsMetadataImage());
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "depends", "SampleGenericClass`1",
+                "--library", TestAssemblyPath,
+                "--library", unsupported,
+                "--count");
+
+            Assert.Equal(DependsCommand.UncertifiedScanExitCode, exit);
+            Assert.True(
+                int.TryParse(output.Trim(), out var count) && count > 0,
+                $"expected the healthy neighbor to still resolve, got: {output}");
+            Assert.Contains(
+                Path.GetFileName(unsupported),
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "unsupported metadata format",
+                error,
+                StringComparison.Ordinal);
+            Assert.Contains("may be incomplete", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(unsupported);
+        }
+    }
+
+    [Fact]
     public async Task Depends_Count_ComposesWithJson()
     {
         // The type with dependencies matters: a type with none short-circuits before the

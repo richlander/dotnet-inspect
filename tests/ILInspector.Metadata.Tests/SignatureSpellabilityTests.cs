@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -94,6 +95,81 @@ public sealed class SignatureSpellabilityTests
 
         Assert.False(result.CanSpell);
         Assert.Null(result.DecodeStatus);
+    }
+
+    [Fact]
+    public void InspectField_MalformedDependencyIsTyped()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(VisibleReferenceType).Assembly.Location);
+        using (var peReader = new PEReader(
+            new MemoryStream(image, writable: false)))
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(
+                image.AsSpan(
+                    peReader.PEHeaders.MetadataStartOffset,
+                    sizeof(uint)),
+                0xDEADBEEF);
+        }
+
+        using var fixture = OpenFixture(
+            new DeferredImageResolver(image));
+
+        Assert.Throws<MalformedMetadataRootException>(
+            () => fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type)));
+    }
+
+    [Fact]
+    public void InspectField_CleanupCannotDegradeFormatRejection()
+    {
+        var resolver = new ThrowingCleanupImageResolver(
+            MetadataAdmissionCleanupTests
+                .BuildManagedWindowsMetadata());
+        using var fixture = OpenFixture(resolver);
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type)));
+        Assert.Equal(1, resolver.Opened!.DisposeCount);
+    }
+
+    [Fact]
+    public void InspectField_NoMetadataCleanupCannotDegradeFallback()
+    {
+        var resolver = new ThrowingCleanupImageResolver(
+            MetadataAdmissionCleanupTests
+                .BuildNoMetadataImage());
+        using var fixture = OpenFixture(resolver);
+
+        SignatureSpellabilityResult result =
+            fixture.Spellability.InspectField(
+                fixture.Reader,
+                GetField(
+                    fixture.Reader,
+                    fixture.Type,
+                    "VisibleField"),
+                GenericContext.ForType(
+                    fixture.Reader,
+                    fixture.Type));
+
+        Assert.True(result.CanSpell);
+        Assert.Null(result.DecodeStatus);
+        Assert.Equal(1, resolver.Opened!.DisposeCount);
     }
 
     static Fixture OpenFixture(IAssemblyReferenceResolver? resolver = null)
@@ -259,6 +335,39 @@ public sealed class SignatureSpellabilityTests
                     _path,
                     AssemblyResolutionProvenance.Local("VersionRelaxing"))
                 : null;
+    }
+
+    sealed class DeferredImageResolver(byte[] image)
+        : IAssemblyReferenceResolver
+    {
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope)
+            => ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                AssemblyResolutionProvenance.Local(
+                    "deferred malformed image"));
+    }
+
+    sealed class ThrowingCleanupImageResolver(byte[] image)
+        : IAssemblyReferenceResolver
+    {
+        public MetadataAdmissionCleanupTests.ThrowingDisposeMemoryStream?
+            Opened { get; private set; }
+
+        public ResolvedAssemblyReference? Resolve(
+            AssemblyReferenceIdentity identity,
+            AssemblyResolutionScope scope) =>
+            ResolvedAssemblyReference.Create(
+                identity,
+                path: null,
+                () => Opened =
+                    new MetadataAdmissionCleanupTests
+                        .ThrowingDisposeMemoryStream(image),
+                AssemblyResolutionProvenance.Local(
+                    "deferred unsupported image"));
     }
 
     sealed record Fixture(

@@ -17,9 +17,12 @@ companion
 The generated multi-facade Browser/Wasm canary also gates authenticated
 nonterminal callback shape, ordered progress and durable event delivery,
 terminal-after-events settlement, callback-failure rejection, and callback
-closure after release. Shared-producer attachment, epoch-work leases, and the
-remaining complete browser-host gate cases named below remain required before
-an implementation may claim those corresponding behaviors.
+closure after release. Terminal-bounded shared-producer attachment is implemented
+by `BrowserManagedSharedProducer` and `BrowserManagedOperationBridge.RunSharedAsync`,
+gated by `BrowserManagedSharedProducerTests` in the Release browser-engine suite.
+Its generated Browser/Wasm exercise, epoch-work leases, and the remaining complete
+browser-host gate cases named below remain required before an implementation may
+claim those corresponding behaviors.
 
 ## Decision
 
@@ -557,6 +560,52 @@ The companion model checks `OneWaiterDoesNotStopSharedProducer` and
 cache publication, and last-waiter policy remain gated by their feature
 owners.
 
+### Terminal-bounded implementation slice
+
+The first shared-waiter slice supports only `another waiter remains` and
+`producer terminal`. A canceled non-final waiter releases independently.
+The final waiter closes its callback but remains represented until physical
+producer completion, including asynchronous finalization. This is an intentional
+restriction: cancellation does not promise prompt final-wrapper quiescence.
+The slice cannot leave detached background work without a lease.
+
+The feature supplies a producer factory and may supply a last-detach stop callback.
+The first attachment starts the factory once, after operation admission and
+subscription installation, so even its synchronous events use a scoped sink.
+Without a stop policy, the final waiter waits for natural completion. Cooperative
+producer cancellation is recognized only after this policy requests stop and the
+failure carries the supplied, canceled **producer** token. Operation tokens
+never become producer tokens. An unexplained producer cancellation or late fault
+missed by a canceled waiter remains a visible release failure; stop-policy failure
+cannot skip physical drain or later operation cleanup. A failure already observed
+by the operation remains its feature outcome rather than a duplicate cleanup error.
+A producer-originated cancellation is not a canceled subscription wait: if the
+operation observes it, it remains an unexpected feature failure even when the
+operation also received cancellation. Classification preserves the original
+producer exception for feature diagnostics.
+
+Final detach seals this producer's waiter admission before invoking feature code.
+A feature broker must choose a new producer instance for later requests; key
+selection and cache-result reuse stay feature-owned. Events are scoped to current
+attachments, with no bridge-owned replay of events emitted before attachment.
+`BrowserManagedSharedProducerTests` gates this restricted contract through the
+real managed bridge in Release, alongside the existing lifecycle tests.
+
+The named immediate consumer is the inspect-web managed bridge and its Release
+engine harness. The four remaining adoption steps tracked in
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419), under the overall
+[#4937](https://github.com/richlander/dotnet-inspect/issues/4937) and
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095) composition, are:
+
+1. terminal-bounded managed waiter attachment and release (this slice);
+2. shared-waiter exercise through the generated Browser/Wasm boundary;
+3. epoch-work sender and final-waiter lease handoff; and
+4. first production feature adoption through #5420 with the #5418 Worker host.
+
+The existing six-step [migration plan](#migration) owns feature-coordinator
+retirement. This browser-host-only slice does not change production features,
+Worker placement, or worker-owned liveness types.
+
 ## Epoch-work lease handoff
 
 Worker initialization registers one synchronous epoch reporter with the
@@ -688,6 +737,48 @@ Implementation proceeds in independently coherent slices:
 
 The migration must not thread browser operation IDs into host-neutral
 inspection models. IDs terminate at the browser host adapter.
+
+### Source-host adoption and retirement
+
+The first production consumer is the existing Type Source view, tracked by
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419). Its
+operation-authority adapter passes the page-owned ID and normalized cancellation
+reason through the generated source facade. The managed wrapper participates
+in the existing aggregate source-acquisition budget; keyed admission does not
+authorize concurrent source acquisition. Its scope and budget leases are
+released before the managed terminal result settles.
+
+Type Source has no nonterminal payload in this slice. It uses the bridge's
+existing admission-without-callback contract rather than manufacturing progress
+events. Its concrete result and cancellation-status DTOs use supported
+source-generated JSON contracts; native C# JSON union projection is not a
+prerequisite. Source rendering, provenance, and acquisition policy remain
+feature-owned.
+
+`BrowserTypeSourceOperationTests` gates keyed cancellation, shared-budget
+accounting, result classification, and lease release in the Release engine
+suite. `test/type-source-managed-operation.test.ts` gates browser-adapter
+publication, late-failure diagnostics, cancellation, and quiescence;
+`scripts/verify-engine-facade-runtime.ts` gates the generated DTO projection
+and argument forwarding.
+
+Source singleton retirement has **two ordered adoption slices**:
+
+1. migrate the Type Source export and its production caller together to keyed
+   admission, cancellation, and terminal results;
+2. migrate the remaining member-source and graph-source callers and their
+   exports to the same operation-keyed boundary, then remove parameterless
+   source cancellation and the singleton cancellation slot in that slice,
+   retaining the feature's aggregate acquisition-budget enforcement.
+
+Only the first slice is included here. The legacy source coordinator remains
+necessary for the other callers. Shared-producer subscriptions and epoch-work
+leases remain separate bridge work, not a replacement for this source budget.
+The end-to-end Worker adoption scenario is
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420), composed through
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095). This direct
+facade adoption does not move work off the DOM thread or establish a
+responsiveness or prompt physical-cancellation claim.
 
 ## Checked abstract model
 

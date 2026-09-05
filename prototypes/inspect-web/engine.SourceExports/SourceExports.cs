@@ -15,6 +15,7 @@ using InspectWeb.Engine.SourceFacade;
 [SupportedOSPlatform("browser")]
 public static partial class SourceExports
 {
+    static readonly BrowserManagedOperationBridge TypeSourceOperations = new();
     const long MiB = 1024L * 1024;
     static readonly SymbolAcquisitionLimits SourceSymbolLimits =
         new(
@@ -26,6 +27,18 @@ public static partial class SourceExports
     [JSExport]
     public static void CancelSourceQuery() =>
         BrowserSourceOperationCoordinator.CancelCurrent();
+
+    [JSExport]
+    public static string CancelTypeSourceQuery(string operationId, string reason)
+    {
+        BrowserTypeSourceCancellation result = BrowserTypeSourceCancellation.From(
+            TypeSourceOperations.RequestCancellation(
+                BrowserManagedOperationId.From(operationId),
+                BrowserTypeSourceCancellation.ParseReason(reason)));
+        return JsonSerializer.Serialize(
+            result,
+            BrowserSourceJsonContext.Default.BrowserTypeSourceCancellation);
+    }
 
     [JSExport]
     public static async Task<string> QueryMemberSource(
@@ -56,6 +69,7 @@ public static partial class SourceExports
 
     [JSExport]
     public static async Task<string> QueryTypeSource(
+        string operationId,
         string packageId,
         string version,
         string targetFramework,
@@ -63,8 +77,45 @@ public static partial class SourceExports
         string typeIdentity,
         string styleOptionsJson)
     {
-        using BrowserSourceOperationLease operation =
-            await BrowserSourceOperationCoordinator.BeginAsync();
+        BrowserManagedOperationId id = BrowserManagedOperationId.From(operationId);
+        BrowserManagedOperationResult<BrowserSource, string, string> result =
+            await TypeSourceOperations.RunAsync<BrowserSource, string, string, object>(
+                id,
+                eventCallback: null,
+                async (token, _) =>
+                {
+                    using BrowserSourceOperationLease operation =
+                        await BrowserSourceOperationCoordinator.BeginAsync(
+                            token,
+                            reason => TypeSourceOperations.RequestCancellation(id, reason));
+                    try
+                    {
+                        return new BrowserManagedOperationBodyResult<BrowserSource, string, string>.Succeeded(
+                            await QueryTypeSourceCore(
+                                packageId, version, targetFramework, assemblyName,
+                                typeIdentity, styleOptionsJson, token));
+                    }
+                    catch (TypeSourceUnavailableException error)
+                    {
+                        return new BrowserManagedOperationBodyResult<BrowserSource, string, string>.Failed(
+                            error.Message, error.ToString());
+                    }
+                },
+                error => new(error.Message, error.ToString()));
+        return JsonSerializer.Serialize(
+            BrowserTypeSourceResult.From(result),
+            BrowserSourceJsonContext.Default.BrowserTypeSourceResult);
+    }
+
+    static async Task<BrowserSource> QueryTypeSourceCore(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string styleOptionsJson,
+        CancellationToken cancellationToken)
+    {
         (
             BrowserScopeLease<BrowserInspectionScope> scopeLease,
             BrowserWorkspaceParticipant participant,
@@ -75,7 +126,7 @@ public static partial class SourceExports
             targetFramework,
             assemblyName,
             typeIdentity,
-            operation.CancellationToken);
+            cancellationToken);
         using (scopeLease)
         {
             BrowserInspectionScope scope = scopeLease.Scope;
@@ -89,11 +140,9 @@ public static partial class SourceExports
                     member,
                     request,
                     CreateSourceContext(),
-                    operation.CancellationToken));
+                    cancellationToken));
 
-            return JsonSerializer.Serialize(
-                Adapt(result, participant),
-                BrowserSourceJsonContext.Default.BrowserSource);
+            return Adapt(result, participant);
         }
     }
 
@@ -218,7 +267,7 @@ public static partial class SourceExports
             cancellationToken.ThrowIfCancellationRequested();
             if (projected.Truncation is { } truncation)
             {
-                throw new InvalidOperationException(
+                throw new TypeSourceUnavailableException(
                     $"The source surface for '{typeIdentity}' exceeds the browser projection "
                     + "bounds. "
                     + BrowserApiSurfacePolicy.TruncationNotice(truncation));
@@ -237,7 +286,7 @@ public static partial class SourceExports
             ];
             if (matches.Length != 1)
             {
-                throw new InvalidOperationException(
+                throw new TypeSourceUnavailableException(
                     $"The selected participant does not contain one exact type '{typeIdentity}'.");
             }
 
@@ -294,17 +343,20 @@ public static partial class SourceExports
             AssemblyTypeSourceEntry.Available available =>
                 Adapt(available.Source, participant),
             AssemblyTypeSourceEntry.Rejected rejected =>
-                throw new InvalidOperationException(
+                throw new TypeSourceUnavailableException(
                     $"{rejected.Failure.Kind}: {rejected.Failure.Detail}"),
             AssemblyTypeSourceEntry.Unavailable unavailable =>
-                throw SourceUnavailable(
+                throw new TypeSourceUnavailableException(SourceUnavailable(
                     unavailable.Failure,
                     unavailable.PdbAttempt is { } pdb
                         ? PdbSourceLimitation(pdb.Lines)
-                        : null),
+                        : null).Message, unavailable.Failure.Error),
             _ => throw new InvalidOperationException(
                 "Unknown assembly type source result."),
         };
+
+    sealed class TypeSourceUnavailableException(string message, Exception? inner = null)
+        : InvalidOperationException(message, inner);
 
     static BrowserSource Adapt(
         AssemblyMemberSource source,

@@ -141,6 +141,7 @@ public static class PackageOptionsParser
             ScopeLib = parseResult.GetValue(args.LibOption),
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
+            SingleVersionQuery = bareVersion,
             ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
