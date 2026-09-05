@@ -20,10 +20,10 @@ remaining browser gates named below are still required.
 Its finite state models establish only the abstract properties recorded with
 those models. The engine-to-browser event-stream contract is now defined by
 [the async event-stream owner](engine-browser-async-event-stream.md). Durable
-worker event batches remain a later residual blocked on
-[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the
-relevant [#5419](https://github.com/richlander/dotnet-inspect/issues/5419)
-managed handoff.
+worker event batches remain an implementation residual under #5418. They must
+consume the implemented publication path from
+[#5570](https://github.com/richlander/dotnet-inspect/issues/5570) and the relevant
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419) managed handoff.
 
 ## Decision
 
@@ -1362,21 +1362,26 @@ into the runtime host:
    `inspect-web-worker-protocol` gate (**implemented**);
 3. adapt the current generated facade bootstrap behind the consumer-owned
    bootstrap operation (**implemented** with the browser-binding sub-gate);
-4. move one long-running source or package inspection through a typed worker
-   operation adapter;
-5. connect keyed cancellation, progress, managed settlement, and epoch-work
+4. add durable event batches after #5570 and the relevant #5419 handoff supply
+   their prerequisite contracts, before moving the existing Package Query
+   stream; #5566 and #5570 are merged;
+5. prepare the existing source operation's typed worker adapter for the
+   [single-runtime client cutover](inspect-web-jsexport-partitioning.md#page-facing-engine-client);
+6. connect keyed cancellation, progress, managed settlement, and epoch-work
    reporting through their existing owners;
-6. prove real-browser responsiveness and hard realm release;
-7. migrate additional feature adapters only after each declares its own
-   payload and liveness policy; and
-8. add durable event batches only after #5570 and the relevant #5419 handoff
-   supply their remaining prerequisite contracts; #5566 is merged.
+7. prove real-browser responsiveness and hard realm release; and
+8. migrate additional feature lifecycle adapters only after each declares its
+   own payload and liveness policy.
 
 These eight production-host adoption steps are tracked by #5418 under #4937
 and #4571, with composition handoffs mapped by #5095. The first feature
 consumer is the existing source operation in
-issue #5420, not a duplicate feature. Step 7 retires each remaining direct
-main-thread feature invocation as its adapter is adopted. The approved
+issue #5420, not a duplicate feature. Steps 4-7 must be satisfied before the
+client's production cutover lands: adapter preparation, lifecycle connection,
+and browser evidence are prerequisites, not work deferred until after
+activation. The client owner activates the required bindings and retires direct
+main-thread managed dispatch together. Step 8 is subsequent feature lifecycle
+adoption, not permission to retain a second runtime. The approved
 inspect-web-only scope does not imply a CLI runtime migration. Typed feature
 results continue to reach their existing rendering owners; this binding adds
 no rendering or format-lowering domain.

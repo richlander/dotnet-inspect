@@ -107,14 +107,36 @@ internal static class ForeachIteratorReconstruction
         if (dispatchEnd >= blocks.Count)
             return false;
 
-        // A dispatch block may also initialize a captured receiver used by the
-        // iterator body. Do not discard that binding with the state machinery.
+        var receiver = FindCapturedReceiver(work, kickoff, handoff);
+        StoreLocal? receiverStore = null;
+        if (work.Descendants.Any(node =>
+                node is LoadFieldAddress { Field.Name: "<>4__this" } address
+                    && Equals(address.Field.DeclaringType, work.DeclaringType)
+                || receiver is not null && node is StoreField store && Equals(store.Field, receiver.Field)))
+            return false;
+
+        // Keep the immutable receiver alias from the entry block. Other useful
+        // initialization still belongs to an unsupported dispatch shape.
         foreach (var statement in blocks.Take(dispatchEnd).SelectMany(block => block.Children))
         {
             if (ReferenceEquals(statement, stateStore)
                 || statement is ConditionalBranch or Branch or Leave
                 || statement is StoreLocal { Value: Constant } marker && marker.Index == returnLocal)
                 continue;
+            if (receiver is not null
+                && receiverStore is null
+                && statement is StoreLocal alias
+                && ReferenceEquals(alias.Parent, blocks[0])
+                && alias.Index != stateLocal && alias.Index != returnLocal
+                && Equals(alias.Type, receiver.Field.Type)
+                && receiver.Matches(alias.Value)
+                && work.DescendantsOutsideNestedFunctions
+                    .Where(node => ReferenceOwnership.ReferencesOrBindsLocal(node, alias.Index))
+                    .All(node => ReferenceEquals(node, alias) || node is LoadLocal))
+            {
+                receiverStore = alias;
+                continue;
+            }
             return false;
         }
 
@@ -128,6 +150,9 @@ internal static class ForeachIteratorReconstruction
                 continue;
 
             var rebuilt = new Block(blocks[i].StartOffset);
+            if (i == dispatchEnd && receiverStore is not null && receiver is not null)
+                rebuilt.Add(new StoreLocal(receiverStore.Index, receiverStore.Type,
+                    new LoadArgument(0, receiver.Target)));
             foreach (var statement in blocks[i].Children.ToList())
             {
                 statement.Detach();
@@ -136,7 +161,7 @@ internal static class ForeachIteratorReconstruction
                     case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>1__state" }:
                         continue;  // a state advance / resume marker
                     case StoreField { Instance: LoadArgument { Index: 0 }, Field.Name: "<>2__current" } yieldStore:
-                        if (!TryRemap(yieldStore.Value, kickoff, locals, out var yielded))
+                        if (!TryRemap(yieldStore.Value, kickoff, locals, receiver, out var yielded))
                             return false;
                         rebuilt.Add(new YieldReturn(yielded));
                         continue;
@@ -145,7 +170,7 @@ internal static class ForeachIteratorReconstruction
                         // `<>7__wrap1 = null` is the disposal reset — drop it.
                         if (slotStore.Value is Constant { Value: null })
                             continue;
-                        if (!TryRemap(slotStore.Value, kickoff, locals, out var stored))
+                        if (!TryRemap(slotStore.Value, kickoff, locals, receiver, out var stored))
                             return false;
                         rebuilt.Add(new StoreLocal(slot.Index, slotField.Type, stored));
                         continue;
@@ -158,7 +183,7 @@ internal static class ForeachIteratorReconstruction
                     case Return:
                         continue;  // the leave-to-terminal and terminal `return V` markers
                     default:
-                        if (!TryRemapInPlace(statement, kickoff, locals))
+                        if (!TryRemapInPlace(statement, kickoff, locals, receiver))
                             return false;
                         rebuilt.Add(statement);
                         continue;
@@ -320,10 +345,11 @@ internal static class ForeachIteratorReconstruction
     }
 
     static bool TryRemap(IrExpression expression, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, out IrExpression result)
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals,
+        CapturedReceiver? receiver, out IrExpression result)
     {
         var clone = (IrExpression)expression.Clone();
-        if (!TryRemapInPlace(clone, kickoff, locals, out var replacedRoot))
+        if (!TryRemapInPlace(clone, kickoff, locals, receiver, out var replacedRoot))
         {
             result = null!;
             return false;
@@ -333,11 +359,12 @@ internal static class ForeachIteratorReconstruction
     }
 
     static bool TryRemapInPlace(IrNode node, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals)
-        => TryRemapInPlace(node, kickoff, locals, out _);
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, CapturedReceiver? receiver)
+        => TryRemapInPlace(node, kickoff, locals, receiver, out _);
 
     static bool TryRemapInPlace(IrNode node, IrFunction kickoff,
-        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals, out IrNode? replacedRoot)
+        IReadOnlyDictionary<string, (int Index, TypeRef Type)> locals,
+        CapturedReceiver? receiver, out IrNode? replacedRoot)
     {
         replacedRoot = null;
         var ok = true;
@@ -361,6 +388,9 @@ internal static class ForeachIteratorReconstruction
                 return;
             switch (current)
             {
+                case LoadField load when receiver is not null && receiver.Matches(load):
+                    swaps.Add((current, new LoadArgument(0, receiver.Target)));
+                    return;
                 case LoadField { Instance: LoadArgument { Index: 0 }, Field: var field }:
                     if (locals.TryGetValue(field.Name, out var slot))
                         swaps.Add((current, new LoadLocal(slot.Index, field.Type)));
@@ -372,12 +402,46 @@ internal static class ForeachIteratorReconstruction
                 case LoadField { Field.Name: var name } when GeneratedCodeIdentity.IsGeneratedFieldName(name):
                     ok = false;  // a state-machine field reached through some other path
                     return;
+                case LoadArgument argument when receiver is not null
+                    && ReferenceEquals(argument.Parameter, receiver.Source):
+                    ok = false;
+                    return;
                 default:
                     foreach (var child in current.Children)
                         Visit(child);
                     return;
             }
         }
+    }
+
+    sealed record CapturedReceiver(FieldRef Field, Parameter Source, Parameter Target)
+    {
+        public bool Matches(IrNode node)
+            => node is LoadField { Instance: LoadArgument { Index: 0 } instance, Field: var field }
+                && ReferenceEquals(instance.Parameter, Source)
+                && Equals(field, Field);
+    }
+
+    static CapturedReceiver? FindCapturedReceiver(IrFunction work, IrFunction kickoff, NewObject handoff)
+    {
+        if (kickoff.ReceiverParameter is not { } target
+            || work.ReceiverParameter is not { } source
+            || !Equals(work.DeclaringType, handoff.Constructor.DeclaringType)
+            || handoff.Parent is not ObjectInitializerExpression { IsCollection: false } initializer)
+            return null;
+
+        var captures = initializer.Entries
+            .Where(entry => entry.ConsumedField?.Name == "<>4__this").ToArray();
+        if (captures is not [{ ConsumedField: { } field, Arguments: [LoadArgument value] }]
+            || !Equals(field.DeclaringType, work.DeclaringType)
+            || field.Type.DeclaredValueTypeHint != ValueTypeHint.ReferenceType
+            || !Equals(field.Type, target.Type)
+            || !Equals(value.Type, field.Type)
+            || value.Index != 0
+            || !ReferenceEquals(value.Parameter, target))
+            return null;
+
+        return new CapturedReceiver(field, source, target);
     }
 
     static bool TryGetParameter(IrFunction kickoff, string name, out int index, out Parameter parameter)
