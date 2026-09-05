@@ -67,6 +67,14 @@ public static class MetadataFormatAdmission
         return peReader.GetMetadataReader(options);
     }
 
+    internal static bool HasDeclaredClrHeader(PEReader peReader)
+    {
+        PEHeader? peHeader = peReader.PEHeaders.PEHeader;
+        return peHeader is not null
+            && (peHeader.CorHeaderTableDirectory.RelativeVirtualAddress != 0
+                || peHeader.CorHeaderTableDirectory.Size != 0);
+    }
+
     static void EnsureMetadata(PEReader peReader)
     {
         if (!AdmitImage(peReader))
