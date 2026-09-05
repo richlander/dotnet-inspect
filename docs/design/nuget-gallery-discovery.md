@@ -412,7 +412,7 @@ Except for the request/catalog gate, they remain unimplemented and unverified.
 
 | Gate | Outcome established |
 | --- | --- |
-| `GalleryDiscoveryRequestAndCatalogTests` | Implemented in `src/NuGetFetch.Tests`: termless/type-filtered intent, explicit/default orders, prerelease intent, custom valid package types, invalid/unknown selections, bounded-input identity, and immutable descriptor discovery retain their declared meaning. Provider execution remains a later gate. |
+| `GalleryDiscoveryRequestAndCatalogTests` | Implemented in `tests/NuGetFetch.Tests`: termless/type-filtered intent, explicit/default orders, prerelease intent, custom valid package types, invalid/unknown selections, bounded-input identity, and immutable descriptor discovery retain their declared meaning. Provider execution remains a later gate. |
 | `GalleryDiscoveryUsesSearchMetadataOnly` | The product adapter returns basic browse rows with only search transport; no per-package enrichment is requested. |
 | `GalleryDiscoveryProviderProjection` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, provider ordering, and selector evidence are preserved. |
 | `GalleryDiscoveryFiniteInputSelection` | Product acquisition preserves K and the whole provider response; the shared adopter's residual matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |
