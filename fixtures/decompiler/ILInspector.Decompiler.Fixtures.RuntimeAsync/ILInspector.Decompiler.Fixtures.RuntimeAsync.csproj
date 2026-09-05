@@ -10,6 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncExpressionFixtures.cs"
+             Link="AsyncExpressionFixtures.cs" />
     <Compile Include="..\ILInspector.Decompiler.Fixtures.ClassicAsync\AsyncFixtures.cs"
              Link="AsyncFixtures.cs" />
   </ItemGroup>
