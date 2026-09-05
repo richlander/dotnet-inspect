@@ -47,6 +47,9 @@ public record PackageExtractionResult(
     /// version's reporting sources.
     /// </summary>
     public bool SelectedVersionUsesOriginalSources { get; init; }
+    public ConfiguredPackageAuthority? Authority { get; init; }
+
+    public string? CacheScopeKey => Authority is null ? ProducerKey : Authority.PersistentCacheKey;
 
     /// <summary>
     /// Tool wrapper packages traversed before reaching this inspectable payload,
@@ -66,7 +69,10 @@ public sealed record ToolWrapperPackage(
     string ExtractPath,
     string PackageName,
     string? Version,
-    string? ProducerKey);
+    string? ProducerKey)
+{
+    public ConfiguredPackageAuthority? Authority { get; init; }
+}
 
 public enum NuspecProbeStatus
 {
@@ -265,7 +271,7 @@ public static class PackageExtractor
     /// <param name="forceLatest">When true, always resolve version from network (bypass candidate metadata caches)</param>
     /// <param name="includePrerelease">When true, latest resolution includes prerelease/preview versions</param>
     /// <returns>Extraction outcome carrying result on success or error message on failure</returns>
-    public static async Task<PackageExtractionOutcome> ExtractPackageAsync(
+    public static Task<PackageExtractionOutcome> ExtractPackageAsync(
         HttpClient client,
         string packageSource,
         Action<string>? log = null,
@@ -273,7 +279,46 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions = null,
         string? version = null,
         bool forceLatest = false,
-        bool includePrerelease = false)
+        bool includePrerelease = false) =>
+        ExtractPackageCoreAsync(
+            client, packageSource, log, tempDirPrefix, sourceOptions,
+            version, forceLatest, includePrerelease, pinnedSession: null);
+
+    /// <summary>Extracts an online caller-pinned package through configured authorities.</summary>
+    public static async Task<PackageExtractionOutcome> ExtractPinnedPackageAsync(
+        HttpClient client,
+        string packageId,
+        string version,
+        Action<string>? log = null,
+        string tempDirPrefix = "inspect-pkg",
+        NuGetSourceOptions? sourceOptions = null,
+        Func<DesktopPackageSourceComposition>? createComposition = null)
+    {
+        if (HttpClientFactory.IsOffline
+            || !IsValidPackageId(packageId)
+            || !TryNormalizePackageVersion(version, out string normalizedVersion))
+        {
+            return PackageExtractionOutcome.Error(
+                "Configured-authority extraction requires online mode, a valid package ID, and an exact version.");
+        }
+        await using var session = new PinnedPackageExtractionSession(
+            client.Timeout, tempDirPrefix, createComposition);
+        return await ExtractPackageCoreAsync(
+            client, packageId, log, tempDirPrefix, sourceOptions,
+            normalizedVersion, forceLatest: false, includePrerelease: false, session)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<PackageExtractionOutcome> ExtractPackageCoreAsync(
+        HttpClient client,
+        string packageSource,
+        Action<string>? log,
+        string tempDirPrefix,
+        NuGetSourceOptions? sourceOptions,
+        string? version,
+        bool forceLatest,
+        bool includePrerelease,
+        PinnedPackageExtractionSession? pinnedSession)
     {
         bool isLocalFile = packageSource.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
@@ -310,7 +355,8 @@ public static class PackageExtractor
                     currentSourceOptions,
                     currentVersion,
                     currentForceLatest,
-                    currentIncludePrerelease).ConfigureAwait(false);
+                    currentIncludePrerelease,
+                    pinnedSession).ConfigureAwait(false);
             }
 
             if (!outcome.IsSuccess)
@@ -322,12 +368,13 @@ public static class PackageExtractor
                     result.ExtractPath);
             if (redirectId is null)
             {
-                return wrapperPackages.Count == 0
+                PackageExtractionResult completed = wrapperPackages.Count == 0
                     ? result
                     : result with
                     {
                         ToolWrapperChain = wrapperPackages.ToArray()
                     };
+                return pinnedSession?.Complete(completed) ?? completed;
             }
 
             if (string.IsNullOrWhiteSpace(result.PackageName))
@@ -348,7 +395,10 @@ public static class PackageExtractor
                 result.ExtractPath,
                 result.PackageName,
                 result.Version,
-                result.ProducerKey));
+                result.ProducerKey)
+            {
+                Authority = result.Authority,
+            });
             if (!IsValidPackageId(redirectId))
             {
                 return PackageExtractionOutcome.Error(
@@ -417,10 +467,24 @@ public static class PackageExtractor
         NuGetSourceOptions? sourceOptions,
         string? explicitVersion = null,
         bool forceLatest = false,
-        bool includePrerelease = false)
+        bool includePrerelease = false,
+        PinnedPackageExtractionSession? pinnedSession = null)
     {
         var (packageName, parsedVersion) = ParsePackageReference(packageSource);
         var version = explicitVersion ?? parsedVersion;
+
+        // A legacy selector's producer restriction is not an authority receipt.
+        // Those discovered-coordinate paths migrate with their resolver.
+        if (!HttpClientFactory.IsOffline
+            && pinnedSession is not null
+            && sourceOptions?.AuthorizedSourceKeys is null
+            && sourceOptions?.ResolvedSources is null
+            && version is not null
+            && TryNormalizePackageVersion(version, out string pinnedVersion))
+        {
+            return await pinnedSession.AcquireAsync(
+                packageName, pinnedVersion, sourceOptions, log).ConfigureAwait(false);
+        }
 
         // @latest is a special tag: resolve to newest version via network
         if (string.Equals(version, "latest", StringComparison.OrdinalIgnoreCase))
