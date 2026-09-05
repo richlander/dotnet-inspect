@@ -16,6 +16,7 @@ using DotnetInspector.Views;
 using InertText;
 using Markout;
 using NuGetFetch;
+using NuGetFetch.Plugins;
 
 namespace DotnetInspector.Tests;
 
@@ -2100,23 +2101,178 @@ public sealed class DependencyEvidenceCommandTests
     // ---- floating resolution contract ---------------------------------------
 
     /// <summary>
+    /// Floating binding consumes the package-owned composition, which is normative for what a
+    /// configured authority publishes. A local folder is an authority like any other there, so
+    /// its candidates join an HTTP authority's, the aggregate is sorted globally before it is
+    /// limited, and the selected head may come from either one. Nothing here is decided from a
+    /// source's text or transport.
+    /// </summary>
+    [Fact]
+    public async Task FloatingDiscovery_ComposesLocalAndHttpAuthoritiesAndSortsGlobally()
+    {
+        string folder = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(folder, ComposedFeedHandler.PackageId, "1.5.0", "");
+        WriteLocalSourcePackage(
+            folder,
+            ComposedFeedHandler.PackageId,
+            "2.0.0-beta.1",
+            "");
+
+        // The HTTP authority publishes both the globally latest stable version and the
+        // globally latest prerelease, so a selection that ignored it would be visible.
+        using var handler = new ComposedFeedHandler(["1.0.0", "3.0.0", "4.0.0-rc.1"]);
+        await using DesktopPackageSourceComposition composition =
+            CreateComposition(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [folder, ComposedFeedHandler.ServiceIndexUrl],
+        };
+
+        PackageVersionDiscoveryResult aggregate =
+            await composition.GetVersionsAsync(
+                ComposedFeedHandler.PackageId,
+                includePrerelease: true,
+                limit: null,
+                sourceOptions,
+                cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(
+            PackageVersionDiscoveryState.Authoritative,
+            aggregate.State);
+        Assert.Equal(
+            ["4.0.0-rc.1", "3.0.0", "2.0.0-beta.1", "1.5.0", "1.0.0"],
+            aggregate.Versions);
+
+        // One row is the globally latest acceptable version, not the first authority's.
+        PackageVersionDiscoveryResult stable =
+            await composition.GetVersionsAsync(
+                ComposedFeedHandler.PackageId,
+                includePrerelease: false,
+                limit: 1,
+                sourceOptions,
+                cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, stable.State);
+        Assert.Equal(["3.0.0"], stable.Versions);
+
+        PackageVersionDiscoveryResult preview =
+            await composition.GetVersionsAsync(
+                ComposedFeedHandler.PackageId,
+                includePrerelease: true,
+                limit: 1,
+                sourceOptions,
+                cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, preview.State);
+        Assert.Equal(["4.0.0-rc.1"], preview.Versions);
+    }
+
+    /// <summary>
+    /// The command binds the version that composition selected and then acquires that exact
+    /// manifest. Here the local-folder authority publishes both heads, so the whole gesture —
+    /// floating selection and manifest acquisition — completes against a local folder the
+    /// previous HTTP-only listing path could not have answered for at all.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "1.5.0")]
+    [InlineData(true, "2.0.0-beta.1")]
+    public async Task FloatingPackage_BindsAndAcquiresTheSelectedLocalManifest(
+        bool includePrerelease,
+        string expectedVersion)
+    {
+        string folder = CreateTemporaryDirectory();
+        const string Dependencies = """
+            <group targetFramework="net8.0">
+              <dependency id="Contoso.Dependency" version="[1.0.0]" />
+            </group>
+            """;
+        WriteLocalSourcePackage(
+            folder,
+            ComposedFeedHandler.PackageId,
+            "1.5.0",
+            Dependencies);
+        WriteLocalSourcePackage(
+            folder,
+            ComposedFeedHandler.PackageId,
+            "2.0.0-beta.1",
+            Dependencies);
+
+        // The HTTP authority answers the version question and publishes nothing newer, so the
+        // selected head is the local one and no manifest request leaves the machine.
+        using var handler = new ComposedFeedHandler(["1.0.0"]);
+        await using DesktopPackageSourceComposition composition =
+            CreateComposition(handler);
+        var localSource = new PackageSource("local", folder);
+        var authorized = PackageSourceAuthorization.Authorize(
+            [localSource, new PackageSource("stub", ComposedFeedHandler.ServiceIndexUrl)]);
+
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [ComposedFeedHandler.PackageId],
+                IncludePrerelease = includePrerelease,
+            },
+            authorization: new RecordingPackageSourceAuthorization(authorized),
+            discoverVersions: (packageId, prerelease, token) =>
+                composition.GetVersionsAsync(
+                    packageId,
+                    prerelease,
+                    limit: 1,
+                    new NuGetSourceOptions
+                    {
+                        Sources = [folder, ComposedFeedHandler.ServiceIndexUrl],
+                    },
+                    cancellationToken: token));
+
+        Assert.Empty(projection.Failures);
+        DependencyEvidenceRootRow root = Assert.Single(projection.Roots);
+        Assert.Equal(expectedVersion, root.PackageVersion);
+        Assert.Contains(
+            "Contoso.Dependency",
+            projection.Dependencies.Select(row => row.PackageId),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// An unqualified <c>ID</c> target is documented as latest stable, so a package publishing
     /// only prereleases is refused rather than quietly resolved to a prerelease head. The
-    /// refusal is inconclusive, not an absence claim, so the root reports the conservative
-    /// acquisition failure.
+    /// authority answered, so the aggregate is authoritative and empty, which is still
+    /// inconclusive rather than an absence claim: the root reports the conservative acquisition
+    /// failure and its sibling still renders.
     /// </summary>
     [Fact]
     public async Task FloatingPackage_WithoutPreview_RefusesAPrereleaseOnlyPackageAsInconclusive()
     {
-        using var client = new HttpClient(new StubFeedHandler());
+        using var handler = new ComposedFeedHandler(["1.0.0-beta.1"]);
+        await using DesktopPackageSourceComposition composition =
+            CreateComposition(handler);
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = [ComposedFeedHandler.ServiceIndexUrl],
+        };
+
+        PackageVersionDiscoveryResult discovery =
+            await composition.GetVersionsAsync(
+                ComposedFeedHandler.PackageId,
+                includePrerelease: false,
+                limit: 1,
+                sourceOptions,
+                cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, discovery.State);
+        Assert.Empty(discovery.Versions);
+
         DependencyEvidenceProjection projection = await ProjectAsync(
             new DependencyEvidenceOptions
             {
-                Packages = [StubFeedHandler.PackageId],
+                Packages = [ComposedFeedHandler.PackageId],
                 Nuspecs = [NuspecFixture],
             },
-            authorization: new UniformPackageSourceAuthorization([StubFeed]),
-            httpClient: client);
+            authorization: new UniformPackageSourceAuthorization(
+                [new PackageSource("stub", ComposedFeedHandler.ServiceIndexUrl)]),
+            discoverVersions: (packageId, prerelease, token) =>
+                composition.GetVersionsAsync(
+                    packageId,
+                    prerelease,
+                    limit: 1,
+                    sourceOptions,
+                    cancellationToken: token));
 
         Assert.Single(projection.Roots);
         DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
@@ -2127,19 +2283,62 @@ public sealed class DependencyEvidenceCommandTests
     }
 
     /// <summary>
-    /// <c>--preview</c> is what widens the same floating path to a prerelease head, and an
-    /// exact prerelease pin never reaches that path at all, so it stays exact without it.
+    /// A floating target becomes the root's exact coordinate, stated as latest across every
+    /// authorized producer, so only an authoritative aggregate that selected a version may be
+    /// admitted. A partial aggregate never heard from some authority, a failed one heard from
+    /// none, and an authoritative empty one publishes nothing this request accepts. None proves
+    /// the coordinate absent, so each is the conservative <c>AcquisitionFailed</c> — never
+    /// <c>NotFound</c> — while a valid sibling root still renders.
     /// </summary>
     [Theory]
-    [InlineData(null, true, "1.0.0-beta.1", true)]
-    [InlineData(null, false, null, false)]
-    [InlineData("1.0.0-beta.1", false, "1.0.0-beta.1", false)]
-    public async Task CoordinateResolution_AppliesTheStableFloatingContract(
+    [InlineData(PackageVersionDiscoveryState.Partial, "9.9.9")]
+    [InlineData(PackageVersionDiscoveryState.Failed, null)]
+    [InlineData(PackageVersionDiscoveryState.Authoritative, null)]
+    public async Task FloatingDiscovery_ThatSelectsNoAuthoritativeVersion_IsAcquisitionFailed(
+        PackageVersionDiscoveryState state,
+        string? version)
+    {
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = ["Contoso.Inconclusive"],
+                Nuspecs = [NuspecFixture],
+            },
+            authorization: new UniformPackageSourceAuthorization([StubFeed]),
+            discoverVersions: (_, _, _) => Task.FromResult(
+                DiscoveryResult(state, version)));
+
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal(
+            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
+            failure.SourceKind);
+        Assert.Equal("AcquisitionFailed", failure.Reason);
+        Assert.NotEqual("NotFound", failure.Reason);
+
+        // The sibling nuspec root still renders its declared evidence.
+        Assert.Contains(
+            "NuGet.Packaging",
+            projection.Dependencies.Select(row => row.PackageId),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// An exact pin asks no latest-version question, so it never reaches version discovery —
+    /// including a pinned prerelease without <c>--preview</c>, which stays exact. A floating
+    /// target reaches it exactly once and becomes that selected coordinate.
+    /// </summary>
+    [Theory]
+    [InlineData("1.0.0-beta.1", false, "1.0.0-beta.1", 0)]
+    [InlineData("2.0.0", false, "2.0.0", 0)]
+    [InlineData(null, false, "3.0.0", 1)]
+    public async Task ExactPin_BypassesVersionDiscoveryThatAFloatingTargetConsults(
         string? version,
         bool includePrerelease,
-        string? expectedVersion,
-        bool expectedFloating)
+        string expectedVersion,
+        int expectedDiscoveryCalls)
     {
+        int calls = 0;
         using var client = new HttpClient(new StubFeedHandler());
 
         PackageCoordinateResolution resolution =
@@ -2147,129 +2346,82 @@ public sealed class DependencyEvidenceCommandTests
                 client,
                 new PackageCoordinate(StubFeedHandler.PackageId, version),
                 [StubFeed],
+                (_, _, _) =>
+                {
+                    calls++;
+                    return Task.FromResult(
+                        DiscoveryResult(
+                            PackageVersionDiscoveryState.Authoritative,
+                            "3.0.0"));
+                },
                 log: null,
                 includePrerelease,
                 TestContext.Current.CancellationToken);
 
-        if (expectedVersion is null)
-        {
-            PackageCoordinateResolution.Unavailable unavailable =
-                Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
-            Assert.Contains(
-                "stable listed version",
-                unavailable.Message,
-                StringComparison.Ordinal);
-            return;
-        }
-
         PackageCoordinateResolution.Resolved resolved =
             Assert.IsType<PackageCoordinateResolution.Resolved>(resolution);
         Assert.Equal(expectedVersion, resolved.Coordinate.Version);
-        Assert.Equal(expectedFloating, resolved.Coordinate.WasFloating);
+        Assert.Equal(expectedDiscoveryCalls, calls);
+        Assert.Contains(StubFeed, resolved.Coordinate.Sources);
     }
 
+    // ---- owner-issued authority identity ------------------------------------
+
     /// <summary>
-    /// A candidate set missing one authorized source cannot prove which version is latest, and
-    /// this command publishes the floating answer as the root's exact coordinate. The strict
-    /// path therefore refuses an incomplete listing rather than selecting from a partial set.
+    /// Production manifest acquisition constructs each client with the association its
+    /// <c>PackageSourceAuthorization.Authorities</c> entry already carries, so the admitted
+    /// root's result identity is recoverable as that exact configured authority. Minting a
+    /// fresh association here would make the result claim a scope no configured authority
+    /// owns. The claim is identity, not display text.
     /// </summary>
     [Fact]
-    public async Task FloatingPackage_RefusesAnIncompleteAuthorizedSourceListing()
+    public async Task ManifestAcquisition_KeepsTheOwnerIssuedAuthorityAssociation()
     {
-        using var client = new HttpClient(new StubFeedHandler());
+        string folder = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(folder, "Contoso.Owned", "1.2.3", "");
+        var authorized = PackageSourceAuthorization.Authorize(
+            [new PackageSource("local", folder)]);
+        ConfiguredPackageAuthority authority = Assert.Single(authorized.Authorities);
 
-        PackageCoordinateResolution resolution =
-            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
-                client,
-                new PackageCoordinate(StubFeedHandler.PackageId),
-                [StubFeedHandler.OfflineSource, StubFeed],
-                log: null,
-                includePrerelease: true,
-                TestContext.Current.CancellationToken);
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions { Packages = ["Contoso.Owned@1.2.3"] },
+            authorization: new RecordingPackageSourceAuthorization(authorized));
 
-        PackageCoordinateResolution.Unavailable unavailable =
-            Assert.IsType<PackageCoordinateResolution.Unavailable>(resolution);
-        Assert.Contains(
-            "complete version set",
-            unavailable.Message,
-            StringComparison.Ordinal);
+        Assert.Empty(projection.Failures);
+        DependencyEvidenceRootRow root = Assert.Single(projection.Roots);
+        PackageSourceResultIdentity source = Assert.IsType<PackageSourceResultIdentity>(
+            root.Source);
+        Assert.Same(authority.Association, source.Association);
+        Assert.True(
+            authorized.TryGetAuthority(
+                source.Association,
+                out ConfiguredPackageAuthority? recovered));
+        Assert.Same(authority, recovered);
     }
 
     /// <summary>
-    /// A floating target becomes the root's exact coordinate, stated as the latest version
-    /// across every authorized producer. A source the shared HTTP listing path cannot query at
-    /// all — a local folder, a <c>file://</c> URL — never says what it publishes, so this
-    /// command refuses the floating question instead of answering it from the sources it can
-    /// read. Refusing is this command's own contract: the shared listing path skips such a
-    /// source, and the same source still serves an exact pin here.
+    /// The same claim at the construction seam, for both authority families: an HTTP authority
+    /// and a local-folder one each produce a client bound to their own owner-issued
+    /// association, and neither is reconstructed from source text.
     /// </summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task FloatingPackage_RefusesASourceTheListingPathCannotQuery(
-        bool fileUrl)
+    [Fact]
+    public void ManifestClientCreation_BindsEachAuthorityToItsOwnAssociation()
     {
-        using var client = new HttpClient(new StubFeedHandler());
-        string directory = CreateTemporaryDirectory();
-        var local = new PackageSource(
-            "local",
-            fileUrl ? new Uri(directory).AbsoluteUri : directory);
+        var authorized = PackageSourceAuthorization.Authorize(
+            [new PackageSource("local", CreateTemporaryDirectory()), StubFeed]);
+        NuGetFetchOptions fetchOptions =
+            NuGetFetchOptions.FromRequestTimeout(TimeSpan.FromSeconds(5));
 
-        // Prereleases are admitted throughout, so the stable-floating rule refuses nothing
-        // here and every difference below is the unlistable source alone.
-        Assert.IsType<PackageCoordinateResolution.Resolved>(
-            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
-                client,
-                new PackageCoordinate(StubFeedHandler.PackageId),
-                [StubFeed],
-                log: null,
-                includePrerelease: true,
-                TestContext.Current.CancellationToken));
-
-        Assert.IsType<PackageCoordinateResolution.Unavailable>(
-            await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
-                client,
-                new PackageCoordinate(StubFeedHandler.PackageId),
-                [local, StubFeed],
-                log: null,
-                includePrerelease: true,
-                TestContext.Current.CancellationToken));
-
-        // An exact pin asks no latest-version question, so it resolves against the same set
-        // without --preview even though the pinned version is a prerelease.
-        PackageCoordinateResolution.Resolved pinned =
-            Assert.IsType<PackageCoordinateResolution.Resolved>(
-                await DependencyEvidenceAcquisition.ResolveCoordinateAsync(
-                    client,
-                    new PackageCoordinate(
-                        StubFeedHandler.PackageId,
-                        StubFeedHandler.PrereleaseVersion),
-                    [local, StubFeed],
-                    log: null,
-                    includePrerelease: false,
-                    TestContext.Current.CancellationToken));
-        Assert.Equal(StubFeedHandler.PrereleaseVersion, pinned.Coordinate.Version);
-        Assert.False(pinned.Coordinate.WasFloating);
-        Assert.Contains(local, pinned.Coordinate.Sources);
-
-        // The refusal is inconclusive rather than absence, so the root reports the
-        // conservative acquisition failure and its sibling still renders.
-        DependencyEvidenceProjection projection = await ProjectAsync(
-            new DependencyEvidenceOptions
-            {
-                Packages = [StubFeedHandler.PackageId],
-                Nuspecs = [NuspecFixture],
-                IncludePrerelease = true,
-            },
-            authorization: new UniformPackageSourceAuthorization([local, StubFeed]),
-            httpClient: client);
-
-        Assert.Single(projection.Roots);
-        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
-        Assert.Equal(
-            PackageDependencyEvidenceSourceKind.PackageSourceManifest,
-            failure.SourceKind);
-        Assert.Equal("AcquisitionFailed", failure.Reason);
+        Assert.Equal(2, authorized.Authorities.Count);
+        foreach (ConfiguredPackageAuthority authority in authorized.Authorities)
+        {
+            using IPackageSourceClient? client =
+                DependencyEvidenceAcquisition.CreateSourceClient(
+                    authority,
+                    fetchOptions);
+            Assert.NotNull(client);
+            Assert.Same(authority.Association, client.Source.Association);
+        }
     }
 
     /// <summary>
@@ -2307,6 +2459,110 @@ public sealed class DependencyEvidenceCommandTests
 
     private static readonly PackageSource StubFeed =
         new("stub", StubFeedHandler.ServiceIndexUrl);
+
+    /// <summary>
+    /// Builds the package-owned composition over a test transport, so a floating question is
+    /// answered by the real owner — real source resolution, real authority classification, real
+    /// local-folder and HTTP clients — without reaching a live feed.
+    /// </summary>
+    private static DesktopPackageSourceComposition CreateComposition(
+        HttpMessageHandler transport) =>
+        new(
+            TimeSpan.FromSeconds(30),
+            new UnavailableCredentialSource(),
+            (_, _) => transport);
+
+    /// <summary>
+    /// One version-discovery answer in the owner's own vocabulary, so a regression can state
+    /// what this command did with a partial, failed, or authoritatively empty aggregate.
+    /// </summary>
+    private static PackageVersionDiscoveryResult DiscoveryResult(
+        PackageVersionDiscoveryState state,
+        string? version) =>
+        new(
+            state,
+            version is null ? [] : [version],
+            state == PackageVersionDiscoveryState.Authoritative
+                ? []
+                : [
+                    new PackageAuthorityFailure(
+                        new InertString(TextPolicy.Field, "authority"),
+                        PackageAuthorityFailureKind.Transport,
+                        "The configured authority did not answer."),
+                ],
+            hasAnyCandidate: version is not null);
+
+    /// <summary>A credential source the composition must never need to query.</summary>
+    private sealed class UnavailableCredentialSource : ICredentialSource
+    {
+        public bool HasCredentialSources => false;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                "An unavailable credential source must not be queried.");
+    }
+
+    /// <summary>
+    /// One V3 HTTP authority publishing an explicit version list, used as the remote half of a
+    /// composed local-plus-HTTP authority set. Every other request is a 404, so nothing here
+    /// reaches a real network.
+    /// </summary>
+    private sealed class ComposedFeedHandler(IReadOnlyList<string> versions)
+        : HttpMessageHandler
+    {
+        internal const string PackageId = "Contoso.Composed";
+        internal const string ServiceIndexUrl = "https://composed.test/v3/index.json";
+        private const string FlatContainer = "https://composed.test/flat/";
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.AbsoluteUri;
+            HttpResponseMessage response;
+            if (url.Equals(ServiceIndexUrl, StringComparison.Ordinal))
+            {
+                response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""
+                        {
+                          "version": "3.0.0",
+                          "resources": [
+                            { "@id": "{{FlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                          ]
+                        }
+                        """),
+                };
+            }
+            else if (url.Equals(
+                         $"{FlatContainer}{PackageId.ToLowerInvariant()}/index.json",
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        $$"""{"versions":[{{string.Join(
+                            ",",
+                            versions.Select(version => $"\"{version}\""))}}]}"""),
+                };
+            }
+            else
+            {
+                response = new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+    }
 
     /// <summary>
     /// Records every package id one request authorizes and answers each with the supplied
@@ -2439,7 +2695,8 @@ public sealed class DependencyEvidenceCommandTests
         DependencyEvidenceOptions options,
         IPackageSourceAuthorization? authorization,
         DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        DependencyEvidenceVersionDiscovery? discoverVersions = null)
     {
         HttpClient client = httpClient ?? new HttpClient();
         try
@@ -2451,7 +2708,8 @@ public sealed class DependencyEvidenceCommandTests
                     log: null,
                     TestContext.Current.CancellationToken,
                     authorization,
-                    resolveCoordinate);
+                    resolveCoordinate,
+                    discoverVersions);
             return DependencyEvidenceProjection.Create(
                 PackageDependencyEvidenceQuery.Execute(request));
         }

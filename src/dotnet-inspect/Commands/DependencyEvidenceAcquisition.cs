@@ -23,6 +23,21 @@ internal delegate Task<PackageCoordinateResolution> DependencyEvidenceCoordinate
     CancellationToken cancellationToken);
 
 /// <summary>
+/// Asks the package-owned source composition which versions of one package id its configured
+/// authorities publish.
+/// </summary>
+/// <remarks>
+/// The seam is the composition call itself, not a second version policy: a regression supplies
+/// one <see cref="PackageVersionDiscoveryResult"/> — partial, failed, authoritatively empty —
+/// and states what this command then did with it, without reaching a live feed. Production
+/// binds it to <see cref="DesktopPackageSourceComposition.GetVersionsAsync"/>.
+/// </remarks>
+internal delegate Task<PackageVersionDiscoveryResult> DependencyEvidenceVersionDiscovery(
+    string packageId,
+    bool includePrerelease,
+    CancellationToken cancellationToken);
+
+/// <summary>
 /// Thin acquisition adapters for <c>dependency-evidence</c> roots.
 /// </summary>
 /// <remarks>
@@ -39,8 +54,17 @@ internal static class DependencyEvidenceAcquisition
 
     /// <summary>Acquires the explicitly named package, nuspec, and project roots.</summary>
     /// <remarks>
+    /// <para>
     /// Every named root is one explicit gesture, so one unusable gesture is one typed failed
     /// root: no root aborts the request, and none is silently rebound to a different input.
+    /// </para>
+    /// <para>
+    /// One package-owned source composition serves the whole request. It is the same lifetime
+    /// <see cref="CommandContext.CreatePackageSourceComposition"/> gives other commands — one
+    /// composition over this request's deadline, owned and disposed exactly once — and it is
+    /// created only when a root actually asks a version question, so a nuspec-only or
+    /// archive-only request builds no source runtime at all.
+    /// </para>
     /// </remarks>
     public static async Task<PackageDependencyEvidenceRequest> AcquireExplicitRootsAsync(
         DependencyEvidenceOptions options,
@@ -48,19 +72,38 @@ internal static class DependencyEvidenceAcquisition
         Action<string>? log,
         CancellationToken cancellationToken,
         IPackageSourceAuthorization? authorization = null,
-        DependencyEvidenceCoordinateResolver? resolveCoordinate = null)
+        DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
+        DependencyEvidenceVersionDiscovery? discoverVersions = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
 
         IPackageSourceAuthorization sourceAuthorization = authorization
             ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
+        DesktopPackageSourceComposition? composition = null;
+        DependencyEvidenceVersionDiscovery discovery = discoverVersions
+            ?? ((packageId, includePrerelease, token) =>
+            {
+                composition ??=
+                    new DesktopPackageSourceComposition(httpClient.Timeout);
+                return composition.GetVersionsAsync(
+                    packageId,
+                    includePrerelease,
+                    // The composition sorts every authority's evidence together before it
+                    // limits, so one row is the global latest acceptable version rather than
+                    // the first authority's.
+                    limit: 1,
+                    options.SourceOptions,
+                    log,
+                    token);
+            });
         DependencyEvidenceCoordinateResolver resolver = resolveCoordinate
             ?? ((coordinate, sources, includePrerelease, token) =>
                 ResolveCoordinateAsync(
                     httpClient,
                     coordinate,
                     sources,
+                    discovery,
                     log,
                     includePrerelease,
                     token));
@@ -69,37 +112,45 @@ internal static class DependencyEvidenceAcquisition
         var failures =
             ImmutableArray.CreateBuilder<PackageDependencyEvidenceRootFailure>();
 
-        foreach (string package in options.Packages)
+        try
         {
-            await AcquirePackageAsync(
-                package,
-                options,
-                sourceAuthorization,
-                resolver,
-                httpClient,
-                roots,
-                failures,
-                cancellationToken).ConfigureAwait(false);
-        }
+            foreach (string package in options.Packages)
+            {
+                await AcquirePackageAsync(
+                    package,
+                    options,
+                    sourceAuthorization,
+                    resolver,
+                    httpClient,
+                    roots,
+                    failures,
+                    cancellationToken).ConfigureAwait(false);
+            }
 
-        foreach (string nuspec in options.Nuspecs)
-        {
-            await AcquireNuspecAsync(
-                nuspec,
-                options.Tfm,
-                roots,
-                failures,
-                cancellationToken).ConfigureAwait(false);
-        }
+            foreach (string nuspec in options.Nuspecs)
+            {
+                await AcquireNuspecAsync(
+                    nuspec,
+                    options.Tfm,
+                    roots,
+                    failures,
+                    cancellationToken).ConfigureAwait(false);
+            }
 
-        foreach (string project in options.Projects)
+            foreach (string project in options.Projects)
+            {
+                await AcquireProjectAsync(
+                    project,
+                    options.Tfm,
+                    roots,
+                    failures,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
         {
-            await AcquireProjectAsync(
-                project,
-                options.Tfm,
-                roots,
-                failures,
-                cancellationToken).ConfigureAwait(false);
+            if (composition is not null)
+                await composition.DisposeAsync().ConfigureAwait(false);
         }
 
         return new PackageDependencyEvidenceRequest(
@@ -149,48 +200,105 @@ internal static class DependencyEvidenceAcquisition
         package.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// This command's coordinate resolution: the shared resolver under its strict floating
-    /// contract.
+    /// This command's coordinate resolution: package-owned version discovery for a floating
+    /// target, and the shared resolver's exact path for everything else.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A floating <c>ID</c> target is documented as latest <em>stable</em>, and the admitted
-    /// root then states one exact coordinate as evidence. The shared resolver's default
-    /// stable-preferred behavior falls back to a prerelease when a feed publishes nothing
-    /// else, which would quietly make an unqualified target mean something this command says
-    /// <c>--preview</c> is required for; opting into <c>requireStableFloating</c> refuses that
-    /// answer instead. <c>--preview</c> widens the same path to prerelease selection, and an
-    /// exact pin — prerelease or not — never reaches it, so a pinned prerelease stays exact
-    /// without <c>--preview</c>.
+    /// An exact pin — prerelease or not — asks no latest-version question. It goes straight to
+    /// the shared resolver, which validates the grammar, canonicalizes the version, and binds
+    /// the authorized sources without consulting any producer, so a pinned prerelease stays
+    /// exact without <c>--preview</c>.
     /// </para>
     /// <para>
-    /// The same opt-in refuses an incomplete authorized-source listing. A candidate set
-    /// missing one authorized source cannot prove which version is latest, and this command
-    /// would otherwise publish that unproven selection as the root's exact coordinate.
+    /// A floating <c>ID</c> target asks the package-owned
+    /// <see cref="DesktopPackageSourceComposition"/> instead of a command-local listing rule.
+    /// The composition is the normative owner of what a configured authority publishes: it
+    /// composes HTTP and local-folder evidence together, applies listing state and prerelease
+    /// policy, sorts every authority's candidates globally before it limits, and reports how
+    /// complete the aggregate is. This command therefore asks for one row and neither infers
+    /// which authorities can answer from source text or transport nor re-implements selection.
     /// </para>
     /// <para>
-    /// One kind of missing answer is this command's own to decide, because the shared listing
-    /// path never produces it: a source that path cannot query at all — a local folder, a
-    /// <c>file://</c> URL — is skipped there, which is right for a caller that only wants some
-    /// answer and wrong for this one, which publishes the floating answer as an exact
-    /// coordinate said to be latest across every authorized producer. So a floating coordinate
-    /// is refused here, before shared resolution, when any authorized source cannot be listed.
-    /// An exact pin — including a pinned prerelease — never asks that question and still
-    /// acquires from the same source.
+    /// The admitted root publishes the floating answer as one exact coordinate said to be
+    /// latest across every authorized producer, so only an
+    /// <see cref="PackageVersionDiscoveryState.Authoritative"/> aggregate that returned an
+    /// acceptable version may be admitted. <see cref="PackageVersionDiscoveryState.Partial"/>,
+    /// <see cref="PackageVersionDiscoveryState.Failed"/>, and an authoritative empty answer are
+    /// all inconclusive rather than absence: some authority was not heard from, or none
+    /// publishes a version this request accepts, and neither proves the coordinate does not
+    /// exist. Each becomes the typed unavailable resolution this command classifies as an
+    /// acquisition failure.
     /// </para>
     /// <para>
-    /// The refusal is stated in the resolver's own vocabulary rather than a second one: asked
-    /// with no source that can answer, it returns the typed
-    /// <see cref="PackageCoordinateResolution.Unavailable"/> this command classifies as an
-    /// acquisition failure. Its message is the resolver's and is never surfaced; the reason
-    /// this command refused is written to <paramref name="log"/> instead.
-    /// </para>
-    /// <para>
-    /// The candidate cache stays off so a floating answer is not inherited from a legacy
-    /// caller's less strict resolution.
+    /// <c>--preview</c> is the only thing that widens the accepted set to a prerelease head; the
+    /// composition applies it, so an unqualified target still means latest stable.
     /// </para>
     /// </remarks>
-    internal static Task<PackageCoordinateResolution> ResolveCoordinateAsync(
+    internal static async Task<PackageCoordinateResolution> ResolveCoordinateAsync(
+        HttpClient httpClient,
+        PackageCoordinate coordinate,
+        IReadOnlyList<PackageSource> authorizedSources,
+        DependencyEvidenceVersionDiscovery discoverVersions,
+        Action<string>? log,
+        bool includePrerelease,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(discoverVersions);
+
+        if (coordinate.Version is not null)
+        {
+            return await ResolveExactAsync(
+                httpClient,
+                coordinate,
+                authorizedSources,
+                log,
+                includePrerelease,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        PackageVersionDiscoveryResult discovery = await discoverVersions(
+            coordinate.PackageId,
+            includePrerelease,
+            cancellationToken).ConfigureAwait(false);
+
+        if (discovery.State is not PackageVersionDiscoveryState.Authoritative
+            || discovery.Versions.Count == 0)
+        {
+            log?.Invoke(
+                "Refusing to bind a floating package version: version discovery for "
+                + $"'{coordinate.PackageId}' across the configured authorities was "
+                + $"{discovery.State} and returned {discovery.Versions.Count} acceptable "
+                + "version(s), which cannot prove which version is latest.");
+            return await InconclusiveAsync(
+                httpClient,
+                coordinate,
+                includePrerelease,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        // Discovery answered, so the remaining question is exactly the one an exact pin asks,
+        // and it is asked through the same owner rather than a second construction path.
+        return await ResolveExactAsync(
+            httpClient,
+            coordinate with { Version = discovery.Versions[0] },
+            authorizedSources,
+            log,
+            includePrerelease,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Resolves one exact coordinate through the shared resolver, which consults no producer
+    /// for it.
+    /// </summary>
+    /// <remarks>
+    /// The candidate cache stays off so no answer is inherited from a legacy caller's less
+    /// strict resolution, and <c>requireStableFloating</c> stays on so this command's contract
+    /// holds for any path that still reaches shared floating selection.
+    /// </remarks>
+    private static Task<PackageCoordinateResolution> ResolveExactAsync(
         HttpClient httpClient,
         PackageCoordinate coordinate,
         IReadOnlyList<PackageSource> authorizedSources,
@@ -200,7 +308,7 @@ internal static class DependencyEvidenceAcquisition
         PackageCoordinateResolver.ResolveAsync(
             httpClient,
             coordinate,
-            SourcesThatCanAnswer(coordinate, authorizedSources, log),
+            authorizedSources,
             log,
             includePrerelease: includePrerelease,
             useVersionCache: false,
@@ -208,40 +316,31 @@ internal static class DependencyEvidenceAcquisition
             cancellationToken: cancellationToken);
 
     /// <summary>
-    /// The authorized sources this command will consult, which is all of them unless a
-    /// floating coordinate asks a question none of them can answer together.
+    /// The typed inconclusive resolution for a floating coordinate no authoritative aggregate
+    /// selected a version for.
     /// </summary>
-    private static IReadOnlyList<PackageSource> SourcesThatCanAnswer(
+    /// <remarks>
+    /// The refusal is stated in the resolver's own vocabulary rather than a second one: the
+    /// shared resolver constructs <see cref="PackageCoordinateResolution.Unavailable"/>, which
+    /// this assembly cannot construct itself, and asking it for a floating coordinate with no
+    /// authorized source is the one path that returns that outcome without consulting any
+    /// producer. Its message is the resolver's and is never surfaced; the reason this command
+    /// refused is logged by the caller instead.
+    /// </remarks>
+    private static Task<PackageCoordinateResolution> InconclusiveAsync(
+        HttpClient httpClient,
         PackageCoordinate coordinate,
-        IReadOnlyList<PackageSource> authorizedSources,
-        Action<string>? log)
-    {
-        if (coordinate.Version is not null)
-            return authorizedSources;
-
-        foreach (PackageSource source in authorizedSources)
-        {
-            if (IsRemotelyListable(source))
-                continue;
-
-            log?.Invoke(
-                "Refusing to resolve a floating package version: authorized source "
-                + $"'{PackageSourceDisplay.ForDiagnostics(source)}' cannot be listed over HTTP, "
-                + "so no latest version can be proven across every authorized source.");
-            return [];
-        }
-
-        return authorizedSources;
-    }
-
-    /// <summary>
-    /// Whether the shared HTTP listing path can ask <paramref name="source"/> what it
-    /// publishes. Only an absolute http/https URL can be listed; a local folder path, a
-    /// <c>file://</c> URL, and any other spelling cannot.
-    /// </summary>
-    private static bool IsRemotelyListable(PackageSource source) =>
-        Uri.TryCreate(source.Url, UriKind.Absolute, out Uri? uri)
-        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        bool includePrerelease,
+        CancellationToken cancellationToken) =>
+        PackageCoordinateResolver.ResolveAsync(
+            httpClient,
+            coordinate with { Version = null },
+            [],
+            log: null,
+            includePrerelease: includePrerelease,
+            useVersionCache: false,
+            requireStableFloating: true,
+            cancellationToken: cancellationToken);
 
     private static async Task AcquirePackageAsync(
         string package,
@@ -292,7 +391,7 @@ internal static class DependencyEvidenceAcquisition
         // carried into the sink, because it quotes the configuration the caller selected.
         PackageSourceAuthorization authorized =
             authorization.AuthorizeSourcesFor(packageId.ToLowerInvariant());
-        if (authorized.Sources.Count == 0)
+        if (authorized.Authorities.Count == 0)
         {
             failures.Add(
                 Acquisition(
@@ -329,12 +428,12 @@ internal static class DependencyEvidenceAcquisition
         if (resolution is not PackageCoordinateResolution.Resolved resolved)
         {
             // An unavailable resolution is inconclusive, not absence: it is reported for a
-            // source that could not answer, a listing no authorized source completed, a
-            // package whose only listed versions this command's stable contract refuses, and
-            // a floating coordinate refused here because an authorized source cannot be
-            // listed alike. None of those is an authoritative all-source absence claim, so the
-            // conservative acquisition failure is retained. Only the later source loop, where
-            // every attempted source answered with a typed NotFound, states absence.
+            // coordinate no authorized source is configured for, a version aggregate that was
+            // partial or failed, and an authoritative aggregate that publishes nothing this
+            // request accepts alike. None of those is an authoritative all-source absence
+            // claim, so the conservative acquisition failure is retained. Only the later
+            // source loop, where every attempted source answered with a typed NotFound,
+            // states absence.
             failures.Add(
                 Acquisition(
                     PackageDependencyEvidenceSourceKind.PackageSourceManifest,
@@ -365,9 +464,14 @@ internal static class DependencyEvidenceAcquisition
             return;
         }
 
+        // The source loop consults the owner-issued authorities themselves, not the display
+        // text of the sources resolution echoed back. Resolution never narrows the authorized
+        // set here — version discovery is an aggregate over every eligible authority, not a
+        // per-source attribution — so every authorized authority is still tried in order, and
+        // each keeps the association its owner minted for it.
         await AcquireSourceManifestAsync(
             coordinate,
-            resolved.Coordinate.Sources,
+            authorized.Authorities,
             options,
             label,
             httpClient,
@@ -378,7 +482,7 @@ internal static class DependencyEvidenceAcquisition
 
     private static async Task AcquireSourceManifestAsync(
         PackageSourceCoordinate coordinate,
-        IReadOnlyList<PackageSource> sources,
+        IReadOnlyList<ConfiguredPackageAuthority> authorities,
         DependencyEvidenceOptions options,
         InertString label,
         HttpClient httpClient,
@@ -394,8 +498,8 @@ internal static class DependencyEvidenceAcquisition
             cancellationToken);
         await AcquireSourceManifestAsync(
             coordinate,
-            sources,
-            source => CreateSourceClient(source, fetchOptions),
+            authorities,
+            authority => CreateSourceClient(authority, fetchOptions),
             options.Tfm,
             label,
             operationContext,
@@ -405,31 +509,40 @@ internal static class DependencyEvidenceAcquisition
     }
 
     /// <summary>
-    /// Creates one authorized source client, or null when this build has no client for it.
+    /// Creates one client for an owner-issued configured authority, or null when this build has
+    /// no client for it.
     /// </summary>
     /// <remarks>
-    /// A local folder is an ordinary authorized source under the normal <c>--source</c>,
-    /// <c>--add-source</c>, and <c>--nugetconfig</c> policy, so it is routed to the local
-    /// client rather than handed to the HTTP overload, which refuses a file endpoint. Each
-    /// constructed client gets its own caller-created association: the association scopes one
-    /// client's results, so sharing one across clients would let two sources' results claim the
-    /// same scope.
+    /// <para>
+    /// The authority is the identity. Its association is the token the package-source owner
+    /// minted for it, so the client is constructed with that exact association rather than a
+    /// freshly created one: minting a new association here would make the client's results
+    /// claim a scope no configured authority owns, and no consumer could recover which
+    /// configured authority served the bytes.
+    /// </para>
+    /// <para>
+    /// The route is likewise the authority's own classification, not a re-reading of its
+    /// source text. A local-folder authority carries the canonical
+    /// <see cref="ConfiguredPackageAuthority.LocalIdentity"/> its owner formed and is served by
+    /// the local client; every other authority is an HTTP one and keeps
+    /// <see cref="ConfiguredPackageAuthority.Source"/>, which the HTTP overload accepts.
+    /// </para>
     /// </remarks>
-    private static IPackageSourceClient? CreateSourceClient(
-        PackageSource source,
+    internal static IPackageSourceClient? CreateSourceClient(
+        ConfiguredPackageAuthority authority,
         NuGetFetchOptions fetchOptions)
     {
-        PackageSourceAssociation association = PackageSourceAssociation.Create();
+        ArgumentNullException.ThrowIfNull(authority);
         try
         {
-            return LocalPackageSourceIdentity.IsLocalSource(source.Url)
+            return authority.LocalIdentity is { } local
                 ? PackageSourceClientFactory.Create(
-                    LocalPackageSourceIdentity.CreateAbsolute(source.Url),
-                    association,
+                    local,
+                    authority.Association,
                     options: null)
                 : PackageSourceClientFactory.Create(
-                    source,
-                    association,
+                    authority.Source,
+                    authority.Association,
                     fetchOptions);
         }
         catch (PackageSourceClientUnavailableException)
@@ -438,10 +551,9 @@ internal static class DependencyEvidenceAcquisition
         }
         catch (ArgumentException)
         {
-            // The only local-source construction failure this classification covers: a source
-            // that is empty, relative with no resolution base, or a malformed file URI has no
-            // client in this build, which is the same "unavailable" outcome the typed
-            // exception above reports. Nothing else is caught here.
+            // The only construction failure this classification covers: an authority this
+            // build has no client for is the same "unavailable" outcome the typed exception
+            // above reports. Nothing else is caught here.
             return null;
         }
     }
@@ -473,14 +585,19 @@ internal static class DependencyEvidenceAcquisition
     /// <c>SourceUnavailable</c>.
     /// </para>
     /// <para>
-    /// The client factory is a parameter so a test can supply fake sources without duplicating
-    /// source semantics here.
+    /// The loop is generic over what names one authorized producer, and the client factory is a
+    /// parameter, so production hands it the owner-issued
+    /// <see cref="ConfiguredPackageAuthority"/> list while a test hands it fake sources —
+    /// neither duplicating source semantics here nor letting this loop reconstruct an authority
+    /// from source text. The loop itself reads nothing off <typeparamref name="TAuthorized"/>:
+    /// it only asks the factory for that entry's client, so identity stays entirely with the
+    /// caller that owns it.
     /// </para>
     /// </remarks>
-    internal static async Task AcquireSourceManifestAsync(
+    internal static async Task AcquireSourceManifestAsync<TAuthorized>(
         PackageSourceCoordinate coordinate,
-        IReadOnlyList<PackageSource> sources,
-        Func<PackageSource, IPackageSourceClient?> createClient,
+        IReadOnlyList<TAuthorized> sources,
+        Func<TAuthorized, IPackageSourceClient?> createClient,
         string? targetFramework,
         InertString label,
         NuGetOperationContext? operationContext,
@@ -494,7 +611,7 @@ internal static class DependencyEvidenceAcquisition
         bool attempted = false;
         bool everyAttemptReportedAbsence = true;
         PackageManifestFailure? manifestFailure = null;
-        foreach (PackageSource source in sources)
+        foreach (TAuthorized source in sources)
         {
             IPackageSourceClient? client = createClient(source);
             if (client is null)

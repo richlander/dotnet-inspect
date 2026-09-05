@@ -103,28 +103,32 @@ policy or version resolution is consulted. An empty version is a malformed
 exact pin, not an omitted one; reading it as floating latest would answer for a
 coordinate the caller did not name.
 
-Floating `ID` resolution uses the shared resolver's strict stable contract. The
-resolver's default stable-preferred behavior falls back to a prerelease when a
-feed publishes nothing else, which would make an unqualified target mean what
-this command documents `--preview` as required for, so that answer is refused
-instead. The same strict path refuses an incomplete authorized-source listing:
-a candidate set missing one authorized source cannot prove which version is
-latest, and this command publishes the floating selection as the root's exact
-coordinate. `--preview` widens the same path to a prerelease head. An exact pin
-never reaches it, so a pinned prerelease stays exact without `--preview`.
+Floating `ID` binding consumes package-owned version discovery. The CLI asks
+`DesktopPackageSourceComposition.GetVersionsAsync` for one row and adds no
+version policy of its own. That owner is normative for what a configured
+authority publishes: it composes HTTP and local-folder authorities together,
+applies listing state and prerelease policy, sorts every authority's candidates
+globally before it limits, and reports how complete the aggregate is. The CLI
+therefore never infers from a source's text or transport whether it can answer,
+and a local folder or `file://` source participates in a floating question
+exactly as an HTTP feed does.
 
-One kind of missing answer is this command's own to refuse, because the shared
-listing path never reports it. That path can only query an absolute
-`http`/`https` source; a local folder, a `file://` URL, or any other spelling
-is skipped there, which is right for a caller that wants the best answer the
-readable sources can give and wrong for this command, which states the floating
-selection as an exact coordinate said to be latest across every authorized
-producer. So `dependency-evidence` refuses a floating coordinate before shared
-resolution when any authorized source cannot be listed, and the root reports
-the conservative `AcquisitionFailed`. This is a command-level refusal only:
-shared workspace and legacy resolution behavior is unchanged. An exact pin —
-including a pinned prerelease — asks no latest-version question and still
-acquires from that same source.
+Because the admitted root publishes that answer as one exact coordinate said to
+be latest across every authorized producer, only an `Authoritative` aggregate
+that returned an acceptable version may be admitted. `Partial`, `Failed`, and an
+authoritative empty answer are all inconclusive rather than absence: some
+authority was not heard from, or none publishes a version this request accepts,
+and neither proves the coordinate does not exist. Each is stated in the shared
+resolver's own vocabulary as the typed unavailable resolution, and the root
+reports the conservative `AcquisitionFailed` — never `NotFound`. The refusal's
+own message is the resolver's and is never surfaced; the reason this command
+refused is logged instead.
+
+`--preview` is the only thing that widens the accepted set to a prerelease head,
+so an unqualified `ID` still means latest stable and a prerelease-only package
+is refused without it. An exact pin — including a pinned prerelease — asks no
+latest-version question at all. It never reaches version discovery, keeps the
+shared resolver's exact path, and still acquires from every authorized source.
 
 NuGet source options apply only when at least one remote package target is
 present. An exact or latest remote package may use the normal `--source`,
@@ -154,24 +158,35 @@ for exactly this cross-assembly reuse; the CLI does not re-implement entry-path
 safety or root-uniqueness.
 
 A remote package coordinate may be authorized against several sources under the
-normal `--source`, `--add-source`, and `--nugetconfig` policy; a local folder
-is an ordinary source in that list and is served by the local-folder client
-rather than refused, once the coordinate is exact. Authorization is asked once per package id through the
-shared `IPackageSourceAuthorization` seam, so a package source mapping that
-authorizes no producer for that id is that root's typed `SourceUnavailable`
-failure rather than an exception that ends the request. The denial's own
-message is not carried into the sink, because it quotes the configuration the
-caller selected. A `--nugetconfig` file that cannot be read is not this
-command's concern: the shared parse-time validator rejects it uniformly for
-every command before any root is acquired.
+normal `--source`, `--add-source`, and `--nugetconfig` policy; a local folder is
+an ordinary authority in that list, for a floating question and an exact pin
+alike. Authorization is asked once per package id through the shared
+`IPackageSourceAuthorization` seam, so a package source mapping that authorizes
+no producer for that id is that root's typed `SourceUnavailable` failure rather
+than an exception that ends the request. The denial's own message is not carried
+into the sink, because it quotes the configuration the caller selected. A
+`--nugetconfig` file that cannot be read is not this command's concern: the
+shared parse-time validator rejects it uniformly for every command before any
+root is acquired.
+
+Exact manifest acquisition preserves owner-issued identity. The seam answers
+with `ConfiguredPackageAuthority` values, and the CLI carries those authorities
+into the source loop rather than the source display text resolution echoed back.
+Each client is constructed with that authority's own
+`PackageSourceAssociation` and with the route the authority already classified —
+its canonical `LocalIdentity` for a local folder, its `Source` for an HTTP
+endpoint. The CLI mints no association and reconstructs no authority from a URL,
+so every result stays attributable to the configured authority that produced it.
+Resolution does not narrow that set: version discovery is an aggregate over
+every eligible authority rather than a per-source attribution, so every
+authorized authority is still tried in order.
 
 An unavailable resolution is inconclusive, not absence. It is reported for a
-source that could not answer, a listing no authorized source completed, a
-package whose only listed versions the stable contract refuses, and a floating
-coordinate this command refused because an authorized source cannot be listed,
-so the root reports the conservative `AcquisitionFailed`. Only the source loop
-below states absence, and only when every attempted source answered with a
-typed `NotFound`.
+coordinate no source is authorized for, a version aggregate that was `Partial`
+or `Failed`, and an authoritative aggregate that publishes nothing this request
+accepts, so the root reports the conservative `AcquisitionFailed`. Only the
+source loop below states absence, and only when every attempted source answered
+with a typed `NotFound`.
 
 The CLI tries the authorized sources in order and admits
 the first manifest that both arrives and establishes package facts: a source
@@ -482,15 +497,20 @@ The adoption requires Release gates for:
 - per-root source-authorization denial, where package source mapping that
   authorizes no producer for one package id fails only that root and does not
   reproduce the selected configuration;
-- the strict stable floating contract: a prerelease-only package refused
-  without `--preview`, admitted with it, an exact prerelease pin admitted
-  without it, and an incomplete authorized-source listing refused;
-- the command's own floating refusal when an authorized source cannot be listed
-  over HTTP — a local-folder or `file://` source makes a floating target
-  `Unavailable` and its root `AcquisitionFailed`, while an exact prerelease pin
-  against the same source set still resolves without `--preview`;
+- the stable floating contract over package-owned version discovery: a
+  prerelease-only package refused without `--preview`, admitted with it, and an
+  exact prerelease pin admitted without it;
+- floating binding across configured authorities, where a local-folder authority
+  composed with an HTTP one contributes candidates, the globally latest stable
+  version is selected, and the command acquires that selected manifest;
+- non-authoritative version discovery — `Partial`, `Failed`, and an
+  authoritative empty answer — classified as root `AcquisitionFailed` rather
+  than absence, while a valid sibling root still renders;
 - inconclusive coordinate resolution classified as `AcquisitionFailed` rather
   than absence;
+- owner-issued authority identity in manifest acquisition, where each production
+  client is constructed with the exact `PackageSourceAssociation` its
+  `PackageSourceAuthorization.Authorities` entry carries rather than a fresh one;
 - remote source fallback, where an invalid manifest from one authorized source
   does not prevent a later source from being admitted;
 - terminal source classification: every attempted source reporting typed

@@ -1,9 +1,11 @@
 import {
   annotatedFocusSelector,
   bindAnnotatedSource,
+  captureAnnotatedSourceScroll,
   renderAnnotatedSource,
   renderAnnotatedSourcePageActions,
   renderAnnotatedSourceModal,
+  restoreAnnotatedSourceScroll,
 } from "../src/annotated-source.ts";
 import type {
   AnnotatedSourceAction,
@@ -123,7 +125,9 @@ function escapeHtml(value: unknown): string {
 function renderAndFocus(
   target: AnnotatedFocusTarget | string | null = null,
   surface: "embedded" | "modal" = modal ? "modal" : "embedded",
+  preventScroll = false,
 ): void {
+  const scroll = captureAnnotatedSourceScroll(app);
   app.innerHTML = `
     <main id="harness-background" class="detail-pane"
       style="height: 100%"${modal ? " inert" : ""}>
@@ -170,11 +174,14 @@ function renderAndFocus(
         })
       : ""}`;
   bindAnnotatedSource(app, { onAction });
+  restoreAnnotatedSourceScroll(app, scroll);
   if (!target) return;
   const selector = typeof target === "string"
     ? target
     : annotatedFocusSelector(target, surface);
-  app.querySelector<HTMLElement>(selector)?.focus();
+  const element = app.querySelector<HTMLElement>(selector);
+  if (preventScroll) element?.focus({ preventScroll: true });
+  else element?.focus();
 }
 
 function closeModal(): void {
@@ -217,14 +224,14 @@ function onAction(action: AnnotatedSourceAction): void {
     }
     case "annotation-open":
       updateSession(selectFinding(session, action.opener));
-      renderAndFocus("#annotated-detail-title", session.surface);
+      renderAndFocus("#annotated-detail-title", session.surface, true);
       return;
     case "inspector-open":
       updateSession(selectFinding(session, {
         kind: "inspector",
         factId: action.factId,
       }));
-      renderAndFocus("#annotated-detail-title");
+      renderAndFocus("#annotated-detail-title", "modal", true);
       return;
     case "annotation-set": {
       const transition = action.value === "Default"

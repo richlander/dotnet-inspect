@@ -129,6 +129,10 @@ The projection owns everything a host must not re-invent in JavaScript:
   pointers, by-reference types, tuples, method generic parameters, custom
   modifiers, and return types, plus resolution with and without an exact-token
   candidate.
+  `CallGraphCorrespondenceFlowTests.CorrespondenceFlow_MatchesRecordedStageExpectations`
+  records the exact Metadata input, API selector, independently decoded
+  `MemberRef` selector, tokenless resolution, and JSON-restored exact-token
+  recovery for vector, rank-one non-SZ, rank-two, and nested non-SZ specimens.
 - **Physical evidence.** Every projected node retains the distinct
   `GraphNodeEvidence` carried by the tree occurrences that collapsed into it.
   A catalog-resolved node also carries the exact defining assembly identity

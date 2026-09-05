@@ -175,6 +175,7 @@ import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
 } from "./source-inspection.ts";
+import { renderMemberContractSections } from "./member-overview.ts";
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import {
   createMetadataInspectionCoordinator,
@@ -211,6 +212,7 @@ import {
   type CallGraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
+import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
 import {
   validateAnnotatedSourceDocument,
 } from "./annotated-source-view.ts";
@@ -249,7 +251,6 @@ import {
   renderScopeBar as renderScopeBarPure,
   restoreScopeBarFocus,
   scopeBarShortLabel,
-  type ApplicationScopeBarBinding,
   type ScopeBarBinding,
 } from "./scope-bar.ts";
 import {
@@ -273,10 +274,12 @@ import {
 } from "./graph-source.ts";
 import {
   annotatedFocusSelector,
+  captureAnnotatedSourceScroll,
   renderAnnotatedSourcePageActions,
   bindAnnotatedSource,
   renderAnnotatedSource as renderAnnotatedSourcePure,
   renderAnnotatedSourceModal as renderAnnotatedSourceModalPure,
+  restoreAnnotatedSourceScroll,
   type AnnotatedSourceAction,
   type AnnotatedSourceResult,
 } from "./annotated-source.ts";
@@ -962,7 +965,6 @@ type AppState = Omit<typeof initialState, keyof StateOverrides> & StateOverrides
 const state: AppState = initialState;
 const scopeBarState = createScopeBarState();
 let scopeBarBinding: ScopeBarBinding | null = null;
-let packageQueryScopeBinding: ApplicationScopeBarBinding | null = null;
 let workbenchShellBinding: WorkbenchShellBinding | null = null;
 type FailedWorkspaceUrlState = WorkspaceUrlPreservation & (
   | { kind: "canonical" }
@@ -1452,11 +1454,13 @@ function recordNav() {
 }
 
 function navBack() {
+  closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.back();
 }
 
 function navForward() {
+  closeGraphExplorerForNavigation();
   dismissAnnotatedSourceModal(false);
   navigationHistory.forward();
 }
@@ -1604,6 +1608,9 @@ function requireElement(selector: string): HTMLElement {
 }
 
 const app = requireElement("#app");
+const graphExplorer = createGraphExplorer(document);
+let graphExplorerNavigationFocusPending = false;
+let graphExplorerOriginKey: string | null = null;
 type MermaidModule = typeof import("mermaid");
 type MarkedModule = typeof import("marked");
 type DomPurifyModule = typeof import("dompurify");
@@ -3076,6 +3083,15 @@ function typeDisplayName(
 
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
+  const graphExplorerWasOpen = graphExplorer.isOpen;
+  graphExplorer.beforeRender(callGraphExplorerKey());
+  if (graphExplorerWasOpen && !graphExplorer.isOpen) {
+    graphExplorerNavigationFocusPending = !state.settings && !state.keyboardHelp
+      && !state.explorer?.open && !workbenchModalOwnsFocus();
+  }
+  if (graphExplorerNavigationFocusPending) {
+    queueMicrotask(restoreGraphExplorerNavigationFocus);
+  }
   if (!workspaceOccurrenceViewIsVisible()
     && (state.workspaceOccurrenceSignature
       || state.workspaceOccurrences)) {
@@ -3098,8 +3114,6 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const levelOneHeadingHadFocus =
     focusedElement?.matches("main h1") === true;
   scopeBarBinding?.disconnect();
-  packageQueryScopeBinding?.disconnect();
-  packageQueryScopeBinding = null;
   workbenchShellBinding?.disconnect();
   workbenchShellBinding = null;
 
@@ -3241,6 +3255,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     activeScope === "type" && state.lens === "api";
   const metadataWorkingSurface =
     activeScope === "type" && state.lens === "metadata";
+  const packageDependenciesWorkingSurface =
+    activeScope === "package" && state.packageLens === "dependencies";
   const packageMetadataWorkingSurface =
     activeScope === "package" && state.packageLens === "metadata";
   const currentMember = current ? selectedMember(current) : undefined;
@@ -3262,6 +3278,8 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
     && memberSourceHasConcreteOverload();
   const annotatedWorkingSurface =
     annotatedPageContext && state.memberAnnotatedEmbedded !== null;
+  const callGraphPageContext =
+    activeScope === "member" && state.memberSection === "call-graph";
   const subjectPath = currentInspectedSubjectPath();
   const subjectPathLabel = subjectPath.map(segment => segment.label).join(" > ");
   const inspectorPanelSemantics = hasEffectiveInspector()
@@ -3273,6 +3291,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   const contentNavigationIntegrated =
     apiWorkingSurface
     || metadataWorkingSurface
+    || packageDependenciesWorkingSurface
     || packageMetadataWorkingSurface
     || memberWorkingSurface;
 
@@ -3288,8 +3307,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind
-          ? `<div class="working-surface-actions" role="group" aria-label="${annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext
+          ? `<div class="working-surface-actions" role="group" aria-label="${callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${callGraphPageContext
+                ? `<button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>`
+                : ""}
               ${annotatedPageContext
                 ? renderAnnotatedSourcePageActions(annotatedWorkingSurface)
                 : ""}
@@ -3341,7 +3363,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           ${contentFrameEnabled
             ? renderContentNavigationBar(contentNavigationLabel)
             : ""}
-          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
+          <article id="inspector-panel" class="detail-scroll${annotatedWorkingSurface ? " annotated-working-surface" : ""}${sourceWorkingSurface ? " source-working-surface" : ""}${apiWorkingSurface ? " api-working-surface" : ""}${metadataWorkingSurface ? " metadata-working-surface" : ""}${packageDependenciesWorkingSurface ? " package-dependencies-working-surface" : ""}${packageMetadataWorkingSurface ? " package-metadata-working-surface" : ""}${memberWorkingSurface ? " member-working-surface" : ""}"${inspectorPanelSemantics}>
             ${renderLens(current)}
           </article>
         </section>
@@ -3405,6 +3427,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
+  graphExplorer.afterRender(callGraphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
@@ -3859,7 +3882,8 @@ function packageCoordinateControls() {
 
 function renderPackageView() {
   const body = packageLensBody();
-  if (state.packageLens === "metadata") return body;
+  if (state.packageLens === "dependencies"
+    || state.packageLens === "metadata") return body;
   return `${packageHeading()}${packageCoordinateControls()}${body}`;
 }
 
@@ -3896,18 +3920,60 @@ function packageDependenciesSignature() {
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${pkg.assemblyId}`;
 }
 
+function renderPackageDependenciesSurface(content: string, status: string) {
+  const pkg = currentPackage();
+  const coordinate = `${pkg.id}@${pkg.version}`;
+  return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+    <header class="api-surface-head package-dependencies-surface-head">
+      <h1 id="package-dependencies-surface-title">Dependencies</h1>
+      <p data-package-dependencies-status>${escapeHtml(status)}</p>
+    </header>
+    <section class="package-dependencies-controls" aria-label="Dependency coordinate">
+      <div class="package-coordinate-fields">${packageCoordinateFields()}</div>
+    </section>
+    <div class="package-dependencies-scroll">
+      ${content}
+    </div>
+    <footer class="api-surface-footer package-dependencies-surface-footer">
+      <span title="${escapeHtml(coordinate)}">${escapeHtml(coordinate)}</span>
+      <span title="${escapeHtml(pkg.activeFramework)}">${escapeHtml(pkg.activeFramework)}</span>
+    </footer>
+  </section>`;
+}
+
+function packageDependenciesStatus(
+  data: BrowserPackageDependencies,
+  selectedGroupIndex: number | null,
+) {
+  const groups = data.dependencyGroups || [];
+  const selectedGroup =
+    groups.find(group => group.index === selectedGroupIndex) ?? groups[0];
+  const dependencyCount = selectedGroup?.dependencies?.length ?? 0;
+  const referenceCount = data.assemblyReferences?.length ?? 0;
+  const referenceStatus = data.assemblyReferenceError
+    ? "reference read failed"
+    : `${referenceCount} reference${referenceCount === 1 ? "" : "s"}`;
+  return `${dependencyCount} package${dependencyCount === 1 ? "" : "s"} · ${referenceStatus}`;
+}
+
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
   if (state.packageDependenciesLoading && fresh) {
-    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`,
+      "reading");
   }
   if (fresh && state.packageDependenciesError) {
-    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
+      "query failed");
   }
   const data = fresh ? state.packageDependencies : null;
   if (!data) {
-    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+    return renderPackageDependenciesSurface(
+      `<section class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
+      "loading");
   }
 
   const groups = data.dependencyGroups || [];
@@ -3917,7 +3983,9 @@ function renderPackageDependencies() {
     ? `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>No exact dependency group</h2><p>${escapeHtml(dependencyGroupError)}</p></section>`
     : "";
   if (!groups.length) {
-    return `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`;
+    return renderPackageDependenciesSurface(
+      `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`,
+      packageDependenciesStatus(data, null));
   }
 
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
@@ -3940,7 +4008,9 @@ function renderPackageDependencies() {
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
-  return `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`;
+  return renderPackageDependenciesSurface(
+    `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`,
+    packageDependenciesStatus(data, selectedGroupIndex));
 }
 
 function assemblyReferencesSectionHtml(data: BrowserPackageDependencies) {
@@ -4010,14 +4080,18 @@ function dependencyListSectionHtml(
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const data = state.packageDependencies;
+  const groups = data?.dependencyGroups || [];
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
-  if (!groups.length || !listSection) { render(); return; }
+  const status =
+    document.querySelector<HTMLElement>("[data-package-dependencies-status]");
+  if (!data || !groups.length || !listSection || !status) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
     button.classList.toggle(
       "active",
       Number(button.dataset.depGroup) === selectedGroupIndex));
+  status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
   observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
@@ -4447,6 +4521,14 @@ function openExplorer(assemblyFileName: string, tableIndex: number, rowId = 0) {
   applyExplorerFocus();
 }
 
+function openExplorerOverview(assemblyFileName: string) {
+  const ex = buildBaseExplorer(assemblyFileName);
+  if (!ex) return;
+  ex.overview = true;
+  state.explorer = ex;
+  render();
+}
+
 // Opens the explorer focused on a heap card (#Strings / #Blob / #GUID / #US) rather than a table.
 function openExplorerHeap(assemblyFileName: string, heapName: string) {
   const ex = buildBaseExplorer(assemblyFileName);
@@ -4675,6 +4757,7 @@ function bindMetadataViewerEvents() {
     onHeapFocus: heap => pushExplorerFocus({ heap }),
     onJump: explorerJump,
     onOpenHeap: openExplorerHeap,
+    onOpenOverview: openExplorerOverview,
     onOpenTable: openExplorer,
     onPage: (index, startRowId) =>
       observeAsync(
@@ -5126,27 +5209,18 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
           </section>
         </section>
-        ${parameters.length ? `<section class="learn-section">
-          <h2>Parameters</h2>
-          <dl class="parameter-docs">${parameters.map(parameter => `
-            <div>
-              <dt><code>${escapeHtml(parameter.name)}</code></dt>
-              <dd><a>${escapeHtml([parameter.modifier, parameter.type].filter(Boolean).join(" "))}</a>${parameter.hasDefault ? `<span>Default: <code>${escapeHtml(parameter.defaultValue ?? "default")}</code></span>` : ""}<p>${escapeHtml(documentationLoading ? "Loading documentation…" : parameter.description || "No parameter documentation was found in the package XML documentation.")}</p></dd>
-            </div>`).join("")}</dl>
-        </section>` : ""}
-        ${overload.returns ? `<section class="learn-section"><h2>Returns</h2><p class="api-summary">${escapeHtml(overload.returns)}</p></section>` : ""}
-        <section class="learn-section">
-          <h2>Exceptions</h2>
-          ${documentationLoading
-            ? '<p class="docs-loading">Loading documented exceptions…</p>'
-            : (overload.exceptions ?? []).length
-            ? `<dl class="exception-docs">${overload.exceptions.map(exception => `<div><dt>${escapeHtml(exception.type)}</dt><dd>${escapeHtml(exception.description)}</dd></div>`).join("")}</dl>`
-            : '<p class="docs-unavailable">No exceptions are documented for this overload.</p>'}
-        </section>
-        <section class="learn-section applies-to">
-          <h2>Applies to</h2>
-          <span>${escapeHtml(pkg.activeFramework)}</span>
-        </section>
+        ${renderMemberContractSections({
+          parameters,
+          returnType: overload.returnType,
+          returns: overload.returns,
+          exceptions: overload.exceptions,
+          activeFramework: pkg.activeFramework,
+          documentationStatus: documentationLoading
+            ? "loading"
+            : documentationError
+              ? "error"
+              : "loaded",
+        })}
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
@@ -5216,6 +5290,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
             <details class="graph-mermaid"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(callGraphError || "No call graph result was returned.")}</p></section>`;
+    content = `<div data-call-graph-surface>${content}</div>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
   } else if (state.memberSection === "annotated") {
@@ -6031,24 +6106,31 @@ function bindDocViewerEvents() {
 function scheduleAnnotatedFocus(
   target: AnnotatedFocusTarget | string,
   surface: "embedded" | "modal" = "modal",
+  preventScroll = false,
 ) {
   const selector = typeof target === "string"
     ? target
     : annotatedFocusSelector(target, surface);
   requestAnimationFrame(() => {
-    document.querySelector<HTMLElement>(selector)?.focus();
+    const element = document.querySelector<HTMLElement>(selector);
+    if (preventScroll) element?.focus({ preventScroll: true });
+    else element?.focus();
   });
 }
 
 function renderAndFocusAnnotated(
   target: AnnotatedFocusTarget | string,
   surface: "embedded" | "modal" = "modal",
+  preventScroll = false,
 ) {
+  const scroll = captureAnnotatedSourceScroll(document);
   render();
-  scheduleAnnotatedFocus(target, surface);
+  restoreAnnotatedSourceScroll(document, scroll);
+  scheduleAnnotatedFocus(target, surface, preventScroll);
 }
 
 function openAnnotatedSourceModal() {
+  graphExplorer.close(false);
   if (!state.memberAnnotated) return;
   invalidateMemberDestinationWork(state);
   state.annotatedDestinationError = "";
@@ -6117,14 +6199,14 @@ function applyAnnotatedSourceAction(action: AnnotatedSourceAction) {
     }
     case "annotation-open":
       setSession(selectFinding(session, action.opener));
-      renderAndFocusAnnotated("#annotated-detail-title", surface);
+      renderAndFocusAnnotated("#annotated-detail-title", surface, true);
       return;
     case "inspector-open":
       setSession(selectFinding(session, {
         kind: "inspector",
         factId: action.factId,
       }));
-      renderAndFocusAnnotated("#annotated-detail-title");
+      renderAndFocusAnnotated("#annotated-detail-title", "modal", true);
       return;
     case "annotation-set": {
       const transition = action.value === "Default"
@@ -6251,6 +6333,7 @@ function bindEvents() {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
+  bindGraphExplore(document, openCallGraphExplorer);
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -7487,7 +7570,8 @@ function workbenchModalOwnsFocus() {
   return state.spotlightOpen
     || state.graphSourceOpen
     || state.docViewerOpen
-    || state.memberAnnotatedModal !== null;
+    || state.memberAnnotatedModal !== null
+    || graphExplorer.isOpen;
 }
 
 function resolvedWorkspaceShareTabs():
@@ -8330,7 +8414,7 @@ function openProductDemos(): void {
 }
 
 // Workspace demo actions use product ids from engine `listHomeDemos` /
-// `resolveHomeDemo` (`ProductInspectionDemos` / CLI `demo <id>`). Type views
+// `resolveHomeDemo` (`EcosystemPackCatalog` / CLI `demo <id>`). Type views
 // restore via share deep links built from the resolved projection;
 // member-bound Call Graph demos execute through one generated engine operation
 // over the product-resolved workspace and view.
@@ -8690,17 +8774,10 @@ function openPackageQueryRoute(
   focusPackageQueryInput();
 }
 
-function selectWorkspaceApplicationScope(fromPackageQuery = false) {
+function selectWorkspaceApplicationScope() {
   const pkg = state.package;
   if (!pkg) return;
-  const navigationSeq = navigationSequence.begin();
-  if (fromPackageQuery) {
-    packageQueryController.cancel();
-    packageQueryHandoffNavigationSeq = null;
-    state.packageQueryOpen = false;
-    state.credits = false;
-    state.home = false;
-  }
+  navigationSequence.begin();
   state.workspaceSubjectOpen = true;
   state.atPackageRoot = true;
   state.selectedMemberKey = "";
@@ -8722,9 +8799,6 @@ function selectWorkspaceApplicationScope(fromPackageQuery = false) {
     appendQueryNotice(
       `Workspace opened, but its complete state could not be saved in the address bar: ${errorMessage(successor.projectionError)
         || "workspace URL encoding failed."}`);
-  }
-  if (fromPackageQuery) {
-    packageQueryWorkspaceFocusNavigationSeq = navigationSeq;
   }
   workspaceLocation.push(successor.url.toString());
   render();
@@ -8842,11 +8916,6 @@ async function openPackageQueryRow(
 }
 
 const packageQueryActions: PackageQueryBindingActions = {
-  onApplicationScopeSelect: applicationScope => {
-    if (applicationScope === "workspace") {
-      selectWorkspaceApplicationScope(true);
-    }
-  },
   onBack: closePackageQueryRoute,
   onCancel: () => packageQueryController.cancel(),
   onFacetToggle: togglePackageQueryFacet,
@@ -8879,11 +8948,9 @@ function renderPackageQueryPage() {
       state.packageQueryCatalogError,
       state.packageQueryNavigationError,
     ].filter(Boolean).join(" "),
-    workspaceAvailable: state.package !== null,
     escapeHtml,
   });
-  packageQueryScopeBinding =
-    bindPackageQueryView(document, packageQueryActions);
+  bindPackageQueryView(document, packageQueryActions);
   const focusRestoration = restorePackageQueryFocus(document, focus);
   if (focusRestoration !== "fallback") {
     restorePackageQueryScroll(document, scrollTop);
@@ -9937,6 +10004,72 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
+function callGraphExplorerKey(): string | null {
+  if (state.home || state.loading || state.error || state.packageQueryOpen
+    || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
+    || state.spotlightOpen || state.docViewerOpen || state.graphSourceOpen
+    || state.memberAnnotatedModal || scope() !== "member"
+    || state.memberSection !== "call-graph") return null;
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member
+    ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
+    : null;
+  return type && overload && state.package
+    ? JSON.stringify([
+        packageIdentityKey(state.package),
+        memberRequestSignature(type, overload, true),
+      ])
+    : null;
+}
+
+function callGraphExplorerTarget() {
+  const key = callGraphExplorerKey();
+  const content = document.querySelector<HTMLElement>("[data-call-graph-surface]");
+  const invoker = document.querySelector<HTMLElement>("#call-graph-explore");
+  return key && content && invoker
+    ? {
+        key,
+        title: "Call graph",
+        context: currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
+        content,
+        invoker,
+      }
+    : null;
+}
+
+function openCallGraphExplorer() {
+  const target = callGraphExplorerTarget();
+  if (!target) return;
+  graphExplorerOriginKey = target.key;
+  graphExplorer.open(target);
+}
+
+function restoreGraphExplorerNavigationFocus() {
+  if (!graphExplorerNavigationFocusPending) return;
+  if (state.settings || state.keyboardHelp || state.explorer?.open
+    || workbenchModalOwnsFocus()) {
+    graphExplorerNavigationFocusPending = false;
+    return;
+  }
+  if (state.loading || state.graphMemberNavigationTitle || state.platformDrillLoading) return;
+  graphExplorerNavigationFocusPending = false;
+  const explore = document.querySelector<HTMLButtonElement>("#call-graph-explore");
+  if (callGraphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {
+    explore.focus({ preventScroll: true });
+  } else {
+    focusLevelOneHeading();
+  }
+  app.removeAttribute("tabindex");
+}
+
+function closeGraphExplorerForNavigation() {
+  if (!graphExplorer.close(false)) return;
+  graphExplorerNavigationFocusPending = true;
+  app.tabIndex = -1;
+  app.focus({ preventScroll: true });
+}
+
 function platformCrumbTrail() {
   const root = state.memberCallGraph?.callees?.label
     ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
@@ -10080,6 +10213,7 @@ async function navigateToGraphMember(
   section: "overview" | "source" = "overview",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
@@ -10113,6 +10247,7 @@ async function navigateToUnprojectedGraphMember(
   section: "overview" | "source",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   state.memberCallGraphSeq++;
   state.memberCallGraphExpanding = false;
   state.platformDrillLoading = false;
@@ -10610,6 +10745,7 @@ function navigateToRuntimeMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "call-graph" = "call-graph",
 ) {
+  closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   activatePackage(pack);
   const targetLibrary = libraryKey(type);
@@ -10677,6 +10813,7 @@ function stripArity(name: string) {
 }
 
 async function openGraphSource(request: GraphSourceRequest, title: string) {
+  graphExplorer.close(false);
   return sourceInspection.openGraphSource(request, title);
 }
 
@@ -10913,6 +11050,7 @@ function navigateToMember(
   bodyTarget: BodyTarget | null = null,
   section: "overview" | "source" = "overview",
 ) {
+  closeGraphExplorerForNavigation();
   invalidateGraphMemberNavigation();
   let selectedBodyTarget = bodyTarget;
   if (overloadIndex != null) {
@@ -12105,7 +12243,8 @@ function registerContainedShortcuts(
 }
 
 function workspaceKeyboardContextIsActive(): boolean {
-  return !state.explorer?.open
+  return !graphExplorer.isOpen
+    && !state.explorer?.open
     && !state.settings
     && !state.keyboardHelp
     && !state.home
@@ -12242,6 +12381,11 @@ registerContainedShortcuts(
   "graph-source.contain-browser-shortcut",
   WORKBENCH_KEYBINDING_PRIORITY.graphSource,
   graphSourceContextIsActive,
+);
+registerContainedShortcuts(
+  "graph-explorer.contain-browser-shortcut",
+  WORKBENCH_KEYBINDING_PRIORITY.graphSource,
+  () => graphExplorer.isOpen,
 );
 
 keybindings.register({
@@ -12539,6 +12683,7 @@ function clearNavigationError() {
 }
 
 function dismissModalsForRoutedNavigation() {
+  closeGraphExplorerForNavigation();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;
