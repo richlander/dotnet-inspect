@@ -98,6 +98,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Annotated Source Invocation Destinations](design/annotated-source-invocation-destinations.md) | Research composition of physical calls, Decompiler invocation provenance, and CallGraph-owned typed targets. |
 | [Caret Stacking](design/caret-stacking.md) | `--focus` display model: one caret per fact extent, packed onto as few rows as fit, with the numbered fact texts listed below. |
 | [Decompiler Inspection & Oracle](design/decompiler-inspection-oracle.md) | Unifies single-method inspection (dump/stages) with the corpus-wide fidelity check oracle; product-vs-tool scoping. |
+| [Decompiler Name and Symbol Preservation](design/decompiler-symbol-preservation.md) | Artifact-backed identifier preservation, authenticated generated-name recovery, honest synthesis, tracked gaps, and irrecoverable source spellings, each with a fixture probe. |
 | [ReturnToSender: Fact-Planned Compile-Back Harness](design/fact-planned-compile-back-harness.md) | Spec for a fresh tools-side compile-back harness with fact-planned TypeProducer/TypePrinter shells. |
 | [Memory-Safety Models and Evidence](design/memory-safety-models.md) | v1/v2 vocabulary and composition of project policy, binary contracts, implementation evidence, and provenance. |
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |

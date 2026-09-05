@@ -89,6 +89,21 @@ public class StructReceiverInliningPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ExactNamedReceiver_IsNotFolded()
+    {
+        var function = BuildFunction(
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new Return(Value(new LoadLocalAddress(0, S))));
+        function.ResetLocals([S], ["named"]);
+
+        RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>());
+        function.CheckInvariant();
+    }
+
     // A slot csc reused for two independent struct temporaries folds per live
     // range: each store is adjacent to its own single receiver use, so both fold
     // and the reused local is eliminated entirely.

@@ -166,6 +166,17 @@ public sealed class ThisQualificationTests
         Assert.Contains("this.ReadField", text);
     }
 
+    [Fact]
+    public void CapturedReceiver_RetainsBinderIdentityAcrossLambdaRaise()
+    {
+        var text = Render(
+            nameof(ThisQualificationSpecimen.CapturedThisAndParameterLambda));
+
+        Assert.Contains("value =>", text);
+        Assert.Contains("_value", text);
+        Assert.Contains("offset", text);
+    }
+
     // A default-interface-member call reached through `this` must render the
     // erased `((I)this)` cast (#3128): the DIM is not a member of the implementing
     // class, so bare `Value()` / `this.Value()` is CS1061. The default (knob-off)
@@ -717,6 +728,9 @@ public sealed class ThisQualificationSpecimen
     // target is unspeakable (never user-authored), so the qualify-method knob
     // records no taste decision for it.
     public System.Func<int> CapturedThisOnlyLambda() => () => _value + 1;
+
+    public System.Func<int, int> CapturedThisAndParameterLambda(int offset)
+        => value => _value + value + offset;
 
     // Method group over the implicit this receiver.
     public System.Func<int> MethodGroup() => ReadField;
