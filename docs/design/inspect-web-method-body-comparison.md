@@ -29,9 +29,9 @@ Different names and declaring types are permitted; selecting the same method
 twice is also valid. This is explicit comparison, not candidate discovery or
 proof of semantic equivalence.
 
-The corresponding CLI consumer is `match --body`, being implemented with
-the shared query and adapter in
-[#5925](https://github.com/richlander/dotnet-inspect/issues/5925).
+The corresponding CLI consumer is `match --body`, landed with the shared query
+and adapter in
+[#5967](https://github.com/richlander/dotnet-inspect/pull/5967).
 The Browser follows that production cutover rather than introducing another
 unused shared substrate.
 
@@ -136,6 +136,14 @@ requesting both local C# and IL mechanisms. It consumes
 reinspect each endpoint, or construct a synthetic `ResearchComparison`.
 The context owner retains acquired input lifetime. Queries and Research retain
 their own access and stage cleanup responsibilities.
+
+The feature consumes the registry's protected-use leases and awaits their
+release before completing the managed operation. A removal-requested scope
+cannot become a new comparison context. Package labels that identify multiple
+eligible retained bindings produce visible `ContextUnavailable`, rather than
+choosing a generation. The
+[Browser registry](../../prototypes/inspect-web/README.md#artifact-backed-package-scope-adoption)
+continues to own admission, binding identity, and asynchronous retirement.
 
 This feature's transport uses an empty `PackageId` to distinguish a retained
 platform selection from a NuGet package. The version, framework, and assembly
@@ -245,7 +253,7 @@ under the new headings.
 | Gate | Adoption evidence |
 | --- | --- |
 | Release `AssemblyContextMethodAddressQueryTests` | Owner-issued module association, MethodDef validation, and typed context failures. |
-| Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, and coexistence with Source acquisition. |
+| Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, protected-use release, removal-requested and ambiguous retained contexts, and coexistence with Source acquisition. |
 | `method-body-comparison.test.ts`, `method-body-diff-view.test.ts` | Explicit submission, immutable pair association, routed-history disposal and late-result suppression, independent native outcomes, text rendering, and native line-operation lowering. |
 | `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests` | Compiler-derived typed transport in the existing seven-root facade set. |
 | `browser/method-body-production.spec.ts` against published Wasm | Actual shared-query results for the public package and compiled reference/implementation fixture; bodyless/accessor neighbors; dialog selection, keyboard focus, IL disclosure, narrow layout, unchanged navigation, same-document Back/Forward dismissal, and completed underlying Source. |
@@ -263,12 +271,12 @@ a local listener alone is not user-visible evidence.
 ## Delivery and retirement
 
 Tracker #4706 owns counts. The bounded physical-pair route has eight milestones.
-The shared runtime and CLI cutover in #5925 supply publication 5, adapter 6,
-and CLI 8; this adopter supplies Browser 9. Together with landed steps 1 and 18,
-the route reaches six of eight delivered milestones when both runtime slices
-land. The remaining two are scoped Queries and Research cleanups, steps 16/17.
-The Browser path, 1/18/5/6/9, is implemented end to end; its delivery depends on
-the shared runtime landing first. This feature adds no separate substrate
+The shared runtime and CLI cutover landed in #5967, supplying publication 5,
+adapter 6, and CLI 8; this adopter supplies Browser 9. Together with landed steps
+1 and 18, the route reaches six of eight delivered milestones when this Browser
+slice lands. The remaining two are scoped Queries and Research cleanups, steps
+16/17. The Browser path, 1/18/5/6/9, is implemented end to end on that landed
+shared runtime. This feature adds no separate substrate
 milestone and does not use a fixture-only comparison replacement.
 
 There is no existing Browser two-method comparison route to migrate in the

@@ -30,7 +30,7 @@ public static partial class SourceExports
         int metadataToken)
     {
         var result = await RunMethodBodyOperation(operationId, _ =>
-            WithMethodBodyParticipant(packageId, version, targetFramework, assemblyName,
+            WithMethodBodyParticipantAsync(packageId, version, targetFramework, assemblyName,
                 (group, participant) =>
                 {
                     ApiSurface surface = SelectMethodBody(() =>
@@ -76,7 +76,7 @@ public static partial class SourceExports
                 ValidateMethodBodyRequest(parsed);
                 return parsed;
             });
-            return WithMethodBodyParticipant(
+            return WithMethodBodyParticipantAsync(
                 request.PackageId, request.Version, request.Framework, request.Assembly,
                 (group, participant) =>
                 {
@@ -143,25 +143,24 @@ public static partial class SourceExports
     }
 
     static Task<BrowserManagedOperationResult<T, string, string>> RunMethodBodyOperation<T>(
-        string operationId, Func<CancellationToken, T> query)
+        string operationId, Func<CancellationToken, Task<T>> query)
     {
         BrowserManagedOperationId id = BrowserManagedOperationId.From(operationId);
         return TypeSourceOperations.RunAsync<T, string, string, object>(
             id, null,
-            (token, _) =>
+            async (token, _) =>
             {
                 token.ThrowIfCancellationRequested();
-                BrowserManagedOperationBodyResult<T, string, string> result;
                 try
                 {
-                    result = new BrowserManagedOperationBodyResult<T, string, string>.Succeeded(query(token));
+                    return new BrowserManagedOperationBodyResult<T, string, string>.Succeeded(
+                        await query(token).ConfigureAwait(false));
                 }
                 catch (MethodBodyUnavailableException error)
                 {
-                    result = new BrowserManagedOperationBodyResult<T, string, string>.Failed(
+                    return new BrowserManagedOperationBodyResult<T, string, string>.Failed(
                         error.Message, error.ToString());
                 }
-                return Task.FromResult(result);
             },
             error => new(error.Message, error.ToString()));
     }
@@ -174,17 +173,17 @@ public static partial class SourceExports
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 
-    static T WithMethodBodyParticipant<T>(
+    static async Task<T> WithMethodBodyParticipantAsync<T>(
         string packageId, string version, string framework, string assembly,
         Func<AssemblyContextGroup, AssemblyContextParticipant, T> query)
     {
         if (packageId.Length == 0)
         {
-            using BrowserPlatformScopeResolution platform =
+            await using BrowserPlatformScopeResolution platform =
                 SelectMethodBody(() => BrowserPlatformWorkspace.LeaseRetainedAssembly(framework, version, assembly));
             return platform.Scope.UseParticipant(platform.Participant, query);
         }
-        using BrowserScopeLease<BrowserInspectionScope> lease =
+        await using BrowserScopeLease<BrowserInspectionScope> lease =
             SelectMethodBody(() => BrowserPackageWorkspace.LeaseRetainedPackageScope(packageId, version, framework));
         BrowserInspectionScope scope = lease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];

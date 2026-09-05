@@ -29,7 +29,7 @@ public sealed class BrowserMethodBodyOperationTests
     [InlineData(true)]
     public async Task ExportPreservesDifferentAndSamePhysicalPair(bool same)
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         BrowserMethodBodySelection after = same ? targets.Before
             : Assert.Single(targets.Methods, method => method.MemberName == nameof(Right.Transform));
@@ -64,7 +64,7 @@ public sealed class BrowserMethodBodyOperationTests
     [Fact]
     public async Task BodylessMethodRemainsSelectableAndNativeNotApplicable()
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         BrowserMethodBodySelection bodyless = Assert.Single(targets.Methods,
             method => method.MemberName == nameof(IBodyless.WithoutBody));
@@ -84,7 +84,7 @@ public sealed class BrowserMethodBodyOperationTests
     [Fact]
     public async Task ReferenceTokenDriftAndExplicitAccessorsUseImplementationAddress()
     {
-        using Fixture fixture = await Fixture.Open(reference: true);
+        await using Fixture fixture = await Fixture.Open(reference: true);
         BrowserMethodBodyTargets targets = await fixture.Targets();
         int implementation = typeof(Left).GetMethod(nameof(Left.Compute), [typeof(int)])!.MetadataToken;
         Assert.NotEqual(fixture.Launch.MetadataToken, implementation);
@@ -104,7 +104,7 @@ public sealed class BrowserMethodBodyOperationTests
     [Fact]
     public async Task WrongImageAndMissingContextFailWithoutReacquisition()
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         var wrong = await Compare(Request(targets, targets.Before) with { ModuleVersionId = Guid.NewGuid().ToString() });
         Assert.Equal(BrowserMethodBodyResultKind.Failed, wrong.Kind);
@@ -112,7 +112,7 @@ public sealed class BrowserMethodBodyOperationTests
         Assert.Contains("WrongImage", wrong.Error);
         Assert.Null(wrong.Value);
 
-        BrowserPackageWorkspace.RemoveScope(fixture.Scope);
+        await BrowserPackageWorkspace.RemoveScopeAsync(fixture.Scope);
         var missing = await Compare(Request(targets, targets.Before));
         Assert.Equal(BrowserMethodBodyResultKind.Failed, missing.Kind);
         Assert.Contains("ContextUnavailable", missing.Error);
@@ -125,7 +125,7 @@ public sealed class BrowserMethodBodyOperationTests
     [Fact]
     public async Task InvalidSelectionDoesNotSubstituteAnotherOverloadOrAccessor()
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         BrowserMethodBodySelection other = Assert.Single(targets.Methods,
             method => method.MemberName == nameof(Right.Transform));
@@ -137,10 +137,60 @@ public sealed class BrowserMethodBodyOperationTests
     }
 
     [Fact]
+    public async Task SuccessfulComparisonReleasesProtectedScopeUse()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserMethodBodyTargets targets = await fixture.Targets();
+
+        var result = await Compare(Request(targets, targets.Before));
+
+        Assert.Equal(BrowserMethodBodyResultKind.Succeeded, result.Kind);
+        await BrowserPackageWorkspace.RemoveScopeAsync(fixture.Scope);
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(fixture.Scope));
+    }
+
+    [Fact]
+    public async Task RemovalRequestedScopeIsNotRevivedForComparison()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserMethodBodyTargets targets = await fixture.Targets();
+        await using BrowserScopeLease<BrowserInspectionScope> holder =
+            BrowserPackageWorkspace.LeaseScope(fixture.Scope);
+        await BrowserPackageWorkspace.RemoveScopeAsync(fixture.Scope);
+
+        var result = await Compare(Request(targets, targets.Before));
+
+        Assert.Equal(BrowserMethodBodyResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
+        Assert.Contains("ContextUnavailable", result.Error);
+        await holder.DisposeAsync();
+        Assert.False(BrowserPackageWorkspace.IsScopeRetained(fixture.Scope));
+    }
+
+    [Fact]
+    public async Task SameLabelRetainedGenerationsAreNotArbitrarilySelected()
+    {
+        await using Fixture fixture = await Fixture.Open();
+        BrowserMethodBodyTargets targets = await fixture.Targets();
+        await using Fixture replacement =
+            await Fixture.Open(brokenBody: true, packageId: targets.PackageId);
+        Assert.NotSame(fixture.Scope, replacement.Scope);
+
+        var result = await Compare(Request(targets, targets.Before));
+        BrowserMethodBodyTargetsResult inventory = await fixture.TargetsResult();
+
+        Assert.Equal(BrowserMethodBodyResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserTypeSourceFailureKind.Expected, result.FailureKind);
+        Assert.Contains("ContextUnavailable", result.Error);
+        Assert.Equal(BrowserMethodBodyResultKind.Failed, inventory.Kind);
+        Assert.Contains("ContextUnavailable", inventory.Error);
+    }
+
+    [Fact]
     public async Task DisposedRetainedContextDoesNotBecomeAnEmptyInventory()
     {
-        using Fixture fixture = await Fixture.Open();
-        fixture.Scope.Dispose();
+        await using Fixture fixture = await Fixture.Open();
+        await fixture.Scope.DisposeAsync();
         BrowserMethodBodyTargetsResult result = await fixture.TargetsResult();
         Assert.Equal(BrowserMethodBodyResultKind.Failed, result.Kind);
         Assert.NotEmpty(result.Error!);
@@ -150,7 +200,7 @@ public sealed class BrowserMethodBodyOperationTests
     [Fact]
     public async Task NativeBodyFailureSurvivesSuccessfulResearchAccounting()
     {
-        using Fixture fixture = await Fixture.Open(brokenBody: true);
+        await using Fixture fixture = await Fixture.Open(brokenBody: true);
         BrowserMethodBodyTargets targets = await fixture.Targets();
         var result = await Compare(Request(targets,
             Assert.Single(targets.Methods, method => method.MemberName == nameof(Right.Transform))));
@@ -172,7 +222,7 @@ public sealed class BrowserMethodBodyOperationTests
     [InlineData(true)]
     public async Task OriginalQueryWrongImageAndCancellationRemainQueryOutcomes(bool canceled)
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         using var cancellation = new CancellationTokenSource();
         if (canceled)
@@ -200,7 +250,7 @@ public sealed class BrowserMethodBodyOperationTests
     [InlineData(true, "disposed")]
     public async Task BothExportsPreserveSourceAcquisitionAndReleaseOwnOperation(bool compare, string reason)
     {
-        using Fixture fixture = await Fixture.Open();
+        await using Fixture fixture = await Fixture.Open();
         BrowserMethodBodyTargets targets = await fixture.Targets();
         using BrowserSourceOperationLease holder = await BrowserSourceOperationCoordinator.BeginAsync();
         string id = Guid.NewGuid().ToString();
@@ -253,7 +303,7 @@ public sealed class BrowserMethodBodyOperationTests
             entry.Write(File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssemblyPath()));
         using var handler = new PlatformHandler(version, archiveBytes.ToArray());
         using var client = new HttpClient(handler);
-        using BrowserPlatformScopeResolution resolution = await BrowserPlatformWorkspace.OpenAssemblyAsync(
+        await using BrowserPlatformScopeResolution resolution = await BrowserPlatformWorkspace.OpenAssemblyAsync(
             framework, AssemblyName, "netcore.app", client,
             new UniformPackageSourceAuthorization([PackageSource.NuGetOrg]),
             TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
@@ -273,8 +323,8 @@ public sealed class BrowserMethodBodyOperationTests
         Assert.Equal(BrowserMethodBodyResultKind.Succeeded, result.Kind);
         Assert.Equal("Completed", result.Value!.Outcome);
         Assert.Equal(acquisitionRequests, handler.Requests);
-        resolution.Dispose();
-        BrowserPackageWorkspace.RemoveScope(resolution.Scope);
+        await resolution.DisposeAsync();
+        await BrowserPackageWorkspace.RemoveScopeAsync(resolution.Scope);
         var missing = await Compare(Request(targets.Value!, targets.Value!.Before));
         Assert.Equal(BrowserMethodBodyResultKind.Failed, missing.Kind);
         Assert.Contains("ContextUnavailable", missing.Error);
@@ -315,12 +365,13 @@ public sealed class BrowserMethodBodyOperationTests
         }
     }
 
-    sealed class Fixture(string packageId, BrowserInspectionScope scope, BrowserMethodBodySelection launch) : IDisposable
+    sealed class Fixture(string packageId, BrowserInspectionScope scope, BrowserMethodBodySelection launch) : IAsyncDisposable
     {
         internal BrowserInspectionScope Scope => scope;
         internal BrowserMethodBodySelection Launch => launch;
 
-        internal static async Task<Fixture> Open(bool reference = false, bool brokenBody = false)
+        internal static async Task<Fixture> Open(
+            bool reference = false, bool brokenBody = false, string? packageId = null)
         {
             byte[] implementation = File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
             if (brokenBody)
@@ -333,7 +384,7 @@ public sealed class BrowserMethodBodyOperationTests
                     rva >= section.VirtualAddress && rva < section.VirtualAddress + section.SizeOfRawData);
                 implementation[section.PointerToRawData + rva - section.VirtualAddress] = 0;
             }
-            string id = "Method.Body." + Guid.NewGuid().ToString("N");
+            string id = packageId ?? "Method.Body." + Guid.NewGuid().ToString("N");
             using var bytes = new MemoryStream();
             using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
             {
@@ -345,13 +396,15 @@ public sealed class BrowserMethodBodyOperationTests
                     entry.Write(File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssetPath("reference")));
                 }
             }
-            BrowserPackageWorkspace.RegisterAcquiredPackage(
+            await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
                 new BrowserPackage(id, "1.0.0",
                     reference && !brokenBody
                         ? File.ReadAllBytes(FixtureCatalog.InspectWebMethodBodies.AssetPath("package"))
                         : bytes.ToArray(),
                     fromCache: false));
-            BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(id, "1.0.0", Framework);
+            await using BrowserScopeLease<BrowserInspectionScope> lease =
+                await BrowserPackageWorkspace.OpenScopeAsync(id, "1.0.0", Framework);
+            BrowserInspectionScope scope = lease.Scope;
             ApiSurface surface = scope.UseSurface(group => Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
                 AssemblyContextApiSurfaceQuery.ExecuteBounded(group, ApiSurfaceScope.IncludeAll,
                     BrowserApiSurfacePolicy.Limits).Assemblies.Assemblies.Single()).Value.Surface);
@@ -376,6 +429,6 @@ public sealed class BrowserMethodBodyOperationTests
             return Assert.IsType<BrowserMethodBodyTargets>(result.Value);
         }
 
-        public void Dispose() => BrowserPackageWorkspace.RemoveScope(scope);
+        public ValueTask DisposeAsync() => BrowserPackageWorkspace.RemoveScopeAsync(scope);
     }
 }
