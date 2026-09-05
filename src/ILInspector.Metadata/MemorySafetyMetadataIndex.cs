@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -36,6 +37,9 @@ public sealed record MemorySafetyMetadataFailure(
     MemorySafetyMetadataFailureKind Kind,
     string Detail);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(MemorySafetyRulesResult.Available), "available")]
+[JsonDerivedType(typeof(MemorySafetyRulesResult.Unavailable), "unavailable")]
 public abstract record MemorySafetyRulesResult(
     ImmutableArray<MemorySafetyRulesObservation> Observations)
 {
@@ -50,6 +54,7 @@ public abstract record MemorySafetyRulesResult(
         : MemorySafetyRulesResult(Observations);
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<MemorySafetyPointerEvidence>))]
 public enum MemorySafetyPointerEvidence
 {
     NotExamined,
@@ -114,6 +119,11 @@ public sealed record MemorySafetyMemberContractFailure(
     MemorySafetyMemberContractFailureKind Kind,
     string Detail);
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(MemorySafetyMemberContractResult.None), "none")]
+[JsonDerivedType(typeof(MemorySafetyMemberContractResult.Implicit), "implicit")]
+[JsonDerivedType(typeof(MemorySafetyMemberContractResult.Explicit), "explicit")]
+[JsonDerivedType(typeof(MemorySafetyMemberContractResult.Unavailable), "unavailable")]
 public abstract record MemorySafetyMemberContractResult(
     MemorySafetyMemberContractEvidence Evidence)
 {
@@ -598,28 +608,12 @@ public sealed class MemorySafetyMetadataIndex
     {
         try
         {
-            return member.Kind switch
-            {
-                HandleKind.MethodDefinition =>
-                    ReadMethodPointer(
-                        _reader.GetMethodDefinition(
-                            (MethodDefinitionHandle)member)),
-                HandleKind.FieldDefinition =>
-                    ReadFieldPointer(
-                        _reader.GetFieldDefinition(
-                            (FieldDefinitionHandle)member)),
-                HandleKind.PropertyDefinition =>
-                    ReadPropertyPointer(
-                        _reader.GetPropertyDefinition(
-                            (PropertyDefinitionHandle)member)),
-                HandleKind.EventDefinition =>
-                    ReadEventPointer(
-                        _reader.GetEventDefinition(
-                            (EventDefinitionHandle)member)),
-                _ => new(
-                    MemorySafetyPointerEvidence.Unavailable,
-                    MemorySafetyFixedBufferEvidence.Unavailable),
-            };
+            return new(
+                PointerDetector.DecodeMember(_reader, member),
+                member.Kind == HandleKind.FieldDefinition
+                    ? ReadFixedBufferEvidence(
+                        _reader.GetFieldDefinition((FieldDefinitionHandle)member))
+                    : MemorySafetyFixedBufferEvidence.NotExamined);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -633,34 +627,8 @@ public sealed class MemorySafetyMetadataIndex
         }
     }
 
-    PointerReadResult ReadMethodPointer(MethodDefinition method)
+    MemorySafetyFixedBufferEvidence ReadFixedBufferEvidence(FieldDefinition field)
     {
-        GuardedProviderDecode.DecodeResult<
-            MethodSignature<PointerDetection>> decoded =
-            GuardedProviderDecode.MethodResult(
-                _reader,
-                method,
-                PointerDetector.Instance,
-                (object?)null,
-                PointerDetection.Degraded);
-        PointerDetection detection = PointerDetection.Combine(
-            decoded.Value.ReturnType,
-            decoded.Value.ParameterTypes);
-        return FromPointerDetection(
-            detection,
-            decoded.IsDegraded,
-            MemorySafetyFixedBufferEvidence.NotExamined);
-    }
-
-    PointerReadResult ReadFieldPointer(FieldDefinition field)
-    {
-        GuardedProviderDecode.DecodeResult<PointerDetection> decoded =
-            GuardedProviderDecode.FieldResult(
-                _reader,
-                field,
-                PointerDetector.Instance,
-                (object?)null,
-                PointerDetection.Degraded);
         FixedBufferMetadataReadResult fixedBuffer;
         try
         {
@@ -678,71 +646,14 @@ public sealed class MemorySafetyMetadataIndex
                 FixedBufferMetadataReadState.Unavailable,
                 Info: null);
         }
-        return FromPointerDetection(
-            decoded.Value,
-            decoded.IsDegraded,
-            fixedBuffer.State switch
-            {
-                FixedBufferMetadataReadState.Present =>
-                    MemorySafetyFixedBufferEvidence.Present,
-                FixedBufferMetadataReadState.Absent =>
-                    MemorySafetyFixedBufferEvidence.Absent,
-                _ => MemorySafetyFixedBufferEvidence.Unavailable,
-            });
-    }
-
-    PointerReadResult ReadPropertyPointer(PropertyDefinition property)
-    {
-        GuardedProviderDecode.DecodeResult<
-            MethodSignature<PointerDetection>> decoded =
-            GuardedProviderDecode.PropertyResult(
-                _reader,
-                property,
-                PointerDetector.Instance,
-                (object?)null,
-                PointerDetection.Degraded);
-        PointerDetection detection = PointerDetection.Combine(
-            decoded.Value.ReturnType,
-            decoded.Value.ParameterTypes);
-        return FromPointerDetection(
-            detection,
-            decoded.IsDegraded,
-            MemorySafetyFixedBufferEvidence.NotExamined);
-    }
-
-    PointerReadResult ReadEventPointer(EventDefinition @event)
-    {
-        PointerDetection detection = @event.Type.Kind switch
+        return fixedBuffer.State switch
         {
-            HandleKind.TypeDefinition
-                or HandleKind.TypeReference => default,
-            HandleKind.TypeSpecification =>
-                GuardedProviderDecode.TypeSpec(
-                    _reader,
-                    (TypeSpecificationHandle)@event.Type,
-                    PointerDetector.Instance,
-                    (object?)null,
-                    PointerDetection.Degraded),
-            _ => PointerDetection.Degraded,
+            FixedBufferMetadataReadState.Present =>
+                MemorySafetyFixedBufferEvidence.Present,
+            FixedBufferMetadataReadState.Absent =>
+                MemorySafetyFixedBufferEvidence.Absent,
+            _ => MemorySafetyFixedBufferEvidence.Unavailable,
         };
-        return FromPointerDetection(
-            detection,
-            degradedByGuard: false,
-            MemorySafetyFixedBufferEvidence.NotExamined);
-    }
-
-    static PointerReadResult FromPointerDetection(
-        PointerDetection detection,
-        bool degradedByGuard,
-        MemorySafetyFixedBufferEvidence fixedBuffer)
-    {
-        MemorySafetyPointerEvidence evidence =
-            detection.HasPointer
-                ? MemorySafetyPointerEvidence.Present
-                : degradedByGuard || detection.IsDegraded
-                    ? MemorySafetyPointerEvidence.Unavailable
-                    : MemorySafetyPointerEvidence.Absent;
-        return new(evidence, fixedBuffer);
     }
 
     AttributeReadResult ReadRequiresUnsafeAttributes(
