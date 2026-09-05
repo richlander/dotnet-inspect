@@ -326,3 +326,9 @@ dotnet run --project tests/ILInspector.JsExportSurface.Tests -c Release
 Tests validate this library and `ts-jsexport` together against
 `ILInspector.JsExportSurface.Fixtures`, a small purpose-built `[JSExport]`
 surface used only as a regression fixture.
+
+Independently compiled inputs live under
+[`fixtures/js-export/`](../../fixtures/js-export/), including the shared-source
+classic/runtime-async pair and the multi-assembly TypeScript contexts. Preserve
+their separate projects, aliases, and assembly names when adding coverage.
+The compile-negative project and JavaScript runtime probe remain under `tests/`.
