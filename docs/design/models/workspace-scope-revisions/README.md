@@ -118,7 +118,17 @@ completion, not another acquisition that can fail indefinitely. Runtime close
 may still interrupt it and produces `Unavailable`. Optional caller
 cancellation/failure applies to user mutations, not that required refresh.
 
-`Liveness.cfg` assumes weakly fair adjacent completion and cleanup.
+`Liveness.cfg` and the seventeen `Liveness<Profile>.cfg` configurations assume
+weakly fair adjacent completion and cleanup. They partition the original
+eight-scenario matrix by its immutable initial scenario, retaining all eight
+perturbation profiles and the same specification, invariants, and temporal
+properties in every partition. Refresh further separates each of its eight
+perturbation profiles, and its Progress profile separates the four initial
+`secondKind` values through `Spec` conjoined with each initial value. Their
+union is exactly the original `Spec`; none changes `Init`, `Next`, or fairness.
+Neither `scenario`, `perturbation`, nor `secondKind` changes in `Next`, so
+these disjoint partitions change neither the explored behaviors nor their
+fairness.
 `DeadlineLiveness.cfg` separately removes fair acquisition/staging/commit:
 the admitted operation must still settle through finite deadline observation
 and fair release/Scope cleanup, even if preparation never completes.
@@ -141,10 +151,11 @@ All configurations are registered with their exact semantic verdict in
 | Foreign Workspace/receipt completion cannot publish | `ReachabilityForeignWorkspace`, `ReachabilityForeignReceipt` | inherited commit association invariants |
 | Previously issued candidate identities cannot be reused | `ReachabilityScopeCandidate`, `ReachabilityPhysicalCandidate` | inherited freshness invariants |
 | No new operation after runtime close | `CompositionSafety`, `ReachabilityClosed`, `NoAdmissionAfterClose` | inherited runtime commit invariant |
-| Every admitted operation settles | `Liveness`, `DeadlineLiveness` | cleanup/final-commit safety mutations |
+| Every admitted operation settles | `Liveness`, seventeen `Liveness<Profile>` partitions, `DeadlineLiveness` | cleanup/final-commit safety mutations |
 | Shared-gate composition refines Artifact behavior | every positive configuration | `BrokenGate` |
 
-`Safety`, `CompositionSafety`, `Liveness`, and `DeadlineLiveness` expect exit 0.
+`Safety`, `CompositionSafety`, the eighteen liveness partitions, and
+`DeadlineLiveness` expect exit 0.
 Reachability configurations expect exit 12 at `NoWitness`, with safety checks
 still enabled. All mutations expect exit 12 at their named invariant except
 `BrokenGate`: its temporal behavior-refinement property expects exit 13.
@@ -236,9 +247,10 @@ Witness runs stop at their first intended violation, not at exhaustion.
 Worker scheduling can change counterexample counts without changing the
 registered semantic verdict.
 
-The final focused configurations also completed through the existing runner:
-all **33 Scope exact outcomes** and all **28 unchanged Artifact exact outcomes**
-matched, with no timeout. The runner used four TLC workers for these results:
+The initial, unpartitioned configuration set completed locally through the
+existing runner: all 33 Scope exact outcomes and all 28 unchanged Artifact
+exact outcomes matched under its default 600-second budget. The runner used
+four TLC workers for these results:
 
 | Positive configuration | Generated | Distinct | Depth |
 | --- | ---: | ---: | ---: |
@@ -246,6 +258,21 @@ matched, with no timeout. The runner used four TLC workers for these results:
 | `CompositionSafety` | 421862 | 108844 | 32 |
 | `Liveness` | 1561195 | 391918 | 33 |
 | `DeadlineLiveness` | 420 | 256 | 11 |
+
+That initial `Liveness` matrix exceeded the existing 120-second CI budget in
+[run 33929995717](https://github.com/richlander/dotnet-inspect/actions/runs/33929995717).
+Local completion under a longer budget did not establish CI eligibility.
+The eighteen disjoint partitions replace that single matrix without raising
+the budget or weakening its properties; there are now 50 Scope configurations.
+
+All 50 final configuration outcomes were observed with a 120-second
+per-configuration limit and two TLC workers. The eighteen successful liveness
+partitions sum to exactly the original 1,561,195 generated and 391,918 distinct
+states. Their individual elapsed times were at most 91 seconds in this local
+run; this is not a guarantee of hosted-runner timing. The final Refresh
+partitions used direct TLC invocations after the directory runner identified
+the remaining oversized profile. The unchanged configurations completed in
+that directory pass.
 
 ### Abstraction limits
 

@@ -654,6 +654,10 @@ Fairness ==
     /\ WF_vars(Framed(Admit(3)))
     /\ WF_vars(Framed(FinishClosedRefresh))
 Spec == SafetySpec /\ Fairness
+RefreshProgressAddSpec == Spec /\ secondKind = "Add"
+RefreshProgressReplaceSpec == Spec /\ secondKind = "Replace"
+RefreshProgressRemoveSpec == Spec /\ secondKind = "Remove"
+RefreshProgressClearSpec == Spec /\ secondKind = "Clear"
 EveryAdmittedOperationSettles ==
     \A i \in Ops : i \in admitted ~> outcomes[i] \in Terminal
 DeadlineSpec ==
