@@ -375,6 +375,55 @@ public sealed class MatchCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_CompilerGeneratedSeedAndDiscoveredToken_PreserveBodyEvidence()
+    {
+        Func<int> seed = static () => 42;
+        string assemblyPath = typeof(MatchCommandTests).Assembly.Location;
+        int token = seed.Method.MetadataToken;
+        var discovery = new MatchOptions
+        {
+            LeftSelector = $"0x{token:X8}",
+            AssemblyPath = assemblyPath,
+            Similar = true,
+            AssemblyWide = true,
+            MaximumResults = 1,
+            JsonOutput = true,
+        };
+        var (discoveryExit, discoveryOutput, discoveryError) = await ConsoleCapture.RunAsync(
+            () => MatchCommand.ExecuteAsync(discovery));
+        Assert.Equal(0, discoveryExit);
+        Assert.Empty(discoveryError);
+        using var discovered = JsonDocument.Parse(discoveryOutput);
+        string peer = Assert.Single(discovered.RootElement.GetProperty("candidates").EnumerateArray())
+            .GetProperty("token").GetString()!;
+
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+            () => MatchCommand.ExecuteAsync(new MatchOptions
+            {
+                LeftSelector = discovery.LeftSelector,
+                RightSelector = peer,
+                AssemblyPath = assemblyPath,
+                IncludeBody = true,
+                JsonOutput = true,
+            }));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        JsonElement body = document.RootElement.GetProperty("body");
+        Assert.Equal("Research", body.GetProperty("stage").GetString());
+        Assert.False(body.GetProperty("has_failures").GetBoolean());
+        Assert.Equal(2, body.GetProperty("producers").GetArrayLength());
+        Assert.All(body.GetProperty("producers").EnumerateArray(), producer =>
+        {
+            Assert.Equal(token,
+                producer.GetProperty("before").GetProperty("address").GetProperty("token").GetInt32());
+            Assert.Equal(int.Parse(peer.AsSpan(2), System.Globalization.NumberStyles.HexNumber),
+                producer.GetProperty("after").GetProperty("address").GetProperty("token").GetInt32());
+        });
+    }
+
+    [Fact]
     public async Task ExecuteAsync_BodylessPair_DoesNotReportEqualBodies()
     {
         string selector = $"{typeof(MatchSampleWithoutBody).FullName}.GetValue";

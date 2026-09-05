@@ -1015,8 +1015,8 @@ public static class ApiSurfaceExtractor
                     continue;
                 }
 
-                // Skip compiler-generated methods (lambdas, state machines, etc.)
-                if (methodName.StartsWith("<"))
+                // Keep generated bodies out of ordinary API views unless explicitly requested.
+                if (methodName.StartsWith("<") && !includeCompilerGenerated)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,

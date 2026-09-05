@@ -1216,6 +1216,24 @@ public class ApiSurfaceExtractorTests
         Assert.DoesNotContain(surface.Types, t => (t.MetadataName ?? "").Contains("DisplayClass"));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Extract_CompilerGeneratedMethodsRequireOptIn(bool includeCompilerGenerated)
+    {
+        static int Local(int value) => value + 1;
+        Func<int, int> local = Local;
+        int token = local.Method.MetadataToken;
+        using var stream = File.OpenRead(typeof(ApiSurfaceExtractorTests).Assembly.Location);
+        using var pe = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(
+            pe, includeAll: true, includeCompilerGenerated: includeCompilerGenerated);
+
+        Assert.Equal(includeCompilerGenerated,
+            surface.Types.SelectMany(type => type.Members).Any(member => member.MetadataToken == token));
+    }
+
     [Fact]
     public void Extract_SurfacesCompilerGeneratedTypesAndRealFieldsWhenOptedIn()
     {

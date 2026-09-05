@@ -150,6 +150,8 @@ The Release gates in `DirectMemberComparisonQueryTests` are:
 | `LocalComparisonPublication_PreservesTerminalEvidence` | Real Research completion, rejection, failure, and cancellation retain their original typed payloads, including empty-cleanup cases. |
 | `LocalComparisonPublication_PreservesQueryNonSuccess` | Wrong-image or missing physical designation, rejected access, and query-origin cancellation do not issue successful comparison evidence. |
 | `LocalComparisonPublication_RemainsUsableAfterInputScopeCloses` | After borrowed input scopes end, consumers can read the retained identities, native verdicts, and failure evidence. |
+| `DirectMemberComparison_PreservesGenericDeclaringTypes` | Generic and nested-generic declaring types retain their exact physical addresses and native body evidence. |
+| `DirectMemberComparison_PreservesCompilerGeneratedMethods` | Explicitly selected lambda and local-function MethodDefs reach the native producers with their original addresses. |
 
 Use compiled methods and product-issued evidence. Existing Research gates
 continue to establish its own association and completion invariants. These new
@@ -160,8 +162,12 @@ cleanup failure and cancellation before a Research stage exists.
 CLI gates in `MatchCommandTests` cover the actual `--body` entry point, native
 JSON payloads and physical addresses, private raw-token and getter selections,
 same-method comparison, bodyless availability, cancellation, and removal of the
-former option. `MatchDiscoveryTests` covers neighboring discovery and pairwise
-selection behavior.
+former option. A compiler-generated seed and a discovery-returned token also
+retain both physical endpoints through `--body`. `MatchDiscoveryTests` covers
+neighboring discovery and pairwise selection behavior.
+`ApiSurfaceExtractorTests.Extract_CompilerGeneratedMethodsRequireOptIn` covers
+the existing explicit opt-in while keeping generated methods out of ordinary
+API views.
 
 The baseline is the existing population receipt and Research terminal union;
 the member source-comparison query is analogous evidence for preserving

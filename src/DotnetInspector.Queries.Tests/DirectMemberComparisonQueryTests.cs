@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
+using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Decompiler;
 using ILInspector.Findings;
 using ILInspector.Instructions;
@@ -178,6 +179,56 @@ public sealed class DirectMemberComparisonQueryTests
         Assert.All(completion.Results, result => Assert.True(
             result.Outcome is ResearchProducerWorkOutcome.ProducedCSharp
                 or ResearchProducerWorkOutcome.ProducedIlBody));
+    }
+
+    [Theory]
+    [InlineData("GenericTypeAritySample`1")]
+    [InlineData("GenericTypeAritySample`2")]
+    [InlineData("Inner`1")]
+    public void DirectMemberComparison_PreservesGenericDeclaringTypes(string declaringType)
+    {
+        using var fixture = new Fixture(Image());
+        DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("M", declaringType: declaringType);
+        ResearchProducerCompletion completion = Completed(Published(
+            Compare(fixture.Group, new(endpoint, endpoint, ResearchProducerCatalog.Kinds))));
+        AssertExactPhysicalPair(completion, endpoint.Address);
+    }
+
+    [Theory]
+    [InlineData("<SharedLambdaOrdinalOwner>b__")]
+    [InlineData("<CallsThroughLocalFunction>g__Core|")]
+    public void DirectMemberComparison_PreservesCompilerGeneratedMethods(string prefix)
+    {
+        byte[] image = File.ReadAllBytes(typeof(ClassicAsyncSiblingFixture).Assembly.Location);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        MetadataReader reader = pe.GetMetadataReader();
+        string name = reader.MethodDefinitions
+            .Select(handle => reader.GetString(reader.GetMethodDefinition(handle).Name))
+            .Single(name => name.StartsWith(prefix, StringComparison.Ordinal));
+        using var fixture = new Fixture(image);
+        DirectMemberComparisonEndpoint endpoint = fixture.Endpoint(name);
+        ResearchProducerCompletion completion = Completed(Published(
+            Compare(fixture.Group, new(endpoint, endpoint, ResearchProducerCatalog.Kinds))));
+        AssertExactPhysicalPair(completion, endpoint.Address);
+    }
+
+    static void AssertExactPhysicalPair(
+        ResearchProducerCompletion completion,
+        MetadataMethodAddress? address)
+    {
+        Assert.Equal(2, completion.Results.Length);
+        Assert.All(completion.WorkItems, item =>
+        {
+            ResearchDesignatedPair pair = Assert.IsType<ResearchProducerWorkBasis.DesignatedPair>(item.Basis).Pair;
+            Assert.Equal(address, Target(pair.Before).Address);
+            Assert.Equal(address, Target(pair.After).Address);
+        });
+        var csharp = Assert.IsType<ResearchProducerWorkOutcome.ProducedCSharp>(completion.Results[0].Outcome).Result;
+        Assert.NotNull(csharp.BodyDiff);
+        Assert.True(csharp.BodyDiff.IsExact);
+        var il = Assert.IsType<ResearchProducerWorkOutcome.ProducedIlBody>(completion.Results[1].Outcome).Result;
+        Assert.NotNull(il.MemberDiff);
+        Assert.True(il.MemberDiff.Diff.IsExact);
     }
 
     [Fact]
@@ -365,12 +416,17 @@ public sealed class DirectMemberComparisonQueryTests
     static byte[] Image(bool beforeVersion = false)
         => File.ReadAllBytes((beforeVersion ? FixtureCatalog.DiffV1 : FixtureCatalog.DiffV2).AssemblyPath());
 
-    static int Token(byte[] image, string name)
+    static int Token(byte[] image, string name, string? declaringType = null)
     {
         using var pe = new PEReader(new MemoryStream(image, writable: false));
         MetadataReader reader = pe.GetMetadataReader();
         return MetadataTokens.GetToken(reader.MethodDefinitions.First(handle =>
-            reader.GetString(reader.GetMethodDefinition(handle).Name) == name));
+        {
+            MethodDefinition method = reader.GetMethodDefinition(handle);
+            return reader.GetString(method.Name) == name
+                && (declaringType is null
+                    || reader.GetString(reader.GetTypeDefinition(method.GetDeclaringType()).Name) == declaringType);
+        }));
     }
 
     static void BreakBody(byte[] image, string name)
@@ -404,13 +460,14 @@ public sealed class DirectMemberComparisonQueryTests
 
         internal AssemblyContextGroup Group { get; }
 
-        internal DirectMemberComparisonEndpoint Endpoint(string name, int image = 0)
+        internal DirectMemberComparisonEndpoint Endpoint(
+            string name, int image = 0, string? declaringType = null)
         {
             AssemblyContextParticipant participant = Group.Participants[image];
             using var pe = new PEReader(new MemoryStream(_images[image], writable: false));
             MetadataMethodAddress address = MetadataMethodAddress.Create(
                 pe.GetMetadataReader(),
-                (MethodDefinitionHandle)MetadataTokens.EntityHandle(Token(_images[image], name)));
+                (MethodDefinitionHandle)MetadataTokens.EntityHandle(Token(_images[image], name, declaringType)));
             return new(participant, address);
         }
 

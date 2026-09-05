@@ -252,7 +252,7 @@ public static class DirectMemberComparisonQuery
                         selector += $":{ordinal}";
                     }
                     failure = null;
-                    return new(MetadataTypeNameFormatter.FormatFullName(type),
+                    return new(type.DefinitionName?.ToMetadataFullName() ?? type.FullName,
                         MemberTargetSelector.Parse(selector), role.Value);
                 }
             }
