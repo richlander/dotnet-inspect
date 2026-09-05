@@ -410,10 +410,18 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         (Constant x, Constant y) => Equals(x.Value, y.Value),
         (LoadLocal x, LoadLocal y) => x.Index == y.Index,
-        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadArgument x, LoadArgument y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (LoadStackSlot x, LoadStackSlot y) => x.Slot == y.Slot,
         (LoadLocalAddress x, LoadLocalAddress y) => x.Index == y.Index,
-        (LoadArgumentAddress x, LoadArgumentAddress y) => x.Index == y.Index,
+        (LoadArgumentAddress x, LoadArgumentAddress y) => PlaceIdentity.SameArgument(
+            x.Index,
+            x.Parameter,
+            y.Index,
+            y.Parameter),
         (SizeOf x, SizeOf y) => x.Type.Equals(y.Type),
         (Unary x, Unary y) => x.Kind == y.Kind && StructurallyEqual(x.Operand, y.Operand),
         (Binary x, Binary y) => x.Kind == y.Kind && x.IsChecked == y.IsChecked && x.IsUnsigned == y.IsUnsigned

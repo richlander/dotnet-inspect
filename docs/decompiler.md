@@ -10,6 +10,9 @@ governs *what* the decompiler renders, [decompiler-quality.md](decompiler-qualit
 is *how we know the output is right*, and
 [decompiler-correctness-pipeline.md](decompiler-correctness-pipeline.md) maps the
 test/harness stack into a staged correctness gauntlet.
+[decompiler-symbol-preservation.md](design/decompiler-symbol-preservation.md)
+defines which identifier names are preserved, recoverable, synthesized,
+unrepresentable, or irrecoverable.
 
 ## Design goal: recognizability
 
@@ -72,7 +75,13 @@ Key properties:
 - **The statement tree is the library's product, not the string.** Alternate front ends (IDE hovers, web viewers, diff tools) consume the tree and apply their own formatting and spans; our printer is merely the first front end. Taste splits across two homes: **raising policy** — which patterns the passes recover (`lock`, `using`, switch expressions vs. goto; the taste doc's three-class rule) — lives in the pipeline and shapes the tree itself, while **spelling policy** (qualification, parenthesization, formatting) lives in the printer and is the part alternate front ends may replace.
 - **Whole-type composition lives in the library.** `MemberBodyProducer` (in `ILInspector.Decompiler`) gives any front end per-type listings, using-hoisting, and forwarder-following without rebuilding them.
 - **Assembly-wide syntax search lives in the library.** `BodyShapeSearch` queries one exact `PrintedNodeSpan` C# kind from `SupportedKinds` across full-fidelity API-surface method bodies and returns stable source-facing member identity, MethodDef token, exact `PrintedExtent`, and selected text. Bodies the decompiler cannot fully reconstruct are reported as explicit failures rather than searched as compiler plumbing. Library callers may supply explicit `PrinterOptions` and an exact MethodDef-token scope. The CLI's `Body Shapes` section accepts `--where "Kind=<ID>"` at library, exact-type, and exact-member scope. Library-scope Performance Triage predicates narrow the token set through typed `(SourceOwner ?? Method)` identities; type scope uses the resolved type's MethodDef and accessor tokens; member scope uses the selected MethodDef. `vocabulary -S "C# Body Kinds"` projects the owner catalog without restating it. No Roslyn dependency or persistent index is required.
-- **Naming is a final pass over fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local scopes are its natural input. The two remaining corpus gaps (synthesized names for `S_N`/`V_N`, multi-scope declaration placement) are this pass, not emitter features.
+- **Naming and declaration placement for reused names are a final pass over
+  fully-determined scopes**, as in ILSpy's `AssignVariableNames`. PDB local
+  scopes are its natural input. The
+  [name and symbol preservation contract](design/decompiler-symbol-preservation.md)
+  separates exact artifact-backed identity, authenticated generated-name
+  recovery, honest synthesis, unrepresentable metadata identities, tracked
+  gaps, and names the artifact erased.
 - **Every stage boundary is a projectable IR.** The default projection is the typed IR tree (`IrPrinter`); the annotated-IL import views (raw/typed/structured, from `IlProjection`) prepend as an opt-in (`--il`). The inspection and verification modes this capture powers are described under *Inspection and verification* below.
 - **Results carry diagnostics, with concrete fidelity levels.** The library returns a result with output, diagnostics, and a fidelity level — never a silent `catch { }` in the library or its hosts. The levels are ordered and concrete, because the product routes on them: `Full` (every construct raised; representable C#), `Partial` (C# containing explicit unrepresentable nodes), `StructuredOnly` (structured control flow over low-level expressions), `IlOnly` (no C# rendering; IL projections still available), `Failed`. IL that has no C# spelling is modeled explicitly in the tree, not forced into plausible text — output degrades honestly, with the reason attached.
 - **Diagnostics get stable IDs from the first PR.** They drive fallback routing and CI triage, so they are machine-readable Roslyn-style identifiers (`DEC0001`-form) with the prose message alongside — never bare strings.
