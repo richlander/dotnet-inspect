@@ -124,6 +124,7 @@ const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.u
 const app = parseSync("dotnet-inspect.ts", appSource);
 const hostNames = new Set([
   "activateAfterPackageRemoval", "finishPackageRemoval", "activatePackage",
+  "invalidateWorkspaceMembershipViews",
   "packageIdentityEquals", "defaultAccessibilityFilter", "scope",
 ]);
 const hostDeclarations = app.program.body
@@ -256,6 +257,7 @@ function removalGraph(packages: readonly typeof alpha[]): BrowserCallGraph {
 
 const graphHostNames = new Set([
   "finishPackageRemoval", "invalidateGraphMemberNavigation",
+  "invalidateWorkspaceMembershipViews",
   "loadSelectedMemberCallGraph", "memberRequestSignature", "memberRequestIsCurrent",
   "selectedCallGraphWorkspacePackages", "capturedShareTabs", "resolvedWorkspaceShareTabs",
   "currentPackage", "selectedType", "selectedMember", "memberGroups", "scope",

@@ -352,6 +352,7 @@ import { loadPlatformIndex, type PlatformIndex } from "./platform-index.ts";
 import {
   createSpotlight,
   type RemovableSpotlightResult,
+  type SpotlightPackageResult,
   type SpotlightPackageHit,
   type SpotlightResult,
   type SpotlightScope,
@@ -874,6 +875,7 @@ const initialState = {
   spotlightChipIndex: 0,
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
+  spotlightPkgError: "",
   spotlightPkgQuery: "",
   packageVersions: {},
   packageVersionsLoading: {},
@@ -1812,6 +1814,7 @@ const spotlight = createSpotlight({
   schedulePackageFetch: () => spotlightPackageSearch.schedule(),
   resetPackageSearch: () => spotlightPackageSearch.reset(),
   packageSearchLoading: () => state.spotlightPkgLoading,
+  packageSearchError: () => state.spotlightPkgError,
   packageCount: () => state.packages.length,
   activeFramework: () => state.package?.activeFramework || "",
   render,
@@ -2295,8 +2298,7 @@ function activateAfterPackageRemoval(next: AppPackage | null): void {
   if (!state.home) state.workspaceSubjectOpen = true;
 }
 
-function finishPackageRemoval(removed: AppPackage): void {
-  navigationSequence.begin();
+function invalidateWorkspaceMembershipViews(): void {
   invalidateGraphMemberNavigation();
   invalidateMemberCallGraphWork(state);
   state.memberCallGraph = null;
@@ -2308,6 +2310,11 @@ function finishPackageRemoval(removed: AppPackage): void {
   packageInspection.invalidatePackageResults();
   spotlightCache = null;
   spotlightMemberCache = null;
+}
+
+function finishPackageRemoval(removed: AppPackage): void {
+  navigationSequence.begin();
+  invalidateWorkspaceMembershipViews();
   releasePackageModelCaches(removed);
   if (!state.package && !state.home) {
     state.workspaceSubjectOpen = true;
@@ -4147,6 +4154,7 @@ function renderLibraryView() {
 function renderWorkspaceView() {
   if (state.packages.length > 0) ensureWorkspaceOccurrenceView();
   return renderWorkspaceViewPure({
+    canAddPackage: state.engineReady && !state.loading && !state.error,
     savedWorkspaces: {
       state: savedWorkspaces.state,
       canSave: state.engineReady && !state.loading && !state.error && state.packages.length > 0,
@@ -6485,6 +6493,7 @@ function bindWorkspaceSubjectEvents() {
     onDemo: runHomeDemo,
     onRetry: retryWorkspaceOccurrenceView,
     onRemove: removeWorkspacePackageRow,
+    onAddPackage: openWorkspacePackagePicker,
   });
 }
 
@@ -8711,6 +8720,103 @@ function runHomeDemo(kind: ProductHomeDemoId) {
     "Loading the demo workspace");
 }
 
+function openWorkspacePackagePicker(): void {
+  if (!state.engineReady || state.loading || state.error) {
+    showToast("Workspace is not ready to add a package.");
+    return;
+  }
+  beginSpotlightNavigation();
+  spotlight.openForPackageAddition({
+    pickResult: result =>
+      observeAsync(addWorkspacePackage(result), "Adding the Workspace package"),
+    focusAfterDismiss: () => {
+      const navigationGeneration = spotlightFocusGeneration;
+      const focusGeneration = documentFocusGeneration;
+      afterCurrentNavigationFrame(() => {
+        if (canRestoreWorkbenchFocus(navigationGeneration, focusGeneration)) {
+          restoreWorkspaceFocus(document, { kind: "add-package" });
+        }
+      });
+    },
+  });
+}
+
+async function addWorkspacePackage(result: SpotlightPackageResult): Promise<void> {
+  const coordinate = result.kind === "pkg-loaded"
+    ? { id: result.pkg.id, version: result.pkg.version,
+        framework: result.pkg.activeFramework ?? "" }
+    : result.kind === "pkg-recent"
+      ? { id: result.entry.id, version: result.entry.version ?? "latest",
+          framework: result.entry.framework ?? "" }
+      : { id: result.hit.id, version: result.hit.version ?? "latest", framework: "" };
+  beginSpotlightNavigation();
+  spotlight.reset();
+  const existing = state.packages.find(pkg =>
+    pkg.id.toLowerCase() === coordinate.id.toLowerCase()
+    && pkg.version.toLowerCase() === coordinate.version.toLowerCase()
+    && (!coordinate.framework
+      || pkg.activeFramework.toLowerCase() === coordinate.framework.toLowerCase()));
+  if (existing) {
+    render({ synchronizeUrl: false });
+    showToast(`${existing.id} is already in Workspace.`);
+    focusInspectionResult(navigationSequence.current());
+    return;
+  }
+  const limitMessage =
+    `Workspace holds at most ${MAX_WORKSPACE_PACKAGES} coordinates. Remove a package before adding another.`;
+  if (state.packages.length >= MAX_WORKSPACE_PACKAGES) {
+    appendQueryNotice(limitMessage, null);
+    render({ synchronizeUrl: false });
+    afterCurrentNavigationFrame(() =>
+      restoreWorkspaceFocus(document, { kind: "add-package" }));
+    return;
+  }
+
+  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const navigationSeq = beginDemoNavigation(location.href);
+  state.loading = true;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  render();
+  let packageModel: AppPackage | null = null;
+  try {
+    packageModel = await packageAcquisition.loadPackage({
+      packageId: coordinate.id,
+      version: coordinate.version,
+      framework: coordinate.framework,
+      // Background acquisition can fill the last slot while this request waits.
+      isCurrent: () => navigationSequence.isCurrent(navigationSeq)
+        && state.packages.length < MAX_WORKSPACE_PACKAGES,
+    });
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (!packageModel) throw new Error(limitMessage);
+    invalidateWorkspaceMembershipViews();
+    if (!state.package) {
+      activatePackage(packageModel, { resetAccessibility: true });
+      state.requestedPackage = packageModel.id;
+      state.requestedVersion = packageModel.version;
+      state.requestedFramework = packageModel.activeFramework;
+    }
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.loading = false;
+    stageDemoNavigation(navigationSeq, buildStateUrl().toString());
+    if (!commitDemoNavigation(navigationSeq)) return;
+    render();
+    focusInspectionResult(navigationSeq);
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    failWorkspaceCatalogAction(
+      `Adding ${coordinate.id} failed: ${errorMessage(error)}`,
+      packageModel ? snapshot : null,
+      () => observeAsync(addWorkspacePackage(result), "Retrying the Workspace package"),
+      () => restoreWorkspaceFocus(document, { kind: "add-package" }),
+    );
+  } finally {
+    cancelDemoNavigation(navigationSeq);
+  }
+}
+
 function openSavedWorkspace(entry: SavedWorkspace): void {
   const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
   const fail = (message: string, retryable: boolean) =>
@@ -8784,11 +8890,11 @@ function failDemoWorkspaceOpen(
 
 function failWorkspaceCatalogAction(
   message: string,
-  snapshot: CanonicalWorkspaceRestoreSnapshot,
+  snapshot: CanonicalWorkspaceRestoreSnapshot | null,
   retry: RetryAction,
   restoreFocus: () => boolean,
 ): void {
-  restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
+  if (snapshot) restoreCanonicalWorkspaceRestoreSnapshot(snapshot);
   state.credits = false;
   state.loading = false;
   state.home = false;

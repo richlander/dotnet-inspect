@@ -406,6 +406,8 @@ body {
 .workspace-section { margin-top: 14px; }
 .workspace-heading { flex-wrap: wrap; }
 .workspace-heading > [data-workspace-save] { margin-left: auto; }
+.workspace-section .section-title:has(.workspace-add-package) { gap: 12px; flex-wrap: wrap; }
+.workspace-add-package { margin-left: auto; flex-shrink: 0; }
 .workspace-save-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .workspace-save-form label { color: var(--muted); font-size: 12px; }
 .workspace-save-form input { flex: 1 1 200px; min-width: 0; max-width: 100%; }

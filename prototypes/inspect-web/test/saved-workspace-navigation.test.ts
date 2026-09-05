@@ -7,6 +7,7 @@ import { parseSync } from "oxc-parser";
 import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
+  retainWorkspacePackage,
   typeLensesFor,
 } from "../src/data.ts";
 import type {
@@ -14,9 +15,21 @@ import type {
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.d.ts";
-import { memberScopeIsActive } from "../src/member-filtering.ts";
+import type { BrowserPackageSurface } from "../src/facades/inspect-web-package.d.ts";
+import {
+  invalidateGraphMemberNavigationWork,
+  invalidateMemberCallGraphWork,
+  memberScopeIsActive,
+} from "../src/member-filtering.ts";
+import {
+  createPackageAcquisition,
+  type PackageAcquisitionDependencies,
+} from "../src/package-acquisition.ts";
+import { workspaceDependencyKey } from "../src/package-inspection.ts";
 import { isProductHomeDemosPath } from "../src/product-home-demos.ts";
-import type { SavedWorkspace, SavedWorkspaceFocus } from "../src/saved-workspaces.ts";
+import type { SavedWorkspace } from "../src/saved-workspaces.ts";
+import type { SpotlightPackageResult } from "../src/spotlight.ts";
+import type { WorkspaceFocusTarget } from "../src/workspace-subject.ts";
 import {
   createNavigationHistory,
   createNavigationSequence,
@@ -41,11 +54,21 @@ const hostNames = new Set([
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "isRecord", "runHomeDemo", "failDemoWorkspaceOpen",
+  "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
+  "canRestoreWorkbenchFocus", "isTextEntry",
+  "retainPackageModel", "packageIdentityEquals", "releasePackageModelCaches",
+  "invalidateWorkspaceMembershipViews", "invalidateGraphMemberNavigation",
+  "clearWorkspaceOccurrenceView", "clearWorkspacePackages",
+  "activatePackage", "defaultAccessibilityFilter", "resetMemberFilters",
 ]);
 const hostFunctions = app.program.body.filter(
   node => node.type === "FunctionDeclaration" && hostNames.has(node.id?.name ?? ""));
 assert.equal(hostFunctions.length, hostNames.size);
-const hostDeclarations = hostFunctions
+const acquisitionDeclaration = app.program.body.find(node =>
+  node.type === "VariableDeclaration" && node.declarations.some(declaration =>
+    declaration.id.type === "Identifier" && declaration.id.name === "packageAcquisition"));
+assert.ok(acquisitionDeclaration);
+const hostDeclarations = [...hostFunctions, acquisitionDeclaration]
   .map(node => appSource.slice(node.start, node.end)).join("\n");
 
 interface Package {
@@ -61,6 +84,30 @@ const sourcePackage: Package = {
 };
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
 const saved = Object.freeze({ name: "My Workspace", packet });
+
+function packageSurface(
+  id = "Added.Package", version = "4.5.6", framework = "net10.0",
+): BrowserPackageSurface {
+  return {
+    package: id, version, frameworks: ["net9.0", "net10.0"], activeFramework: framework,
+    defaultAssemblyId: "added-core",
+    compileLibrary: { status: "Selected", targetFramework: framework, message: null },
+    assemblies: [{
+      id: "added-core", name: "Added.Core", version: "4.5.6.0",
+      culture: null, publicKeyToken: null, asset: `lib/${framework}/Added.Core.dll`,
+      publicTypes: 1, publicMembers: 0, platformPack: null,
+    }],
+    types: [{
+      id: "Added.Widget", definitionId: "Added.Widget", queryId: "Added.Widget",
+      metadataId: "Added.Widget", name: "Widget", displayName: "Added.Widget",
+      namespace: "Added", kind: "class", accessibility: "public", accessibilityId: "public",
+      assembly: "Added.Core", assemblyId: "added-core", assemblyName: "Added.Core",
+      members: 0, signature: "public class Widget", api: [], platformPack: null,
+    }],
+    accessibility: [{ id: "public", label: "Public", order: 0, isDefault: true, count: 1 }],
+    totalMembers: 0, documents: [], icon: null, inspectionErrors: [], inspectionError: null,
+  };
+}
 
 function sharedState(): BrowserWorkspaceShareState {
   return {
@@ -99,15 +146,28 @@ function harness() {
     workspaceShareBasis: null as BrowserWorkspaceShareState | null,
     libraryScope: null as Set<string> | null,
     lens: "api", selectedTypeId: "", selectedMemberKey: "",
-    selectedOverloadIndex: null, memberSection: "overview",
+    selectedOverloadIndex: null as number | null, memberSection: "overview",
+    typeFilter: "", namespaceFilter: "", kindFilter: "",
+    memberBrowseTypeId: "", memberKindFilter: "all", memberAccessibilityFilter: "all",
+    memberTraitFilter: "", memberTextFilter: "",
+    requestedPackage: "", requestedVersion: "", requestedFramework: "",
     queryNotice: "", queryNoticeRetryAction: null as (() => void) | null,
-    workspaceDependencies: [], workspaceDependencyErrors: [],
+    workspaceDependencies: {} as Record<string, unknown>,
+    workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
     packageVersions: {}, packageVersionsLoading: {},
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
-    platformStack: [], platformRecent: [], recentPackages: [],
+    platformStack: [] as object[], platformRecent: [], recentPackages: [],
     spotlightPkgHits: [], history: [],
+    spotlightOpen: false,
+    memberCallGraph: null as object | null, memberCallGraphError: "", memberCallGraphKey: "",
+    memberCallGraphLoading: false, memberCallGraphExpanding: false, memberCallGraphSeq: 0,
+    platformDrillLoading: false, platformDrillError: "",
+    graphMemberNavigationSeq: 0, graphMemberNavigationTitle: "", graphMemberNavigationError: "",
+    pendingGraphMemberDeepLink: null as object | null,
+    workspaceOccurrenceSignature: "", workspaceOccurrenceLoading: false,
+    workspaceOccurrences: null as object | null, workspaceOccurrenceError: "",
   };
   const navigationSequence = createNavigationSequence();
   const navigationHistory = createNavigationHistory({
@@ -123,12 +183,26 @@ function harness() {
   const location = new URL("https://inspect.test/?package=Source&w=source-packet&keep=1#workspace");
   const history = { state: { entry: "source-entry" } as unknown };
   const writes: { kind: "push" | "replace"; url: string; state: unknown }[] = [];
+  const previousEntries: { url: string; state: unknown }[] = [];
   const frames: (() => void)[] = [];
   const focus: unknown[] = [];
   const effects: string[] = [];
   const decoded: string[] = [];
   const encoded: unknown[] = [];
   const acquisitions: string[] = [];
+  const queries: string[][] = [];
+  const retained: { packageModel: Package; replacedPackage: Package | null }[] = [];
+  const recent: string[][] = [];
+  const invalidations: string[] = [];
+  const toasts: string[] = [];
+  const picker: {
+    current: {
+      pickResult: (result: SpotlightPackageResult) => void;
+      focusAfterDismiss: () => void;
+    } | null;
+    opens: number;
+    resets: number;
+  } = { current: null, opens: 0, resets: 0 };
   const operations: Promise<unknown>[] = [];
   const controls = {
     share: sharedState(),
@@ -138,6 +212,7 @@ function harness() {
     decodeError: null as Error | null,
     decodeFailure: "",
     acquisition: async (_id: string): Promise<boolean> => true,
+    queryPackage: async (_id: string, _version: string, _framework: string) => packageSurface(),
     selection: async (): Promise<void> => {},
     savedFocusAvailable: true,
   };
@@ -161,6 +236,7 @@ function harness() {
     replace: (url, entryState) => write("replace", url, entryState),
   });
   function write(kind: "push" | "replace", url: string, entryState: unknown) {
+    if (kind === "push") previousEntries.push({ url: location.href, state: history.state });
     writes.push({ kind, url, state: entryState });
     location.href = new URL(url, location).href;
     history.state = entryState;
@@ -168,6 +244,7 @@ function harness() {
   const heading = { tabIndex: 0, focus: () => focus.push("heading") };
   const document = {
     title: "",
+    activeElement: null,
     querySelector: (selector: string) => {
       assert.equal(selector, "main h1");
       return heading;
@@ -177,9 +254,43 @@ function harness() {
     state, location, history, document, workspaceLocation,
     navigationSequence, navigationHistory,
     pendingDemoNavigation: null as { navigationSeq: number; destination: string } | null,
-    failedWorkspaceUrlState: null, spotlightCache: null,
+    failedWorkspaceUrlState: null, spotlightCache: null as object | null,
+    spotlightMemberCache: null as object | null,
+    spotlightFocusGeneration: 0, documentFocusGeneration: 0, workspaceOccurrenceRevision: 0,
+    HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
     MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
+    workspaceDependencyKey, invalidateGraphMemberNavigationWork, invalidateMemberCallGraphWork,
+    retainWorkspacePackage: (
+      packages: readonly Package[], active: Package | null,
+      packageModel: Package, replacedPackage: Package | null,
+    ) => {
+      retained.push({ packageModel, replacedPackage });
+      return retainWorkspacePackage(packages, active, packageModel, replacedPackage);
+    },
+    createPackageAcquisition,
+    inspectPackage: (...coordinate: Parameters<PackageAcquisitionDependencies["queryPackage"]>) => {
+      queries.push(coordinate);
+      return controls.queryPackage(...coordinate);
+    },
+    runtimePackPackage: () => null,
+    recordRecentPackage: (...coordinate: string[]) => recent.push(coordinate),
+    packageInspection: { invalidatePackageResults: () => invalidations.push("package-results") },
+    inspectClearWorkspacePackageOccurrences: () => invalidations.push("occurrences"),
+    applicationMenuOwnsFocus: () => false,
+    showToast: (message: string) => toasts.push(message),
+    spotlight: {
+      openForPackageAddition: (purpose: NonNullable<typeof picker.current>) => {
+        picker.current = purpose;
+        picker.opens++;
+        state.spotlightOpen = true;
+      },
+      reset: () => {
+        picker.current = null;
+        picker.resets++;
+        state.spotlightOpen = false;
+      },
+    },
     typeLensesFor, workspaceShareCaptureTopology, workspaceShareTabsMatchResolved,
     parseWorkspaceLocation, isProductHomeDemosPath,
     inspectDecodeWorkspaceShareState: decode,
@@ -190,8 +301,6 @@ function harness() {
       clearGraphSource: () => {},
     },
     cancelAnnotatedSourceRequest: () => {},
-    clearWorkspaceOccurrenceView: () => {},
-    clearWorkspacePackages: () => { state.packages = []; state.package = null; },
     persistRecentPackages: () => {},
     persistPlatformRecent: () => {},
     refreshPackageStats: () => {},
@@ -215,7 +324,6 @@ function harness() {
       state.packages.push(pkg);
       return pkg;
     },
-    activatePackage: (pkg: Package) => { state.package = pkg; },
     applyLoadedPackageLibraryScope: () => null,
     applyDeepLink: (deep: ParsedWorkspaceLocation) => {
       effects.push("deep-link");
@@ -226,15 +334,15 @@ function harness() {
       state.queryNotice = message;
       state.queryNoticeRetryAction = retry;
     },
-    restoreWorkspaceFocus: (_root: unknown, target: SavedWorkspaceFocus) => {
+    restoreWorkspaceFocus: (_root: unknown, target: WorkspaceFocusTarget) => {
       focus.push(structuredClone(target));
       return controls.savedFocusAvailable;
     },
     focusWorkspace: () => { focus.push("workspace"); return true; },
-    render: () => {
+    render: (options: { synchronizeUrl?: boolean } = {}) => {
       effects.push("render");
       if (!state.loading && state.package && !state.home && !state.error) {
-        runInNewContext("syncUrl()", context);
+        if (options.synchronizeUrl !== false) runInNewContext("syncUrl()", context);
         navigationHistory.record();
       }
     },
@@ -246,6 +354,7 @@ function harness() {
   return {
     state, context, controls, location, history, writes, decoded, encoded,
     acquisitions, focus, effects, operations, navigationHistory, navigationSequence,
+    queries, retained, recent, invalidations, toasts, picker, previousEntries,
     capture: (): string => {
       const result: unknown = runInNewContext("captureSavedWorkspacePacket()", context);
       assert.ok(typeof result === "string");
@@ -255,6 +364,15 @@ function harness() {
       runInNewContext("openSavedWorkspace(entry)", { ...context, entry });
     },
     demo: (): void => { runInNewContext('runHomeDemo("demo")', context); },
+    add: (result: SpotlightPackageResult = {
+      kind: "pkg-nuget", hit: { id: "Added.Package" }, ranges: [],
+    }): Promise<unknown> => {
+      const operation = Promise.resolve<unknown>(runInNewContext(
+        "addWorkspacePackage(result)", { ...context, result }));
+      operations.push(operation);
+      return operation;
+    },
+    openPicker: (): void => { runInNewContext("openWorkspacePackagePicker()", context); },
     settle: async () => { await Promise.all(operations); },
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
@@ -531,4 +649,474 @@ test("neighboring demo opening retains the shared transactional failure orchestr
   assert.ok(h.state.queryNoticeRetryAction);
   h.flushFocus();
   assert.deepEqual(h.focus, [{ kind: "demo", id: "demo" }]);
+});
+
+function inspectionSelection(h: ReturnType<typeof harness>) {
+  const s = h.state;
+  return {
+    package: s.package, workspaceSubjectOpen: s.workspaceSubjectOpen,
+    atPackageRoot: s.atPackageRoot, packageLens: s.packageLens, lens: s.lens,
+    selectedTypeId: s.selectedTypeId, selectedMemberKey: s.selectedMemberKey,
+    selectedOverloadIndex: s.selectedOverloadIndex, memberSection: s.memberSection,
+    memberBrowseTypeId: s.memberBrowseTypeId,
+    typeFilter: s.typeFilter, namespaceFilter: s.namespaceFilter, kindFilter: s.kindFilter,
+    libraryScope: s.libraryScope, accessibilityFilter: s.accessibilityFilter,
+    memberKindFilter: s.memberKindFilter, memberAccessibilityFilter: s.memberAccessibilityFilter,
+    memberTraitFilter: s.memberTraitFilter, memberTextFilter: s.memberTextFilter,
+  };
+}
+
+function seedInspectionSelection(h: ReturnType<typeof harness>) {
+  Object.assign(h.state, {
+    selectedTypeId: "Source.Widget", selectedMemberKey: "Run",
+    selectedOverloadIndex: 1, memberSection: "source", memberBrowseTypeId: "Source.Widget",
+    typeFilter: "Widget", namespaceFilter: "Source", kindFilter: "class",
+    libraryScope: new Set(["Source.Core"]), accessibilityFilter: new Set(["public", "internal"]),
+    memberKindFilter: "method", memberAccessibilityFilter: "public",
+    memberTraitFilter: "static", memberTextFilter: "Run",
+  });
+}
+
+function fillWorkspace(h: ReturnType<typeof harness>, count = MAX_WORKSPACE_PACKAGES) {
+  h.state.packages = [sourcePackage, ...Array.from({ length: count - 1 }, (_, index) => ({
+    id: `Resident.${index}`, version: "1.0.0", activeFramework: "net10.0", types: [],
+  }))];
+  for (const pkg of h.state.packages) {
+    h.state.workspaceDependencies[workspaceDependencyKey(pkg)] = { resident: pkg.id };
+  }
+}
+
+function assertSourceHistory(
+  h: ReturnType<typeof harness>, href: string, entryState: unknown,
+) {
+  assert.equal(h.location.href, href);
+  assert.equal(h.history.state, entryState);
+  assert.deepEqual(h.writes, []);
+  assert.deepEqual(h.previousEntries, []);
+}
+
+test("Add appends the resolved coordinate, preserves inspection, invalidates membership views, and shares the same scope in URL and Save", async () => {
+  const h = harness();
+  h.state.packages.unshift({
+    id: "Earlier", version: "2.0.0", activeFramework: "net9.0", types: [],
+  });
+  seedInspectionSelection(h);
+  const previous = [...h.state.packages];
+  const selection = inspectionSelection(h);
+  const href = h.location.href;
+  const entryState = h.history.state;
+  Object.assign(h.state, {
+    workspaceShareBasis: sharedState(),
+    memberCallGraph: { nodes: ["old"] }, memberCallGraphError: "old", memberCallGraphKey: "old",
+    memberCallGraphLoading: true, memberCallGraphExpanding: true,
+    platformDrillLoading: true, platformDrillError: "old", platformStack: [{ old: true }],
+    graphMemberNavigationTitle: "old", graphMemberNavigationError: "old",
+    pendingGraphMemberDeepLink: { old: true },
+    workspaceOccurrenceSignature: "old", workspaceOccurrenceLoading: true,
+    workspaceOccurrences: { old: true }, workspaceOccurrenceError: "old",
+  });
+  h.context.spotlightCache = { old: true };
+  h.context.spotlightMemberCache = { old: true };
+  const query = deferred<BrowserPackageSurface>();
+  h.controls.queryPackage = () => query.promise;
+  const operation = h.add();
+  assert.equal(h.state.loading, true);
+  assertSourceHistory(h, href, entryState);
+  assert.equal(h.retained.length, 0);
+  assert.deepEqual(h.invalidations, []);
+  query.resolve(packageSurface());
+  await operation;
+
+  assert.deepEqual(h.queries, [["Added.Package", "latest", ""]]);
+  assert.deepEqual(h.state.packages.slice(0, 2), previous);
+  previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
+  assert.equal(h.state.package, sourcePackage);
+  assert.deepEqual(inspectionSelection(h), selection);
+  assert.equal(h.state.packages.length, 3);
+  const added = h.state.packages[2]!;
+  assert.equal(h.retained.length, 1);
+  assert.equal(h.retained[0]!.packageModel, added);
+  assert.equal(h.retained[0]!.replacedPackage, null);
+  assert.equal(added.types[0]?.id, "Added.Widget");
+  assert.deepEqual(h.recent, [["Added.Package", "4.5.6", "net10.0"]]);
+  assert.equal(h.state.loading, false);
+  assert.equal(h.state.queryNotice, "");
+  assert.equal(h.state.queryNoticeRetryAction, null);
+  assert.equal(h.state.workspaceShareBasis, null);
+  assert.equal(h.state.memberCallGraphSeq, 1);
+  assert.equal(h.state.graphMemberNavigationSeq, 1);
+  for (const value of [
+    h.state.memberCallGraph, h.state.pendingGraphMemberDeepLink, h.state.workspaceOccurrences,
+    h.context.spotlightCache, h.context.spotlightMemberCache,
+  ]) assert.equal(value, null);
+  for (const value of [
+    h.state.memberCallGraphLoading, h.state.memberCallGraphExpanding,
+    h.state.platformDrillLoading, h.state.workspaceOccurrenceLoading,
+  ]) assert.equal(value, false);
+  for (const value of [
+    h.state.memberCallGraphKey, h.state.memberCallGraphError, h.state.platformDrillError,
+    h.state.graphMemberNavigationTitle, h.state.graphMemberNavigationError,
+    h.state.workspaceOccurrenceSignature, h.state.workspaceOccurrenceError,
+  ]) assert.equal(value, "");
+  assert.deepEqual(Array.from(h.state.platformStack), []);
+  assert.deepEqual(h.invalidations, ["occurrences", "package-results"]);
+  assert.equal(h.context.workspaceOccurrenceRevision, 1);
+  assert.equal(h.capture(), packet);
+  assert.ok(h.encoded.length >= 2);
+  for (const projection of h.encoded) assert.deepEqual(projection, {
+    tabs: [
+      { id: "t0", kind: "package", source: "Earlier", version: "2.0.0",
+        framework: "net9.0", runtimeIdentifier: null },
+      { id: "t1", kind: "package", source: "Source", version: "1.2.3",
+        framework: "net10.0", runtimeIdentifier: null },
+      { id: "t2", kind: "package", source: "Added.Package", version: "4.5.6",
+        framework: "net10.0", runtimeIdentifier: null },
+    ],
+    contexts: [
+      { id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }, { id: "g2", tabIds: ["t2"] },
+    ],
+    activeTabId: "t1", selectedContextId: "g1",
+    view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
+      section: null, libraries: ["Source.Core"] },
+  });
+  assert.equal(h.location.pathname, "/");
+  assert.equal(h.location.hash, "#workspace");
+  assert.equal(h.location.searchParams.get("w"), packet);
+  assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+  assert.deepEqual(h.previousEntries, [{ url: href, state: entryState }]);
+  assert.deepEqual(saved, { name: "My Workspace", packet });
+  assert.equal(h.context.pendingDemoNavigation, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+test("Add to an empty Workspace activates its first resolved coordinate and stays on Workspace", async () => {
+  const h = harness();
+  h.state.packages = [];
+  h.state.package = null;
+  h.location.href = "https://inspect.test/demos";
+  await h.add();
+  assert.equal(h.state.packages.length, 1);
+  assert.equal(h.state.package, h.state.packages[0]);
+  assert.equal(h.state.packages[0]?.id, "Added.Package");
+  assert.deepEqual([
+    h.state.requestedPackage, h.state.requestedVersion, h.state.requestedFramework,
+  ], ["Added.Package", "4.5.6", "net10.0"]);
+  assert.deepEqual([...h.state.accessibilityFilter], ["public"]);
+  assert.equal(h.state.workspaceSubjectOpen, true);
+  assert.equal(h.state.atPackageRoot, true);
+  assert.equal(h.state.loading, false);
+  assert.equal(h.retained.length, 1);
+  assert.equal(h.location.pathname, "/");
+  assert.equal(h.location.hash, "#workspace");
+  assert.equal(h.location.searchParams.get("w"), h.capture());
+  h.flushFocus();
+  assert.deepEqual(h.focus, ["heading"]);
+});
+
+for (const atCap of [false, true]) {
+  test(`Add of an inactive loaded exact duplicate ${atCap ? "at capacity" : "below capacity"} never queries, replaces, or activates`, async () => {
+    const h = harness();
+    fillWorkspace(h, atCap ? MAX_WORKSPACE_PACKAGES : 2);
+    seedInspectionSelection(h);
+    const previous = [...h.state.packages];
+    const selection = inspectionSelection(h);
+    const href = h.location.href;
+    const entryState = h.history.state;
+    const duplicate = previous[1]!;
+    await h.add({ kind: "pkg-loaded", pkg: {
+      ...duplicate, id: duplicate.id.toUpperCase(), activeFramework: "NET10.0",
+    }, ranges: [] });
+    assert.deepEqual(h.queries, []);
+    assert.deepEqual(h.retained, []);
+    assert.deepEqual(h.recent, []);
+    assert.deepEqual(h.invalidations, []);
+    assert.deepEqual(h.state.packages, previous);
+    previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
+    assert.deepEqual(inspectionSelection(h), selection);
+    assert.equal(h.state.package, sourcePackage);
+    assertSourceHistory(h, href, entryState);
+    assert.deepEqual(h.toasts, [`${duplicate.id} is already in Workspace.`]);
+    assert.equal(h.state.queryNotice, "");
+    h.flushFocus();
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+test("Add at the 12-coordinate cap refuses visibly before querying or evicting", async () => {
+  const h = harness();
+  assert.equal(MAX_WORKSPACE_PACKAGES, 12);
+  fillWorkspace(h);
+  seedInspectionSelection(h);
+  const previous = [...h.state.packages];
+  const dependencies = structuredClone(h.state.workspaceDependencies);
+  const selection = inspectionSelection(h);
+  const href = h.location.href;
+  const entryState = h.history.state;
+  await h.add();
+  assert.deepEqual(h.queries, []);
+  assert.deepEqual(h.retained, []);
+  assert.deepEqual(h.recent, []);
+  assert.deepEqual(h.invalidations, []);
+  assert.deepEqual(h.state.packages, previous);
+  previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
+  assert.deepEqual(h.state.workspaceDependencies, dependencies);
+  assert.deepEqual(inspectionSelection(h), selection);
+  assertSourceHistory(h, href, entryState);
+  assert.match(h.state.queryNotice, /at most 12 coordinates.*Remove a package/);
+  assert.equal(h.state.queryNoticeRetryAction, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+});
+
+test("Add whose last slot fills during query refuses before retention and preserves the independently admitted member", async () => {
+  const h = harness();
+  fillWorkspace(h, MAX_WORKSPACE_PACKAGES - 1);
+  seedInspectionSelection(h);
+  const selection = inspectionSelection(h);
+  const href = h.location.href;
+  const entryState = h.history.state;
+  const query = deferred<BrowserPackageSurface>();
+  h.controls.queryPackage = id => id === "Added.Package"
+    ? query.promise : Promise.resolve(packageSurface(id, "8.9.0", "net9.0"));
+  const operation = h.add();
+  const independent: unknown = runInNewContext(
+    'packageAcquisition.loadPackage({ packageId: "Arrived", version: "8.9.0", framework: "net9.0" })',
+    h.context);
+  const arrived = await independent;
+  const admitted = [...h.state.packages];
+  assert.equal(admitted.length, 12);
+  assert.equal(admitted[11], arrived);
+  const dependencies = structuredClone(h.state.workspaceDependencies);
+  query.resolve(packageSurface());
+  await operation;
+  assert.deepEqual(h.queries, [
+    ["Added.Package", "latest", ""], ["Arrived", "8.9.0", "net9.0"],
+  ]);
+  assert.equal(h.retained.length, 1);
+  assert.equal(h.retained[0]!.packageModel, arrived);
+  assert.deepEqual(h.recent, [["Arrived", "8.9.0", "net9.0"]]);
+  assert.deepEqual(h.state.packages, admitted);
+  admitted.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
+  assert.deepEqual(h.state.workspaceDependencies, dependencies);
+  assert.deepEqual(inspectionSelection(h), selection);
+  assert.deepEqual(h.invalidations, []);
+  assertSourceHistory(h, href, entryState);
+  assert.match(h.state.queryNotice, /Adding Added\.Package failed:.*at most 12 coordinates/);
+  assert.ok(h.state.queryNoticeRetryAction);
+  assert.equal(h.state.loading, false);
+  assert.equal(h.context.pendingDemoNavigation, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+});
+
+for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep=1"]) {
+  test(`failed Add from ${source} keeps source history, focuses Add, and retries successfully`, async () => {
+    const h = harness();
+    seedInspectionSelection(h);
+    h.location.href = new URL(source, h.location).href;
+    const href = h.location.href;
+    const entryState = h.history.state;
+    const selection = inspectionSelection(h);
+    const navigation = h.navigationHistory.snapshot();
+    h.controls.queryPackage = async () => { throw new Error("Package service unavailable"); };
+    await h.add();
+    assertSourceHistory(h, href, entryState);
+    assert.deepEqual(h.navigationHistory.snapshot(), navigation);
+    assert.equal(h.state.package, sourcePackage);
+    assert.deepEqual(h.state.packages, [sourcePackage]);
+    assert.deepEqual(inspectionSelection(h), selection);
+    assert.deepEqual(h.retained, []);
+    assert.deepEqual(h.recent, []);
+    assert.deepEqual(h.invalidations, []);
+    assert.equal(h.state.loading, false);
+    assert.equal(h.state.spotlightOpen, false);
+    assert.equal(h.picker.opens, 0);
+    assert.match(h.state.queryNotice, /Adding Added\.Package failed: Package service unavailable/);
+    assert.ok(h.state.queryNoticeRetryAction);
+    assert.equal(h.context.pendingDemoNavigation, null);
+    h.flushFocus();
+    assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+
+    const failedSequence = h.navigationSequence.current();
+    h.controls.queryPackage = async () => packageSurface();
+    h.state.queryNoticeRetryAction();
+    await h.settle();
+    assert.ok(h.navigationSequence.current() > failedSequence);
+    assert.deepEqual(h.queries, [
+      ["Added.Package", "latest", ""], ["Added.Package", "latest", ""],
+    ]);
+    assert.equal(h.state.packages.length, 2);
+    assert.deepEqual(inspectionSelection(h), selection);
+    assert.equal(h.state.queryNotice, "");
+    assert.equal(h.state.queryNoticeRetryAction, null);
+    assert.equal(h.retained.length, 1);
+    assert.equal(h.location.pathname, "/");
+    assert.equal(h.location.hash, "#workspace");
+    assert.equal(h.location.searchParams.get("w"), packet);
+    assert.deepEqual(h.previousEntries, [{ url: href, state: entryState }]);
+    h.flushFocus();
+    assert.deepEqual(h.focus, [{ kind: "add-package" }, "heading"]);
+  });
+}
+
+for (const rejected of [false, true]) {
+  test(`superseded Add ${rejected ? "failure" : "success"} cannot retain, overwrite, cancel, or focus over the next Add`, async () => {
+    const h = harness();
+    const first = deferred<BrowserPackageSurface>();
+    const second = deferred<BrowserPackageSurface>();
+    h.controls.queryPackage = id => id === "Added.Package" ? first.promise : second.promise;
+    const stale = h.add();
+    const successor = h.add({ kind: "pkg-nuget", hit: { id: "Successor" }, ranges: [] });
+    const pending = h.context.pendingDemoNavigation;
+    const successorState = structuredClone(h.state);
+    if (rejected) first.reject(new Error("Stale query failed"));
+    else first.resolve(packageSurface());
+    await stale;
+    assert.equal(h.context.pendingDemoNavigation, pending);
+    assert.deepEqual(h.state, successorState);
+    assert.equal(h.retained.length, 0);
+    assert.deepEqual(h.recent, []);
+    assert.deepEqual(h.invalidations, []);
+    assert.equal(h.writes.length, 0);
+    h.flushFocus();
+    assert.deepEqual(h.focus, []);
+    second.resolve(packageSurface("Successor", "7.8.9", "net9.0"));
+    await successor;
+    assert.deepEqual(h.state.packages.map(pkg => pkg.id), ["Source", "Successor"]);
+    assert.equal(h.retained.length, 1);
+    assert.equal(h.retained[0]!.packageModel.id, "Successor");
+    assert.equal(h.writes.filter(write => write.kind === "push").length, 1);
+    assert.equal(h.location.hash, "#workspace");
+    assert.equal(h.state.queryNotice, "");
+    h.flushFocus();
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+for (const rejected of [false, true]) {
+  test(`Add ${rejected ? "failure" : "success"} arriving after saved Open cannot overwrite its navigation or steal focus`, async () => {
+    const h = harness();
+    const query = deferred<BrowserPackageSurface>();
+    h.controls.queryPackage = () => query.promise;
+    const stale = h.add();
+    h.open();
+    await h.operations[1];
+    h.flushFocus();
+    const successorState = structuredClone(h.state);
+    const writes = structuredClone(h.writes);
+    const href = h.location.href;
+    const entryState = h.history.state;
+    const focus = structuredClone(h.focus);
+    if (rejected) query.reject(new Error("Stale query failed"));
+    else query.resolve(packageSurface());
+    await stale;
+    // Saved Open installs VM-created collections; compare both snapshots in this realm.
+    assert.deepEqual(structuredClone(h.state), successorState);
+    assert.deepEqual(h.writes, writes);
+    assert.equal(h.location.href, href);
+    assert.equal(h.history.state, entryState);
+    assert.deepEqual(h.retained, []);
+    assert.deepEqual(h.recent, []);
+    h.flushFocus();
+    assert.deepEqual(h.focus, focus);
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+test("Add serialization failure after retention restores source membership, selection, and history", async () => {
+  const h = harness();
+  seedInspectionSelection(h);
+  const selection = structuredClone(inspectionSelection(h));
+  const previous = structuredClone(h.state.packages);
+  const navigation = h.navigationHistory.snapshot();
+  h.location.href = "https://inspect.test/demos?keep=1";
+  const href = h.location.href;
+  const entryState = h.history.state;
+  h.controls.encodeResult = {
+    succeeded: false, packet: null,
+    failure: { kind: "InvalidShape", path: "workspace", message: "Cannot serialize Workspace" },
+  };
+  await h.add();
+  assert.equal(h.retained.length, 1);
+  assert.equal(h.retained[0]!.packageModel.id, "Added.Package");
+  assert.deepEqual(h.state.packages, previous);
+  assert.equal(h.state.package, h.state.packages[0]);
+  assert.deepEqual(inspectionSelection(h), selection);
+  assert.deepEqual(h.navigationHistory.snapshot(), navigation);
+  assertSourceHistory(h, href, entryState);
+  assert.match(h.state.queryNotice, /Adding Added\.Package failed: Cannot serialize Workspace/);
+  assert.ok(h.state.queryNoticeRetryAction);
+  assert.equal(h.state.loading, false);
+  assert.equal(h.context.pendingDemoNavigation, null);
+  h.flushFocus();
+  assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+});
+
+test("deferred Add failure focus is discarded when navigation changes before the next frame", async () => {
+  const h = harness();
+  h.controls.queryPackage = async () => { throw new Error("Package service unavailable"); };
+  await h.add();
+  h.navigationSequence.begin();
+  h.flushFocus();
+  assert.deepEqual(h.focus, []);
+});
+
+for (const [result, expected] of [
+  [{ kind: "pkg-recent", entry: { id: "Recent", version: "3.2.1", framework: "net9.0" },
+    ranges: [] }, ["Recent", "3.2.1", "net9.0"]],
+  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", ""]],
+  [{ kind: "pkg-nuget", hit: { id: "Found", version: "6.7.8" }, ranges: [] },
+    ["Found", "6.7.8", ""]],
+] satisfies [SpotlightPackageResult, string[]][]) {
+  test(`Workspace picker routes ${result.kind} ${expected.join("/")} through Add acquisition`, async () => {
+    const h = harness();
+    const href = h.location.href;
+    h.openPicker();
+    assert.equal(h.picker.opens, 1);
+    assert.equal(h.state.spotlightOpen, true);
+    assert.equal(h.location.href, href);
+    assert.deepEqual(h.queries, []);
+    assert.ok(h.picker.current);
+    h.picker.current.pickResult(result);
+    await h.settle();
+    assert.deepEqual(h.queries, [expected]);
+    assert.equal(h.picker.current, null);
+    assert.equal(h.picker.resets, 1);
+    assert.equal(h.state.spotlightOpen, false);
+    assert.equal(h.state.packages.length, 2);
+    assert.equal(h.retained.length, 1);
+    h.flushFocus();
+    assert.deepEqual(h.focus, ["heading"]);
+  });
+}
+
+test("Workspace picker Cancel restores Add focus without acquiring or navigating", () => {
+  const h = harness();
+  const href = h.location.href;
+  const entryState = h.history.state;
+  h.openPicker();
+  assert.ok(h.picker.current);
+  const dismiss = h.picker.current.focusAfterDismiss;
+  h.context.spotlight.reset();
+  dismiss();
+  h.flushFocus();
+  assert.deepEqual(h.focus, [{ kind: "add-package" }]);
+  assert.deepEqual(h.queries, []);
+  assert.deepEqual(h.retained, []);
+  assertSourceHistory(h, href, entryState);
+});
+
+test("Workspace picker refuses entry while the Workspace is not ready", () => {
+  for (const unavailable of [
+    { engineReady: false }, { loading: true }, { error: "Engine unavailable" },
+  ]) {
+    const h = harness();
+    Object.assign(h.state, unavailable);
+    h.openPicker();
+    assert.equal(h.picker.opens, 0);
+    assert.deepEqual(h.queries, []);
+    assert.deepEqual(h.writes, []);
+    assert.deepEqual(h.toasts, ["Workspace is not ready to add a package."]);
+  }
 });

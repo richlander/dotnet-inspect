@@ -1394,6 +1394,15 @@ The `eng/CiChangeDetection` gate, invoked through
 
 ## Interaction model
 
+On Workspace, **Add package** opens package search as a focused picker. Choose a
+NuGet or recent result to append its resolved coordinate while staying on
+Workspace; existing packages and the active inspection are retained. Already
+loaded packages are no-ops. Cancel leaves the scope unchanged. At the
+12-coordinate limit, Add reports the limit rather than evicting another member.
+Saved definitions change only through an explicit Save, not live additions.
+Version/framework editing and prefixes are separate from this focused
+[Add-package interaction](../../docs/design/inspect-web-workspace-add-package.md).
+
 The Workspace page offers **Save Workspace** for the current nonempty scope.
 Enter a unique name to save its canonical packet locally on this browser;
 resolved versions and frameworks are pinned without changing the live share
