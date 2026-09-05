@@ -174,10 +174,10 @@ public static class EcosystemIntegrationScanner
 
     public static List<EcosystemIntegrationSignalInfo> Scan(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        return EcosystemIntegrationProjection.Scan(peReader.GetMetadataReader());
+        return EcosystemIntegrationProjection.Scan(MetadataFormatAdmission.GetMetadataReader(peReader));
     }
 
     public static EcosystemIntegrationPresence ScanPresence(MetadataReader reader)

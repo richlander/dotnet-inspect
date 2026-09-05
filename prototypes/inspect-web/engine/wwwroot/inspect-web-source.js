@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
 let $runtime;
 let $managedExports;
@@ -42,6 +42,14 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
+        value = $ownDataProperty(value, "CancelTypeSourceQuery.271973316");
+        if (typeof value !== "function") {
+            throw new Error("Managed export \u0027SourceExports.CancelTypeSourceQuery.271973316\u0027 is not callable.");
+        }
+    }
+    {
+        let value = exports;
+        value = $ownDataProperty(value, "SourceExports");
         value = $ownDataProperty(value, "QueryMemberAnnotatedSource.1135530322");
         if (typeof value !== "function") {
             throw new Error("Managed export \u0027SourceExports.QueryMemberAnnotatedSource.1135530322\u0027 is not callable.");
@@ -66,9 +74,9 @@ function $validateManagedExports(exports) {
     {
         let value = exports;
         value = $ownDataProperty(value, "SourceExports");
-        value = $ownDataProperty(value, "QueryTypeSource.649160465");
+        value = $ownDataProperty(value, "QueryTypeSource.1160082336");
         if (typeof value !== "function") {
-            throw new Error("Managed export \u0027SourceExports.QueryTypeSource.649160465\u0027 is not callable.");
+            throw new Error("Managed export \u0027SourceExports.QueryTypeSource.1160082336\u0027 is not callable.");
         }
     }
 }
@@ -99,6 +107,11 @@ export function runEntryPoint(mainAssemblyName, args) {
 export function cancelSourceQuery() {
     return $requireManagedExports()["SourceExports"]["CancelSourceQuery.19325221"]();
 }
+export function cancelTypeSourceQuery(operationId, reason) {
+    const $result = $requireManagedExports()["SourceExports"]["CancelTypeSourceQuery.271973316"](operationId, reason);
+    const $parsed = JSON.parse($result);
+    return $parsed;
+}
 export async function queryMemberAnnotatedSource(packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson) {
     const $result = await $requireManagedExports()["SourceExports"]["QueryMemberAnnotatedSource.1135530322"](packageId, version, targetFramework, assemblyName, typeIdentity, typeQueryId, memberName, memberSignature, selectorKey, metadataToken, styleOptionsJson);
     const $parsed = JSON.parse($result);
@@ -114,8 +127,8 @@ export async function queryTypeMemberSource(packageId, version, targetFramework,
     const $parsed = JSON.parse($result);
     return $parsed;
 }
-export async function queryTypeSource(packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson) {
-    const $result = await $requireManagedExports()["SourceExports"]["QueryTypeSource.649160465"](packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
+export async function queryTypeSource(operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson) {
+    const $result = await $requireManagedExports()["SourceExports"]["QueryTypeSource.1160082336"](operationId, packageId, version, targetFramework, assemblyName, typeIdentity, styleOptionsJson);
     const $parsed = JSON.parse($result);
     return $parsed;
 }

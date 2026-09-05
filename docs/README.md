@@ -61,6 +61,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | -------- | ----------- |
 | [Style Guide](design/style-guide.md) | Output formatting conventions. |
 | [Output Shapes](design/output-shapes.md) | The Document → Table → Vector → Scalar shape ladder, how Markout produces it, and how the output flags select a shape. |
+| [Uncertified Scan Results](design/uncertified-scan-results.md) | How a command reports a multi-candidate scan that lost a candidate: exclusions named first, uncertainty carried beside the outcome, exit code `3`. |
 | [Semantic Row Selection](design/semantic-row-selection.md) | Typed ordered Head, Tail, Window, and Top stages over complete logical sequences. |
 | [CLI Row-Selection Grammar](design/cli-row-selection.md) | L3 item, Window, Top, direction, line-unit, shorthand, capability, and lowering rules for command-by-command adoption. |
 | [Source Delegation](design/source-delegation.md) | Delegated source execution: the effect protocol, closed result algebra, completion-evidence bases, and equivalence gates for row handoff and exact upstream Count. |
@@ -102,6 +103,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Method Body Inspection](design/method-body-inspection.md) | Target service seam for shared `member` and `library --il-offset` method-body facts and coordinate inspection. |
 | [Member Body Substrate](design/member-body-substrate.md) | One base for skeleton/full/merged/diff body rendering: `ApiType` shape, `MemberAnchor` address, one scope, and `MemberBody`'s scalar (whole-body) and vector (offset-keyed) shapes. |
 | [NuGet API](design/nuget.md) | NuGet API endpoints used by the tool. |
+| [NuGet Gallery Discovery](design/nuget-gallery-discovery.md) | Proposed NuGetFetch termless/type-filtered Gallery search, source orders, search-facet discovery, and bounded row-source delegation, with CLI/browser adoption tracked separately. |
 | [NuGet Feed Authentication](design/nuget-authentication.md) | How feeds are authenticated: `nuget.config` credentials, credential provider discovery and the 401-driven plugin protocol, source-scoped plugin credential isolation, supported credential forms, and hermetic/live test tiers. See [Private NuGet Feeds](private-feeds.md) for setup instructions. |
 | [Local Package Source Identity](design/local-package-source-identity.md) | Canonical config- and command-relative path identity shared by local source consumers. |
 | [Local Folder Package Source](design/local-folder-package-source.md) | General V2/V3 folder-feed recognition, independent capabilities, bounded filesystem and archive observation, typed failures, and payload lifetime. |
@@ -112,6 +114,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Package Index Cache](design/package-index-cache.md) | Persistent filesystem-derived package inspection identity, completeness, freshness, validation, and reuse. |
 | [Package Metadata Persistence](design/package-metadata-persistence.md) | Authority-scoped, time-bounded present and absent metadata observations, production completion, field-state preservation, and reuse. |
 | [Assembly Inspection Query Model](design/assembly-inspection-query.md) | Target boundary where the CLI forms a query and the metadata/service layer resolves, opens, and returns the typed inspection result (why the CLI should not hold a `PEReader`). |
+| [ReadyToRun Image Projection](design/readytorun-image-projection.md) | PE managed-native and `RTR_HEADER` discovery, validated R2R headers and section directories, manifest-metadata extent identification, bounds, and failure behavior. |
 | [Package Query Assembly-Pattern Evaluation](design/package-query-assembly-evaluation.md) | Proposed, design-locked, not-yet-implemented bounded one-candidate primary-assembly selection, semantic confirmation, resource-free evidence, and candidate-scoped release for shared CLI and Browser Package Query consumers. |
 | [Find Type-Search Service](design/find-search-service.md) | CLI-scoped candidate collection and exact, glob, namespace-prefix, partial, and miss classification into typed results. |
 | [Skill Guidance Taste](../taste/skill-guidance.md) | Good and bad examples for maintaining the embedded skill. |
@@ -139,6 +142,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [Type, Member, and API Representation](design/type-member-api-representation.md) | Canonical type, member, and API identity model. |
 | [C# Type-Declaration Identifier Admission](design/csharp-type-declaration-identifier-admission.md) | Compiler-characterized model-free admission from exact identity text to a legal C# declared-type identifier spelling or typed refusal. |
 | [C# Declared-Type Self-Name Admission](design/csharp-declared-type-self-name.md) | Proposed typed admission from one exact Metadata leaf to the identifier shared by a type header, constructors, and finalizers. |
+| [C# Memory-Safety Declaration Spelling](design/csharp-memory-safety-spelling.md) | Proposed CSharp-owned spelling of caller contracts independently from pointer syntax and body-context requirements. |
 | [Source Finding Producers](design/source-finding-producers.md) | How source-derived Findings are produced. |
 | [Untrusted Data Threat Model](design/untrusted-data-threat-model.md) | Trust boundaries, existing controls, and the security-scope rationale for untrusted internet-origin data. |
 | [Finding Adoption](design/finding-adoption.md) | How Analysis, Findings, and Research compose. |

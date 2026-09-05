@@ -129,7 +129,7 @@ That composition will own candidate scheduling, progress, item-failure
 publication, completion accounting, and bounded concurrency. This document
 does not pre-empt those decisions.
 
-The end-to-end tracker #5766 carries the production-host adoption path. Its 12
+The end-to-end tracker #5766 carries the production-host adoption path. Its 13
 steps are enumerated under [Delivery sequence](#delivery-sequence), ending in
 the separate CLI and Browser gestures and exact result-opening adoptions.
 
@@ -1033,31 +1033,33 @@ implementation.
 
 ## Delivery sequence
 
-The production-host adoption path has 12 steps:
+The production-host adoption path has 13 steps:
 
 1. Lock this focused design and transfer the promoted-tier responsibility from
    the Package Query CLI proposal.
-2. Implement the #5143/#4857 Metadata-owned artifact admission and query
+2. Implement #5884's Artifact Acquisition-owned phase-scoped retained byte
+   access before and after artifact publication.
+3. Implement the #5143/#4857 Metadata-owned artifact admission and query
    validation path, including both unsupported-Windows-Metadata gates.
-3. Define #5843's sparse composition with the Metadata admission result and
+4. Define #5843's sparse composition with the Metadata admission result and
    query-validation registration.
-4. Define and implement #5837's Artifact Acquisition-owned exact package Root
+5. Define and implement #5837's Artifact Acquisition-owned exact package Root
    reacquisition request and destination Workspace transition.
-5. Define #5842's Artifact Acquisition-owned resource-free pre-transfer cleanup
+6. Define #5842's Artifact Acquisition-owned resource-free pre-transfer cleanup
    receipt.
-6. Implement the merged #5798 sparse-projection contract and its named gates,
+7. Implement the merged #5798 sparse-projection contract and its named gates,
    preserving the exact Root binding, issuing #5842 receipts when applicable,
    composing #5843's Metadata result, and avoiding full role realization.
-7. Define the first concrete producer under #5795, including its exact
+8. Define the first concrete producer under #5795, including its exact
    semantic occurrence, bounded operand, and optional UTF-16LE prefilter proof.
-8. Implement the one-candidate evaluator and its structural gates in
+9. Implement the one-candidate evaluator and its structural gates in
    `DotnetInspector.PackageQueries`.
-9. Adopt the first producer, adding its semantic gate and a prefilter gate only
+10. Adopt the first producer, adding its semantic gate and a prefilter gate only
    when that producer declares a complete representation set.
-10. Measure a pinned package corpus and choose explicit selected-entry,
+11. Measure a pinned package corpus and choose explicit selected-entry,
    retained-image, producer-working-set, and semantic-work bounds.
-11. Compose the evaluator into the bounded Package Query event stream, with
+12. Compose the evaluator into the bounded Package Query event stream, with
    candidate scheduling and disposal owned by a separate focused pipeline
    slice.
-12. Add CLI and Browser gestures and exact result opening in their respective
+13. Add CLI and Browser gestures and exact result opening in their respective
     owners.

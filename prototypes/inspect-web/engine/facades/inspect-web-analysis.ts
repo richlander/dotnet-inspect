@@ -1,4 +1,4 @@
-import { dotnet } from "./_framework/dotnet.js";
+import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
