@@ -229,6 +229,14 @@ each endpoint.
 
 ## Listed vs. unlisted versions
 
+The online CLI metadata-only version queries now adopt typed configured
+authority results under
+[Package Source Model](package-source-model.md#metadata-only-version-queries).
+They bypass the legacy caches described below, disclose partial raw listings,
+and require complete evidence for latest and range selection. Payload-selecting
+resolution and offline queries retain the legacy behavior in this section
+until their separately tracked adoption.
+
 NuGet lets a publisher **unlist** a version: it stays restorable by exact
 coordinate but is hidden from discovery on nuget.org. The flat-container
 `index.json` that drives version enumeration lists **every** published version

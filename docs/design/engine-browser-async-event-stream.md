@@ -23,7 +23,11 @@ separately owned.
 A long-running engine operation that produces useful partial outcomes exposes
 one host-neutral `IAsyncEnumerable<TEvent>`. One host adapter consumes that
 stream with `await foreach` and publishes its events across the active host
-boundary. Browser UI code does not pull the engine enumerator.
+boundary. Browser UI code never owns or directly advances the engine
+enumerator. An adopter may let the active Browser view advertise bounded
+durable-item credit to the adapter; the adapter remains the sole enumerator and
+translates that credit into when it admits another durable item across the host
+boundary.
 
 The event union has four semantic categories:
 
@@ -36,8 +40,9 @@ The event union has four semantic categories:
   plus the feature-owned completion kind.
 
 The stream is request-scoped, ordered, and single-consumer. It is not a global
-event bus, a multi-subscriber observable, or a protocol by which the UI asks
-the engine for more work.
+event bus or a multi-subscriber observable. Optional Browser credit controls
+durable-item delivery pressure; it does not expose `MoveNextAsync`, redefine
+source paging, or transfer stream ownership to the UI.
 
 ## User scenarios
 
@@ -84,6 +89,8 @@ This document owns:
 - the distinction between advisory progress and durable outcome events;
 - exactly one semantic completion, after every nonterminal event;
 - adapter-side pull, batching, progress coalescing, and bounded buffering;
+- optional Browser-advertised initial durable-item credit, replenishment, and
+  the adapter's declared pull-ahead bound;
 - operation-token handoff into enumeration and cessation of event requests
   after cancellation is observed; and
 - the host-neutral obligations an adopting feature must define and gate.
@@ -232,6 +239,25 @@ asynchronous producer suspension or producer termination. An adapter may
 enumerate explicitly rather than use `await foreach` when it needs to observe
 those boundaries; it remains the stream's sole consumer.
 
+An adopting Browser view may additionally provide positive initial
+durable-item credit and replenish it as consumption approaches the end of the
+delivered window. Credit is scoped to the active operation. Progress and item
+failures do not consume item credit unless the adopting feature explicitly
+defines them as occupying the same user-visible slots. The adapter may
+establish at most its declared pull-ahead beyond available credit; it must not
+request another producer event while an established durable item is waiting
+for credit. Completion and non-item events already established within that
+bound do not require extra item credit. Cancellation releases a credit wait;
+an already-established durable event still follows the ordinary cancellation
+handoff rule below, while the current-request guard decides whether it may
+update the view.
+
+An uncredited pull-ahead item has not been admitted for publication. A timeout
+or other failure must not publish it into a still-current view; only logical
+caller cancellation may hand it to an already-revoked generation. Adopters
+must distinguish producer-work deadlines from time waiting for consumer
+credit, and declare whether idle waiting spends that budget.
+
 The callback channel carries only nonterminal stream events. The adapter
 retains `Completed` and returns its value once through the operation's terminal
 result envelope. This avoids publishing the same semantic completion through
@@ -314,6 +340,8 @@ Each adopting owner specifies:
 - its feature-owned cancellation checkpoints, awaited-call propagation, and
   Release gate;
 - maximum durable events and adapter batch size;
+- whether Browser durable-item credit is used, what consumes it, its initial
+  and replenishment sizes, pressure trigger, and maximum pull-ahead;
 - mapping to its CLI and Browser hosts;
 - its current-request guard and whether operation-authority integration is
   implemented or residual; and
@@ -338,11 +366,10 @@ does not decide Package Query's facet combination or empty-state wording.
   feature state model.
 
 These are comparative evidence. This contract deliberately keeps .NET
-enumerator backpressure inside the engine adapter and uses bounded
-batching/coalescing, rather than implementing a cross-worker Reactive Streams
-request protocol. Package and analysis operations are already bounded, and the
-additional bidirectional demand machinery would not improve their user-visible
-outcomes.
+enumerator ownership inside the engine adapter. Adopters use bounded
+batching/coalescing and, where a visible result window benefits from it, a
+small operation-scoped durable-item credit counter rather than a general
+cross-worker Reactive Streams protocol.
 
 ## Validation
 
@@ -371,7 +398,10 @@ adopter must prove:
 8. a CLI consumer can enumerate the same host-neutral stream without Browser
    types; and
 9. a neighboring operation with no useful partial outcome remains a simple
-   task rather than being forced into an event stream.
+   task rather than being forced into an event stream; and
+10. an adopter claiming Browser credit proves its initial delivery cap,
+    replenishment, pull-ahead bound, completion without surplus credit, and
+    cancellation while waiting.
 
 The operation-authority and worker-runtime models already own cross-operation
 publication and worker protocol state. This linear, single-consumer feature

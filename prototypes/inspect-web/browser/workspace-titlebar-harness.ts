@@ -41,6 +41,8 @@ import {
   renderSourceResult,
 } from "../src/type-panel.ts";
 import { renderMemberContractSections } from "../src/member-overview.ts";
+import { renderMemberFacts } from "../src/member-facts.ts";
+import { memberFactsFixture } from "../test/member-facts-fixture.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -101,6 +103,7 @@ const packageMetadataMode = params.has("package-metadata");
 const packageMode =
   params.has("package") || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
+const memberFactsMode = params.get("member-facts");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
 const emptyMode = params.has("empty");
@@ -223,7 +226,9 @@ let activeTypeLens: TypeLens = sourceMode
   : metadataMode
     ? "metadata"
     : "api";
-let activeMemberSection: MemberSection = sourceMode ? "source" : "overview";
+let activeMemberSection: MemberSection = sourceMode
+  ? "source"
+  : memberFactsMode ? "facts" : "overview";
 let contentFramePane: ContentFramePane = "detail";
 let contentFrameFocusOwner: ContentFrameFocusOwner = null;
 let contentFrameReplacementFocusOwner: ContentFrameFocusOwner = null;
@@ -386,6 +391,24 @@ function detailHtml() {
     </section>`;
   }
   if (memberMode) {
+    if (activeMemberSection === "facts") {
+      const mode = memberFactsMode === "zero" || memberFactsMode === "long"
+        ? memberFactsMode
+        : "populated";
+      return `<section class="member-surface" aria-labelledby="member-surface-title">
+        <header class="api-surface-head member-surface-head">
+          <h1 id="member-surface-title">DeserializeSync</h1>
+          <p>method <span>· 1 of 1</span></p>
+        </header>
+        <div class="member-surface-scroll">${renderMemberFacts({
+          memberFacts: memberFactsMode === "error" ? null : memberFactsFixture(mode),
+          memberFactsLoading: memberFactsMode === "loading",
+          memberFactsError: memberFactsMode === "error"
+            ? "The selected method could not be decoded."
+            : "",
+        })}</div>
+      </section>`;
+    }
     const returnType = longSignatureMode
       ? "System.Collections.Generic.IReadOnlyDictionary<string, TValue?>"
       : "TValue?";

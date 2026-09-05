@@ -3594,6 +3594,8 @@ public class ApiCommand
                 IntroducedTypeParameterCounts =
                     type.IntroducedTypeParameterCounts,
                 Kind = type.Kind,
+                Layout = type.Layout,
+                MemorySafety = type.MemorySafety,
                 IsSealed = type.IsSealed,
                 IsAbstract = type.IsAbstract,
                 IsStatic = type.IsStatic,
@@ -3741,6 +3743,8 @@ public class ApiCommand
             IntroducedTypeParameterCounts =
                 type.IntroducedTypeParameterCounts,
             Kind = type.Kind,
+            Layout = type.Layout,
+            MemorySafety = type.MemorySafety,
             IsSealed = type.IsSealed,
             IsAbstract = type.IsAbstract,
             IsStatic = type.IsStatic,
