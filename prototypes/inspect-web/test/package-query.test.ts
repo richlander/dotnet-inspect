@@ -96,6 +96,40 @@ test("createQueryRequest gives candidate and match limits independent defaults",
   assert.equal(defaults.requestedLimit, 200);
   assert.equal(defaults.requestedMatchLimit, 100);
   assert.notEqual(defaults.requestedLimit, defaults.requestedMatchLimit);
+  assert.equal(defaults.packageType, null);
+  assert.equal(defaults.sourceOrderId, null);
+  assert.equal(defaults.includePrerelease, false);
+});
+
+test("browse and free-text requests preserve source intent without resolving source defaults", () => {
+  for (const text of ["", "  hosting dependency injection  ", "System.*"]) {
+    assert.equal(createQueryRequest(text).scopeQuery, text);
+    assert.equal(createQueryRequest(text).sourceOrderId, null);
+  }
+});
+
+test("inspection changes retain opaque source selections and independent match limits", () => {
+  const request = {
+    ...createQueryRequest(" hosting libraries "),
+    packageType: "Producer.CustomType",
+    sourceOrderId: "producer.order.custom",
+    includePrerelease: true,
+    requestedMatchLimit: 7,
+  };
+  const content = toggleFacet(request, SKILL_FACET);
+  const manifest = toggleFacet(toggleFacet(content, TFM_FACET), SKILL_FACET);
+  const browse = withScopeQuery(manifest, "");
+
+  assert.equal(content.requestedLimit, 20);
+  assert.equal(manifest.requestedLimit, 200);
+  for (const changed of [content, manifest, browse]) {
+    assert.equal(changed.packageType, request.packageType);
+    assert.equal(changed.sourceOrderId, request.sourceOrderId);
+    assert.equal(changed.includePrerelease, true);
+    assert.equal(changed.requestedMatchLimit, 7);
+  }
+  assert.deepEqual(browse.facets, [TFM_FACET]);
+  assert.equal(browse.scopeQuery, "");
 });
 
 test("package-content facets lower the candidate bound until the last one is removed", () => {
@@ -109,9 +143,12 @@ test("package-content facets lower the candidate bound until the last one is rem
   assert.equal(withSkill.requestedLimit, 20);
   assert.equal(withSkillAndManifest.requestedLimit, 20);
   assert.equal(manifestOnly.requestedLimit, 200);
+  assert.equal(withSkill.requestedMatchLimit, 100);
+  assert.equal(withSkillAndManifest.requestedMatchLimit, 100);
+  assert.equal(manifestOnly.requestedMatchLimit, 100);
 });
 
-test("withScopeQuery preserves facets and bounds while changing the prefix", () => {
+test("withScopeQuery preserves facets and bounds while changing search text", () => {
   const request = {
     ...withFacet(createQueryRequest("Microsoft."), TFM_FACET),
     requestedLimit: 25,
@@ -122,6 +159,36 @@ test("withScopeQuery preserves facets and bounds while changing the prefix", () 
     ...request,
     scopeQuery: "System.",
   });
+});
+
+test("controller runs blank browse with source selection and nullable metadata", async () => {
+  const state = initialQueryState();
+  const request = {
+    ...createQueryRequest(""),
+    packageType: "Producer.Type",
+    sourceOrderId: "producer.order",
+    includePrerelease: true,
+  };
+  const source: PackageQueryDataSource = {
+    async run(received, onPage) {
+      assert.deepEqual(received, request);
+      onPage([{
+        ...row("Browse.Result"),
+        tier: "search-metadata",
+        evidence: ["Producer source selection and order"],
+        totalDownloads: null,
+      }]);
+      return { kind: "bounded", reason: "one finite Gallery response" };
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+
+  await controller.run(request);
+
+  assert.equal(state.request?.scopeQuery, "");
+  assert.equal(state.outcome.rows[0]?.tier, "search-metadata");
+  assert.equal(state.outcome.rows[0]?.totalDownloads, null);
+  assert.equal(state.outcome.completion.kind, "bounded");
 });
 
 test("toggleFacet replaces an active facet in the same producer-owned selection group", () => {
@@ -438,6 +505,45 @@ test("a superseded run's late pages never land in the newer outcome", async () =
 
   assert.deepEqual(state.outcome.rows.map(r => r.packageId), ["fresh"]);
   assert.equal(state.outcome.completion.kind, "exhausted");
+});
+
+test("changing only source selection supersedes browse work without changing search text", async () => {
+  const state = initialQueryState();
+  let firstSignal: AbortSignal | undefined;
+  let releaseFirst!: () => void;
+  const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+  const source: PackageQueryDataSource = {
+    async run(request, onPage, onFailure, onProgress, signal) {
+      assert.equal(request.scopeQuery, "");
+      if (request.sourceOrderId === null) {
+        firstSignal = signal;
+        await firstGate;
+        onPage([row("Stale")]);
+        onFailure("Stale failure");
+        onProgress({ phase: "search", completed: 1, limit: 1 });
+        return { kind: "exhausted" };
+      }
+      onPage([row("Current")]);
+      return { kind: "bounded", reason: "one finite Gallery response" };
+    },
+  };
+  const controller = createPackageQueryController(state, source, () => {});
+  const first = controller.run(createQueryRequest(""));
+  await controller.run({
+    ...createQueryRequest(""),
+    sourceOrderId: "producer.order.custom",
+  });
+  assert.equal(firstSignal?.aborted, true);
+  releaseFirst();
+  await first;
+
+  assert.deepEqual(state.outcome.rows.map(item => item.packageId), ["Current"]);
+  assert.deepEqual(state.outcome.failures, []);
+  assert.deepEqual(state.outcome.progress, []);
+  assert.deepEqual(state.outcome.completion, {
+    kind: "bounded",
+    reason: "one finite Gallery response",
+  });
 });
 
 test("a superseded run's late rejection never overwrites the newer outcome", async () => {

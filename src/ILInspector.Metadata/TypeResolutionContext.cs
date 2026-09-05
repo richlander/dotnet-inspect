@@ -37,13 +37,15 @@ readonly record struct PolicyCacheKey(
 
 readonly record struct AssemblyBindingDomainKey(
     bool IsGlobal,
-    AssemblyCandidateId Candidate)
+    AssemblyCandidateId Candidate,
+    AssemblyBindingLineage? Lineage = null)
 {
     internal static AssemblyBindingDomainKey Global => new(true, default);
 
     internal static AssemblyBindingDomainKey FromCandidate(
-        AssemblyCandidateId candidate) =>
-        new(false, candidate);
+        AssemblyCandidateId candidate,
+        AssemblyBindingLineage? lineage) =>
+        new(false, candidate, AssemblyBindingLineage.BindingContext(lineage));
 }
 
 sealed record BindingKey(
@@ -84,6 +86,8 @@ public sealed record TypeResolutionContextOptions
 
     /// <summary>
     /// Maximum distinct type-resolution requests evaluated in one generation.
+    /// Lineage-sensitive binding discovery is independently limited to this
+    /// same bound; context-free binding retains its existing candidate bound.
     /// </summary>
     public int MaxTypeResolutionRequests { get; init; } =
         DefaultMaxTypeResolutionRequests;
@@ -770,6 +774,7 @@ public sealed class TypeResolutionContext : IDisposable
     readonly object _gate = new();
     readonly TypeResolutionCatalog _catalog;
     readonly bool _ownsCatalog;
+    readonly AssemblyBindingPolicyVersion _policyVersion;
     readonly Dictionary<
         AssemblyAcquisitionRegistration,
         ResolvedAssemblyCandidate> _candidates;
@@ -791,6 +796,7 @@ public sealed class TypeResolutionContext : IDisposable
     TypeResolutionContext(
         TypeResolutionCatalog catalog,
         bool ownsCatalog,
+        AssemblyBindingPolicyVersion policyVersion,
         AssemblyCatalogGenerationId generation,
         Dictionary<
             AssemblyAcquisitionRegistration,
@@ -811,6 +817,7 @@ public sealed class TypeResolutionContext : IDisposable
     {
         _catalog = catalog;
         _ownsCatalog = ownsCatalog;
+        _policyVersion = policyVersion;
         Generation = generation;
         _candidates = candidates;
         _registrationFailures = registrationFailures;
@@ -1124,14 +1131,18 @@ public sealed class TypeResolutionContext : IDisposable
                         out BindingKey key,
                         out TypeResolutionFailure? failure))
                 {
-                    return failure
-                        is TypeResolutionFailure.UnregisteredAssembly
-                        ? new AssemblyBindingOutcome.ExpansionRequired(request)
-                        : new AssemblyBindingOutcome.Unavailable(
+                    return failure switch
+                    {
+                        TypeResolutionFailure.UnregisteredAssembly =>
+                            new AssemblyBindingOutcome.ExpansionRequired(request),
+                        TypeResolutionFailure.InvalidBindingPolicy invalid =>
+                            new AssemblyBindingOutcome.Rejected(invalid.Failure),
+                        _ => new AssemblyBindingOutcome.Unavailable(
                             CandidateUnavailableBinding(
                                 ProjectedCandidateFailure(
                                     request,
-                                    failure)));
+                                    failure))),
+                    };
                 }
 
                 return _bindings.TryGetValue(
@@ -1203,7 +1214,11 @@ public sealed class TypeResolutionContext : IDisposable
         switch (request.Start)
         {
             case TypeResolutionStart.Assembly assembly:
-                if (!TryCandidate(
+                if (!TryValidateLineage(
+                        assembly.Occurrence?.Lineage,
+                        _policyVersion,
+                        out failure)
+                    || !TryCandidate(
                         assembly.Value.Registration,
                         out ResolvedAssemblyCandidate candidate,
                         out failure))
@@ -1213,6 +1228,7 @@ public sealed class TypeResolutionContext : IDisposable
 
                 key = new RequestKey.Assembly(
                     candidate.Id,
+                    assembly.Occurrence?.Lineage,
                     assembly.Scope,
                     request.Type);
                 return true;
@@ -1246,7 +1262,11 @@ public sealed class TypeResolutionContext : IDisposable
                 return true;
 
             case TypeResolutionStart.Module module:
-                if (!TryCandidate(
+                if (!TryValidateLineage(
+                        module.Origin.Lineage,
+                        _policyVersion,
+                        out failure)
+                    || !TryCandidate(
                         module.Origin.Registration,
                         out ResolvedAssemblyCandidate moduleCandidate,
                         out failure))
@@ -1256,6 +1276,7 @@ public sealed class TypeResolutionContext : IDisposable
 
                 key = new RequestKey.Module(
                     moduleCandidate.Id,
+                    module.Origin.Lineage,
                     module.Name,
                     request.Type);
                 return true;
@@ -1329,6 +1350,7 @@ public sealed class TypeResolutionContext : IDisposable
             _registrationFailures,
             _descriptors,
             _catalog.MaxCandidates,
+            _policyVersion,
             target,
             origin,
             scope,
@@ -1346,6 +1368,7 @@ public sealed class TypeResolutionContext : IDisposable
             AssemblyAcquisitionRegistration,
             ResolvedAssemblyReference> descriptors,
         int maxCandidates,
+        AssemblyBindingPolicyVersion policyVersion,
         AssemblyBindingTarget target,
         AssemblyBindingOrigin origin,
         AssemblyResolutionScope scope,
@@ -1359,6 +1382,14 @@ public sealed class TypeResolutionContext : IDisposable
                 domain = AssemblyBindingDomainKey.Global;
                 break;
             case AssemblyBindingOrigin.RequestingAssembly requesting:
+                if (!TryValidateLineage(
+                        requesting.Lineage,
+                        policyVersion,
+                        out failure))
+                {
+                    key = null!;
+                    return false;
+                }
                 if (!candidates.TryGetValue(
                         requesting.Registration,
                         out ResolvedAssemblyCandidate? candidate))
@@ -1376,7 +1407,8 @@ public sealed class TypeResolutionContext : IDisposable
                     return false;
                 }
 
-                domain = AssemblyBindingDomainKey.FromCandidate(candidate!.Id);
+                domain = AssemblyBindingDomainKey.FromCandidate(
+                    candidate!.Id, requesting.Lineage);
                 break;
             default:
                 throw new InvalidOperationException(
@@ -1384,6 +1416,24 @@ public sealed class TypeResolutionContext : IDisposable
         }
 
         key = new BindingKey(domain, target, scope);
+        failure = null;
+        return true;
+    }
+
+    static bool TryValidateLineage(
+        AssemblyBindingLineage? lineage,
+        AssemblyBindingPolicyVersion version,
+        out TypeResolutionFailure? failure)
+    {
+        if (lineage?.Version is { } issuingVersion
+            && !ReferenceEquals(issuingVersion, version))
+        {
+            failure = new TypeResolutionFailure.InvalidBindingPolicy(
+                new AssemblyBindingFailure(
+                    AssemblyBindingFailureKind.InvalidBindingOrigin));
+            return false;
+        }
+
         failure = null;
         return true;
     }
@@ -1424,6 +1474,7 @@ public sealed class TypeResolutionContext : IDisposable
     {
         internal sealed record Assembly(
             AssemblyCandidateId Candidate,
+            AssemblyBindingLineage? Lineage,
             AssemblyResolutionScope Scope,
             MetadataTypeDefinitionName Name) : RequestKey(Name);
 
@@ -1433,23 +1484,9 @@ public sealed class TypeResolutionContext : IDisposable
 
         internal sealed record Module(
             AssemblyCandidateId Candidate,
+            AssemblyBindingLineage? Lineage,
             string ModuleName,
             MetadataTypeDefinitionName Name) : RequestKey(Name);
-    }
-
-    readonly record struct OriginKey(
-        bool IsGlobal,
-        AssemblyAcquisitionRegistration? Registration)
-    {
-        internal static OriginKey From(AssemblyBindingOrigin origin) =>
-            origin switch
-            {
-                AssemblyBindingOrigin.GlobalOrigin => new(true, null),
-                AssemblyBindingOrigin.RequestingAssembly requesting =>
-                    new(false, requesting.Registration),
-                _ => throw new InvalidOperationException(
-                    "Unknown assembly-binding origin."),
-            };
     }
 
     sealed class Builder
@@ -1490,6 +1527,7 @@ public sealed class TypeResolutionContext : IDisposable
             TypeResolutionManifestKey,
             TypeResolutionOutcome> _projectionFailures = [];
         readonly HashSet<RequestKey> _budgetedRequests = [];
+        readonly HashSet<BindingKey> _budgetedBindings = [];
         readonly AssemblyCatalogGenerationId _generation =
             new();
 
@@ -1613,8 +1651,19 @@ public sealed class TypeResolutionContext : IDisposable
         internal void Add(TypeResolutionRequest request)
         {
             _cancellationToken.ThrowIfCancellationRequested();
-            if (request.Start is TypeResolutionStart.Assembly assembly)
+            if (request.Start is TypeResolutionStart.Assembly assembly
+                && TryValidateLineage(
+                    assembly.Occurrence?.Lineage, _policyVersion, out _))
+            {
                 Register(assembly.Value);
+            }
+            RegisterOrigin(request.Start switch
+            {
+                TypeResolutionStart.Reference reference => reference.Origin,
+                TypeResolutionStart.CoreLibrary core => core.Origin,
+                TypeResolutionStart.Module module => module.Origin,
+                _ => null,
+            });
 
             if (!TryProjectRequest(
                     request,
@@ -1647,10 +1696,10 @@ public sealed class TypeResolutionContext : IDisposable
                     key,
                     out TypeResolutionOutcome? cached))
             {
-                SeedRecipe(key, cached!);
+                bool reusable = SeedRecipe(key, cached!);
                 _outcomes.Add(
                     key,
-                    UsesStrictlyRejectedCandidate(cached!)
+                    !reusable || UsesStrictlyRejectedCandidate(cached!)
                         ? ResolveCore(request)
                         : Reproject(cached!));
                 return;
@@ -1663,12 +1712,83 @@ public sealed class TypeResolutionContext : IDisposable
         // A catalog-level resolution cache entry names candidate-based keys.
         // Rehydrate every binding and descriptor dependency into this
         // generation before reprojecting its definition key.
-        void SeedRecipe(
+        bool SeedRecipe(
             RequestKey requestKey,
             TypeResolutionOutcome outcome)
         {
-            if (requestKey is RequestKey.Binding binding)
-                SeedBinding(binding.BindingKey);
+            var pending = new Stack<(RequestKey Key, TypeResolutionOutcome Outcome)>();
+            var visited = new HashSet<RequestKey>();
+            var hydrated = new Dictionary<RequestKey, TypeResolutionOutcome>();
+            pending.Push((requestKey, outcome));
+            while (pending.TryPop(out var entry))
+            {
+                if (!visited.Add(entry.Key))
+                    continue;
+                if (!SeedRecipeBindings(entry.Key, entry.Outcome)
+                    || UsesStrictlyRejectedCandidate(entry.Outcome))
+                    return false;
+
+                if (entry.Key != requestKey)
+                    hydrated.TryAdd(entry.Key, Reproject(entry.Outcome));
+
+                if (entry.Outcome is not TypeResolutionOutcome.Resolved resolved
+                    || !_catalog.TryGetDeclaration(
+                        resolved.Definition.Assembly.Id,
+                        resolved.Definition.Type,
+                        out TypeDeclarationResult? declaration)
+                    || declaration is not TypeDeclarationResult.Defined
+                        { KindDependency: { } dependency })
+                {
+                    continue;
+                }
+
+                TypeResolutionRequest dependencyRequest =
+                    TypeResolutionRequest.FromReference(
+                        dependency.Reference,
+                        AssemblyBindingOrigin.FromOccurrence(
+                            resolved.Definition.Occurrence),
+                        dependency.Scope,
+                        dependency.Type);
+                if (!TryProjectRequest(
+                        dependencyRequest,
+                        out RequestKey dependencyKey,
+                        out _)
+                    || !TryConsumeRequest(dependencyKey))
+                {
+                    return false;
+                }
+                if (_outcomes.TryGetValue(dependencyKey, out var existing))
+                {
+                    if (existing is not TypeResolutionOutcome.Resolved
+                        { Definition.KindResolutionFailure: null })
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                if (hydrated.ContainsKey(dependencyKey))
+                    continue;
+                if (!_catalog.TryGetResolution(
+                        _policyVersion, dependencyKey, out var cached))
+                {
+                    return false;
+                }
+                pending.Push((dependencyKey, cached!));
+            }
+            foreach (var entry in hydrated)
+                _outcomes.TryAdd(entry.Key, entry.Value);
+            return true;
+        }
+
+        bool SeedRecipeBindings(
+            RequestKey requestKey,
+            TypeResolutionOutcome outcome)
+        {
+            if (requestKey is RequestKey.Binding binding
+                && !SeedBinding(binding.BindingKey))
+            {
+                return false;
+            }
 
             // HopBudgetExceeded records the terminal evidence hop without
             // evaluating its target binding, so that hop has no cache
@@ -1688,13 +1808,14 @@ public sealed class TypeResolutionContext : IDisposable
                 if (TryBindingKey(
                         AssemblyBindingTarget.Reference(
                             hop.TargetReference),
-                        AssemblyBindingOrigin.FromAssembly(
-                            hop.SourceAssembly.Assembly),
+                        AssemblyBindingOrigin.FromOccurrence(
+                            hop.SourceOccurrence),
                         hop.Scope,
                         out BindingKey key,
                         out _))
                 {
-                    SeedBinding(key);
+                    if (!SeedBinding(key))
+                        return false;
                 }
             }
 
@@ -1707,12 +1828,18 @@ public sealed class TypeResolutionContext : IDisposable
                     Register(notFound.LastAssembly.Assembly);
                     break;
             }
+            return true;
         }
 
-        void SeedBinding(BindingKey key)
+        bool SeedBinding(BindingKey key)
         {
-            if (_bindings.ContainsKey(key))
-                return;
+            if (_bindings.TryGetValue(key, out var existing))
+                return !IsBindingBudgetExceeded(existing);
+            if (!TryConsumeBinding(key))
+            {
+                _bindings.Add(key, BindingBudgetExceeded());
+                return false;
+            }
             if (!_catalog.TryGetBinding(
                     _policyVersion,
                     key,
@@ -1726,6 +1853,7 @@ public sealed class TypeResolutionContext : IDisposable
             _bindings.Add(
                 key,
                 RevalidateCachedBinding(evaluation!));
+            return true;
         }
 
         void RegisterEvaluationCandidates(
@@ -1751,6 +1879,7 @@ public sealed class TypeResolutionContext : IDisposable
             while (pending.TryPop(out AssemblyBindingRequest? current))
             {
                 _cancellationToken.ThrowIfCancellationRequested();
+                RegisterOrigin(current.Origin);
                 if (!TryBindingKey(
                         current.Target,
                         current.Origin,
@@ -1781,11 +1910,22 @@ public sealed class TypeResolutionContext : IDisposable
                     pending.Push(
                         new AssemblyBindingRequest(
                             AssemblyBindingTarget.Reference(target),
-                            AssemblyBindingOrigin.FromAssembly(
-                                resolved.Candidate.Assembly),
+                            AssemblyBindingOrigin.FromOccurrence(
+                                resolved.Occurrence),
                             TightenScope(current.Scope, target)));
                 }
 
+            }
+        }
+
+        void RegisterOrigin(AssemblyBindingOrigin? origin)
+        {
+            if (origin is AssemblyBindingOrigin.RequestingAssembly
+                { Occurrence: { } occurrence }
+                && TryValidateLineage(
+                    occurrence.Lineage, _policyVersion, out _))
+            {
+                Register(occurrence.Assembly);
             }
         }
 
@@ -1807,6 +1947,8 @@ public sealed class TypeResolutionContext : IDisposable
             foreach (KeyValuePair<BindingKey, CachedBindingEvaluation> pair
                 in _bindings)
             {
+                if (IsBindingBudgetExceeded(pair.Value))
+                    continue;
                 _catalog.PromoteBinding(
                     _policyVersion,
                     pair.Key,
@@ -1841,6 +1983,7 @@ public sealed class TypeResolutionContext : IDisposable
                 new TypeResolutionContext(
                     _catalog,
                     _ownsCatalog,
+                    _policyVersion,
                     _generation,
                     _candidates,
                     _registrationFailures,
@@ -1863,10 +2006,14 @@ public sealed class TypeResolutionContext : IDisposable
             switch (request.Start)
             {
                 case TypeResolutionStart.Assembly assembly:
-                    if (!TryCandidate(
+                    if (!TryValidateLineage(
+                            assembly.Occurrence?.Lineage,
+                            _policyVersion,
+                            out TypeResolutionFailure? candidateFailure)
+                        || !TryCandidate(
                             assembly.Value.Registration,
                             out ResolvedAssemblyCandidate candidate,
-                            out TypeResolutionFailure? candidateFailure))
+                            out candidateFailure))
                     {
                         failure = Rejected(candidateFailure!);
                         return false;
@@ -1874,6 +2021,7 @@ public sealed class TypeResolutionContext : IDisposable
 
                     key = new RequestKey.Assembly(
                         candidate.Id,
+                        assembly.Occurrence?.Lineage,
                         assembly.Scope,
                         request.Type);
                     return true;
@@ -1909,10 +2057,14 @@ public sealed class TypeResolutionContext : IDisposable
                     return true;
 
                 case TypeResolutionStart.Module module:
-                    if (!TryCandidate(
+                    if (!TryValidateLineage(
+                            module.Origin.Lineage,
+                            _policyVersion,
+                            out TypeResolutionFailure? moduleFailure)
+                        || !TryCandidate(
                             module.Origin.Registration,
                             out ResolvedAssemblyCandidate moduleCandidate,
-                            out TypeResolutionFailure? moduleFailure))
+                            out moduleFailure))
                     {
                         failure = Rejected(moduleFailure!);
                         return false;
@@ -1920,6 +2072,7 @@ public sealed class TypeResolutionContext : IDisposable
 
                     key = new RequestKey.Module(
                         moduleCandidate.Id,
+                        module.Origin.Lineage,
                         module.Name,
                         request.Type);
                     return true;
@@ -2003,6 +2156,7 @@ public sealed class TypeResolutionContext : IDisposable
         {
             var hops = ImmutableArray.CreateBuilder<TypeForwardingHop>();
             ResolvedAssemblyCandidate current;
+            AssemblyBindingOccurrence occurrence;
             AssemblyResolutionScope scope;
 
             switch (request.Start)
@@ -2016,6 +2170,8 @@ public sealed class TypeResolutionContext : IDisposable
                         return Completed(
                             Rejected(candidateFailure!, hops));
                     }
+                    occurrence = assembly.Occurrence
+                        ?? AssemblyBindingOccurrence.Seed(assembly.Value);
                     scope = assembly.Scope;
                     break;
 
@@ -2026,6 +2182,7 @@ public sealed class TypeResolutionContext : IDisposable
                             reference.Scope,
                             hops,
                             out current!,
+                            out occurrence!,
                             out TypeResolutionOutcome? referenceOutcome))
                     {
                         return Completed(referenceOutcome!);
@@ -2040,6 +2197,7 @@ public sealed class TypeResolutionContext : IDisposable
                             coreLibrary.Scope,
                             hops,
                             out current!,
+                            out occurrence!,
                             out TypeResolutionOutcome? coreOutcome))
                     {
                         return Completed(coreOutcome!);
@@ -2053,7 +2211,8 @@ public sealed class TypeResolutionContext : IDisposable
                             new TypeResolutionFailure
                                 .UnsupportedModuleReference(
                                     module.Name),
-                            hops));
+                            hops,
+                            module.Origin.Occurrence));
 
                 default:
                     throw new InvalidOperationException(
@@ -2069,7 +2228,8 @@ public sealed class TypeResolutionContext : IDisposable
                     return Completed(
                         Rejected(
                             new TypeResolutionFailure.ForwarderCycle(),
-                            hops));
+                            hops,
+                            occurrence));
                 }
 
                 if (!_catalog.TryGetDeclaration(
@@ -2088,7 +2248,8 @@ public sealed class TypeResolutionContext : IDisposable
                                     .CandidateOpenFailed(
                                         current.Assembly,
                                         sessionRejected.Failure),
-                                hops));
+                                hops,
+                                occurrence));
                     }
 
                     var ready = (CandidateSessionResult.Ready)sessionResult;
@@ -2131,8 +2292,8 @@ public sealed class TypeResolutionContext : IDisposable
                                 TypeResolutionRequest dependencyRequest =
                                     TypeResolutionRequest.FromReference(
                                         dependency.Reference,
-                                        AssemblyBindingOrigin.FromAssembly(
-                                            current.Assembly),
+                                        AssemblyBindingOrigin.FromOccurrence(
+                                            occurrence),
                                         dependency.Scope,
                                         dependency.Type);
                                 if (!TryProjectRequest(
@@ -2168,8 +2329,8 @@ public sealed class TypeResolutionContext : IDisposable
                                                     .AssemblyReference(
                                                         dependency.Reference),
                                                 AssemblyBindingOrigin
-                                                    .FromAssembly(
-                                                        current.Assembly),
+                                                    .FromOccurrence(
+                                                        occurrence),
                                                 dependency.Scope);
                                     kindResolutionDependencyAssembly =
                                         dependency.Reference;
@@ -2221,10 +2382,10 @@ public sealed class TypeResolutionContext : IDisposable
                                         out TypeResolutionOutcome?
                                             catalogCached))
                                 {
-                                    SeedRecipe(
+                                    bool reusable = SeedRecipe(
                                         dependencyKey,
                                         catalogCached!);
-                                    if (UsesStrictlyRejectedCandidate(
+                                    if (!reusable || UsesStrictlyRejectedCandidate(
                                             catalogCached!))
                                     {
                                         return new CoreResolutionStep
@@ -2293,6 +2454,7 @@ public sealed class TypeResolutionContext : IDisposable
                                     key,
                                     address,
                                     current,
+                                    occurrence,
                                     request.Type,
                                     kind,
                                     defined
@@ -2306,6 +2468,7 @@ public sealed class TypeResolutionContext : IDisposable
                         return Completed(
                             new TypeResolutionOutcome.NotFound(
                                 current,
+                                occurrence,
                                 hops.ToImmutable()));
 
                     case TypeDeclarationResult.Ambiguous ambiguous:
@@ -2313,6 +2476,7 @@ public sealed class TypeResolutionContext : IDisposable
                             new TypeResolutionOutcome.Ambiguous(
                                 new TypeResolutionAmbiguity.TypeDeclaration(
                                     current,
+                                    occurrence,
                                     request.Type,
                                     ambiguous.Candidates),
                                 hops.ToImmutable()));
@@ -2323,7 +2487,8 @@ public sealed class TypeResolutionContext : IDisposable
                                 new TypeResolutionFailure
                                     .DeclarationRejected(
                                         rejected.Rejection),
-                                hops));
+                                hops,
+                                occurrence));
 
                     case TypeDeclarationResult.ExportedFromModule module:
                         return Completed(
@@ -2331,13 +2496,15 @@ public sealed class TypeResolutionContext : IDisposable
                                 new TypeResolutionFailure
                                     .UnsupportedModuleExport(
                                         module.Module),
-                                hops));
+                                hops,
+                                occurrence));
 
                     case TypeDeclarationResult.Forwarded forwarded:
                         scope = TightenScope(scope, forwarded.Target);
                         hops.Add(
                             new TypeForwardingHop(
                                 current,
+                                occurrence,
                                 forwarded.Declarations,
                                 forwarded.Target,
                                 scope));
@@ -2348,17 +2515,19 @@ public sealed class TypeResolutionContext : IDisposable
                                     new TypeResolutionFailure
                                         .HopBudgetExceeded(
                                             _maxForwarderHops),
-                                    hops));
+                                    hops,
+                                    occurrence));
                         }
 
                         if (!TrySelect(
                                 AssemblyBindingTarget.Reference(
                                     forwarded.Target),
-                                AssemblyBindingOrigin.FromAssembly(
-                                    current.Assembly),
+                                AssemblyBindingOrigin.FromOccurrence(
+                                    occurrence),
                                 scope,
                                 hops,
                                 out current!,
+                                out occurrence!,
                                 out TypeResolutionOutcome? forwardedOutcome))
                         {
                             return Completed(forwardedOutcome!);
@@ -2416,6 +2585,7 @@ public sealed class TypeResolutionContext : IDisposable
                 TypeResolutionOutcome.NotFound notFound =>
                     new TypeResolutionFailure.KindDependencyTypeNotFound(
                         notFound.LastAssembly,
+                        notFound.LastOccurrence,
                         request.Type),
                 TypeResolutionOutcome.Ambiguous ambiguous =>
                     new TypeResolutionFailure.KindDependencyAmbiguous(
@@ -2444,15 +2614,23 @@ public sealed class TypeResolutionContext : IDisposable
             || (_budgetedRequests.Count < _maxTypeResolutionRequests
                 && _budgetedRequests.Add(key));
 
+        bool TryConsumeBinding(BindingKey key) =>
+            key.Domain.Lineage is null
+            || _budgetedBindings.Contains(key)
+            || (_budgetedBindings.Count < _maxTypeResolutionRequests
+                && _budgetedBindings.Add(key));
+
         bool TrySelect(
             AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
             AssemblyResolutionScope scope,
             ImmutableArray<TypeForwardingHop>.Builder hops,
             out ResolvedAssemblyCandidate? candidate,
+            out AssemblyBindingOccurrence? occurrence,
             out TypeResolutionOutcome? outcome)
         {
             candidate = null;
+            occurrence = null;
             outcome = null;
             if (!TryBindingKey(
                     target,
@@ -2472,6 +2650,7 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 case AssemblyBindingOutcome.Resolved resolved:
                     candidate = resolved.Candidate;
+                    occurrence = resolved.Occurrence;
                     return true;
                 case AssemblyBindingOutcome.Missing:
                     outcome = new TypeResolutionOutcome.UnboundBinding(
@@ -2519,8 +2698,12 @@ public sealed class TypeResolutionContext : IDisposable
                     return false;
                 case AssemblyBindingOutcome.Rejected rejected:
                     outcome = Rejected(
-                        new TypeResolutionFailure.InvalidBindingPolicy(
-                            rejected.Failure),
+                        rejected.Failure.Kind
+                            == AssemblyBindingFailureKind.RequestBudgetExceeded
+                            ? new TypeResolutionFailure.RequestBudgetExceeded(
+                                _maxTypeResolutionRequests)
+                            : new TypeResolutionFailure.InvalidBindingPolicy(
+                                rejected.Failure),
                         hops);
                     return false;
                 default:
@@ -2537,6 +2720,12 @@ public sealed class TypeResolutionContext : IDisposable
                     key,
                     out CachedBindingEvaluation? cached))
                 return cached;
+            if (!TryConsumeBinding(key))
+            {
+                CachedBindingEvaluation exhausted = BindingBudgetExceeded();
+                _bindings.Add(key, exhausted);
+                return exhausted;
+            }
             if (_catalog.TryGetBinding(
                     _policyVersion,
                     key,
@@ -2584,6 +2773,17 @@ public sealed class TypeResolutionContext : IDisposable
                     snapshot.Selection);
             }
 
+            if (selection is AssemblyBindingSelection.Selected result
+                && !TryValidateLineage(
+                    result.Occurrence.Lineage,
+                    _policyVersion,
+                    out _))
+            {
+                selection = AssemblyBindingSelection.Invalid(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.InvalidPolicyResult));
+            }
+
             // Policy returns public descriptors. Registration turns those
             // selections into catalog candidates and a frozen Metadata-owned
             // outcome.
@@ -2591,7 +2791,7 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 AssemblyBindingSelection.Selected selected =>
                     SelectOne(
-                        selected.Assembly,
+                        selected.Occurrence,
                         selected.ShadowedAssemblies),
                 AssemblyBindingSelection.Missing missing =>
                     new(
@@ -2614,9 +2814,10 @@ public sealed class TypeResolutionContext : IDisposable
         }
 
         CachedBindingEvaluation SelectOne(
-            ResolvedAssemblyReference assembly,
+            AssemblyBindingOccurrence occurrence,
             ImmutableArray<ResolvedAssemblyReference> shadowedAssemblies)
         {
+            ResolvedAssemblyReference assembly = occurrence.Assembly;
             Register(assembly);
             if (_strictRegistrationFailures.TryGetValue(
                     assembly.Registration,
@@ -2637,6 +2838,7 @@ public sealed class TypeResolutionContext : IDisposable
                 return new(
                     new AssemblyBindingOutcome.Resolved(
                         candidate,
+                        occurrence,
                         shadowedAssemblies),
                     Registrations: [assembly]);
             }
@@ -2710,7 +2912,7 @@ public sealed class TypeResolutionContext : IDisposable
             {
                 AssemblyBindingOutcome.Resolved resolved =>
                     SelectOne(
-                        resolved.Candidate.Assembly,
+                        resolved.Occurrence,
                         resolved.ShadowedAssemblies),
                 AssemblyBindingOutcome.Ambiguous =>
                     SelectMany(evaluation.Registrations),
@@ -2723,6 +2925,18 @@ public sealed class TypeResolutionContext : IDisposable
                     new AssemblyBindingFailure(
                         AssemblyBindingFailureKind.InvalidPolicyResult)));
 
+        static CachedBindingEvaluation BindingBudgetExceeded() =>
+            new(
+                new AssemblyBindingOutcome.Rejected(
+                    new AssemblyBindingFailure(
+                        AssemblyBindingFailureKind.RequestBudgetExceeded)));
+
+        static bool IsBindingBudgetExceeded(CachedBindingEvaluation evaluation) =>
+            evaluation.Outcome is AssemblyBindingOutcome.Rejected
+            {
+                Failure.Kind: AssemblyBindingFailureKind.RequestBudgetExceeded,
+            };
+
         bool TryBindingKey(
             AssemblyBindingTarget target,
             AssemblyBindingOrigin origin,
@@ -2734,6 +2948,7 @@ public sealed class TypeResolutionContext : IDisposable
                 _registrationFailures,
                 _descriptors,
                 _maxCandidates,
+                _policyVersion,
                 target,
                 origin,
                 scope,
@@ -2783,11 +2998,13 @@ public sealed class TypeResolutionContext : IDisposable
 
         static TypeResolutionOutcome.Rejected Rejected(
             TypeResolutionFailure failure,
-            ImmutableArray<TypeForwardingHop>.Builder? hops = null) =>
+            ImmutableArray<TypeForwardingHop>.Builder? hops = null,
+            AssemblyBindingOccurrence? terminalOccurrence = null) =>
             new(
                 failure,
                 hops?.ToImmutable()
-                    ?? ImmutableArray<TypeForwardingHop>.Empty);
+                    ?? ImmutableArray<TypeForwardingHop>.Empty,
+                terminalOccurrence);
 
         bool UsesStrictlyRejectedCandidate(
             TypeResolutionOutcome outcome)
@@ -2868,6 +3085,7 @@ public sealed class TypeResolutionContext : IDisposable
                     key,
                     definition.Address,
                     definition.Assembly,
+                    definition.Occurrence,
                     definition.Type,
                     definition.Kind,
                     definition.DeclaringAssemblyDefinesCoreLibraryRoot,

@@ -186,7 +186,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 50 `[JSExport]` methods.
+The seven rooted export assemblies contain 51 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -210,12 +210,13 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 18 exports
+### Package facade: 19 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
+- `ListGalleryDiscoveryCatalog`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
 - `LoadRuntimePackAssembly`
@@ -530,6 +531,10 @@ declarations remain authoritative. Of its 50 managed exports, 48 are bound by
 [`dotnet-inspect.ts`](../../prototypes/inspect-web/src/dotnet-inspect.ts).
 Generated lifecycle functions are not included in these counts.
 
+Website Gallery adoption (#6019) subsequently adds the synchronous startup
+operation `listGalleryDiscoveryCatalog`. It participates in the same typed
+catalog handoff; the historical counts in this migration snapshot exclude it.
+
 | Current call class | Count | Generated operations | Consumer handoff to prepare |
 | --- | ---: | --- | --- |
 | Bootstrap/diagnostic only | 2 | `configureHost`, `asyncLoweringCanary` | Retain bootstrap/diagnostic ownership; do not expose a blanket facade proxy. |
@@ -817,7 +822,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 50
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 51
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,

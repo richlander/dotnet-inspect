@@ -25,6 +25,13 @@ the Integration-owned compatibility binding. CLI/browser scanner selection
 remains staged. Prefix slots remain absent until their owner issues the
 required currency; existing search and full Integration behavior is unchanged.
 
+[Approved lazy traversal](approved-lazy-traversal.md) records the approved
+target experience for compact namespace hints, core-package starting points,
+Integration-owned contract knowledge, and Platform as an ecosystem selecting
+source-owned discovery/acquisition bindings. Those additions are not part of
+the implemented registration above; their catalog adoption and prerequisite
+owner-issued values remain focused follow-up work under #6012 and #5728.
+
 Participating normative owner:
 
 - [Static workspaces: definitions, assembly groups, and projections](workspace-definitions.md#product-demos-are-closed-section-presets)
