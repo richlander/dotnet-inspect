@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using DotnetInspector.CommandLine;
 using DotnetInspector.Inspectors;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
@@ -31,6 +32,62 @@ public static class TypeCommand
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded)
         => ExecuteCoreAsync(options, source, loaded);
+
+    internal static TypeOptions FromDeferredMemberOptions(
+        MemberOptions options)
+    {
+        var (memberFilter, memberLimit) =
+            SharedParsers.ParseMemberFilter(
+                options.RouterDeferredTypeMemberValues);
+        return new()
+        {
+            TypeName = options.TypeName, PackagePath = options.PackagePath,
+            PackageRangeAddress = options.PackageRangeAddress,
+            AssemblyPath = options.AssemblyPath,
+            PlatformAssembly = options.PlatformAssembly, PlatformFramework = options.PlatformFramework,
+            ProjectPath = options.ProjectPath, ProjectAssetsPath = options.ProjectAssetsPath,
+            SourceRepositories = options.SourceRepositories,
+            Tfm = options.Tfm, IncludeAll = options.IncludeAll, Verbose = options.Verbose,
+            ShowDocs = options.DocsExplicitlySet && options.ShowDocs,
+            DocsExplicitlySet = options.DocsExplicitlySet,
+            UseLocalDocs = options.UseLocalDocs, ShowSamples = options.ShowSamples,
+            BrowsableUrls = options.BrowsableUrls, Verbosity = options.Verbosity,
+            JsonOutput = options.JsonOutput, CompactJson = options.CompactJson,
+            Tabular = options.Tabular, Tsv = options.Tsv, Jsonl = options.Jsonl,
+            TabularExplicitlySet = options.TabularExplicitlySet,
+            FormatExplicitlySet = options.FormatExplicitlySet,
+            FormatFlagExplicitlySet = options.FormatFlagExplicitlySet,
+            MarkdownExplicitlySet = options.MarkdownExplicitlySet,
+            Format = options.Format,
+            PlainText = options.PlainText,
+            MermaidOutput = options.MermaidOutput,
+            EmbeddedMermaid = options.EmbeddedMermaid,
+            Bare = options.Bare,
+            NoHeader = options.NoHeader, Limit = memberLimit, MemberLimit = memberLimit,
+            MemberFilter = memberFilter,
+            KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
+            IncludeSections = options.IncludeSections,
+            ExactIncludeSectionsOverride = options.ExactIncludeSectionsOverride,
+            Print = options.Print, PrintRow = options.PrintRow,
+            Value = options.Value, Urls = options.Urls, Paths = options.Paths,
+            Select = options.Select, SelectDefault = options.SelectDefault,
+            Columns = options.Columns, Fields = options.Fields,
+            Discover = options.Discover, Tree = options.Tree,
+            ShapeOutput = options.ShapeOutput,
+            ShapeExplicitlySet = options.ShapeExplicitlySet,
+            Schema = options.Schema, Count = options.Count, Rows = options.Rows,
+            JsonArray = options.JsonArray,
+            PerformanceTriage = options.PerformanceTriage,
+            BodyKindQuery = options.BodyKindQuery,
+            SourceOptions = options.SourceOptions,
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RenderConfigWarnings = options.RenderConfigWarnings,
+            RequestAllTaste = options.RequestAllTaste,
+            RequestReadableLocalNames = options.RequestReadableLocalNames,
+            DllPath = options.DllPath,
+            PdbPath = options.PdbPath
+        };
+    }
 
     private static async Task<int> ExecuteCoreAsync(
         TypeOptions options,
@@ -113,22 +170,14 @@ public static class TypeCommand
             {
                 // No type specified - list all types
                 var loaded = loadedSurface
-                    ?? (CanUsePlatformSummary(
+                    ?? ApiServices.LoadTypeApi(
+                        source,
+                        options,
+                        summaryOnly: CanUsePlatformSummary(
                             options,
                             searchPath,
                             runtimeAssemblyPath,
-                            platformFramework)
-                        ? ApiServices.LoadPlatformApiSummary(
-                            searchPath,
-                            runtimeAssemblyPath!,
-                            apiSource,
-                            apiVersion,
-                            selectedTfm,
-                            logger)
-                        : ApiServices.LoadFullApi(
-                            searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                            apiSource, apiVersion, selectedTfm, logger, options,
-                            source.PackageExtractPath));
+                            platformFramework));
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -198,10 +247,7 @@ public static class TypeCommand
             else
             {
                 var loaded = loadedSurface
-                    ?? ApiServices.LoadFullApi(
-                        searchPath, runtimeAssemblyPath, options.PackagePath, packageName,
-                        apiSource, apiVersion, selectedTfm, logger, options,
-                        source.PackageExtractPath);
+                    ?? ApiServices.LoadTypeApi(source, options);
                 if (loaded == null)
                 {
                     CommandError.Write("Could not extract API from library.");
@@ -795,7 +841,7 @@ public static class TypeCommand
 
         foreach (var ((framework, assembly, _), fullNames) in resultNamesByAssembly)
         {
-            var (assemblyPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
+            var (assemblyPath, resolvedFramework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                 assembly,
                 context.HttpClient,
                 logger.Log,
@@ -807,19 +853,25 @@ public static class TypeCommand
                 continue;
             }
 
-            var api = AssemblySetSurfaceBuilder.Build(
-                [assemblyPath],
-                options.IncludeAll);
-            if (api == null)
-                continue;
-
-            ApiServices.ResolveForwardedTypes(
-                api,
+            var loaded = ApiServices.LoadFullApi(
                 assemblyPath,
+                runtimeAssemblyPath: null,
+                packagePath: null,
+                packageName: null,
+                SourceKind.Platform,
+                version,
+                selectedTfm: null,
                 logger,
-                options.IncludeAll,
-                isPlatformAssembly: true,
-                options);
+                options,
+                useTypedSelection: true,
+                platformFramework: resolvedFramework);
+            if (loaded is null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not extract API from platform library '{assemblyPath}'.");
+            }
+
+            var api = loaded.Api;
 
             List<ApiType> selectedTypes =
             [

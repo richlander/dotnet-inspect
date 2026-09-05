@@ -74,4 +74,8 @@ public static class PackageSetIds
     /// <summary>The ASP.NET Core package set.</summary>
     public static PackageSetId AspNetCore { get; } =
         PackageSetId.Create("package-set.aspnetcore");
+
+    /// <summary>The Aspire package set.</summary>
+    public static PackageSetId Aspire { get; } =
+        PackageSetId.Create("package-set.aspire");
 }

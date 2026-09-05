@@ -174,9 +174,9 @@ snapshot runs and how its result changes round state.
 ### Obtain one snapshot
 
 Follow [GitHub status queries](github-status-queries.md) for API selection,
-request ordering, fixed-head checks, and response classification. This document
-does not restate those mechanics. It consumes one classified snapshot and
-applies the round transition below.
+request ordering, live-base conflict probing, fixed-head checks, and response
+classification. This document does not restate those mechanics. It consumes
+one classified snapshot and applies the round transition below.
 
 ### Apply the result
 
@@ -196,7 +196,7 @@ unrelated members such as `review`. In the table, **status members** means
 | PR is closed or draft | Leave the status wait, publish the human action or stopped state, and end. |
 | Base ref changed | Leave the status wait; expire merge authorization and route the unchanged head through candidate formation without inheriting fixed-head evidence. |
 | Head changed | Leave the status wait; disable auto-merge first, handle an already-merged result as terminal, then route the returned head through candidate formation without inheriting fixed-head evidence. |
-| REST `mergeable: false` or GraphQL `mergeable: CONFLICTING` | Leave the status wait; apply conflict recovery before considering CI. |
+| GitHub reports a conflict, or the local live-base test merge conflicts | Leave the status wait; apply conflict recovery before considering CI. |
 | `ci-required` completed without `success` while required for the current round or goal | Leave the status wait; classify the result and apply the applicable recovery transition. |
 | `ci-required` completed without `success` while not required for the current round or goal | Record the final-readiness failure and continue the current review path. |
 | GraphQL `mergeStateStatus: BLOCKED`, `goal=merge` | Leave the status wait, publish `blocked=<pr-number> rec=wait`, and end. |
@@ -233,7 +233,9 @@ Arm at most one schedule at a time. Key it to its own ID plus the expected
 `head`, complete `waiting` set, `goal`, and deadline. A stale run stops itself
 and exits before querying GitHub. A current run stops itself, clears the
 retained ID, obtains one snapshot, and may arm one successor only when the
-deadline still permits it.
+deadline still permits it. Retain `conflict-checked-base` with the wait state;
+each snapshot fetches the live base and locally tests it only when that exact
+tip has not already been checked for the expected head.
 
 For rate limits, never schedule before the query classification's
 retry-not-before time. GitHub documents `Retry-After` as authoritative,
@@ -244,10 +246,12 @@ choose a conservative delay and never schedule beyond the deadline. Do not use
 `gh run watch`, `gh pr checks --watch`, fixed-rate schedules, synchronous
 sleeps, or concurrent status requests.
 
-When the budget expires with status unresolved, clear `schedule`, keep the
-unresolved predicates, publish the report below, set `rec=stop`, and end. This
-is an informational stop: it ends observation only and neither closes nor
-abandons the PR.
+When the budget expires with status unresolved, obtain a final snapshot. Do not
+publish the report below unless its fetched live base equals
+`conflict-checked-base`; classify and surface a fetch or probe failure instead.
+Then clear `schedule`, keep the unresolved predicates, publish the report, set
+`rec=stop`, and end. This is an informational stop: it ends observation only
+and neither closes nor abandons the PR.
 
 ### Status budget report
 
@@ -260,6 +264,7 @@ Status not observed for PR <number> at round <n> after <mm> minutes.
 - Unresolved: <waiting predicates>
 - Last observation: ci-required=<state|not-observed>,
   mergeable=<true|false|null|not-observed> at <datetime>.
+- Local conflict probe: base=<40-character SHA>, checked at <datetime>.
 - Cause: <rate-limit evidence, transient failure, or still running/queued>.
 - Snapshots: <count>, last at <datetime>.
 - This is not a CI result. No failing check was observed. GitHub documents
@@ -282,11 +287,12 @@ snapshot satisfies the prerequisite. The duration context comes from
 
 [How many reviewers, and from which models](../AGENTS.md#how-many-reviewers-and-from-which-models)
 states the binding tier table and roster names. Pick the second seat from the
-prior round's clean count:
+prior round's clean count, using [Agent model mapping](agent-models.md) to
+resolve names to dispatch IDs:
 
-- **No prior round, or 0/2 clean:** prefer GPT-5.6 Sol again for the second
+- **No prior round, or 0/2 clean:** prefer GPT-6 Astra again for the second
   seat.
-- **1/2 clean:** keep GPT-5.6 Sol fixed, rule out last round's second seat,
+- **1/2 clean:** keep GPT-6 Astra fixed, rule out last round's second seat,
   then prefer a different family than the author (the author's family only as
   a fallback) at that model's highest available quality.
 
@@ -312,11 +318,11 @@ required real-run evidence. The appended material may narrow the review but
 must not weaken or broaden the prompt's trust model and finding-admission rules.
 It also records the user purpose, convention or best-practice baseline,
 intentional divergence, analogous implementation evidence, pathological or
-boundary case and gate, complexity basis, consumer and host plan, rendering
-strategy, current slice and residual work, and the demo with a neighboring
-case. Use `Not applicable — <reason>` only when the reason names the relevant
-change classification and exact-head evidence; cite the owning design's exact
-section when it defines the boundary.
+boundary case and gate, complexity basis, consumer, production-host adoption,
+and retirement plan, rendering strategy, current slice and residual work, and
+the demo with a neighboring case. Use `Not applicable — <reason>` only when
+the reason names the relevant change classification and exact-head evidence;
+cite the owning design's exact section when it defines the boundary.
 Agents that prefer a structured composition aid may instead fill the optional
 [`docs/templates/adversarial-review-prompt.md`](templates/adversarial-review-prompt.md),
 which includes the same fixed prompt followed by candidate placeholders.
@@ -327,19 +333,23 @@ or variable input, the boundary through which it reaches the claim, trusted
 parties and excluded scenarios, the user purpose, baseline and any divergence,
 relevant analogous evidence, pathological case and gate, current slice,
 residual work, demo and neighboring case, the observable consequence, and the
-evidence that would falsify the claim. For an applicable capability, substrate,
-host, or broad rendering change, candidate formation must also supply the
-complexity basis, named consumer, focused issue, overall end-to-end tracker,
-host-enablement plan, any recorded single-consumer or single-host approval and
-its exact scope, and the rendering strategy. Reviewers judge the visible
-design's consistency with those supplied facts; they do not grant approvals or
-invent roadmap decisions. State the facts directly in the self-contained
-prompt; links may support them but do not replace them. For a correctness
-review without an untrusted actor, name the ordinary supported caller and input
-instead. Candidate formation must make every non-applicability explanation
-judgeable from the normative owner, changed surfaces, and exact-head diff. If
-required fields cannot be filled or non-applicability cannot be established,
-return to design or scope clarification before spending a review round.
+evidence that would falsify the claim. For an applicable architecture,
+capability, substrate, host, or broad rendering change, candidate formation
+must also supply the complexity basis, named consumer, focused issue, overall
+end-to-end tracker, enumerated production-host adoption path and total step
+count, any applicable existing-architecture retirement plan, any recorded
+single-consumer or single-host approval and its exact scope, and the rendering
+strategy. Host-neutral components still require the counted path to observable
+host behavior; test infrastructure may name its harness as the production
+host. Reviewers judge the visible design's consistency with those supplied
+facts; they do not grant approvals or invent roadmap decisions. State the facts
+directly in the self-contained prompt; links may support them but do not
+replace them. For a correctness review without an untrusted actor, name the
+ordinary supported caller and input instead. Candidate formation must make
+every non-applicability explanation judgeable from the normative owner,
+changed surfaces, and exact-head diff. If required fields cannot be filled or
+non-applicability cannot be established, return to design or scope
+clarification before spending a review round.
 
 Give every seat the same completed prompt except for its worktree path. State
 candidate facts rather than rewarding findings; the canonical prompt already

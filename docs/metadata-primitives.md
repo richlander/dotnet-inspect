@@ -259,41 +259,42 @@ returned `null`, the direct consumers that would otherwise lose the
 distinction — `AssemblySetResolutionSession` in Services,
 `WorkspaceContextLoader` in Queries, and the CLI's `TimelineCommand` —
 preserve them as typed unsupported-format and malformed-root
-outcomes rather than acquisition failures. A dependency scan's rejections scope
-to their own participant, so `TypeDependencyScanner` records each rejected
-candidate and its mechanism as a typed `TypeDependencyRejection` on the scan
-result instead of dropping it. A rejection
-is a candidate the admission contract *refused*: unsupported Windows Metadata,
-a malformed root, or an otherwise invalid image. A file with no managed
-metadata is not rejected — it is simply not an assembly, so the scanner skips
-it as it always has, and a directory holding ordinary native libraries carries
-no rejections. This is a
-bounded, explicit relaxation of the partial-rows prohibition above, and it
-applies only to a dependency scan: the emitted edges are sound, but
-completeness is unknown, so the result carries its rejections rather than
-claiming either a complete graph or a certified absence. How a command
-presents a scan that carries rejections is a separate, CLI-owned concern,
-owned by [Uncertified scan results](design/uncertified-scan-results.md); today
-`depends` is its only adopter.
+outcomes rather than acquisition failures.
 
-Relationship facts are decoded during staging, while the owning participant is
-still in rejection scope, and strictly — a signature rejection is raised rather
-than collapsed to an absent name. Both choices are load-bearing. Decoding a
-base or interface token after the participant has published puts the failure
-outside any scope that can attribute it, which both aborts the surrounding scan
-and lets a malformed row shadow a healthy same-name definition. Resolving
-leniently is worse than either: the malformed participant publishes, silently
-loses the edge, and answers with a certified-looking empty graph.
+**Dependency-scan rejection boundary.** `TypeDependencyScanner` preserves each
+reported admission or relationship-decoding rejection against its candidate as
+a typed `TypeDependencyRejection`. No rows from a rejected candidate may
+participate in the result, including rows decoded before the failure. A
+reported signature rejection must not become an absent relationship. These
+obligations are gated by
+`DependencyScan_MalformedRelationshipDoesNotShadowHealthyNeighbor` and
+`DependencyScan_MalformedTypeSpecBaseIsRejectedNotSilentlyDropped`. A file
+with no managed metadata is skipped, not rejected; ordinary native libraries
+beside managed ones remain unaffected.
 
-**Behavior change, and its cost.** Because staging validates *every* public
-type, one malformed type rejects the whole participant even when the caller
-asked about an unrelated healthy type in the same file. Before this contract,
-only the matched type's closure was decoded, so such a query answered. The
-scan now reports the rejection instead. This is the deliberate consequence of
-scoping rejections per participant: shadowing is decided at index time, so
-whether a row is trustworthy must be known before it is published. Narrowing
-the unit of rejection from the participant to the individual row would
-preserve both properties and is tracked by #5814 rather than taken up here.
+When another candidate survives, the scan may return its contribution alongside
+the recorded rejections. This is a bounded exception to the partial-rows
+prohibition above, not a claim of a complete graph or a certified absence.
+Preserving reported failures does not independently establish the soundness of
+the remaining edges: those still depend on the decoder and resolver contracts.
+How a command presents a scan that carries rejections is a separate, CLI-owned
+concern, owned by [Uncertified scan results](design/uncertified-scan-results.md);
+today `depends` is its only adopter.
+
+**Known limit: decoding is not complete metadata validation.** A generic
+parameter outside its enclosing type's context can decode to a synthesized
+`T0` instead of a rejection. That candidate can still participate and shadow a
+healthy same-name definition, making the reported graph depend on input order.
+Admission does not repair this pre-existing decoder behavior. It is tracked by
+the MetadataPrimitives-owned #5856; the absence of a reported rejection is not
+evidence that every relationship is valid.
+
+**Behavior change: whole-candidate rejection.** A reported relationship failure
+in any public type excludes the whole candidate, even when the requested type
+in that file is unrelated and healthy. Previously only the matched type's
+closure was decoded, so that query could answer. Changing the rejection unit
+from the candidate to an individual row is a separate contract decision tracked
+by #5814, not a guarantee of the current scan.
 
 The Analysis, Decompiler, Research, ILDiff, remaining
 Queries, and remaining CLI owners have not adopted it, and no gate yet requires

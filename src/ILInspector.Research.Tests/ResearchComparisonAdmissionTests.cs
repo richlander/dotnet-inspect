@@ -419,15 +419,34 @@ public class ResearchComparisonAdmissionTests
                 field => IsGenericDefinition(field.FieldType, typeof(Dictionary<,>)));
         }
 
-        FieldInfo map = Assert.Single(
-            typeof(ResearchAdmittedPopulation).GetFields(
-                BindingFlags.NonPublic | BindingFlags.Instance),
-            field => IsGenericDefinition(field.FieldType, typeof(FrozenDictionary<,>)));
-        var frozen =
+        FieldInfo[] maps =
+        [
+            .. typeof(ResearchAdmittedPopulation).GetFields(
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(
+                    field => IsGenericDefinition(
+                        field.FieldType,
+                        typeof(FrozenDictionary<,>))),
+        ];
+        Assert.Equal(2, maps.Length);
+        FieldInfo occurrenceMap = Assert.Single(
+            maps,
+            field => field.FieldType.GenericTypeArguments[0]
+                == typeof(ResearchComparisonInputOccurrence));
+        var byOccurrence =
             (FrozenDictionary<ResearchComparisonInputOccurrence, ResearchAdmittedInput>)
-                map.GetValue(population)!;
-        Assert.Same(ReferenceEqualityComparer.Instance, frozen.Comparer);
-        Assert.Equal(2, frozen.Count);
+                occurrenceMap.GetValue(population)!;
+        FieldInfo idMap = Assert.Single(
+            maps,
+            field => field.FieldType.GenericTypeArguments[0]
+                == typeof(ResearchComparisonInputId));
+        var byId =
+            (FrozenDictionary<ResearchComparisonInputId, ResearchAdmittedInput>)
+                idMap.GetValue(population)!;
+        Assert.Same(ReferenceEqualityComparer.Instance, byOccurrence.Comparer);
+        Assert.Same(ReferenceEqualityComparer.Instance, byId.Comparer);
+        Assert.Equal(2, byOccurrence.Count);
+        Assert.Equal(2, byId.Count);
         Assert.NotSame(population.GetInput(first), population.GetInput(second));
     }
 

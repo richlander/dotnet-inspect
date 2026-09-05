@@ -14,16 +14,34 @@ After a Portable PDB maps a member or type to a checksummed source document,
 `PdbSourceAcquisition` looks for the document bytes in this order:
 
 1. The PDB-recorded local path, when local source reads are enabled.
-2. Each caller-supplied local Git clone, addressed by the exact commit and
+2. Each caller-supplied local Git clone, addressed by the revision selector and
    repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
 3. The remote SourceLink URL.
 
-Every successful path must match the Portable PDB checksum before its content
-becomes evidence. Local-clone acquisition reads the committed Git blob rather
-than the working tree, so an outage does not require a pristine checkout and
-uncommitted edits cannot replace the pinned source. A missing commit, path, or
-checksum match in one clone continues through the remaining clones and then to
-the remote source.
+Every successful path must satisfy the shared Portable PDB checksum verifier
+(exact or accepted line-ending-normalized correspondence) before its content
+becomes evidence. Local-clone acquisition reads the addressed Git blob rather
+than the working-tree file. A missing revision, path, or checksum match in one
+clone continues through the remaining clones and then to the remote source.
+
+[Local repository source acquisition](design/local-repository-source-acquisition.md)
+owns that adapter's locator interpretation, byte admission, optional-lookup
+decline, and execution limits. This document retains acquisition ordering and
+remote outcome policy. A local result proves correspondence with the supplied
+PDB, not repository authenticity or globally immutable SourceLink identity.
+The adapter's focused evidence section distinguishes existing gates from
+ungated working-tree-divergence and execution-limit claims.
+
+Resolution and retrieval preserve document-specific failure state. A rejected
+SourceLink entry does not shadow a valid entry that resolves the same document,
+but when no valid entry resolves the document, a rejected conformant key that
+matches that document is a mapping failure. An unrelated usable entry in the
+same map does not turn that failure into absence. Once a URL resolves, HTTP 404
+is definitive document absence; transport failures, other unsuccessful HTTP
+responses, rejected origins, oversized responses, checksum mismatches, and
+storage failures remain acquisition failures. This boundary cannot distinguish
+a deliberately concealed private GitHub document that returns HTTP 404 from a
+missing public document; both are absence.
 
 At the reusable service boundary, callers supply optional fully qualified
 repository paths to member or type acquisition. The desktop CLI exposes those
@@ -304,15 +322,31 @@ gate the descriptor API shape and compatibility overload. Store read/write
 failures remain visible rather than being reported as symbol unavailability;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_StoreFailureIsVisible` and
 `PdbAcquisitionServiceTests.PathlessParticipant_StoreReadFailureIsVisible` gate
-the write and post-acquisition read paths. Local-path projection occurs before
-the caller-owned PDB stream is opened, so a projection failure cannot leak that
-stream;
+the write and post-acquisition read paths. A cache read failure is carried
+across providers, cleared by a later successful acquisition, and returned as a
+typed store failure only if no provider succeeds.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_CachedReadFailureContinuesToNextProvider`
+and
+`SymbolPackageDownloaderTests.AcquirePdbAsync_CachedReadFailureRecordsFinalStoreFailure`
+gate those outcomes.
+`SymbolPackageDownloaderTests.AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`
+and
+`PdbAcquisitionServiceTests.PathlessParticipant_StoreWriteFailureIsVisible`
+apply the same fallback and typed-boundary contract to publication failures.
+Local-path projection occurs before the caller-owned PDB stream is opened, so a
+projection failure cannot leak that stream;
 `PdbAcquisitionServiceTests.PathlessParticipant_LocalPathFailurePrecedesOwnedStreamOpen`
 gates that ownership boundary. Cached and downloaded Portable PDBs
 are parsed and identity-checked before an acquired result is returned, so an
 invalid entry cannot suppress later providers;
 `SymbolPackageDownloaderTests.AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`
 gates the fallback.
+
+Library inspection treats symbols as optional enrichment: a typed PDB-store
+failure remains visible in Signals without suppressing metadata or other
+library sections. It does not catch unrelated acquisition failures.
+`CommandExecutionTests.LibraryCommand_InvalidCachedPdbPreservesLibraryInspection`
+gates that command boundary.
 
 ## Error handling
 
@@ -326,6 +360,55 @@ When PDB acquisition fails, we report the reason:
 Typed SourceLink queries preserve these states as absent or failed outcomes.
 Package aggregation retains the package-relative library path beside each
 unavailable or failed outcome.
+
+An HTTP 200 response from an exact-identity symbol-server URL that is rejected
+for its size, format, or PDB identity is a failed provider response rather than
+definitive absence. A symbol package is instead an identity inventory: valid
+Portable PDBs for sibling assemblies or target frameworks are a definitive miss
+for the requested identity, while malformed same-name entries remain failure.
+A supported later provider may still complete acquisition. Downloaded PDB bytes
+are parsed and identity-checked before cache publication; a legacy cached entry
+that fails those checks yields a typed store failure when no later provider
+succeeds. PDB-store publication and read-back failures, including cache
+permission failures, remain visible store failures and are not attributed to a
+remote feed. The Release gates
+`AcquirePdbAsync_LimitedHostRejectsOversizedSymbolPackage`,
+`AcquirePdbAsync_LimitedHostRejectsOversizedMsdlBeforeStore`,
+`AcquirePdbAsync_SymbolPackageWithSiblingIdentitiesRemainsAbsence`,
+`AcquirePdbAsync_InvalidSymbolPackageCandidateRecordsFailure`,
+`AcquirePdbAsync_RejectedDownloadIsNotPublished`,
+`AcquirePdbAsync_InvalidCachedPdbContinuesToNextProvider`,
+`AcquirePdbAsync_InvalidCachedPdbRecordsFailure`,
+`AcquirePdbAsync_CachedReadFailureContinuesToNextProvider`,
+`AcquirePdbAsync_CachedReadFailureRecordsFinalStoreFailure`,
+`AcquirePdbAsync_StoreWriteFailureContinuesToNextProvider`,
+`AcquirePdbAsync_UnretainedDownloadRecordsFailure`,
+`AcquirePdbAsync_ReadbackStoreFailureIsVisible`,
+`AcquirePdbAsync_UnretainedDownloadContinuesToNextProvider`, and
+`SourceCorrespondencePdbAcquisition_StorePermissionFailureIsTyped` enforce
+these distinctions.
+
+The persistent symbol-miss cache records HTTP 404 absence only. A cached HTTP
+403 retains failure evidence, while other operational statuses are not replayed
+as absence. Legacy `.miss` entries whose payload is not exactly HTTP 404 are
+ignored so the provider is retried.
+`DownloadPdbAsync_CachePreservesAbsenceAndFailure` and
+`DownloadPdbAsync_LegacyOperationalMissIsRetried` gate those distinctions. The
+source-correspondence and authored-rebuild harness lanes reject an adjacent
+standalone PDB when the assembly has no Portable CodeView identity, and project
+malformed embedded-PDB opening or a present unusable SourceLink map as typed
+failure after verified local and repository alternatives are exhausted.
+`SourceCorrespondencePdbAcquisition_RejectsUnverifiedStandalonePdb` and
+`AuthoredSourceHarvest_RejectsUnverifiedStandalonePdbWithoutTerminating`
+gate the failure boundary across the census and corpus-harvest consumers, and
+`SourceCorrespondencePdbAcquisition_MalformedEmbeddedPdbIsFailure` gate the PDB
+opening boundaries without changing the general-purpose `PdbContext` policy;
+`SourceCorrespondencePdbAcquisition_MalformedSourceLinkMapIsFailure` gates the
+whole-map decode boundary,
+`SourceCorrespondencePdbAcquisition_RejectedDocumentMappingIsFailure` gates a
+rejected mapping for one requested document in a partially usable map, and
+`SourceCorrespondencePdbAcquisition_RemoteNotFoundIsAbsent` gates definitive
+remote document absence.
 
 ## Related resources
 

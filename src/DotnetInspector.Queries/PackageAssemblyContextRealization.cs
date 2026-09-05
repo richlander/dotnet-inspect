@@ -349,6 +349,19 @@ public sealed class PackageAssemblyRoleParticipant
 }
 
 /// <summary>
+/// Reports that selected package surface and implementation assets cannot form
+/// an exact assembly-role correspondence.
+/// </summary>
+public sealed class PackageAssemblyRoleCorrespondenceException :
+    InvalidOperationException
+{
+    internal PackageAssemblyRoleCorrespondenceException(string message)
+        : base(message)
+    {
+    }
+}
+
+/// <summary>
 /// Product-realized package surface and implementation roles, including exact
 /// package-asset-to-participant associations.
 /// </summary>
@@ -775,7 +788,7 @@ public sealed partial class InspectionWorkspace
                 && !surface.Assembly.Identity.IsEquivalentTo(
                     implementation.Assembly.Identity))
             {
-                throw new InvalidOperationException(
+                throw new PackageAssemblyRoleCorrespondenceException(
                     "The selected reference and implementation assets have "
                     + "different assembly identities.");
             }

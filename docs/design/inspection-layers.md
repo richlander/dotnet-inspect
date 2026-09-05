@@ -448,6 +448,12 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
+The later
+[workspace Research target composition](research-workspace-target-composition.md)
+consumes this receipt to associate Metadata's terminal forwarding definition
+with one exact existing Research attempt. That composition remains
+Queries-owned and does not change this population-sealing contract.
+
 ### Current gap
 
 `ImplementationComparisonInput` currently accepts independent old/new
@@ -634,7 +640,7 @@ This boundary does not define:
 - Research target requests, attempts, correspondence outcomes, work items,
   producer-specific inspection topology, producer execution, completion, or
   comparison semantics;
-- direct-member designation or comparison;
+- [direct-member designation or comparison](direct-member-comparison.md);
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output
   integrity; or

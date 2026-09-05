@@ -320,6 +320,118 @@ group for both roles. When both roles exist and differ, they split the scope's
 has one group and uses the full budget; performance analysis falls back to that
 surface group when no implementation participant exists.
 
+### Artifact-backed package scope adoption
+
+**Status: planned, not implemented.** This section owns the Browser registry
+contract for [#5576](https://github.com/richlander/dotnet-inspect/issues/5576).
+The synchronous behavior described above remains current until that adoption
+lands. The end-to-end tracker is
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); the CLI
+consumer has landed in
+[#5799](https://github.com/richlander/dotnet-inspect/pull/5799).
+[Package Root realization](../../docs/design/artifact-acquisition-and-workspaces.md#package-root-realization)
+owns artifact construction, role selection, rejection, and the budget split.
+[Inspection space](../../docs/inspection-space.md#retained-package-realization-caller)
+explains why this remains whole-scope reuse in the existing Browser registry,
+not workspace-local retained-demand caching or a second Integrations cache.
+
+The focused claim is one shared realization for an exact Browser package
+operation, with bounded retention through asynchronous cleanup. The production
+consumers are ordinary single-package scope opening and Workspace occurrence
+activation; surface, Integrations, and the other existing query hand-offs keep
+their typed inputs. Interactive DOM lowering remains Browser-owned rather than
+parsing CLI or Markout output. This adoption does not change multi-package role
+planning, Platform realization, package selection, source acquisition, or
+persistence. Those existing scopes still participate in the same registry
+bounds and reclamation policy.
+
+**Exact operation and use.** Repeated unbound requests for the same acquired
+coordinate, content generation, and selection request join the retained binding
+before another selection token is issued. The association includes the
+authoritative producer and framework request, including default selection as
+distinct from an explicit request. It lives with the counted scope entry, not
+in an additional unbounded binding cache. A caller with an already-issued
+binding preserves that binding's coordinate, `ContentGenerationIdentity`, and
+`SelectionIdentity`; independently issued selection tokens are not
+interchangeable merely because package/version/TFM labels match. Such a request
+can join only its exact binding operation, otherwise it is a distinct demand.
+Every singleton entry point uses the same opener; synchronous occurrence
+activation must become awaitable rather than constructing a competing legacy
+singleton scope.
+
+Concurrent callers join pending work as well as ready work. Each caller has its
+own cancellation and receives protected use of the exact entry before the
+opening operation completes; protection lasts through that caller's query, not
+just until the factory returns. Cancelling one caller does not cancel another
+caller's shared work. When the last pending caller leaves, the abandoned work
+retires. A shared factory also has its own bounded operation deadline, so
+joining requests cannot extend construction indefinitely.
+
+**Capacity and eviction.** The existing four-scope bound counts pending, ready,
+and retiring entries together, including legacy multi-package and Platform
+entries. Each reserves its full 64 MiB image allowance before construction,
+giving at most 256 MiB of reserved scope image capacity. The artifact-backed
+path passes 64 MiB as the shared realization's total budget, not an extra
+artifact allowance: artifacts receive 32 MiB and group images share the
+remaining 32 MiB, or 16 MiB per group when roles differ. This deliberately
+tightens the old one-copy admission capacity while preserving the total bound;
+budget rejection must remain visible. The 256-assembly per-role bound remains.
+These are retained-image limits, not a total Wasm heap estimate.
+
+Archive bytes and download reservations separately keep the existing
+12-package/128 MiB aggregate. Packages referenced by pending construction,
+protected queries, or unfinished retirement remain charged there. Neither a
+scope eviction nor a package-cache removal returns capacity while its owned
+resources are still settling. Ready entries without protected callers are
+evicted in least-recently-used order. When capacity is held by active work,
+admission visibly fails rather than evicting a caller's scope. When selected
+eviction requires asynchronous reclamation, an async admission awaits it before
+reusing capacity; a synchronous reservation that cannot reclaim immediately
+visibly rejects capacity instead of blocking Wasm or bypassing accounting.
+
+**Retirement and failure.** Removal or replacement immediately ends the exact
+entry's eligibility for new callers. Already-protected queries retain their
+use until release. Retirement is irreversible: an equal later request cannot
+revive that entry, and an old factory completion cannot publish into its
+replacement. Stale or cancelled construction is still owned until all of its
+construction and cleanup work settles, including artifact sessions not yet
+transferred to a workspace. Replacement does not require a new query-selection
+algorithm or a host-issued artifact identity.
+
+Registry retirement has an awaitable terminal outcome. Synchronous scope
+disposal is adapted as an already-completed retirement; an asynchronous
+workspace uses `CloseAsync`, never a synchronous wait or request-only
+`Dispose` pretending that reclamation finished. The outcome includes the
+workspace's group results and `ArtifactSessionCleanupFailures`, not merely
+whether its close task completed. The primary operation failure and any cleanup
+failures remain observable together. If cleanup fails, the entry remains
+charged and unavailable, with its bounded failure record surfaced to awaiting
+callers and subsequent admissions; no retry silently clears it or allocates
+replacement resources against unproven capacity. An abandoned caller does not
+abandon this outcome. A runtime restart is the recovery boundary for such a
+terminal cleanup failure, not an in-place cache reset.
+
+**Bounded model evidence.** The
+[Browser scope retirement model](../../docs/models/browser-scope-retirement/README.md)
+checks the post-binding registry's charged lifetime, protected return-to-query
+use, stale-publication exclusion, and failed-cleanup quarantine, with targeted
+broken-policy controls and required reachability witnesses. It abstracts
+authoritative factory and cleanup outcomes; it does not establish production
+conformance, binding issuance, archive accounting, or lower-owner cleanup.
+
+**Adoption evidence: unverified.** The implementation must add Release Browser
+engine gates for joined requests and independent cancellation, non-joining
+content/selection identities, use protected across async return, four-entry
+pressure and awaited eviction, stale completion after cancellation/replacement,
+and observable cleanup failure. It must preserve visible selected rejection
+carriers beside healthy participants and the existing multi-package/Platform
+registry cases. The Browser/Wasm gate must exercise the awaitable production
+opening/activation path. The two-host demo uses
+`Microsoft.Extensions.Http@10.0.0`: record the concrete TFM resolved by the CLI
+pilot's default selection and select that same TFM in Browser, with a
+neighboring replacement/eviction and valid-reference/malformed-implementation
+fixture. These are required future gates, not evidence supplied by this design.
+
 ## Supported
 
 | Operation | Workspace | Query that owns the session |
@@ -729,14 +841,35 @@ assemblies into one runtime under both Mono and CoreCLR, requests readiness
 concurrently, and then invokes both facades. It requires exactly one SDK
 creation and one live runtime, assembly-distinct results through both declaring
 types and exact overload keys, a genuinely awaited operation from each
-assembly, and independent record and enum declarations. Its negative cases
-prove that the gate fails for a wrong assembly root, a separately loaded
-runtime module, both operational paths routed through one facade, an
-uninitialized second facade, or a dropped managed invocation. This canary does
-not split the production engine binding or expose raw `ILInspector` APIs; that
-production partition remains [#4497].
+assembly, independent record and enum declarations, and the managed operation
+bridge's authenticated nonterminal callback lifecycle. The bridge case carries
+Progress, Item, and ItemFailure events in producer order before the terminal
+result, rejects callback failure, and prevents later invocation through a
+retained sink. Its negative cases prove that the gate fails for a dropped
+managed event callback, wrong assembly root, separately loaded runtime module,
+both operational paths routed through one facade, uninitialized second facade,
+or dropped managed invocation. This canary does not split the production engine
+binding or expose raw `ILInspector` APIs; that production partition remains
+[#4497].
+
+The purpose-built `managed-operation-bridge-canary` directly drives the product
+`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
+controlled feature bodies expose synchronous progress, keyed cancellation, and
+terminal release without reproducing lifecycle logic in the harness.
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
+host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
+cancellation routing, all six normalized reasons, concrete fulfilled result
+envelopes, boundary rejection, progress callback argument fidelity and closure,
+and operation readmission after release. The verifier, managed counters, and
+facade drift check reject skipped scenarios, wrong cancellation routing, stale
+facade output, or omitted callback release probes. This is Node-hosted
+Browser/Wasm evidence, not a Worker,
+real-browser, DOM-responsiveness, shared-producer, or epoch-work claim; the
+[managed operation bridge design] owns that scope and the remaining aggregate
+gate.
 
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+[managed operation bridge design]: ../../docs/design/inspect-web-managed-operation-bridge.md
 
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
@@ -786,18 +919,19 @@ tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
 Oxlint checks all seven compiler-derived production facade artifact triples and
-both multi-facade canary source modules as consumer contracts. The
-`src/facades/*.d.ts` declarations receive the TypeScript rules, while the exact
-seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
-correctness and suspicious rules described below. The checked-in production and
-canary TypeScript facades are compiled separately against the exact SDK-owned
-`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
-modules in that same program. TypeScript compilation and the generated facade
-drift gates provide independent source and declaration coverage. The toolchain
-test pins every separately compiled and derived lint input so a generator
-change cannot silently leave analysis coverage. The configuration disables
-four non-correctness rules: underscore spelling, function relocation, listener
-API preference, and `Array.prototype.sort`. Those rules prescribe
+the multi-facade and managed-operation canary sources as consumer contracts.
+The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
+exact seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
+correctness and suspicious rules described below. The checked-in production
+and canary TypeScript facades are compiled separately against the exact
+SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
+initializer and exercise modules in that same program. TypeScript compilation
+and the generated facade drift gates provide independent source and declaration
+coverage. The toolchain test pins every separately compiled and derived lint
+input so a generator change cannot silently leave analysis coverage. The
+configuration disables four non-correctness rules: underscore spelling,
+function relocation, listener API preference, and `Array.prototype.sort`.
+Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
 project targets ES2022. Those four, plus the generated-facade overrides, are
 the *complete* set of disabled rules. The compiler-derived JavaScript disables
