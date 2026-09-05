@@ -370,8 +370,8 @@ test("hostile inventory text is escaped in the chooser and diagnostics", () => {
     }),
   }));
 
-  assert.doesNotMatch(html, /<script>/);
-  assert.doesNotMatch(html, /<img /);
+  assert.doesNotMatch(html, /<script\b/i);
+  assert.doesNotMatch(html, /<img\b/i);
   assert.doesNotMatch(html, /<b>detail<\/b>/);
   assert.match(html, /&lt;script&gt;alert\(2\)&lt;\/script&gt;/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);

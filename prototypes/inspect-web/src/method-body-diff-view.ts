@@ -21,7 +21,6 @@ import { trapModalTab } from "./shell-controls.ts";
 export const METHOD_BODY_DIFF_ACTION_SELECTOR = "#compare-method-bodies";
 export const METHOD_BODY_DIFF_CHOOSER_SELECTOR = "#method-body-diff-after";
 export const METHOD_BODY_DIFF_FILTER_SELECTOR = "#method-body-diff-filter";
-export const METHOD_BODY_DIFF_TITLE_SELECTOR = "#method-body-diff-title";
 
 export type MethodBodyDiffAction =
   | { readonly kind: "open" }

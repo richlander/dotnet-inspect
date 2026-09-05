@@ -154,7 +154,7 @@ export interface MethodBodyComparisonDependencies {
   render(): void;
 }
 
-export interface MethodBodyDiffDismissal {
+interface MethodBodyDiffDismissal {
   handled: boolean;
   returnFocusSelector: string;
 }
