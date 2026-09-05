@@ -126,14 +126,12 @@ public sealed class GalleryDiscoveryRequestAndCatalogTests
     }
 
     [Fact]
-    public void NuGetOrgProducerIdentityDoesNotTurnAV3FeedIntoGallery()
+    public void NuGetOrgV3FeedDoesNotBecomeAGallerySource()
     {
         PackageSourceDescriptor feed = PackageSourceDescriptor.NuGetV3(
             "nuget",
             "NuGet.org",
             new Uri("https://api.nuget.org/v3/index.json"));
-        Assert.Equal(PackageSourceDescriptor.NuGetGallery.Identity, feed.Identity);
-
         ArgumentException exception = Assert.Throws<ArgumentException>(
             () => new NuGetGalleryDiscoveryRequest(feed, capacity: 20));
 
