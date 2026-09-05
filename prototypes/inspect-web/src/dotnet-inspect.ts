@@ -226,6 +226,9 @@ import type {
   CSharpHighlightExclusion,
 } from "./csharp-highlighting.ts";
 import {
+  prismCSharp,
+} from "./prism-csharp.ts";
+import {
   clearAnnotations,
   closeFindingDetail,
   createAnnotatedSourceViewerModel,
@@ -5561,10 +5564,10 @@ function highlight(value: string) {
 
 function highlightCSharp(value: string) {
   const source = value;
-  if (window.Prism?.languages?.csharp) {
-    return window.Prism.highlight(
+  if (prismCSharp.languages.csharp) {
+    return prismCSharp.highlight(
       source,
-      window.Prism.languages.csharp,
+      prismCSharp.languages.csharp,
       "csharp");
   }
   return escapeHtml(source);
@@ -5577,7 +5580,7 @@ function annotatedSourceHighlighter(
 ) {
   return createCSharpRangeHighlighter(
     source,
-    window.Prism,
+    prismCSharp,
     escapeHtml,
     tokenizationSource,
     excludedRanges,
