@@ -443,6 +443,11 @@ internal static class CliRowSelectionRouteEnvelope
                 .Distinct()
                 .Order()
                 .ToArray();
+        int[] shadowedRowOptionPositions =
+            result.ShadowedRowOptionPositions
+                .Where(position => position >= prefixLength)
+                .Select(position => position - prefixLength)
+                .ToArray();
         int? unexpectedCommandPosition =
             !ReferenceEquals(
                 result.ParseResult.CommandResult.Command,
@@ -471,6 +476,7 @@ internal static class CliRowSelectionRouteEnvelope
             occurrences,
             argumentFailures,
             requiredValuePositions,
+            shadowedRowOptionPositions,
             unexpectedCommandPosition,
             declaredKinds);
     }
@@ -611,11 +617,40 @@ internal static class CliRowSelectionRouteEnvelope
                 continue;
             }
 
+            CandidateObservation[] shadowed =
+                observations.Where(observation =>
+                    observation.ShadowedRowOptionPositions.Contains(position)).ToArray();
+            if (shadowed.Length > 0)
+            {
+                lineSelectionDeferred |= meanings.Any(meaning =>
+                    meaning is CliRowSelectionOccurrenceKind.Lines
+                        or CliRowSelectionOccurrenceKind.TailLines);
+                if (shadowed.All(observation => observation.ExpectedCommandSelected))
+                {
+                    deferredPositions.Add(position);
+                }
+
+                continue;
+            }
+
             if (bare)
             {
                 if (bareDeclared.Any(value => !value))
                 {
                     deferredPositions.Add(position);
+                    continue;
+                }
+
+                if (observations.Any(observation =>
+                    !observation.Occurrences.Any(occurrence =>
+                        occurrence.Kind == CliRowSelectionOccurrenceKind.Limit
+                        && occurrence.Position == position)))
+                {
+                    if (observations.All(observation => observation.ExpectedCommandSelected))
+                    {
+                        deferredPositions.Add(position);
+                    }
+
                     continue;
                 }
 
@@ -835,6 +870,7 @@ internal static class CliRowSelectionRouteEnvelope
                 occurrences,
             IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
             IReadOnlyList<int> requiredValuePositions,
+            IReadOnlyList<int> shadowedRowOptionPositions,
             int? unexpectedCommandPosition,
             bool[] declaredKinds)
         {
@@ -844,6 +880,7 @@ internal static class CliRowSelectionRouteEnvelope
             Occurrences = occurrences;
             ArgumentFailures = argumentFailures;
             RequiredValuePositions = requiredValuePositions;
+            ShadowedRowOptionPositions = shadowedRowOptionPositions;
             UnexpectedCommandPosition =
                 unexpectedCommandPosition;
             DeclaredKinds = declaredKinds;
@@ -871,6 +908,8 @@ internal static class CliRowSelectionRouteEnvelope
             ExpectedCommandSelected && ArgumentFailures.Count == 0;
 
         public IReadOnlyList<int> RequiredValuePositions { get; }
+
+        public IReadOnlyList<int> ShadowedRowOptionPositions { get; }
 
         public int? UnexpectedCommandPosition { get; }
 

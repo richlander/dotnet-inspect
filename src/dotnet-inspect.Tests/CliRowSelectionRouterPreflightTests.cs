@@ -1135,6 +1135,165 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void ChildShadowedRowOptionsKeepTheirParsedOwner()
+    {
+        string[] aliases =
+            ["-n", "--rows", "--top", "--order-by", "--head", "--tail", "--lines", "--tail-lines"];
+        foreach (string alias in aliases)
+        {
+            CandidateFixture first =
+                new("first", capabilities: CliRowSelectionCapabilities.None,
+                    parentName: "scope", childName: "Target",
+                    childDeclarations: RowDeclarations.All, childOptionName: alias);
+            CandidateFixture second =
+                new("second", capabilities: CliRowSelectionCapabilities.None,
+                    childName: "Target", childDeclarations: RowDeclarations.All,
+                    childOptionName: alias);
+            (string[] Arguments, bool HasValue)[] cases =
+            [
+                (["Target", alias, "payload"], true),
+                (["Target", $"{alias}=payload"], true),
+                (["Target", $"{alias}:payload"], true),
+                (["Target", alias], false)
+            ];
+            foreach (var scenario in cases)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(scenario.Arguments, first, second);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(scenario.Arguments, second, first);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal([0], result.DeferredPositions);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+
+                foreach (CandidateFixture fixture in new[] { first, second })
+                {
+                    string[] explicitArguments =
+                        [.. fixture.Candidate.CommandPrefix, .. scenario.Arguments];
+                    CliRowSelectionArgumentResult inspected =
+                        CliRowSelectionArgumentAdapter.InspectExplicit(
+                            fixture.Candidate.ParserRoot, explicitArguments, fixture.Candidate.Bindings);
+                    Assert.Empty(inspected.Occurrences);
+                    Assert.Empty(inspected.ArgumentFailures);
+
+                    CliRowSelectionArgumentResult lowered =
+                        CliRowSelectionArgumentAdapter.LowerExplicit(
+                            fixture.Candidate.ParserRoot, explicitArguments, fixture.Candidate.Bindings,
+                            CliRowSelectionCapabilities.All);
+                    Assert.Empty(lowered.Occurrences);
+                    Assert.Empty(lowered.ArgumentFailures);
+                    if (scenario.HasValue)
+                    {
+                        Assert.Empty(inspected.ParseErrors);
+                        Assert.Equal("payload", inspected.ParseResult.GetValue(fixture.ChildOption!));
+                        Assert.True(lowered.LoweringResult!.IsSuccess);
+                    }
+                    else
+                    {
+                        Assert.NotEmpty(inspected.ParseErrors);
+                        Assert.True(lowered.HasParseErrors);
+                        Assert.Null(lowered.LoweringResult);
+                    }
+                }
+            }
+
+            if (alias == "-n")
+            {
+                foreach (string shorthand in new[] { "-2", "-n2" })
+                {
+                    string[] arguments = ["Target", shorthand];
+                    CliRowSelectionRouteEnvelopeResult result = Evaluate(arguments, first, second);
+                    Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                    Assert.Equal([0], result.DeferredPositions);
+                    string[] explicitArguments = [.. first.Candidate.CommandPrefix, .. arguments];
+                    CliRowSelectionArgumentResult inspected =
+                        CliRowSelectionArgumentAdapter.InspectExplicit(
+                            first.Candidate.ParserRoot, explicitArguments, first.Candidate.Bindings);
+                    Assert.Equal(explicitArguments, inspected.Arguments);
+                    Assert.Empty(inspected.Occurrences);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void ChildShadowedLinesCannotCreateCountAbsenceOrCapabilities()
+    {
+        foreach (string modifier in new[] { "--lines", "--tail-lines" })
+        {
+            CandidateFixture first =
+                new("first", capabilities: CliRowSelectionCapabilities.Lines,
+                    parentName: "scope", childName: "Target",
+                    childDeclarations: RowDeclarations.All, childOptionName: modifier);
+            CandidateFixture second =
+                new("second", capabilities: CliRowSelectionCapabilities.Lines,
+                    childName: "Target", childDeclarations: RowDeclarations.All,
+                    childOptionName: modifier);
+            (string[] Arguments, int ChildPosition)[] cases =
+            [
+                (["Target", modifier, "-n2"], 0),
+                (["Target", modifier, "-2"], 0),
+                (["Target", modifier, "payload", "-n2"], 0),
+                (["Target", $"{modifier}=payload", "-n2"], 0),
+                ([modifier, "-n", "2", "Target", modifier, "payload"], 3)
+            ];
+            foreach (var scenario in cases)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(scenario.Arguments, first, second);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(scenario.Arguments, second, first);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal([scenario.ChildPosition], result.DeferredPositions);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+            }
+
+            CandidateFixture unshadowed =
+                new("unshadowed", capabilities: CliRowSelectionCapabilities.Lines,
+                    childName: "Target", childDeclarations: RowDeclarations.All);
+            CliRowSelectionRouteEnvelopeResult neighbor =
+                Evaluate(["Target", modifier, "-n2"], unshadowed, unshadowed);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, neighbor.Outcome);
+            Assert.Equal([0], neighbor.DeferredPositions);
+        }
+    }
+
+    [Fact]
+    public void ChildShadowedCountCannotEstablishAbsence()
+    {
+        CandidateFixture first =
+            new("first", childName: "Target", childDeclarations: RowDeclarations.All,
+                childOptionName: "-n");
+        CandidateFixture second =
+            new("second", parentName: "scope", childName: "Target",
+                childDeclarations: RowDeclarations.All, childOptionName: "-n");
+        foreach (string modifier in new[] { "--lines", "--tail-lines", "--head", "--tail" })
+        {
+            (string[] Arguments, int ChildPosition)[] cases =
+            [
+                (["Target", modifier], 0),
+                (["Target", modifier, "-n", "payload"], 0),
+                (["-n", "2", "Target", modifier, "-n", "payload"], 2),
+                (["-2", "Target", modifier, "-n", "payload"], 1),
+                (["-n2", "Target", modifier, "-n", "payload"], 1)
+            ];
+            foreach (var scenario in cases)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(scenario.Arguments, first, second);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(scenario.Arguments, second, first);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal([scenario.ChildPosition], result.DeferredPositions);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+            }
+        }
+    }
+
+    [Fact]
     public void DeferredLineModifierCannotChangeEarlierCountMeaning()
     {
         CandidateFixture lineIsRequiredValue =
@@ -1495,7 +1654,8 @@ public sealed class CliRowSelectionRouterPreflightTests
             string headName = "--head",
             string tailName = "--tail",
             string linesName = "--lines",
-            string tailLinesName = "--tail-lines")
+            string tailLinesName = "--tail-lines",
+            string? childOptionName = null)
         {
             Option<string[]> limit =
                 RowValueOption(limitName);
@@ -1635,6 +1795,14 @@ public sealed class CliRowSelectionRouterPreflightTests
                 {
                     tailLines.Recursive = true;
                 }
+                if (childOptionName is not null)
+                {
+                    ChildOption = new Option<string?>(childOptionName)
+                    {
+                        Arity = ArgumentArity.ExactlyOne
+                    };
+                    child.Options.Add(ChildOption);
+                }
                 command.Subcommands.Add(child);
             }
 
@@ -1678,6 +1846,8 @@ public sealed class CliRowSelectionRouterPreflightTests
         }
 
         public CliRowSelectionRouteCandidate Candidate { get; }
+
+        public Option<string?>? ChildOption { get; }
 
         private static void Add(
             Command command,
