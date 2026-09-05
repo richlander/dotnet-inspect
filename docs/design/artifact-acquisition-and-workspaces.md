@@ -2304,8 +2304,9 @@ ordinary inspection still receives the surface while the typed implementation
 failure remains visible. Existing package command gates continue to own Markout
 output compatibility.
 
-Local archives and `--tfm all` selection remain on the legacy grouped
-workspace. An explicit single-framework selection is eligible for the shared
+Local archives, `--tfm all`, and framework spellings outside the
+acquisition-coordinate grammar remain on the legacy grouped workspace.
+An explicit single-framework selection is eligible for the shared
 path, but it can still include tools or multiple package layout roles that
 are not one compile-role projection; silently narrowing its visible library
 set would not be a behavior-preserving adoption. Any selection
@@ -2318,7 +2319,8 @@ Browser/Wasm adoption remains the separate #5576 slice.
 
 `PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles`
 gates the real CLI command over a source-scoped cached package, including
-default, explicit, all-framework, and mixed surface/implementation selections.
+default, explicit, legacy framework spellings, all-framework, and mixed
+surface/implementation selections.
 The verbose artifact-backed route message is emitted only after successful
 shared realization, so the gate covers actual adoption rather than eligibility
 alone. #5917 owns this bounded expansion under #5577; legacy deletion remains

@@ -5084,7 +5084,7 @@ public class PackageCommand
         string? selectedProducerKey,
         IEnumerable<string> selectedPackagePaths) =>
         !isLocalFile
-        && !string.IsNullOrWhiteSpace(selectedTargetFramework)
+        && PackageCoordinateResolver.IsAcquisitionTargetText(selectedTargetFramework)
         && !string.IsNullOrWhiteSpace(selectedProducerKey)
         && selectedPackagePaths.All(static path =>
             path.StartsWith("ref/", StringComparison.OrdinalIgnoreCase)

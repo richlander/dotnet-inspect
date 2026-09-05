@@ -187,6 +187,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData(false, null, "producer", "lib/net11.0/Test.dll", false)]
     [InlineData(false, "net11.0", null, "lib/net11.0/Test.dll", false)]
     [InlineData(false, "net11.0", "producer", "tools/net11.0/any/Test.dll", false)]
+    [InlineData(false, "net35-Unity Full v3.5", "producer", "lib/net35-Unity Full v3.5/Test.dll", false)]
     public void ArtifactBackedSelection_RequiresOneRemoteCompileFramework(
         bool isLocalFile,
         string? selectedTargetFramework,
@@ -209,6 +210,7 @@ public sealed class PackageIntegrationsWorkspaceTests
     [InlineData("net10.0", false, true)]
     [InlineData("all", false, false)]
     [InlineData("net10.0", true, false)]
+    [InlineData("net35-Unity Full v3.5", false, false)]
     public async Task PackageCommand_ExplicitTfmPreservesSelectionAndUsesCompatibleArtifactRoles(
         string? targetFramework,
         bool includeReferenceRole,
@@ -224,7 +226,10 @@ public sealed class PackageIntegrationsWorkspaceTests
             string staged = Path.Combine(directory, "content");
             byte[] image = File.ReadAllBytes(
                 typeof(Npgsql.NpgsqlConnection).Assembly.Location);
-            foreach (string framework in new[] { "net10.0", "net11.0" })
+            string fixtureFramework = targetFramework is null or "all"
+                ? "net10.0"
+                : targetFramework;
+            foreach (string framework in new[] { fixtureFramework, "net11.0" })
             {
                 string assets = Path.Combine(staged, "lib", framework);
                 Directory.CreateDirectory(assets);
@@ -232,7 +237,7 @@ public sealed class PackageIntegrationsWorkspaceTests
             }
             if (includeReferenceRole)
             {
-                string assets = Path.Combine(staged, "ref", "net10.0");
+                string assets = Path.Combine(staged, "ref", fixtureFramework);
                 Directory.CreateDirectory(assets);
                 File.WriteAllBytes(Path.Combine(assets, "Npgsql.dll"), image);
             }
