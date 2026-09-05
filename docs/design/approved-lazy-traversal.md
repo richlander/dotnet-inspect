@@ -95,16 +95,21 @@ The target defaults for a newly constructed Inspect Web Workspace are:
 | Microsoft.Extensions ecosystem | Registered for on-demand traversal |
 | Other ecosystems and raw prefixes | Explicit opt-in |
 
-The same construction policy applies when starting through Home, opening a
-package through Spotlight, or creating an empty Workspace in the editor.
-Defaults are applied once to new construction, not whenever the editor opens,
-a package becomes active, or the UI rerenders.
+The Browser supplies these defaults when it constructs a new runtime Workspace
+for fresh intent, whether through Home, a Spotlight package opening, or the
+empty editor. It does not reapply them whenever the editor opens, a package
+becomes active, or the UI rerenders.
+
+Package Open, including Spotlight Open, is not new construction when a runtime
+Workspace already exists. That Open explicitly supplies the current
+Workspace's registrations, including an empty set after both defaults were
+removed. It neither reapplies defaults nor relies on implicit Scope
+inheritance.
 
 Users can unregister either default through the same trailing removal control
-used for other registrations. A fresh construction and restoration are
-different operations: navigation within the current Workspace and restoration
-of recorded intent preserve opt-outs. Opening an existing subject does not
-reapply defaults. A genuinely new Workspace receives its declared defaults.
+used for other registrations. Navigation within the current Workspace
+preserves opt-outs. Restoration supplies recorded intent instead of
+construction defaults, even when it requires a new runtime Workspace.
 
 ### Why Microsoft.Extensions is a default
 
@@ -269,7 +274,9 @@ are delivery stages, not permission to combine component-internal designs:
 2. The catalog owner supplies the additional ecosystem knowledge under #5728,
    consuming source and Integration-owned values rather than defining them.
 3. Scope adopts the required registration/admission behavior under #5697,
-   consuming those owner-issued inputs.
+   consuming those owner-issued inputs. This includes a focused revision of its
+   current ordinary-Open empty-policy mapping before the Browser's explicit
+   current-policy handoff can ship.
 4. Query owners establish bounded forward and population-search operations,
    including the prefix-only non-hub graph and its coverage result.
 5. Workspace Definitions supplies portable intent-only and opt-out restoration
@@ -295,7 +302,8 @@ the current implementation:
 
 | Scenario | Required observation |
 | --- | --- |
-| Construct from Home, Spotlight, or the empty editor | The two defaults are registered, with no registration-triggered acquisition or analysis |
+| Construct a fresh Workspace from Home, Spotlight, or the empty editor | The two defaults are registered, with no registration-triggered acquisition or analysis |
+| Open another package through Spotlight after unregistering either or both defaults | The existing Workspace explicitly supplies its current registrations; defaults do not reappear |
 | Unregister Platform, navigate, save, and restore | The opt-out survives; existing content remains usable; a later reference cannot silently reenlist it |
 | Follow an approved framework reference | The applicable target resolves or fails visibly without changing to an unrelated platform |
 | Resolve a type with a matching, missing, or overlapping ecosystem hint | Metadata remains authoritative; bounded misses and ambiguity remain honest |
