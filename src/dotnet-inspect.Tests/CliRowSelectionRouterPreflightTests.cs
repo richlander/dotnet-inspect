@@ -946,6 +946,77 @@ public sealed class CliRowSelectionRouterPreflightTests
     }
 
     [Fact]
+    public void UnexpectedChildSelectionCannotEstablishCountAbsence()
+    {
+        CandidateFixture first =
+            new(
+                "first",
+                parentName: "scope",
+                childName: "Target",
+                childDeclarations: RowDeclarations.All & ~RowDeclarations.Limit);
+        CandidateFixture second =
+            new(
+                "second",
+                childName: "Target",
+                childDeclarations: RowDeclarations.All & ~RowDeclarations.Limit);
+
+        foreach (string modifier in new[] { "--lines", "--tail-lines", "--head", "--tail" })
+        {
+            (string[] Arguments, int ChildPosition)[] cases =
+            [
+                (["Target", modifier, "-n", "2"], 0),
+                (["Target", modifier, "-n"], 0),
+                (["Target", modifier, "-n=2"], 0),
+                (["Target", modifier, "-2"], 0),
+                (["-n", "2", "Target", modifier], 2)
+            ];
+            foreach (var scenario in cases)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(scenario.Arguments, first, second);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(scenario.Arguments, second, first);
+
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal([scenario.ChildPosition], result.DeferredPositions);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+            }
+
+            CliRowSelectionRouteEnvelopeResult commonValueFailure =
+                Evaluate(["Target", "--rows", "bad", modifier, "-n", "2"], first, second);
+            Assert.Equal(
+                CliRowSelectionRouteEnvelopeOutcome.LoweringFailure,
+                commonValueFailure.Outcome);
+            Assert.Equal(
+                CliRowSelectionFailureReason.InvalidWindowForm,
+                commonValueFailure.Failure!.Reason);
+            Assert.Equal(1, commonValueFailure.Position);
+
+            CliRowSelectionRouteEnvelopeResult commonArityFailure =
+                Evaluate(["Target", modifier, "--rows"], first, second);
+            Assert.Equal(
+                CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure,
+                commonArityFailure.Outcome);
+            Assert.Equal(
+                CliRowSelectionArgumentFailureReason.MissingValue,
+                commonArityFailure.ArgumentFailure!.Reason);
+            Assert.Equal(CliRowSelectionOccurrenceKind.Rows, commonArityFailure.RequestKind);
+            Assert.Equal(2, commonArityFailure.Position);
+        }
+
+        CliRowSelectionRouteEnvelopeResult commonConflict =
+            Evaluate(["Target", "--head", "--tail", "-n", "2"], first, second);
+        Assert.Equal(
+            CliRowSelectionRouteEnvelopeOutcome.LoweringFailure,
+            commonConflict.Outcome);
+        Assert.Equal(
+            CliRowSelectionFailureReason.ConflictingDirection,
+            commonConflict.Failure!.Reason);
+        Assert.Equal(2, commonConflict.Position);
+    }
+
+    [Fact]
     public void DeferredLineModifierCannotChangeEarlierCountMeaning()
     {
         CandidateFixture lineIsRequiredValue =

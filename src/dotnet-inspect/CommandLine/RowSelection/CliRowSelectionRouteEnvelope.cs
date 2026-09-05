@@ -860,7 +860,9 @@ internal static class CliRowSelectionRouteEnvelope
             get;
         }
 
-        public bool HasCompleteOccurrences => ArgumentFailures.Count == 0;
+        // A different command scope can hide options without a row-arity failure.
+        public bool HasCompleteOccurrences =>
+            ExpectedCommandSelected && ArgumentFailures.Count == 0;
 
         public IReadOnlyList<int> RequiredValuePositions { get; }
 
