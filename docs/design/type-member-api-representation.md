@@ -669,6 +669,15 @@ itself does not distinguish implicit from explicit or checked operators. Checked
 explicit operators retain Metadata return evidence, while the current source
 adapter refuses their headers visibly rather than manufacturing correspondence.
 
+`ParameterPassingSignatureShapeFlowTests` records value-versus-by-reference
+passing through compiler-produced signatures, source headers, literal canonical
+transport, and candidate matching. Passing position and array element type stay
+distinct, and an array passed by value is not a by-reference parameter.
+`ref`, `out`, `in`, and `ref readonly` share the by-reference shape: alternative
+declarations differing only in those modifiers remain ambiguous, not evidence
+of direction, readonly semantics, or member identity. Correspondence remains
+unavailable when only an opposite-passing candidate is supplied.
+
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
 disagree, or when a declaring TypeDef chain's canonical name arities and
