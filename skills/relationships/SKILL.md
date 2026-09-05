@@ -27,6 +27,23 @@ prefix; the command warns when that bound is reached. `depends` does not accept
 `--project` reads existing restored assets; restore/build first if dependencies
 changed.
 
+## What does the root declare directly?
+
+`dependency-evidence` reports one normalized snapshot of the direct
+dependencies declared by explicit package, nuspec, restored-project, or
+package-prefix roots. It preserves framework scopes, version constraints,
+restored resolution evidence, and root-set completion without walking the
+transitive dependency tree. Use `depends` when traversal is the goal.
+
+```bash
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package Newtonsoft.Json --tfm net8.0
+dnx dotnet-inspect -y -- dependency-evidence \
+  --project ./src/App/App.csproj --nuspec ./artifacts/App.nuspec -v:n
+dnx dotnet-inspect -y -- dependency-evidence \
+  --package-prefix Microsoft.Extensions --tfm net10.0 --jsonl
+```
+
 ## What implements or extends it?
 
 `implements Interface` finds concrete implementors and subclasses;

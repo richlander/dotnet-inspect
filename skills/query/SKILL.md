@@ -146,6 +146,25 @@ columns; companion schema discovery requires one resolved section.
 A known section with no implemented query bindings
 says so; this currently includes package-query facets not yet wired to the CLI.
 
+## Correlate one member's Findings
+
+Select `Finding Census` by its exact name for one body-backed method or
+accessor. It returns one indivisible envelope containing the census receipt,
+raw Facts, annotated-source document, and document-local fact-to-instance
+sidecar. The receipt scopes every instance key so display-identical Findings
+remain distinct.
+
+```bash
+dnx dotnet-inspect -y -- member JsonSerializer \
+  --package System.Text.Json Serialize:1 \
+  -S "Finding Census" --json
+```
+
+The section is explicit-only: categories, broad wildcards, and non-exact
+selectors omit or reject it. Markdown and exact singleton JSON preserve the
+envelope. Table, TSV, JSONL, count, row-window, field, and column projections
+fail because they cannot preserve the correlation document.
+
 ## Query rendered body shapes
 
 At library scope, select exact rendered C# syntax occurrences with the stable
