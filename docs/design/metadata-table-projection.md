@@ -145,7 +145,8 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
 `AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
 table, its rows with:
 
-This projection supports ordinary ECMA-335 assembly metadata only. Before any
+This projection supports ordinary ECMA-335 metadata roots: the CLI metadata
+root by default, or an explicitly selected ReadyToRun manifest root. Before any
 table, row, reverse-reference, image-overview, or heap operation constructs its
 `MetadataReaderOptions.None` reader, it calls the MetadataPrimitives-owned
 `MetadataImageFormatClassifier`. That classifier reads only the fixed
@@ -158,10 +159,14 @@ current project scope. A PE without metadata returns the classifier's typed
 projector's no-metadata boundary. The direct projector APIs throw
 `UnsupportedMetadataFormatException` before projecting rows or heaps only for
 unsupported Windows Metadata and `BadImageFormatException` for a malformed
-root; `AssemblyInspectionSession` and query owners map those specific
-mechanisms to typed unsupported-input and malformed-input results. Neither may
-become `null`, an empty projection, or partial rows. `MDP017` gates every
-existing entry point as well as the CLI metadata lens.
+root. Direct operations, including `AssemblyInspectionSession`, propagate those
+mechanisms; query failure mapping belongs to their consumers. A reported
+rejection must not become `null`, an empty projection, or partial rows.
+`MetadataImageFormatClassifierTests` gates the adopted direct projection
+entry points. Repository-wide reader-construction closure remains unverified
+and enforcement deliberately partial, as recorded in
+[Metadata primitives](../metadata-primitives.md#supported-assembly-metadata-format)
+and #5559.
 
 The diagnostic lens does not bypass format admission to inspect an arbitrarily
 long nonconforming root version. A padded version field above 256 bytes receives
@@ -185,6 +190,46 @@ root envelope, not a promise to inspect roots outside it.
 
 Resolution reuses `ILTokenResolver`; the projection does **not** fork a second
 decoder (see [Non-goals](#non-goals)).
+
+### ReadyToRun manifest roots
+
+This owner adopts the manifest extent supplied by the sibling
+[ReadyToRun image projection](readytorun-image-projection.md), without changing
+that owner's discovery, validation, alias, or failure contract. The immediate
+consumer is this projection's overview and table/row/reference/heap operations.
+Issue #5974 is slice 2 of #5835's four-slice production-host path; CLI and
+browser/Wasm presentation remain slices 3 and 4.
+
+Root selection is explicit. A separate manifest projects exactly the declared
+section-112 bytes through the existing SRM-backed projection, not the containing
+PE section and not the CLI root. A manifest need not contain an `Assembly` row.
+The existing PE-facing operations continue to select only CLI metadata and do
+not acquire a new dependency on successful R2R inspection.
+
+Provenance preserves the requested root and its canonical identity. Within the
+containing image, that identity consists of the canonical root kind and its RVA
+and size. When the producer reports exact CLI-directory aliasing, the canonical
+identity is the CLI root's existing extent, while the requested R2R provenance
+remains visible. It is not a second physical root. This image-relative identity
+is not an artifact identity or a cross-image cache key.
+
+Every row token, handle target, reverse reference, and heap address is relative
+to the selected root. A root-scoped inspection keeps these operations together;
+navigation must retain that scope rather than resolve an address against the
+default CLI root. Its retained metadata bytes are independent of the source
+reader's lifetime. Existing projection budgets, containment, table coverage, and
+failure shapes apply unchanged.
+
+Absence and failure remain different. No R2R advertisement or no section 112
+means no manifest root. An advertised empty or malformed root, or a reported R2R
+discovery failure, is not absence and does not fall back to CLI metadata. SRM
+still owns stream and table decoding after the shared bounded root-format
+classification; this is not a complete metadata-validity claim.
+
+The focused Release gate is `MetadataRootInspectionTests`: separate-root data
+and navigation, canonical CLI alias identity, absent manifest, malformed
+manifest with independently readable CLI metadata, source-reader disposal, and
+the SDK CoreLib canary. Broad composite/corpus work remains outside fast PR CI.
 
 ## Structured model
 

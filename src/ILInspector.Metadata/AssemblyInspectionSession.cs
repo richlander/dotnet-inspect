@@ -314,6 +314,13 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataTableProjector.Project(_image.PEReader, options);
 
     /// <summary>
+    /// Captures an explicitly selected metadata root for scoped table and heap
+    /// navigation. The captured root remains readable after this session closes.
+    /// </summary>
+    public MetadataRootInspection? MetadataRoot(MetadataRootKind root = MetadataRootKind.Cli)
+        => MetadataRootInspection.Open(_image.PEReader, root);
+
+    /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
     /// row window. This is the handle click-through primitive: it reaches a
     /// target row that a windowed <see cref="MetadataTables"/> call did not
