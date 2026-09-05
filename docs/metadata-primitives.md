@@ -264,8 +264,11 @@ outcomes rather than acquisition failures.
 **Dependency-scan rejection boundary.** `TypeDependencyScanner` preserves each
 reported admission or relationship-decoding rejection against its candidate as
 a typed `TypeDependencyRejection`. No rows from a rejected candidate may
-participate in the result, including rows decoded before the failure. A
-reported signature rejection must not become an absent relationship. These
+participate in the result, including rows decoded before the failure. That
+pre-failure row exclusion is gated by
+`DependencyScan_RejectedParticipantContributesNoRowsToTheIndex`.
+Reported relationship failures must retain their candidate attribution, and a
+reported signature rejection must not become an absent relationship. Those
 obligations are gated by
 `DependencyScan_MalformedRelationshipDoesNotShadowHealthyNeighbor` and
 `DependencyScan_MalformedTypeSpecBaseIsRejectedNotSilentlyDropped`. A file
@@ -361,21 +364,20 @@ partial-rows rule above rather than the owner:
   `TypeDependencyScanner` carries its rejections on the result, and
   `AssemblySetResolutionSession` records a typed `ApiSurfaceInspectionFailure`
   and continues, so healthy neighbors still contribute. These are the bounded
-  relaxation described above: the answer is explicitly uncertified.
+  relaxation described above: surviving contributions retain their
+  participant-scoped failure records.
 - **A package or platform member fails as a unit.** `WorkspaceContextLoader`
-  returns a typed member failure when any selected assembly asset is rejected,
-  because a workspace member is not a scan and may not present partial rows —
-  a graph built from the surviving assets would claim a completeness it does
-  not have.
+  returns a typed member failure when admission reports a rejection for a
+  selected assembly asset. It does not publish the surviving assets as though
+  that reported failure had not occurred.
 
-This is a deliberate behavior change from the base for the malformed and
-non-PE cases. The base swallowed `BadImageFormatException` inside
-`CreateFromStreamIfManaged` and returned `null`, so a corrupt or non-PE
-`lib/<tfm>/*.dll` asset was silently skipped and the member loaded as though
-the package were intact. That is the success-shaped outcome this contract
-exists to remove; the member now fails with the mechanism named. A file with
-no managed metadata is still not an assembly and is still skipped, so ordinary
-native libraries shipped beside managed ones are unaffected.
+Descriptorless selection remains a permitted non-assembly outcome, not a
+reported admission failure. The member-failure guarantee therefore does not
+promise that every non-PE `lib/<tfm>/*.dll` asset is rejected. In particular,
+seekable input without a PE signature can be skipped before admission, as
+gated by `DescriptorSelection_ClassifiesDescriptorlessImages`. Ordinary
+native libraries with no managed metadata also remain skippable. Neither
+case certifies that all selected package assets are valid managed assemblies.
 
 An explicitly named malformed library gains the same exactness. At this head
 `type` on a PE image whose CLI metadata directory size is zeroed exits 1 with
@@ -396,10 +398,12 @@ three things rather than the explicit-name case:
   Research, ILDiff, and the remaining Queries and CLI sites reach
   `MetadataReader` without admission, so a `.winmd` supplied directly to one of
   their APIs is still admitted. See the `MDP017` note below.
-- **Input that is not a PE image is reported as a malformed metadata root.** A
-  non-PE file has no metadata root to malform, so the reason code overstates
-  what was observed. The failure stays visible and the exit code is correct;
-  only the classification is imprecise.
+- **Non-PE classification depends on the entry point.**
+  `MetadataImageFormatClassifier.Classify` maps an unreadable PE header to a
+  malformed-root result. For non-PE input that reaches this classifier, the
+  reason overstates what was observed: there is no metadata root to malform.
+  This does not describe the descriptorless selection path above, which can
+  skip such input before admission.
 
 Two claims follow, and callers must not strengthen either. Windows Metadata is
 unsupported, so any value derived from it is unsupported output even when it is
