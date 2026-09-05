@@ -155,6 +155,7 @@ public static class RouterCommandDefinition
         "extensions",
         "implements",
         "depends",
+        DependencyEvidenceCommand.Name,
         "cache",
         "skill",
         DemoCommand.Name
