@@ -119,6 +119,31 @@ public static partial class AttributeReader
         return false;
     }
 
+    internal static (bool IsExtension, bool IsReadOnly) ReadMethodMarkerAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        bool includeExtension,
+        Action<int>? beforeMaterialize)
+    {
+        // Share name materialization rather than adding a scan for each marker.
+        bool isExtension = false;
+        bool isReadOnly = false;
+        foreach (var handle in attributes)
+        {
+            var attribute = reader.GetCustomAttribute(handle);
+            string? name = GetAttributeTypeName(
+                reader,
+                attribute.Constructor,
+                beforeMaterialize);
+            isExtension |= includeExtension
+                && name == KnownAttributeNames.ExtensionAttribute;
+            isReadOnly |= name == KnownAttributeNames.IsReadOnlyAttribute;
+            if (isReadOnly && (!includeExtension || isExtension))
+                break;
+        }
+        return (isExtension, isReadOnly);
+    }
+
     public static bool TryGetExtensionMarkerName(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,

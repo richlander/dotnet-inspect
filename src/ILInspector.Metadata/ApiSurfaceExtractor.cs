@@ -1053,11 +1053,12 @@ public static class ApiSurfaceExtractor
                     observeDecodeWork);
 
                 var methodAttributes = method.Attributes;
-                bool isExtensionMethod = isExtensionClass
-                    && (methodAttributes & MethodAttributes.Static) != 0
-                    && AttributeReader.HasExtensionAttribute(
+                var (isExtensionMethod, isReadOnlyMethod) =
+                    AttributeReader.ReadMethodMarkerAttributes(
                         reader,
                         methodCustomAttributes,
+                        includeExtension: isExtensionClass
+                            && (methodAttributes & MethodAttributes.Static) != 0,
                         observeDecodeWork);
                 var signature = GetMethodSignature(
                     reader,
@@ -1125,11 +1126,7 @@ public static class ApiSurfaceExtractor
                     IsOverride = modifiers.IsOverride,
                     IsSealed = modifiers.IsSealed,
                     IsFinalizer = isFinalizer,
-                    IsReadOnly = AttributeReader.HasAttribute(
-                        reader,
-                        methodCustomAttributes,
-                        KnownAttributeNames.IsReadOnlyAttribute,
-                        observeDecodeWork),
+                    IsReadOnly = isReadOnlyMethod,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded

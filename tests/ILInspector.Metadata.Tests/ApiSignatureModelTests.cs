@@ -15,6 +15,17 @@ public sealed class ApiSignatureModelTests
         Surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
     }
 
+    [Theory]
+    [InlineData(nameof(ReadOnlyMethodFixtures.ReadOnly), true)]
+    [InlineData(nameof(ReadOnlyMethodFixtures.Mutable), false)]
+    public void MethodSignatureModel_RetainsPhysicalReadOnlyAttribute(
+        string methodName,
+        bool isReadOnly)
+    {
+        var member = GetMember(nameof(ReadOnlyMethodFixtures), methodName);
+        Assert.Equal(isReadOnly, member.IsReadOnly);
+    }
+
     [Fact]
     public void MethodSignatureModel_ExposesReturnTypeParametersAndDefaults()
     {
@@ -607,6 +618,12 @@ public sealed class ApiSignatureFixtures
     }
 
     public int InitValue { get; init; }
+}
+
+public struct ReadOnlyMethodFixtures
+{
+    public readonly int ReadOnly() => 42;
+    public int Mutable() => 42;
 }
 
 public interface IExplicitAccessor

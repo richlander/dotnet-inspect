@@ -135,7 +135,9 @@ Full API extraction retains the physical MethodDef `IsReadOnly` attribute in
 `ApiMember.IsReadOnly` for all methods, not only projected accessors. Existing
 API JSON, C# declaration views, and Metadata Findings consume this fact, so
 ordinary member output can gain `is_read_only` or `readonly` independently of
-Source Diff.
+Source Diff. The Release
+`MethodSignatureModel_RetainsPhysicalReadOnlyAttribute` cases gate ordinary
+readonly and mutable methods alongside the Source Diff accessor cases.
 
 Rich accessor models also retain whether a method is a private MethodImpl
 body. Accessor projection uses that relationship-derived classification rather
