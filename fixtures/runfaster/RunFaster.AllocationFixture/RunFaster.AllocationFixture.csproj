@@ -5,5 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <DebugType>portable</DebugType>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OfficialAotBuild)' == 'true'">
+    <OfficialBuild>true</OfficialBuild>
+    <PublishAot>true</PublishAot>
   </PropertyGroup>
 </Project>

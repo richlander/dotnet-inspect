@@ -21,13 +21,14 @@
   <ItemGroup>
     <ProjectReference Include="..\runfaster\runfaster.csproj" />
     <ProjectReference Include="..\dotnet-inspect\dotnet-inspect.csproj" />
-    <ProjectReference Include="Fixtures\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\fixtures\runfaster\RunFaster.AllocationFixture\RunFaster.AllocationFixture.csproj" ReferenceOutputAssembly="true" />
     <ProjectReference Include="..\..\tests\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="Fixtures\**" />
-    <Content Include="Fixtures\**\*.nettrace" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\fixtures\runfaster\RunFaster.AllocationFixture\fixture.nettrace"
+             Link="Fixtures\RunFaster.AllocationFixture\fixture.nettrace"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
