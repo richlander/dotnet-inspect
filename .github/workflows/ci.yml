@@ -477,6 +477,10 @@ jobs:
         working-directory: prototypes/inspect-web
         run: npm run test:browser
 
+      - name: Test published Worker browser binding
+        working-directory: prototypes/inspect-web
+        run: npm run inspect-web-worker-browser-binding
+
       - name: Test inspect-web promotion validation
         run: dotnet run eng/validate-inspect-web-promotion.cs -- --self-test
 
