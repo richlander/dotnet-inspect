@@ -901,10 +901,19 @@ and eight waiters must finish with no remaining entries or subscriptions.
 Additional negative controls reject a split producer, premature physical
 finalization, and an omitted final-waiter scenario.
 
-This is not a Worker, real-browser, DOM-responsiveness, prompt final-waiter
-quiescence, or epoch-work lease claim; the
-[managed operation bridge design] owns that scope and the remaining aggregate
-gate.
+An explicit epoch-work phase exercises the real managed reporter and final-waiter
+handoff: five physical producers, seven waiters, and three registrations.
+The final waiter can settle while the producer continues under one lease; later
+waiters reuse it, and finish follows physical finalization. Actual callback
+values pass through the Worker-owned envelope decoder. Failed starts retain
+fault ownership, and late producer and finish failures remain observable through
+generated Promises. Drain precedes unregister. Negative controls reject premature
+finalization and omitted lease reuse.
+
+This is not production Worker registration, liveness, a real-browser,
+DOM-responsiveness, or prompt-cancellation evidence; the
+[managed operation bridge design] owns the implemented subset and remaining
+aggregate gate.
 
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
 [managed operation bridge design]: ../../docs/design/inspect-web-managed-operation-bridge.md
