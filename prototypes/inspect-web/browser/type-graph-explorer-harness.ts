@@ -8,6 +8,9 @@ import {
 import { createWorkbenchKeybindings } from "../src/workbench-keybindings.ts";
 
 const app = document.querySelector<HTMLElement>("#app")!;
+app.style.height = "100dvh";
+app.style.display = "grid";
+app.style.gridTemplateRows = "40px minmax(0, 1fr)";
 const explorer = createGraphExplorer(document);
 const keybindings = createWorkbenchKeybindings();
 keybindings.attach(document);
