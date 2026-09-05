@@ -188,7 +188,9 @@ Metadata facts, (2) adopt them in the shared CSharp declaration producer under
 [#5257](https://github.com/richlander/dotnet-inspect/issues/5257), and (3)
 exercise that producer through CLI and browser/Wasm declaration surfaces.
 Stage 2 also consumes the Decompiler's independently owned primary-constructor
-fallback from #5255. This slice completes stage 1, not the host behavior.
+fallback from #5255. The focused
+[CSharp spelling contract](csharp-memory-safety-spelling.md) owns that consumer's
+declaration policy. This slice completes stage 1, not the host behavior.
 JS-export policy (#5258) and Research summaries (#5259) are separate adopters.
 The existing Boolean remains until its consumers explicitly migrate; no
 retirement or narrowing is performed here.
