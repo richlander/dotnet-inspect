@@ -283,7 +283,9 @@ public static partial class MetadataExports
                 cor?.Flags.ToString(),
                 cor?.MajorRuntimeVersion,
                 cor?.MinorRuntimeVersion,
-                cor?.EntryPointToken));
+                cor?.EntryPointToken,
+                cor?.ManagedNativeHeaderDirectory.RelativeVirtualAddress ?? 0,
+                cor?.ManagedNativeHeaderDirectory.Size ?? 0));
     }
 
     internal static BrowserMetadataWindow ProjectMetadataWindow(
