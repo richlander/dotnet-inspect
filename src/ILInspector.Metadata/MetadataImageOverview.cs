@@ -8,7 +8,7 @@ namespace ILInspector.Metadata;
 
 /// <summary>
 /// Image-level facts that sit outside a <see cref="MetadataTableProjection"/>:
-/// the metadata root's identity, the size and addressing of each heap, the
+/// the selected metadata root's identity, the size and addressing of each heap, the
 /// physical row count of every ECMA-335 table (including tables the projection
 /// does not model), and the PE/COR header facts a metadata browser shows
 /// alongside the tables.
@@ -89,7 +89,11 @@ public sealed record MetadataImageOverview
     /// </summary>
     public ImmutableArray<MetadataTableSummary> Tables { get; }
 
-    /// <summary>PE and CLI header facts for the containing image.</summary>
+    /// <summary>
+    /// PE and CLI header facts for the containing image. These are container
+    /// context when the selected root is R2R manifest metadata; they are not
+    /// fields inside that metadata root.
+    /// </summary>
     public MetadataImageHeaders Headers { get; }
 }
 

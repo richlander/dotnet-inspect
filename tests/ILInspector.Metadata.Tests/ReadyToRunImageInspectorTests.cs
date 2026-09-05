@@ -1,4 +1,7 @@
 using System.Buffers.Binary;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using ILInspector.Metadata;
 
@@ -435,7 +438,376 @@ public sealed class ReadyToRunImageInspectorTests
         Assert.Contains("partially populated", error.Message);
     }
 
+    [Fact]
+    public void MetadataRoots_UnadvertisedImage_ContainsOnlyCliMetadata()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+
+        MetadataRootInfo root = Assert.Single(session.MetadataRoots());
+
+        Assert.Equal([MetadataRootSource.Cli], root.Sources);
+        Assert.Null(session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+    }
+
+    [Fact]
+    public void MetadataRoots_AbsentReferenceSourceStillValidatesArguments()
+    {
+        using var session = AssemblyInspectionSession.Open(SelfPath);
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => session.MetadataReferences(
+                MetadataRootSource.ReadyToRunManifest,
+                TableIndex.TypeDef,
+                0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => session.MetadataReferences(
+                MetadataRootSource.ReadyToRunManifest,
+                TableIndex.TypeDef,
+                1,
+                -1));
+    }
+
+    [Fact]
+    public void MetadataRoots_CurrentCoreLibrary_OpensDistinctManifestMetadata()
+    {
+        using var session = AssemblyInspectionSession.Open(typeof(object).Assembly.Location);
+
+        MetadataRootInfo[] roots = session.MetadataRoots().ToArray();
+        MetadataRootInfo cli = roots.Single(
+            static root => root.Sources.SequenceEqual([MetadataRootSource.Cli]));
+        MetadataRootInfo manifest = roots.Single(
+            static root => root.Sources.SequenceEqual([MetadataRootSource.ReadyToRunManifest]));
+        MetadataRootValue<MetadataImageOverview> value = Assert.IsType<
+            MetadataRootValue<MetadataImageOverview>>(
+            session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+
+        Assert.NotEqual(cli.RelativeVirtualAddress, manifest.RelativeVirtualAddress);
+        Assert.Equal(manifest, value.Root);
+        Assert.Equal(manifest.Size, value.Value.MetadataSize);
+        Assert.True(value.Value.IsAssembly);
+        Assert.Equal(
+            1,
+            value.Value.Tables.Single(
+                static table => table.Index == TableIndex.TypeDef).RowCount);
+    }
+
+    [Fact]
+    public void MetadataRoots_DistinctManifest_ProjectsEveryMetadataFacet()
+    {
+        byte[] metadata = ReadSelfMetadataRoot();
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(ReadyToRunSectionType.ManifestMetadata, metadata),
+            ]);
+        using var peReader = Open(image.Bytes);
+        ReadyToRunSectionSummary manifestSection =
+            Assert.IsType<ReadyToRunImageOverview>(
+                ReadyToRunImageInspector.Describe(peReader))
+            .ManifestMetadata!;
+        int expectedOffset = ImageOffset(peReader, manifestSection.RelativeVirtualAddress);
+        using var session = OpenSession(image.Bytes);
+
+        MetadataRootInfo[] roots = session.MetadataRoots().ToArray();
+        Assert.Equal(2, roots.Length);
+        Assert.Equal([MetadataRootSource.Cli], roots[0].Sources);
+        Assert.Equal([MetadataRootSource.ReadyToRunManifest], roots[1].Sources);
+
+        MetadataRootValue<MetadataImageOverview> overview = Assert.IsType<
+            MetadataRootValue<MetadataImageOverview>>(
+            session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+        MetadataRootValue<MetadataTableProjection> tables = Assert.IsType<
+            MetadataRootValue<MetadataTableProjection>>(
+            session.MetadataTables(MetadataRootSource.ReadyToRunManifest));
+        MetadataRootValue<MetadataTableView> row = Assert.IsType<
+            MetadataRootValue<MetadataTableView>>(
+            session.MetadataTableRow(
+                MetadataRootSource.ReadyToRunManifest,
+                TableIndex.TypeDef,
+                1));
+        MetadataRootValue<MetadataRowReferenceSet> references = Assert.IsType<
+            MetadataRootValue<MetadataRowReferenceSet>>(
+            session.MetadataReferences(
+                MetadataRootSource.ReadyToRunManifest,
+                TableIndex.TypeDef,
+                1));
+        MetadataRootValue<MetadataValue> heapValue = Assert.IsType<
+            MetadataRootValue<MetadataValue>>(
+            session.MetadataHeapValue(
+                MetadataRootSource.ReadyToRunManifest,
+                HeapKind.String,
+                0));
+        MetadataRootValue<MetadataHeapEntrySet> heapEntries = Assert.IsType<
+            MetadataRootValue<MetadataHeapEntrySet>>(
+            session.MetadataHeapEntries(
+                MetadataRootSource.ReadyToRunManifest,
+                HeapKind.Guid));
+
+        MetadataRootInfo manifest = roots[1];
+        Assert.Equal(manifest, overview.Root);
+        Assert.Equal(manifest, tables.Root);
+        Assert.Equal(manifest, row.Root);
+        Assert.Equal(manifest, references.Root);
+        Assert.Equal(manifest, heapValue.Root);
+        Assert.Equal(manifest, heapEntries.Root);
+        Assert.Equal(expectedOffset, overview.Value.MetadataOffset);
+        Assert.Equal(metadata.Length, overview.Value.MetadataSize);
+        Assert.Contains(
+            tables.Value.Tables,
+            static table => table.Index == TableIndex.TypeDef);
+        Assert.Equal(1, row.Value.Rows[0].RowId);
+        Assert.IsType<MetadataValue.Nil>(heapValue.Value);
+    }
+
+    [Fact]
+    public void MetadataRoots_AliasedManifest_IsOnePhysicalRoot()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: true,
+            manifestAliasesCliMetadata: true);
+        using var session = OpenSession(image.Bytes);
+
+        MetadataRootInfo root = Assert.Single(session.MetadataRoots());
+        MetadataRootValue<MetadataImageOverview> cli = Assert.IsType<
+            MetadataRootValue<MetadataImageOverview>>(
+            session.MetadataImage(MetadataRootSource.Cli));
+        MetadataRootValue<MetadataImageOverview> manifest = Assert.IsType<
+            MetadataRootValue<MetadataImageOverview>>(
+            session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+
+        Assert.True(root.IsAliased);
+        Assert.Equal(
+            [MetadataRootSource.Cli, MetadataRootSource.ReadyToRunManifest],
+            root.Sources);
+        Assert.Same(root, cli.Root);
+        Assert.Same(cli.Root, manifest.Root);
+        Assert.Equal(cli.Value.MetadataOffset, manifest.Value.MetadataOffset);
+        Assert.Equal(cli.Value.MetadataSize, manifest.Value.MetadataSize);
+        Assert.Equal(cli.Value.MetadataVersion, manifest.Value.MetadataVersion);
+        Assert.Equal(cli.Value.Tables, manifest.Value.Tables);
+    }
+
+    [Fact]
+    public void MetadataRoots_MalformedManifest_FailsWithRootProvenance()
+    {
+        SyntheticImage image = CreateImage(managedNative: true, exported: false);
+        using var session = OpenSession(image.Bytes);
+
+        Assert.Equal(2, session.MetadataRoots().Length);
+        Assert.NotEmpty(session.MetadataTables().Tables);
+
+        var error = Assert.Throws<MalformedMetadataRootException>(
+            () => session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+
+        Assert.Equal(
+            MetadataRootMalformedReason.TruncatedFixedPrefix,
+            error.Reason);
+        Assert.Equal(
+            MetadataRootSource.ReadyToRunManifest,
+            error.RootSource);
+        Assert.NotEmpty(session.MetadataTables().Tables);
+    }
+
+    [Fact]
+    public void MetadataRoots_MalformedReadyToRun_DoesNotBlockCliMetadata()
+    {
+        SyntheticImage image = CreateImage(managedNative: true, exported: false);
+        int firstSection =
+            image.HeaderOffset + ReadyToRunImageInspector.FixedHeaderSize;
+        WriteUInt32(image.Bytes, firstSection + 4, int.MaxValue);
+        using var session = OpenSession(image.Bytes);
+
+        Assert.NotEmpty(session.MetadataTables().Tables);
+        Assert.Throws<BadImageFormatException>(() => session.MetadataRoots());
+        Assert.NotEmpty(session.MetadataTables().Tables);
+    }
+
+    [Fact]
+    public void MetadataRoots_ManifestWithoutCliMetadata_RemainsInspectable()
+    {
+        byte[] metadata = ReadSelfMetadataRoot();
+        SyntheticImage image = CreateImage(
+            managedNative: false,
+            exported: true,
+            setIlLibrary: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(ReadyToRunSectionType.ManifestMetadata, metadata),
+            ]);
+        using (var peReader = Open(image.Bytes))
+        {
+            PEHeader peHeader = peReader.PEHeaders.PEHeader!;
+            int directoryBase =
+                peReader.PEHeaders.PEHeaderStartOffset
+                + (peHeader.Magic == PEMagic.PE32Plus ? 112 : 96);
+            image.Bytes.AsSpan(directoryBase + (14 * 8), 8).Clear();
+        }
+        using var session = OpenSession(image.Bytes);
+
+        MetadataRootInfo root = Assert.Single(session.MetadataRoots());
+        MetadataRootValue<MetadataImageOverview> manifest = Assert.IsType<
+            MetadataRootValue<MetadataImageOverview>>(
+            session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+
+        Assert.Equal([MetadataRootSource.ReadyToRunManifest], root.Sources);
+        Assert.Equal(root, manifest.Root);
+        Assert.Null(session.MetadataImage());
+    }
+
+    [Fact]
+    public void MetadataRoots_ManifestBeyondVirtualExtent_FailsBeforeCopy()
+    {
+        byte[] metadata = ReadSelfMetadataRoot();
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(ReadyToRunSectionType.ManifestMetadata, metadata),
+            ]);
+        using (var peReader = Open(image.Bytes))
+        {
+            ReadyToRunSectionSummary manifest =
+                Assert.IsType<ReadyToRunImageOverview>(
+                    ReadyToRunImageInspector.Describe(peReader))
+                .ManifestMetadata!;
+            int sectionIndex = peReader.PEHeaders.GetContainingSectionIndex(
+                manifest.RelativeVirtualAddress);
+            SectionHeader section = peReader.PEHeaders.SectionHeaders[sectionIndex];
+            int sectionHeadersOffset =
+                peReader.PEHeaders.PEHeaderStartOffset
+                + peReader.PEHeaders.CoffHeader.SizeOfOptionalHeader;
+            int sectionHeaderOffset = sectionHeadersOffset + (sectionIndex * 40);
+            uint virtualSize = checked(
+                (uint)(manifest.RelativeVirtualAddress - section.VirtualAddress + 1));
+            WriteUInt32(image.Bytes, sectionHeaderOffset + 8, virtualSize);
+        }
+        using var session = OpenSession(image.Bytes);
+
+        var error = Assert.Throws<MalformedMetadataRootException>(
+            () => session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+
+        Assert.Equal(
+            MetadataRootMalformedReason.UnmappableMetadataExtent,
+            error.Reason);
+    }
+
+    [Fact]
+    public void MetadataRoots_FailAfterSessionDisposal()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: true,
+            manifestAliasesCliMetadata: true);
+        var session = OpenSession(image.Bytes);
+        _ = session.MetadataRoots();
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+    }
+
+    [Fact]
+    public void MetadataRoots_DistinctManifestProviderIsDisposedWithSession()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(ReadyToRunSectionType.ManifestMetadata, ReadSelfMetadataRoot()),
+            ]);
+        var session = OpenSession(image.Bytes);
+        _ = session.MetadataImage(MetadataRootSource.ReadyToRunManifest);
+        MetadataReaderProvider provider = GetOwnedManifestProvider(session);
+
+        _ = provider.GetMetadataReader();
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => provider.GetMetadataReader());
+    }
+
+    [Fact]
+    public void MetadataRoots_FaultedManifestProviderIsDisposedWithSession()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: false,
+            sections:
+            [
+                new(ReadyToRunSectionType.CompilerIdentifier, [1]),
+                new(
+                    ReadyToRunSectionType.ManifestMetadata,
+                    ReadCorruptMetadataRoot()),
+            ]);
+        var session = OpenSession(image.Bytes);
+
+        Assert.Throws<BadImageFormatException>(
+            () => session.MetadataImage(
+                MetadataRootSource.ReadyToRunManifest));
+        MetadataReaderProvider provider = GetOwnedManifestProvider(session);
+        session.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => provider.GetMetadataReader());
+    }
+
     static PEReader Open(byte[] bytes) => new(new MemoryStream(bytes));
+
+    static AssemblyInspectionSession OpenSession(byte[] bytes)
+        => AssemblyInspectionSession.OpenPrefetched(new MemoryStream(bytes));
+
+    static byte[] ReadSelfMetadataRoot()
+    {
+        using var peReader = Open(File.ReadAllBytes(SelfPath));
+        return peReader.GetMetadata().GetContent().ToArray();
+    }
+
+    static byte[] ReadCorruptMetadataRoot()
+    {
+        using var peReader = Open(
+            MetadataImageOverviewTests.SelfWithCorruptTableStream());
+        return peReader.GetMetadata().GetContent().ToArray();
+    }
+
+    static MetadataReaderProvider GetOwnedManifestProvider(
+        AssemblyInspectionSession session)
+    {
+        var roots = Assert.IsType<Lazy<MetadataRootCatalog>>(
+            typeof(AssemblyInspectionSession)
+                .GetField(
+                    "_metadataRoots",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(session));
+        MetadataRootReader reader = Assert.IsType<MetadataRootReader>(
+            typeof(MetadataRootCatalog)
+                .GetField(
+                    "_createdManifestReader",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(roots.Value));
+        return Assert.IsType<MetadataReaderProvider>(
+            typeof(MetadataRootReader)
+                .GetField(
+                    "_provider",
+                    BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(reader));
+    }
+
+    static int ImageOffset(PEReader peReader, int relativeVirtualAddress)
+    {
+        SectionHeader section = peReader.PEHeaders.SectionHeaders[
+            peReader.PEHeaders.GetContainingSectionIndex(relativeVirtualAddress)];
+        return checked(
+            section.PointerToRawData
+            + relativeVirtualAddress
+            - section.VirtualAddress);
+    }
 
     static SyntheticImage CreateImage(
         bool managedNative,

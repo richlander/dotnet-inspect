@@ -140,7 +140,7 @@ and query workspaces while migration continues.
 | ------ | ------------- | -------------- | ----------------- |
 | `ILInspector.MetadataPrimitives` | Primitive floor | Dependency-free SRM mechanics and neutral metadata-name operations. | [Metadata primitives](metadata-primitives.md) |
 | `CSharpText` | Text grammar floor | Model-free C# and XML-documentation grammars, names, signatures, and conservative text ranges. | [Inspection layers](design/inspection-layers.md) |
-| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
+| `ILInspector.Metadata` | Metadata producer | PE and portable-PDB facts, ReadyToRun image envelopes and manifest metadata roots, API surfaces, typed metadata identities, and raw correlations. | [Assembly inspection query](design/assembly-inspection-query.md), [ReadyToRun image projection](design/readytorun-image-projection.md), focused Metadata designs |
 | `SourceLinkFetch` | Map grammar | SourceLink map matching and provenance grammar. | [PDB acquisition](pdb-acquisition.md) |
 | `ILInspector.SourceLink` | Source composer | SourceLink extraction, canonical paths, URL decoration, source correlation, and source Findings. | [PDB acquisition](pdb-acquisition.md), [source Finding producers](design/source-finding-producers.md) |
 | `ILInspector.CSharp` | Typed projection | Model-bound C# spelling and typed type/member views. | [Type, member, and API representation](design/type-member-api-representation.md) |

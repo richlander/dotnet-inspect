@@ -12,8 +12,10 @@ not choose an artifact, acquire content, load inspected code, decode native
 methods, or render a host surface.
 
 The contract is enforced in Release by
-`ILInspector.Metadata.Tests.ReadyToRunImageInspectorTests`. The later metadata,
-CLI, and Browser/Wasm adoptions remain tracked by #5835.
+`ILInspector.Metadata.Tests.ReadyToRunImageInspectorTests`. The manifest-root
+adoption is now owned by
+[Raw metadata-table projection](metadata-table-projection.md); CLI and
+Browser/Wasm adoptions remain tracked by #5835.
 
 ## Claim
 
@@ -67,19 +69,18 @@ slices:
    implementation discover and validate the header and section directory,
    including standalone, composite-container, and composite-component roles.
 2. **Manifest metadata-root adoption:** the raw metadata projection consumes
-   the validated `ManifestMetadata` extent and gives it explicit R2R manifest
-   provenance. When that extent aliases the CLI metadata directory, the
-   projection reconciles both identities instead of manufacturing a second
-   root.
+   the validated `ManifestMetadata` extent with explicit R2R manifest
+   provenance. Exact CLI aliases are one physical root with both sources,
+   rather than a manufactured second identity.
 3. **CLI adoption:** the library metadata lens exposes R2R image facts and an
    explicit manifest-root selection through Markout-backed output.
 4. **Browser/Wasm adoption:** the managed facade carries the same typed facts,
    and Package Metadata and Metadata Explorer expose the R2R overview and
    manifest root without parsing PE bytes in TypeScript.
 
-This document owns only step 1. Steps 2-4 are separate owner adoptions and may
-land as later stack slices. The shared projection contains no CLI, Markout,
-JSON, JavaScript, DOM, worker, or callback type.
+This document owns only step 1. Step 2 is owned by the metadata-table
+projection; steps 3-4 are separate host adoptions. The shared projection
+contains no CLI, Markout, JSON, JavaScript, DOM, worker, or callback type.
 
 ## Format basis
 
@@ -366,4 +367,6 @@ This contract does not claim:
 - native method entry points, code ranges, runtime functions, imports, fixups,
   exception data, debug data, profile data, or GC information;
 - decoding or semantic validation of `ManifestMetadata`; or
+- recovery of section 112 when malformed PE or CLI directory headers prevent
+  SRM from constructing `PEReader.PEHeaders`; or
 - any CLI or browser output before the corresponding adoption slice lands.

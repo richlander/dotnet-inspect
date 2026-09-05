@@ -9,6 +9,9 @@ public enum MetadataRootMalformedReason
     /// <summary>The metadata directory could not be mapped from the PE image.</summary>
     UnmappableMetadataDirectory,
 
+    /// <summary>The selected metadata extent is not fully available in its containing block.</summary>
+    UnmappableMetadataExtent,
+
     /// <summary>The metadata block does not contain the complete fixed root prefix.</summary>
     TruncatedFixedPrefix,
 
@@ -127,14 +130,30 @@ public static class MetadataImageFormatClassifier
                 MetadataRootMalformedReason.UnmappableMetadataDirectory);
         }
 
-        if (metadata.Length < FixedPrefixLength)
+        return Classify(metadata, metadata.Length);
+    }
+
+    /// <summary>
+    /// Classifies one exact metadata-root extent within an already acquired PE
+    /// memory block. Bytes after <paramref name="length"/> are not examined.
+    /// </summary>
+    public static MetadataImageFormatResult Classify(
+        PEMemoryBlock metadata,
+        int length)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        if (length > metadata.Length)
+            return Malformed(MetadataRootMalformedReason.UnmappableMetadataExtent);
+
+        if (length < FixedPrefixLength)
         {
             return Malformed(
                 MetadataRootMalformedReason.TruncatedFixedPrefix);
         }
 
         int boundedLength = Math.Min(
-            metadata.Length,
+            length,
             FixedPrefixLength + MaximumPaddedVersionLength);
         BlobReader reader = metadata.GetReader(0, boundedLength);
 

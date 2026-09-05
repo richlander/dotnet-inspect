@@ -101,6 +101,75 @@ public sealed class MetadataFormatAdmissionTests
                 MetadataReaderOptions.None));
     }
 
+    [Theory]
+    [InlineData("image")]
+    [InlineData("tables")]
+    [InlineData("row")]
+    [InlineData("references")]
+    [InlineData("heap-value")]
+    [InlineData("heap-entries")]
+    public void RawMetadataEntryPointsApplyFormatAdmission(string operation)
+    {
+        byte[] image = BuildImage("WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+        using var peReader = Open(image);
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => Invoke(operation, peReader));
+
+        static void Invoke(string operation, PEReader peReader)
+        {
+            switch (operation)
+            {
+                case "image":
+                    _ = MetadataImageInspector.Describe(peReader);
+                    break;
+                case "tables":
+                    _ = MetadataTableProjector.Project(peReader);
+                    break;
+                case "row":
+                    _ = MetadataTableProjector.ProjectRow(
+                        peReader,
+                        TableIndex.TypeDef,
+                        1);
+                    break;
+                case "references":
+                    _ = MetadataTableProjector.FindReferences(
+                        peReader,
+                        TableIndex.TypeDef,
+                        1);
+                    break;
+                case "heap-value":
+                    _ = MetadataTableProjector.ReadHeapValue(
+                        peReader,
+                        HeapKind.String,
+                        0);
+                    break;
+                case "heap-entries":
+                    _ = MetadataTableProjector.ReadHeapEntries(
+                        peReader,
+                        HeapKind.Guid);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(operation));
+            }
+        }
+    }
+
+    [Fact]
+    public void UnsupportedRowTableStillAppliesFormatAdmission()
+    {
+        byte[] image = BuildImage("WindowsRuntime 1.4;CLR v4.0.30319");
+        TruncateMetadataAfterVersionField(image);
+        using var peReader = Open(image);
+
+        Assert.Throws<UnsupportedMetadataFormatException>(
+            () => MetadataTableProjector.ProjectRow(
+                peReader,
+                TableIndex.InterfaceImpl,
+                1));
+    }
+
     static PEReader Open(byte[] image)
         => new(ImmutableArray.Create(image));
 

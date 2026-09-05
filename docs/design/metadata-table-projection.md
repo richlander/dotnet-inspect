@@ -1313,6 +1313,68 @@ lists only tables that carry rows; the number omitted and any unmodelled table
 with rows are reported as caveats — inline in Markdown, on stderr for the
 machine formats.
 
+## Implemented: ReadyToRun manifest metadata roots
+
+The raw projection accepts either metadata identity exposed by a PE image:
+
+- `Cli` names the CLI header's metadata directory.
+- `ReadyToRunManifest` names the validated section-112 extent issued by the
+  sibling [ReadyToRun image projection](readytorun-image-projection.md).
+
+`MetadataRootInfo` is the join currency between those owners. Its RVA and size
+identify one declared physical extent, while its ordered `Sources` identify
+the provenance names attached to that extent. The metadata owner consumes the
+R2R projection's `AliasesCliMetadataDirectory` fact directly. When it is true,
+the session publishes one root with both sources and both selections share one
+CLI metadata reader. It does not manufacture a second metadata identity or
+copy the aliased bytes. A distinct section-112 extent is a second root with
+R2R-manifest provenance.
+
+Root-aware session operations return `MetadataRootValue<T>`, so the selected
+extent and provenance travel with an image overview, table projection, row,
+reverse-reference result, heap value, or heap listing. A serialized consumer
+therefore does not need to infer the root from a token, table name, display
+label, or current UI selection. Existing source-less methods retain their CLI
+meaning and do not perform R2R discovery; malformed R2R data cannot turn an
+ordinary CLI metadata operation into a failure.
+
+A distinct R2R manifest root is read from exactly the section extent after two
+independent gates:
+
+1. the R2R owner has validated that section 112 is raw-backed; and
+2. the metadata owner verifies that SRM's `PEMemoryBlock` contains the complete
+   declared extent, then applies the same bounded ECMA-335/Windows-Metadata
+   format admission as the CLI root before constructing a reader.
+
+The second gate is required because PE raw size and SRM section-block length
+are not the same boundary. The selected bytes are copied once into an owned
+`MetadataReaderProvider` and retained only for the inspection session. This
+avoids a reader over an unowned pointer and works in the Browser/Wasm target.
+The provider and reader are lazy and publication-safe; the session disposes
+the provider before its containing PE image.
+
+`MetadataImageOverview.MetadataOffset` and `MetadataSize` describe the selected
+root. Its `Headers` remain explicitly facts about the containing PE image, not
+fields inside section 112. A manifest root can remain inspectable in an
+export-discovered image with no CLI metadata. A malformed section-112 metadata
+root throws `MalformedMetadataRootException` carrying
+`ReadyToRunManifest` provenance; it never becomes an absent root. Conversely,
+an R2R discovery failure is retained for the manifest-root surface while the
+existing CLI-only methods continue to inspect valid CLI metadata.
+
+This contract does not recover a manifest root when the PE envelope itself is
+unconstructable. In particular, a malformed CLI data directory can make SRM's
+`PEReader.PEHeaders` construction fail before ReadyToRun discovery begins.
+Manifest-only support means a structurally readable PE with no CLI metadata
+directory, not recovery after the shared PE owner rejects its headers.
+
+`ReadyToRunImageInspectorTests` gates distinct and aliased roots, the
+compiler-produced CoreLib manifest, every root-aware metadata facet, root
+offset and size, malformed and SRM-section-boundary failures, CLI/R2R failure
+isolation, manifest-only images, and session lifetime.
+`MetadataFormatAdmissionTests` gates the shared admission policy across every
+raw metadata entry point.
+
 ## Measured: allocation shape
 
 Issue #3341 lists eager row materialization as the memory axis to watch and

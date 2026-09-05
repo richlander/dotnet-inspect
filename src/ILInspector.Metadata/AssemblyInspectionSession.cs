@@ -17,6 +17,7 @@ public sealed class AssemblyInspectionSession : IDisposable
     readonly AssemblyImage _image;
     readonly Lazy<MetadataTypeDeclarationProbe.Index>
         _declarationIndex;
+    readonly Lazy<MetadataRootCatalog> _metadataRoots;
     MethodBodySource? _methodBodies;
 
     AssemblyInspectionSession(AssemblyImage image)
@@ -26,6 +27,12 @@ public sealed class AssemblyInspectionSession : IDisposable
             new Lazy<MetadataTypeDeclarationProbe.Index>(
                 () => MetadataTypeDeclarationProbe.CreateIndex(
                     _image.GetMetadataReader()),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+        _metadataRoots =
+            new Lazy<MetadataRootCatalog>(
+                () => new MetadataRootCatalog(
+                    _image.PEReader,
+                    _image.EnsureAlive),
                 LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
@@ -314,6 +321,25 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataTableProjector.Project(_image.PEReader, options);
 
     /// <summary>
+    /// Projects one explicitly selected metadata root. The returned envelope
+    /// carries the root's physical identity and every provenance that names it.
+    /// Null when the requested source is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataTableProjection>? MetadataTables(
+        MetadataRootSource source,
+        MetadataProjectionOptions? options = null)
+    {
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        options ??= new MetadataProjectionOptions();
+        return new MetadataRootValue<MetadataTableProjection>(
+            root.Info,
+            MetadataTableProjector.Project(root.Reader, options));
+    }
+
+    /// <summary>
     /// A single row of one metadata table, read on demand and independent of any
     /// row window. This is the handle click-through primitive: it reaches a
     /// target row that a windowed <see cref="MetadataTables"/> call did not
@@ -326,6 +352,32 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataTableProjector.ProjectRow(_image.PEReader, table, rowId, options);
 
     /// <summary>
+    /// Projects one row from an explicitly selected metadata root. Null when
+    /// the source, table, or row is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataTableView>? MetadataTableRow(
+        MetadataRootSource source,
+        System.Reflection.Metadata.Ecma335.TableIndex table,
+        int rowId,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        options ??= new MetadataProjectionOptions();
+        MetadataTableView? tableView = MetadataTableProjector.ProjectRow(
+            root.Reader,
+            table,
+            rowId,
+            options);
+        return tableView is null
+            ? null
+            : new MetadataRootValue<MetadataTableView>(root.Info, tableView);
+    }
+
+    /// <summary>
     /// The reverse of the projection's handle edges: every row pointing at the
     /// given row, including through list-column runs so ownership resolves. The
     /// result reports its own blind spots rather than folding them into an empty
@@ -336,6 +388,32 @@ public sealed class AssemblyInspectionSession : IDisposable
         int targetRowId,
         int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
         => MetadataTableProjector.FindReferences(_image.PEReader, targetTable, targetRowId, maxReferences);
+
+    /// <summary>
+    /// Finds reverse references within one explicitly selected metadata root.
+    /// Null when the requested source is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataRowReferenceSet>? MetadataReferences(
+        MetadataRootSource source,
+        System.Reflection.Metadata.Ecma335.TableIndex targetTable,
+        int targetRowId,
+        int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(targetRowId, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxReferences);
+
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        return new MetadataRootValue<MetadataRowReferenceSet>(
+            root.Info,
+            MetadataTableProjector.FindReferences(
+                root.Reader,
+                targetTable,
+                targetRowId,
+                maxReferences));
+    }
 
     /// <summary>
     /// Image-level facts outside the table projection: metadata root identity,
@@ -352,6 +430,29 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataImageInspector.Describe(_image.PEReader, untrustedText);
 
     /// <summary>
+    /// Describes one explicitly selected metadata root. Header facts remain
+    /// facts about the containing PE image; offset, size, tables, heaps, and
+    /// metadata kind describe the selected root. Null when the source is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataImageOverview>? MetadataImage(
+        MetadataRootSource source,
+        UntrustedTextMode untrustedText = UntrustedTextMode.Contain)
+    {
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        return new MetadataRootValue<MetadataImageOverview>(
+            root.Info,
+            MetadataImageInspector.Describe(
+                root.Reader,
+                root.ImageOffset,
+                root.Info.Size,
+                MetadataImageInspector.DescribeHeaders(_image.PEReader.PEHeaders),
+                untrustedText));
+    }
+
+    /// <summary>
     /// One heap value read by address, independent of any row that references
     /// it. The address follows
     /// <see cref="MetadataValue.HeapReference.Offset"/>, so a projected cell's
@@ -364,6 +465,31 @@ public sealed class AssemblyInspectionSession : IDisposable
         => MetadataTableProjector.ReadHeapValue(_image.PEReader, heap, address, options);
 
     /// <summary>
+    /// Reads one heap value from an explicitly selected metadata root. Null
+    /// when the requested source is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataValue>? MetadataHeapValue(
+        MetadataRootSource source,
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(address);
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        options ??= new MetadataProjectionOptions();
+        return new MetadataRootValue<MetadataValue>(
+            root.Info,
+            MetadataTableProjector.ReadHeapValue(
+                root.Reader,
+                heap,
+                address,
+                options));
+    }
+
+    /// <summary>
     /// The listable entries of one heap, with the limits of that listing attached — complete for
     /// the GUID heap, the values projected rows reference for the string and blob heaps, and
     /// nothing at all for the user-string heap, which no table column points into. The result
@@ -374,6 +500,35 @@ public sealed class AssemblyInspectionSession : IDisposable
         HeapKind heap,
         MetadataProjectionOptions? options = null)
         => MetadataTableProjector.ReadHeapEntries(_image.PEReader, heap, options);
+
+    /// <summary>
+    /// Lists one heap from an explicitly selected metadata root. Null when the
+    /// requested source is absent.
+    /// </summary>
+    public MetadataRootValue<MetadataHeapEntrySet>? MetadataHeapEntries(
+        MetadataRootSource source,
+        HeapKind heap,
+        MetadataProjectionOptions? options = null)
+    {
+        MetadataRootBinding? root = _metadataRoots.Value.Resolve(source);
+        if (root is null)
+            return null;
+
+        options ??= new MetadataProjectionOptions();
+        return new MetadataRootValue<MetadataHeapEntrySet>(
+            root.Info,
+            MetadataTableProjector.ReadHeapEntries(
+                root.Reader,
+                heap,
+                options));
+    }
+
+    /// <summary>
+    /// Every distinct metadata-root extent in deterministic CLI-then-R2R order.
+    /// Exact CLI/R2R aliases are one entry with both provenance values.
+    /// </summary>
+    public System.Collections.Immutable.ImmutableArray<MetadataRootInfo> MetadataRoots()
+        => _metadataRoots.Value.Roots;
 
     internal AssemblyReferenceIdentity AssemblyIdentity() =>
         AssemblyReferenceIdentity.FromAssemblyDefinition(_image.GetMetadataReader());
@@ -414,5 +569,10 @@ public sealed class AssemblyInspectionSession : IDisposable
                 && extension.Anchor == member);
     }
 
-    public void Dispose() => _image.Dispose();
+    public void Dispose()
+    {
+        if (_metadataRoots.IsValueCreated)
+            _metadataRoots.Value.Dispose();
+        _image.Dispose();
+    }
 }
