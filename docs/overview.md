@@ -40,6 +40,10 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  The target
+  [dependency inspection command](design/dependency-inspection-command.md)
+  owns asset admission, traversal intent, evidence disclosure, graph row
+  currency, and retirement of the separate `dependency-evidence` command.
   The [package index cache](design/package-index-cache.md) separately owns
   whether a persistent filesystem-derived package result may replace cold
   inspection of one exact authorized retained payload.

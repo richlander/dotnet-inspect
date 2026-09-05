@@ -300,8 +300,12 @@ merge from labels or presentation.
 
 Trees and graphs do not acquire row semantics from whichever presentation a
 formatter happens to choose. A producer that supports counting such a shape
-must declare and count its product-owned lowering, as the dependency commands
-do for graph nodes.
+must declare and count its product-owned lowering. Current dependency commands
+count graph nodes. The target
+[Dependency Inspection Command](dependency-inspection-command.md) instead
+declares one directed logical dependency edge as the shared graph row across
+tree, Mermaid, table, JSON, row selection, and count; that target becomes
+current only when its migration lands.
 
 `-D`/`--discover` is orthogonal: it does not render the subject, it lists the
 *available* shapes — the sections of the Document and the columns of a Table (see

@@ -37,6 +37,7 @@ System.Text.Json.JsonSerializer (System.Text.Json 10.0.2)
 | [CLI Host Architecture](cli-architecture.md) | CLI command-host responsibilities, request lifetime, selection, and presentation composition. |
 | [Decompiler Architecture](decompiler-architecture.md) | Decompiler project boundaries, import/IR/pass/printer flow, host consumers, and testing/evidence infrastructure. |
 | [CLI Change Classification and Obsolete Inputs](design/cli-change-classification.md) | Published CLI surfaces, observable change classification, disclosure, invalid-input guards, and routing reservations. |
+| [Dependency Inspection Command](design/dependency-inspection-command.md) | Target unification of dependency graph traversal and normalized evidence under one asset-driven `depends` operation. |
 | [Search Scope Resolution](design/search-scope-resolution.md) | Default activation, explicit-source suppression and composition, and named platform/package scope expansion for search commands. |
 | [Repository xUnit Test Host](design/xunit-test-host.md) | Microsoft Testing Platform execution and aggregate non-vacuity for repository xUnit executables. |
 | [Repository CI Change Plan](design/ci-change-plan.md) | Typed candidate provenance, exact changed-path interpretation, immutable CI validation selection, scoped evidence, and visible planner refusal. |
