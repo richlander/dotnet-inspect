@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
@@ -293,6 +294,27 @@ public interface IPackageSourceClient : IDisposable
         bool prerelease = false,
         CancellationToken cancellationToken = default,
         NuGetOperationContext? operationContext = null);
+
+    /// <summary>
+    /// Enumerates ordered prefix-search pages on demand. The default returns
+    /// the existing bounded search as one page. A failed page ends the sequence;
+    /// truncation belongs to the final page, not intermediate pages.
+    /// </summary>
+    async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixPagesAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        yield return await SearchByPrefixAsync(
+            prefix,
+            take,
+            prerelease,
+            cancellationToken,
+            operationContext).ConfigureAwait(false);
+    }
 
     /// <summary>Gets the versions reported for a package ID.</summary>
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(
@@ -1062,6 +1084,29 @@ internal sealed class CustomPackageSourceClientAdapter
                 operationContext).ConfigureAwait(false);
         _results.ValidateSearchOutcome(outcome);
         return outcome;
+    }
+
+    public async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+        SearchByPrefixPagesAsync(
+            string prefix,
+            int take = 100,
+            bool prerelease = false,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default,
+            NuGetOperationContext? operationContext = null)
+    {
+        await foreach (PackageSourceOperationResult<PackageSearchResult> outcome
+            in _client.SearchByPrefixPagesAsync(
+                prefix,
+                take,
+                prerelease,
+                cancellationToken,
+                operationContext).ConfigureAwait(false))
+        {
+            _results.ValidateSearchOutcome(outcome);
+            yield return outcome;
+            if (outcome.Failure is not null)
+                yield break;
+        }
     }
 
     public async Task<PackageSourceOperationResult<PackageVersionResult>>

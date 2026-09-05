@@ -72,6 +72,7 @@ public interface IPackageSourceClient : IDisposable
 
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(...);
     Task<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixAsync(...);
+    IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>> SearchByPrefixPagesAsync(...);
     Task<PackageSourceOperationResult<PackageVersionResult>> GetVersionsAsync(...);
     Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(...);
     Task<PackageSourceOperationResult<PackageSourcePayload>> GetPackageAsync(...);
@@ -88,6 +89,11 @@ The boundary preserves these properties:
 - absence, unsupported capability, timeout, authentication failure, and
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.
+
+[Incremental package-prefix candidates](package-prefix-candidate-stream.md)
+owns the pull-driven page sequence, including its remaining active-work budget
+and first adoption by the shared package-profile query. It consumes this
+owner's unchanged result identities, immutable snapshots, and request bounds.
 
 `PackageSource` must not mean only "NuGet v3 service-index URL." A registered
 source descriptor identifies the source kind and its non-secret configuration:
@@ -1436,7 +1442,9 @@ request deadline inside the remaining shared ceiling; it does not create
 another operation ceiling. Retries, authentication exchanges, and retry delays
 reuse that request's deadline adapter. Gallery pagination and manifest
 acquisition likewise reuse one adapter for their complete public source
-operation.
+operation. The incremental prefix-page API's source-work budget is described
+by its [focused owner](package-prefix-candidate-stream.md#work-and-deadline-ownership);
+a caller-supplied context still has this section's unchanged wall-clock meaning.
 
 A caller-supplied context is caller-owned and must outlive every payload stream
 returned through it. Disposing it cancels outstanding work. The invocation

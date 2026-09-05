@@ -635,6 +635,7 @@ public static class PackageQuery
         int failures = 0;
         int packageContentCompleted = 0;
         bool searchOutcomeObserved = false;
+        bool sourceSearchFailed = false;
         cancellationToken.ThrowIfCancellationRequested();
         yield return Progress(
             PackageQueryProgressPhase.Search,
@@ -653,6 +654,7 @@ public static class PackageQuery
             bool sourceWideSearchFailure =
                 profileEvent is PackageProfileEvent.Failure searchFailure
                 && IsSourceWideSearchFailure(searchFailure.Value);
+            sourceSearchFailed |= sourceWideSearchFailure;
             if (!searchOutcomeObserved)
             {
                 searchOutcomeObserved = true;
@@ -813,8 +815,7 @@ public static class PackageQuery
                         completed.Value.Candidates,
                         matches,
                         failures,
-                        completed.Value.Candidates == 0
-                            && completed.Value.Failures > 0
+                        sourceSearchFailed
                             ? PackageQueryCompletionKind.Failed
                             : MapCompletion(
                                 completed.Value.TruncationReason));
