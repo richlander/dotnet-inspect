@@ -175,7 +175,7 @@ internal static class QueryDiscoverOutput
                 [.. sections.Select(section => new[]
                 {
                     section.Section,
-                    string.Join(", ", Operators(section)),
+                    MarkoutInline.Code(string.Join(", ", Operators(section))),
                     section.Facets.Length.ToString(CultureInfo.InvariantCulture),
                 })]);
         }
@@ -192,14 +192,16 @@ internal static class QueryDiscoverOutput
                     [.. section.Facets.Select(facet => new[]
                     {
                         facet.Name,
-                        string.Join(", ", facet.Operators),
-                        string.Join(", ", facet.Comparisons),
+                        MarkoutInline.Code(string.Join(", ", facet.Operators)),
+                        facet.Comparisons.IsEmpty
+                            ? ""
+                            : MarkoutInline.Code(string.Join(", ", facet.Comparisons)),
                         facet.Values.IsEmpty
                             ? facet.ValueKind
                             : facet.Name == "Kind"
-                                ? "C# Body Kinds: vocabulary -S \"C# Body Kinds\""
+                                ? "C# Body Kinds: " + MarkoutInline.Code("vocabulary -S \"C# Body Kinds\"")
                                 : string.Join(", ", facet.Values),
-                        facet.Example,
+                        MarkoutInline.Code(facet.Example),
                     })]);
             }
         }

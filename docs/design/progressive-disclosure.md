@@ -194,6 +194,8 @@ bare `-S`, data wildcards, categories, and ordinary `-D --schema` do not acquire
 them. Explicit companion selection may use `Query:` wildcards but cannot mix
 metadata and evidence sections in one request. Companion schema discovery
 (`-D "Query: Section"`) requires one resolved section.
+On `find`, `-S` accepts query companions only; ordinary data-section selection
+remains unsupported.
 
 Performance descriptors consume the same filterable/sortable field catalogs
 and value-domain rules as argument binding. Body Shapes consumes the exact

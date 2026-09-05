@@ -15,6 +15,8 @@ internal static class QueryDiscoveryCommand
             command.Name is "library" or "type" or "member" or "package" or "find"))
         {
             command.Options.Add(options.QueryHelp);
+            if (command.Name == "find")
+                command.Options.Add(options.Select);
             command.Validators.Add(result =>
             {
                 if (result.GetResult(options.QueryHelp) is not { Implicit: false })
@@ -60,7 +62,16 @@ internal static class QueryDiscoveryCommand
         bool companionSelect = select?.Any(IsCompanionName) == true;
         bool companionDiscover = discover?.Any(IsCompanionName) == true;
         if (query is null && !companionSelect && !companionDiscover)
+        {
+            if (result.CommandResult.Command.Name == "find"
+                && result.GetResult(options.Select) is { Implicit: false })
+            {
+                CommandError.Write("find supports -S only for query companion sections; use -Q <section> or -S \"Query: <section>\".");
+                exitCode = 1;
+                return true;
+            }
             return false;
+        }
 
         if (result.CommandResult.Command.Name is not ("library" or "type" or "member" or "package" or "find"))
         {

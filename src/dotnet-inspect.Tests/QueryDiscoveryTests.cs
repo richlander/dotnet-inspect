@@ -187,6 +187,62 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("-S", false)]
+    [InlineData("-S", true)]
+    [InlineData("--select", false)]
+    [InlineData("--select", true)]
+    public async Task FindCompanionSelection_DoesNotFallThroughToSearch(string option, bool attached)
+    {
+        string[] selector = attached
+            ? [$"{option}=Query: Packages"]
+            : [option, "Query: Packages"];
+        var result = await Run(["find", .. selector,
+            "--library", "/missing/query-discovery.dll", "--json"]);
+        var query = await Run("find", "-Q", "Packages", "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(query.Output, result.Output);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-S=Results")]
+    [InlineData("--select=*")]
+    public async Task FindDataSelection_RemainsUnsupported(string selection)
+    {
+        var result = await Run("find", selection,
+            "--library", "/missing/query-discovery.dll", "--json");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("only for query companion sections", result.Error);
+        Assert.DoesNotContain("Library not found", result.Error);
+    }
+
+    [Fact]
+    public async Task DefaultMarkdown_PreservesCopyableQuerySyntax()
+    {
+        var result = await Run("type", "-Q", "Performance Triage", "-v:d");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("`=, !=, >=, <=`", result.Output);
+        Assert.Contains("`--where \"RootReach>=10\"`", result.Output);
+        Assert.DoesNotContain("&gt;", result.Output);
+        Assert.DoesNotContain("&lt;", result.Output);
+    }
+
+    [Fact]
+    public async Task ProjectedJson_PreservesQuerySyntaxWithoutPresentationMarkup()
+    {
+        var result = await Run("type", "-Q", "Performance Triage", "--fields", "Example", "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement rows = Assert.Single(json.RootElement.EnumerateObject()).Value;
+        Assert.Contains(rows.EnumerateArray(),
+            row => row.GetProperty("example").GetString() == "--where \"RootReach>=10\"");
+    }
+
+    [Theory]
     [InlineData("--json")]
     [InlineData("--jsonl")]
     [InlineData("--tsv")]

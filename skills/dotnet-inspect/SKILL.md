@@ -8,8 +8,7 @@ description: Find evidence instead of guessing for .NET packages, platform libra
 
 Use dotnet-inspect for evidence about .NET packages, platform libraries, assemblies, APIs, dependencies, or API version diffs.
 
-Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation,
-and `--` sends remaining options to dotnet-inspect rather than `dnx`.
+Run `dnx dotnet-inspect -y -- <command>`. `-y` skips interactive confirmation, and `--` sends remaining options to dotnet-inspect rather than `dnx`.
 
 ## Common starts
 
