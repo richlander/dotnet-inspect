@@ -1088,7 +1088,7 @@ test("typed package view owns package navigation bindings", () => {
     /if \(!library\) return;[\s\S]*if \(!selectLibrarySubject\(library\)\) return;[\s\S]*if \(kind\) \{\s*state\.atLibraryRoot = false;\s*state\.kindFilter = kind;/);
   assert.match(
     appSource,
-    /function selectLibrarySubject\(key: string\)[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
+    /function selectLibrarySubject\(key: string,[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = true;[\s\S]*state\.libraryScope = new Set\(\[library\.id\]\);[\s\S]*normalizeLibrarySelection\(\);[\s\S]*state\.package\?\.isRuntimePack[\s\S]*recordPlatformRecent\(/);
   assert.match(
     namespaceJump,
     /state\.atPackageRoot = false;[\s\S]*state\.namespaceFilter = namespace;[\s\S]*state\.kindFilter = ""/);
@@ -1755,12 +1755,11 @@ test("typed scope bar owns its rendered control bindings", () => {
               {
                 if: 'target === "library"',
                 whenTrue: [
-                  "assign:state.workspaceSubjectOpen = false",
-                  "assign:state.atPackageRoot = false",
-                  "assign:state.atLibraryRoot = true",
-                  'assign:state.selectedMemberKey = ""',
-                  'assign:state.memberBrowseTypeId = ""',
-                  "assign:state.selectedOverloadIndex = null",
+                  {
+                    if: '!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })',
+                    whenTrue: ["statement:ReturnStatement:return;"],
+                    whenFalse: [],
+                  },
                 ],
                 whenFalse: [
                   {

@@ -2109,7 +2109,7 @@ function selectedLibraryRequest() {
   return state.package?.isRuntimePack ? library?.name ?? "" : library?.id ?? "";
 }
 
-function selectLibrarySubject(key: string) {
+function selectLibrarySubject(key: string, options: { preserveView?: boolean } = {}) {
   const descriptor = resolvePackageLibrary(state.package?.assemblies ?? [], key);
   const library = packageLibraries().find(candidate => candidate.id === descriptor?.id);
   if (!library) {
@@ -2121,11 +2121,17 @@ function selectLibrarySubject(key: string) {
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
   state.libraryScope = new Set([library.id]);
-  state.libraryLens = "overview";
-  state.namespaceFilter = "";
-  state.kindFilter = "";
-  state.typeFilter = "";
-  normalizeLibrarySelection();
+  if (options.preserveView) {
+    state.selectedMemberKey = "";
+    state.memberBrowseTypeId = "";
+    state.selectedOverloadIndex = null;
+  } else {
+    state.libraryLens = "overview";
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.typeFilter = "";
+    normalizeLibrarySelection();
+  }
   if (state.package?.isRuntimePack) {
     recordPlatformRecent(
       library.name,
@@ -6159,12 +6165,7 @@ function bindScopeBarEvents() {
         state.atPackageRoot = true;
         state.atLibraryRoot = false;
       } else if (target === "library") {
-        state.workspaceSubjectOpen = false;
-        state.atPackageRoot = false;
-        state.atLibraryRoot = true;
-        state.selectedMemberKey = "";
-        state.memberBrowseTypeId = "";
-        state.selectedOverloadIndex = null;
+        if (!selectLibrarySubject(selectedLibrary()?.id ?? "", { preserveView: true })) return;
       } else if (target === "type") {
         state.workspaceSubjectOpen = false;
         // Pop out to the type level: leave the package root and drop any open member so the

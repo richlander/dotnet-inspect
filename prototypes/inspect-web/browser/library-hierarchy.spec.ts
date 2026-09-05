@@ -222,6 +222,48 @@ test("production navigation separates Package, Library, Type and Member", async 
   expect(errors).toEqual([]);
 });
 
+test("direct Library subject entry scopes Types before and after refresh", async ({ page }) => {
+  await installFacades(page);
+  await page.goto(root);
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Widget");
+  await expect(page.locator("#type-list")).not.toContainText("Neighbor");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Widget");
+});
+
+test("returning to Library retains its inspector and selected Type context", async ({ page }) => {
+  await installFacades(page, {
+    ...surface,
+    assemblies: [{ ...core, publicTypes: 2, publicMembers: 2 }, other, empty],
+    types: [...surface.types, type("Example.SecondWidget", core)],
+    accessibility: surface.accessibility.map(bucket => ({ ...bucket, count: 3 })),
+    totalMembers: 3,
+  });
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
+  await page.locator('#type-list [data-type="asset:core:Example.SecondWidget"]').click();
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+  await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.SecondWidget");
+  await page.getByRole("tab", { name: "Member", exact: true }).press("ArrowLeft");
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", { name: "Type", exact: true }).press("ArrowLeft");
+  await expect(page.locator('[data-library-lens="references"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Core.Dependency");
+  await expect(page.locator("#type-list")).not.toContainText("Neighbor");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+  await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target")).toContainText("Example.SecondWidget");
+});
+
 test("empty Library metadata survives refresh and history without selecting a neighbor", async ({ page }) => {
   await installFacades(page);
   await page.goto(root);
@@ -247,6 +289,11 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator(".inspected-target")).not.toContainText("Widget");
   await expect(page).toHaveURL(shared);
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.locator('[data-scope="package"]').press("ArrowRight");
+  await expect(page.locator('[data-library-lens="metadata"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
 });
 
 test("a single-library package retains a distinct Library level", async ({ page }) => {
