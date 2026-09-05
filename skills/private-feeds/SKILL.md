@@ -77,7 +77,8 @@ Pin a coordinate to inspect its payload through the configured folder source:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
-dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed --files
+dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed \
+  --path @readme --content --bare
 ```
 
 Online caller-pinned acquisition tries local sources before HTTP sources.
