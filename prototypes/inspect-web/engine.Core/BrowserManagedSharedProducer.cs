@@ -157,6 +157,7 @@ internal sealed class BrowserManagedSharedProducer<
         Subscription subscription)
     {
         bool requestStop;
+        bool anotherWaiterRemains = false;
         TaskCompletionSource? handoff = null;
         BrowserManagedOperationBoundaryException? retainedStartFailure = null;
         lock (_sync)
@@ -171,10 +172,15 @@ internal sealed class BrowserManagedSharedProducer<
             if (_waiters.Count > 1)
             {
                 _waiters.Remove(subscription);
-                return BrowserManagedProducerDisposition.AnotherWaiterRemains;
+                if (!_closed || _workHandle is not null || _waiters.Count != 1)
+                    return BrowserManagedProducerDisposition.AnotherWaiterRemains;
+                // A failed, unrecorded handoff retains a terminal-draining
+                // waiter. Its departing neighbor now owns the stop request.
+                anotherWaiterRemains = true;
             }
 
-            if (_epochWork is not null && _producerTask?.IsCompleted != true)
+            if (!anotherWaiterRemains
+                && _epochWork is not null && _producerTask?.IsCompleted != true)
             {
                 if (_workHandle is { } existing)
                 {
@@ -218,6 +224,13 @@ internal sealed class BrowserManagedSharedProducer<
                 "The shared producer remains owned by an epoch-fault record.",
                 retainedStartFailure,
                 stopFailure is not null ? [stopFailure] : []);
+        }
+
+        if (anotherWaiterRemains)
+        {
+            if (stopFailure is not null)
+                ExceptionDispatchInfo.Capture(stopFailure).Throw();
+            return BrowserManagedProducerDisposition.AnotherWaiterRemains;
         }
 
         Completion completion = await _completion.Task.ConfigureAwait(false);
@@ -267,13 +280,22 @@ internal sealed class BrowserManagedSharedProducer<
         }
 
         bool requestStop;
+        bool terminal;
+        bool anotherWaiter;
         lock (_sync)
         {
             _workHandle = handle;
             if (failure is not null)
                 _closed = true;
-            requestStop = failure is not null && _waiters.Count == 1
-                && _producerTask?.IsCompleted != true;
+            terminal = _producerTask!.IsCompleted;
+            // Install ownership, remove the waiter, and claim last-detach
+            // stop together so a concurrent neighbor cannot leave it unclaimed.
+            if (handle is not null)
+                _waiters.Remove(subscription);
+            anotherWaiter = _waiters.Count > 0;
+            requestStop = failure is not null && !terminal
+                && _waiters.Count == (handle is null ? 1 : 0);
+            _handoff = null;
         }
         if (requestStop && _requestStopOnLastDetach is not null)
         {
@@ -287,18 +309,6 @@ internal sealed class BrowserManagedSharedProducer<
             }
         }
 
-        bool terminal;
-        bool anotherWaiter;
-        lock (_sync)
-        {
-            terminal = _producerTask!.IsCompleted;
-            // A closed registration cannot issue a fault record. Retain the
-            // waiter and use the terminal-bounded path instead of orphaning work.
-            if (handle is not null)
-                _waiters.Remove(subscription);
-            anotherWaiter = _waiters.Count > 0;
-            _handoff = null;
-        }
         handoff.SetResult();
 
         Completion? completion = null;

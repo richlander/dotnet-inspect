@@ -264,6 +264,82 @@ public sealed class BrowserManagedEpochWorkTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task StartFailure_ConcurrentNeighborRelease_CannotLosePermittedStop()
+    {
+        for (int iteration = 0; iteration < 512; iteration++)
+        {
+            var stop = Signal<bool>();
+            using var neighborClosing = new ManualResetEventSlim();
+            Producer? producer = null;
+            int cleanupCalls = 0;
+            int stops = 0;
+            var bridge = new BrowserManagedOperationBridge(new()
+            {
+                CleanupCompleted = stage =>
+                {
+                    if (stage != BrowserManagedOperationCleanupStage.EventCallback
+                        || Interlocked.Increment(ref cleanupCalls) != 2)
+                        return;
+                    neighborClosing.Set();
+                    var deadline = DateTime.UtcNow.AddSeconds(10);
+                    var spin = new SpinWait();
+                    while (!producer!.IsClosed)
+                    {
+                        Assert.True(DateTime.UtcNow < deadline, "The failed handoff did not close admission.");
+                        spin.SpinOnce(sleep1Threshold: -1);
+                    }
+                },
+            });
+            Task<Result>? neighbor = null;
+            var startFailure = new InvalidOperationException("start failed during neighbor release");
+            var reporter = new BrowserManagedEpochWorkReporter<string>(
+                (_, _) =>
+                {
+                    neighbor = Run(bridge, "neighbor", producer!);
+                    Cancel(bridge, "neighbor");
+                    Assert.True(neighborClosing.Wait(TimeSpan.FromSeconds(10)));
+                    throw startFailure;
+                },
+                _ => throw new InvalidOperationException("A failed start cannot finish."));
+            producer = new(
+                async _ =>
+                {
+                    await stop.Task;
+                    return new BodyResult.Succeeded(1);
+                },
+                () =>
+                {
+                    Interlocked.Increment(ref stops);
+                    stop.TrySetResult(true);
+                },
+                epochWork: reporter.ForProducer("opaque"));
+            Task<Result> first = Run(bridge, "first", producer);
+            Cancel(bridge, "first");
+            var failure = await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
+                () => Within(first));
+            var handoff = Assert.IsType<BrowserManagedOperationBoundaryException>(failure.InnerException);
+            var start = Assert.IsType<BrowserManagedOperationBoundaryException>(handoff.InnerException);
+            Assert.Same(startFailure, start.InnerException);
+            Assert.NotNull(neighbor);
+            Exception? neighborFailure = await Record.ExceptionAsync(() => Within(neighbor));
+            if (neighborFailure is null)
+                Assert.IsType<Result.Canceled>(await neighbor);
+            else
+                Assert.Equal("cleanup",
+                    Assert.IsType<BrowserManagedOperationBoundaryException>(neighborFailure).FailureKind);
+            int observedStops = stops;
+            stop.TrySetResult(true);
+            await Within(producer.ObserveCompletionAsync());
+            await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
+                () => Within(reporter.DrainAsync()));
+            reporter.Unregister();
+            Assert.Equal(0, bridge.ActiveCount);
+            Assert.Equal(0, producer.WaiterCount);
+            Assert.Equal(1, observedStops);
+        }
+    }
+
+    [Fact]
     public async Task ProducerCancellation_IsAnObservableProducerFailure_NotObserverCancellation()
     {
         var physical = Signal<BodyResult>();
@@ -448,6 +524,56 @@ public sealed class BrowserManagedEpochWorkTests(ITestOutputHelper output)
         await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(() => Within(operation));
         Assert.Equal(0, bridge.ActiveCount);
         Assert.Equal(0, producer.WaiterCount);
+    }
+
+    [Fact]
+    public async Task StoppedRegistration_LastNeighborStopsTheRetainedTerminalDrainer()
+    {
+        var physical = Signal<BodyResult>();
+        var reporter = new BrowserManagedEpochWorkReporter<string>((_, _) => { }, _ => { });
+        var bridge = new BrowserManagedOperationBridge();
+        Producer? producer = null;
+        Task<Result>? neighbor = null;
+        int stops = 0;
+        var source = new BeforeAcquireSource(reporter.ForProducer("opaque"), () =>
+        {
+            neighbor = Run(bridge, "neighbor", producer!);
+            reporter.StopAdmission();
+        });
+        producer = new(
+            _ => physical.Task,
+            () =>
+            {
+                stops++;
+                physical.SetResult(new BodyResult.Succeeded(1));
+            },
+            epochWork: source);
+        Task<Result> first = Run(bridge, "first", producer);
+        Cancel(bridge, "first");
+        Assert.True(SpinWait.SpinUntil(() => producer.IsClosed, TimeSpan.FromSeconds(10)));
+        Assert.NotNull(neighbor);
+        Assert.Equal(2, producer.WaiterCount);
+        Assert.False(first.IsCompleted);
+        Assert.Equal(0, stops);
+        Cancel(bridge, "neighbor");
+        Assert.IsType<Result.Canceled>(await Within(neighbor));
+        await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(() => Within(first));
+        await Within(producer.ObserveCompletionAsync());
+        Assert.Equal(1, stops);
+        Assert.Equal(0, bridge.ActiveCount);
+        Assert.Equal(0, producer.WaiterCount);
+        await Within(reporter.DrainAsync());
+        reporter.Unregister();
+    }
+
+    sealed class BeforeAcquireSource(
+        BrowserManagedEpochWorkSource source, Action beforeAcquire) : BrowserManagedEpochWorkSource
+    {
+        internal override BrowserManagedEpochWorkHandle Acquire(Task producer)
+        {
+            beforeAcquire();
+            return source.Acquire(producer);
+        }
     }
 
     static Task<Result> Run(
