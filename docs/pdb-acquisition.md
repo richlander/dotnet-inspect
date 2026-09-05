@@ -14,16 +14,23 @@ After a Portable PDB maps a member or type to a checksummed source document,
 `PdbSourceAcquisition` looks for the document bytes in this order:
 
 1. The PDB-recorded local path, when local source reads are enabled.
-2. Each caller-supplied local Git clone, addressed by the exact commit and
+2. Each caller-supplied local Git clone, addressed by the revision selector and
    repository-relative path in a `raw.githubusercontent.com` SourceLink URL.
 3. The remote SourceLink URL.
 
-Every successful path must match the Portable PDB checksum before its content
-becomes evidence. Local-clone acquisition reads the committed Git blob rather
-than the working tree, so an outage does not require a pristine checkout and
-uncommitted edits cannot replace the pinned source. A missing commit, path, or
-checksum match in one clone continues through the remaining clones and then to
-the remote source.
+Every successful path must satisfy the shared Portable PDB checksum verifier
+(exact or accepted line-ending-normalized correspondence) before its content
+becomes evidence. Local-clone acquisition reads the addressed Git blob rather
+than the working-tree file. A missing revision, path, or checksum match in one
+clone continues through the remaining clones and then to the remote source.
+
+[Local repository source acquisition](design/local-repository-source-acquisition.md)
+owns that adapter's locator interpretation, byte admission, optional-lookup
+decline, and execution limits. This document retains acquisition ordering and
+remote outcome policy. A local result proves correspondence with the supplied
+PDB, not repository authenticity or globally immutable SourceLink identity.
+The adapter's focused evidence section distinguishes existing gates from
+ungated working-tree-divergence and execution-limit claims.
 
 Resolution and retrieval preserve document-specific failure state. A rejected
 SourceLink entry does not shadow a valid entry that resolves the same document,
