@@ -610,6 +610,42 @@ public sealed class ReadyToRunImageInspectorTests
     }
 
     [Fact]
+    public void MetadataRoots_MalformedAliasedManifest_FailsWithSelectedRootProvenance()
+    {
+        SyntheticImage image = CreateImage(
+            managedNative: true,
+            exported: true,
+            manifestAliasesCliMetadata: true,
+            sourceImage: MetadataImageOverviewTests.SelfWithCorruptTableStream());
+        using var session = OpenSession(image.Bytes);
+
+        Assert.True(Assert.Single(session.MetadataRoots()).IsAliased);
+        BadImageFormatException cliError = Assert.IsAssignableFrom<BadImageFormatException>(
+            Record.Exception(
+                () => session.MetadataImage(MetadataRootSource.Cli)));
+
+        MalformedMetadataRootException imageError = Assert.Throws<
+            MalformedMetadataRootException>(
+            () => session.MetadataImage(
+                MetadataRootSource.ReadyToRunManifest));
+        MalformedMetadataRootException tableError = Assert.Throws<
+            MalformedMetadataRootException>(
+            () => session.MetadataTables(
+                MetadataRootSource.ReadyToRunManifest));
+
+        Assert.Equal(
+            MetadataRootMalformedReason.UnreadableMetadataStructure,
+            imageError.Reason);
+        Assert.Equal(
+            MetadataRootSource.ReadyToRunManifest,
+            imageError.RootSource);
+        Assert.Same(cliError, imageError.InnerException);
+        Assert.Equal(imageError.Reason, tableError.Reason);
+        Assert.Equal(imageError.RootSource, tableError.RootSource);
+        Assert.Same(cliError, tableError.InnerException);
+    }
+
+    [Fact]
     public void MetadataRoots_MalformedManifest_FailsWithRootProvenance()
     {
         SyntheticImage image = CreateImage(managedNative: true, exported: false);
@@ -862,7 +898,8 @@ public sealed class ReadyToRunImageInspectorTests
         ReadyToRunHeaderFlags flags = ReadyToRunHeaderFlags.Partial,
         SectionSpec[]? sections = null,
         string exportName = "RTR_HEADER",
-        bool manifestAliasesCliMetadata = false)
+        bool manifestAliasesCliMetadata = false,
+        byte[]? sourceImage = null)
     {
         sections ??=
         [
@@ -870,7 +907,7 @@ public sealed class ReadyToRunImageInspectorTests
             new(ReadyToRunSectionType.ManifestMetadata, "BSJB"u8.ToArray()),
         ];
 
-        byte[] bytes = File.ReadAllBytes(SelfPath);
+        byte[] bytes = sourceImage?.ToArray() ?? File.ReadAllBytes(SelfPath);
         using var original = Open(bytes);
         PEHeaders headers = original.PEHeaders;
         PEHeader peHeader = headers.PEHeader!;

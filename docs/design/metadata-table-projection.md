@@ -1370,7 +1370,8 @@ root throws `MalformedMetadataRootException` carrying
 an R2R discovery failure is retained for the manifest-root surface while the
 existing CLI-only methods continue to inspect valid CLI metadata.
 That typed manifest failure also covers malformed stream or table structure
-that SRM rejects after bounded root-prefix admission; the original SRM
+that SRM rejects after bounded root-prefix admission, including an exact alias
+whose shared CLI reader has already cached the failure; the original SRM
 exception remains the cause.
 
 This contract does not recover a manifest root when the PE envelope itself is
@@ -1382,8 +1383,8 @@ directory, not recovery after the shared PE owner rejects its headers.
 `ReadyToRunImageInspectorTests` gates distinct and aliased roots, the
 compiler-produced CoreLib manifest, every root-aware metadata facet, root
 offset and size, malformed prefix/stream/table and SRM-section-boundary
-failures, CLI/R2R failure isolation, COFF source non-invention, manifest-only
-images, and session lifetime.
+failures, malformed exact-alias provenance, CLI/R2R failure isolation, COFF
+source non-invention, manifest-only images, and session lifetime.
 `MetadataFormatAdmissionTests` gates the shared admission policy across every
 raw metadata entry point.
 

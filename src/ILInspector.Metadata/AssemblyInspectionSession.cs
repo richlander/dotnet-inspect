@@ -336,7 +336,9 @@ public sealed class AssemblyInspectionSession : IDisposable
         options ??= new MetadataProjectionOptions();
         return new MetadataRootValue<MetadataTableProjection>(
             root.Info,
-            MetadataTableProjector.Project(root.Reader, options));
+            root.Read(
+                source,
+                reader => MetadataTableProjector.Project(reader, options)));
     }
 
     /// <summary>
@@ -367,11 +369,13 @@ public sealed class AssemblyInspectionSession : IDisposable
             return null;
 
         options ??= new MetadataProjectionOptions();
-        MetadataTableView? tableView = MetadataTableProjector.ProjectRow(
-            root.Reader,
-            table,
-            rowId,
-            options);
+        MetadataTableView? tableView = root.Read(
+            source,
+            reader => MetadataTableProjector.ProjectRow(
+                reader,
+                table,
+                rowId,
+                options));
         return tableView is null
             ? null
             : new MetadataRootValue<MetadataTableView>(root.Info, tableView);
@@ -408,11 +412,13 @@ public sealed class AssemblyInspectionSession : IDisposable
 
         return new MetadataRootValue<MetadataRowReferenceSet>(
             root.Info,
-            MetadataTableProjector.FindReferences(
-                root.Reader,
-                targetTable,
-                targetRowId,
-                maxReferences));
+            root.Read(
+                source,
+                reader => MetadataTableProjector.FindReferences(
+                    reader,
+                    targetTable,
+                    targetRowId,
+                    maxReferences)));
     }
 
     /// <summary>
@@ -444,12 +450,15 @@ public sealed class AssemblyInspectionSession : IDisposable
 
         return new MetadataRootValue<MetadataImageOverview>(
             root.Info,
-            MetadataImageInspector.Describe(
-                root.Reader,
-                root.ImageOffset,
-                root.Info.Size,
-                MetadataImageInspector.DescribeHeaders(_image.PEReader.PEHeaders),
-                untrustedText));
+            root.Read(
+                source,
+                reader => MetadataImageInspector.Describe(
+                    reader,
+                    root.ImageOffset,
+                    root.Info.Size,
+                    MetadataImageInspector.DescribeHeaders(
+                        _image.PEReader.PEHeaders),
+                    untrustedText)));
     }
 
     /// <summary>
@@ -482,11 +491,13 @@ public sealed class AssemblyInspectionSession : IDisposable
         options ??= new MetadataProjectionOptions();
         return new MetadataRootValue<MetadataValue>(
             root.Info,
-            MetadataTableProjector.ReadHeapValue(
-                root.Reader,
-                heap,
-                address,
-                options));
+            root.Read(
+                source,
+                reader => MetadataTableProjector.ReadHeapValue(
+                    reader,
+                    heap,
+                    address,
+                    options)));
     }
 
     /// <summary>
@@ -517,10 +528,12 @@ public sealed class AssemblyInspectionSession : IDisposable
         options ??= new MetadataProjectionOptions();
         return new MetadataRootValue<MetadataHeapEntrySet>(
             root.Info,
-            MetadataTableProjector.ReadHeapEntries(
-                root.Reader,
-                heap,
-                options));
+            root.Read(
+                source,
+                reader => MetadataTableProjector.ReadHeapEntries(
+                    reader,
+                    heap,
+                    options)));
     }
 
     /// <summary>

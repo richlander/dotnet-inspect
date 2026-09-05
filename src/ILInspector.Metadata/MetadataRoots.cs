@@ -246,8 +246,38 @@ internal sealed record MetadataRootBinding(
     MetadataRootInfo Info,
     MetadataRootReader ReaderOwner)
 {
-    internal MetadataReader Reader => ReaderOwner.Reader;
     internal int ImageOffset => ReaderOwner.ImageOffset;
+
+    internal T Read<T>(
+        MetadataRootSource source,
+        Func<MetadataReader, T> read)
+    {
+        try
+        {
+            return read(ReaderOwner.Reader);
+        }
+        catch (MalformedMetadataRootException ex)
+            when (source == MetadataRootSource.ReadyToRunManifest
+                && ex.RootSource != MetadataRootSource.ReadyToRunManifest)
+        {
+            throw new MalformedMetadataRootException(
+                ex.Reason,
+                MetadataRootSource.ReadyToRunManifest,
+                ex);
+        }
+        catch (BadImageFormatException ex)
+            when (source == MetadataRootSource.ReadyToRunManifest
+                && ex is not MalformedMetadataRootException
+                {
+                    RootSource: MetadataRootSource.ReadyToRunManifest,
+                })
+        {
+            throw new MalformedMetadataRootException(
+                MetadataRootMalformedReason.UnreadableMetadataStructure,
+                MetadataRootSource.ReadyToRunManifest,
+                ex);
+        }
+    }
 }
 
 internal sealed class MetadataRootReader : IDisposable
