@@ -177,16 +177,17 @@ public static class RouterCommandDefinition
                             tokens,
                             request,
                             sourceIdentityTypeTarget);
-                var optionErrors = new Dictionary<string, OptionError?>(StringComparer.Ordinal);
+                var optionErrors = new Dictionary<StructuralRoute, OptionError?>();
                 string[] interpretationTokens =
                     sourceParseResult.GetResult(packageArgs.AllLibrariesOption) is { Implicit: false }
                     && !sourceParseResult.GetValue(packageArgs.AllLibrariesOption)
                     ? RouterTokenRewriter.RemoveOptionWithValue(tokens, "--all-libraries", "false")
                     : tokens;
-                foreach (string command in alternatives.Alternatives
-                    .Select(alternative => alternative.Route.View.DestinationCommand)
-                    .Distinct(StringComparer.Ordinal))
+                foreach (StructuralRoute route in alternatives.Alternatives
+                    .Select(alternative => alternative.Route)
+                    .Distinct())
                 {
+                    string command = route.View.DestinationCommand;
                     ParseResult interpretation = rootCommand.Parse([command, .. interpretationTokens]);
                     OptionError? optionError = SharedParsers.GetStructuralParseError(interpretation);
                     if (optionError is null)
@@ -197,7 +198,8 @@ public static class RouterCommandDefinition
                             TypeOptionsParser.TryCreateStructuralPlan(
                                 interpretation, opts, typeArgs,
                                 out _, out optionError, out _,
-                                interpretedTypeTarget: typeTarget);
+                                interpretedTypeTarget: typeTarget,
+                                interpretedCatalog: route.Catalog);
                         }
                         else if (command == MemberCommand.Name)
                         {
@@ -227,11 +229,11 @@ public static class RouterCommandDefinition
                                 opts.ParseSchema(interpretation));
                         }
                     }
-                    optionErrors.Add(command, optionError);
+                    optionErrors.Add(route, optionError);
                 }
                 alternatives = new StructuralCatalogAlternatives(
                     [.. alternatives.Alternatives.Select(alternative =>
-                        optionErrors[alternative.Route.View.DestinationCommand] is { } error
+                        optionErrors[alternative.Route] is { } error
                             ? alternative with
                             {
                                 CompleteCatalog = false,

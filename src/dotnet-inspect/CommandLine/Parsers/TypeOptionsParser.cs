@@ -23,7 +23,8 @@ public static class TypeOptionsParser
         out StructuralDiscoveryPlan? plan,
         out OptionError? error,
         out bool targetFree,
-        string? interpretedTypeTarget = null)
+        string? interpretedTypeTarget = null,
+        InspectionCatalogIdentity? interpretedCatalog = null)
     {
         plan = null;
         error = null;
@@ -87,11 +88,19 @@ public static class TypeOptionsParser
             SharedParsers.ParseTypeFilter(
                 parseResult.GetValue(args.TypeFilterOption));
         var typeGesture = new TypeGestureIntent(typeFilter);
+        bool hasTypeFilter = typeGesture.SelectsListingCatalog(typeName);
+        InspectionCatalogIdentity catalog =
+            interpretedCatalog
+            ?? (hasTypeFilter
+                || string.IsNullOrWhiteSpace(typeName)
+                || TypeMatcher.IsTypeGlobPattern(typeName)
+                    ? InspectionCatalogIdentity.ApiType
+                    : InspectionCatalogIdentity.ApiMember);
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
             options,
             typeScoped: true,
-            typeName,
+            typeName: catalog == InspectionCatalogIdentity.ApiType ? null : typeName,
             out _,
             out _,
             typeGesture);
@@ -105,13 +114,6 @@ public static class TypeOptionsParser
             && !hasProjectSource
             && parseResult.GetValue(args.TypeFilterOption) is null
             && memberValues.Length == 0;
-        bool hasTypeFilter = typeGesture.SelectsListingCatalog(typeName);
-        InspectionCatalogIdentity catalog =
-            hasTypeFilter
-            || string.IsNullOrWhiteSpace(typeName)
-            || TypeMatcher.IsTypeGlobPattern(typeName)
-                ? InspectionCatalogIdentity.ApiType
-                : InspectionCatalogIdentity.ApiMember;
         plan = new StructuralDiscoveryPlan.Resolved(
             StructuralViewRegistry.Route(
                 StructuralViewIdentity.Type,

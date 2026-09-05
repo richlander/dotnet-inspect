@@ -1927,6 +1927,62 @@ public sealed class InspectionPlanningTests
         Assert.Contains("requires one exact type name", result.Error);
     }
 
+    [Theory]
+    [InlineData("System.String", "-D")]
+    [InlineData("System.String", "-S")]
+    [InlineData("Missing.Type.Run", "-D")]
+    [InlineData("Missing.Type.Run", "-S")]
+    public async Task CommandlessBodyQueryRejectsTypeListingAlternative(
+        string target, string selectorOption)
+    {
+        string[] discovery =
+        [
+            selectorOption, SectionNames.Classes,
+            .. selectorOption == "-S" ? new[] { "-D" } : [],
+            "--schema", "--table", "--tips", "q",
+        ];
+        var commandless = await RunAppAsync(
+            [target, "--where", "Kind=ObjectCreationExpression", .. discovery]);
+        var explicitListing = await RunAppAsync(
+        [
+            "type", "--platform", "System.Private.CoreLib",
+            "--where", "Kind=ObjectCreationExpression", .. discovery,
+        ]);
+        var unfiltered = await RunAppAsync([target, .. discovery]);
+
+        Assert.Equal(1, commandless.Exit);
+        Assert.Equal(1, explicitListing.Exit);
+        Assert.Empty(commandless.Output);
+        Assert.Contains(explicitListing.Error.Trim(), commandless.Error);
+        Assert.Contains("requires one exact type name", commandless.Error);
+        Assert.Equal(0, unfiltered.Exit);
+        Assert.Empty(unfiltered.Error);
+        Assert.Contains("[type/type/ApiType] Classes", unfiltered.Output);
+    }
+
+    [Theory]
+    [InlineData("-D")]
+    [InlineData("-S")]
+    public async Task CommandlessBodyQueryPreservesValidStructuralAlternatives(
+        string selectorOption)
+    {
+        var result = await RunAppAsync(
+        [
+            "Missing.Type.Run", "--where", "Kind=ObjectCreationExpression",
+            selectorOption, SectionNames.BodyShapes,
+            .. selectorOption == "-S" ? new[] { "-D" } : [],
+            "--schema", "--table", "--tips", "q",
+        ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[type/type/ApiMember] Body Shapes", result.Output);
+        Assert.Contains("[member/member-target/ApiMemberDetail] Body Shapes", result.Output);
+        Assert.Contains("[type/type/ApiType] error:", result.Output);
+        Assert.Contains("requires one exact type name", result.Output);
+        Assert.DoesNotContain("[type/type/ApiType] Body Shapes", result.Output);
+    }
+
     [Fact]
     public async Task EquivalentExactTypeFilterPreservesBodyQuery()
     {
