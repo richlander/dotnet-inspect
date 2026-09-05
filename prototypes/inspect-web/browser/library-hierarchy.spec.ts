@@ -8,6 +8,8 @@ import type {
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
 
+test.use({ viewport: { width: 900, height: 900 } });
+
 function library(id: string, name: string, count: number): BrowserAssemblySurface {
   return {
     id,
@@ -202,15 +204,17 @@ test("production navigation separates Package, Library, Type and Member", async 
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
   await expect(page.locator("#type-list")).toContainText("Neighbor");
   await expect(page.locator("#type-list")).not.toContainText("Widget");
-  await page.locator('[data-library-lens="references"]').click();
+  await page.locator('[data-library-lens="overview"]').press("ArrowRight");
+  await page.keyboard.press("Enter");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Other.Dependency");
   await expect(page.locator("html")).toHaveAttribute("data-reference-request", "asset:other");
 
-  await page.locator('[data-scope="package"]').click();
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
   await page.locator('.library-list [data-lib-scope="asset:core"]').click();
   await page.locator('#type-list [data-type]').click();
   await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
-  await page.locator('[data-scope="member"]').click();
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
   await expect(page.locator('[data-scope="member"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target")).toContainText("Example.Core");
   await expect(page.locator(".inspected-target")).toContainText("Example.Widget");
@@ -224,7 +228,8 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await page.locator('.library-list [data-lib-scope="asset:empty"]').click();
   await expect(page.locator("#inspector-panel")).toContainText("No public types");
   await expect(page.locator('[data-scope="type"]')).toHaveCount(0);
-  await page.locator('[data-library-lens="metadata"]').click();
+  await page.locator('[data-library-lens="overview"]').press("End");
+  await page.keyboard.press("Enter");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("html")).toHaveAttribute("data-metadata-request", "asset:empty");
   await page.locator('[data-mde-open="0"]').click();
@@ -236,10 +241,9 @@ test("empty Library metadata survives refresh and history without selecting a ne
   await expect(page.locator('[data-library-lens="metadata"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(0);
-  await page.locator('[data-scope="library"]').press("Home");
-  await page.keyboard.press("Enter");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
   await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
   await expect(page.locator("#inspector-panel")).toContainText("Example.Empty.dll");
   await expect(page.locator(".inspected-target")).not.toContainText("Widget");
   await expect(page).toHaveURL(shared);

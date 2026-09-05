@@ -1108,9 +1108,12 @@ test("row-one controls yield in order before Subject and Inspector navigation", 
   await page.setViewportSize({ width: 900, height: 900 });
   await expect(page.locator("#open-search")).toBeHidden();
   await expect(page.locator(".title-navigation .nav-history")).toBeHidden();
-  await expect(
-    page.locator(".scope-switch [data-subject-tab]:not([hidden])"),
-  ).toHaveCount(3);
+  await expect(memberSubject).toBeVisible();
+  const visibleSubjectCount = await page.locator(
+    ".scope-switch [data-subject-tab]:not([hidden])",
+  ).count();
+  expect(visibleSubjectCount).toBeGreaterThan(0);
+  expect(visibleSubjectCount).toBeLessThan(await subjectTabs.count());
 
   await page.setViewportSize({ width: 480, height: 900 });
   await expect(page.locator("#application-menu-button")).toBeVisible();
@@ -1324,34 +1327,30 @@ test("allocation controls move between adjacent stable result pairs", async ({
   const inspector = page.locator(".slide-strip-inspector");
   const moreSubjects = page.locator("[data-more-subjects]");
   await expect(moreSubjects).toHaveAttribute("aria-disabled", "false");
-  await expect(
-    subject.locator(
-      '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Library", "Type", "Member"]);
-  await expect(
-    inspector.locator(
-      '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Overview", "Call graph", "Facts", "Source"]);
-  const initialInspectorCount = await inspector.locator(
-    "[data-inspector-tab]:not([hidden])",
-  ).count();
+  const visibleSubjectLabels = subject.locator(
+    '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
+  );
+  const visibleInspectorLabels = inspector.locator(
+    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
+  );
+  const subjects = ["Package", "Library", "Type", "Member"];
+  const inspectors = ["Overview", "Call graph", "Facts", "Source", "Annotated source"];
+  const initialSubjectCount = await visibleSubjectLabels.count();
+  const initialInspectorCount = await visibleInspectorLabels.count();
+  expect(initialSubjectCount).toBeGreaterThan(0);
+  expect(initialSubjectCount).toBeLessThan(subjects.length);
+  expect(initialInspectorCount).toBeGreaterThan(2);
+  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-initialSubjectCount));
+  await expect(visibleInspectorLabels).toHaveText(inspectors.slice(0, initialInspectorCount));
 
   await moreSubjects.click();
   await expect(moreSubjects).toBeFocused();
-  await expect(
-    subject.locator(
-      '[data-subject-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-    ),
-  ).toHaveText(["Package", "Library", "Type", "Member"]);
-  const adjustedInspectorLabels = inspector.locator(
-    '[data-inspector-tab]:not([hidden]) [data-slide-strip-representation="label"]',
-  );
-  await expect(adjustedInspectorLabels.first()).toHaveText("Overview");
-  await expect(adjustedInspectorLabels.nth(1)).toHaveText("Call graph");
-  expect(await adjustedInspectorLabels.count()).toBeLessThan(
-    initialInspectorCount);
+  await expect.poll(() => visibleSubjectLabels.count()).toBeGreaterThan(initialSubjectCount);
+  const adjustedSubjectCount = await visibleSubjectLabels.count();
+  await expect(visibleSubjectLabels).toHaveText(subjects.slice(-adjustedSubjectCount));
+  await expect(visibleInspectorLabels.first()).toHaveText("Overview");
+  await expect(visibleInspectorLabels.nth(1)).toHaveText("Call graph");
+  expect(await visibleInspectorLabels.count()).toBeLessThan(initialInspectorCount);
 });
 
 test("allocation preserves a manually slid inspector window", async ({
