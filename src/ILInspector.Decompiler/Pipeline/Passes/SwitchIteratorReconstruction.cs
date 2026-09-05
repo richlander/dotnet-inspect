@@ -431,7 +431,7 @@ internal static class SwitchIteratorReconstruction
                     if (hoisted.TryGetValue(field.Name, out var slot))
                         swaps.Add((node, new LoadLocal(slot.Index, field.Type)));
                     else if (TryGetParameter(kickoff, field.Name, out var index, out var parameter))
-                        swaps.Add((node, new LoadArgument(index, parameter.Name, parameter.Type)));
+                        swaps.Add((node, new LoadArgument(index, parameter)));
                     else
                         ok = false;
                     return;

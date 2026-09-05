@@ -1579,9 +1579,10 @@ public sealed class MetadataSource : IDisposable
                     if (variable.Index < 0 || variable.Index >= localCount)
                         continue;
                     names[variable.Index] = pdb.GetString(variable.Name);
-                    // A slot listed in more than one scope is malformed or merged
-                    // metadata. Keep the narrowest range: it is the weaker claim about
-                    // how far the declaration reaches, so it cannot widen a scope.
+                    // The current model retains only one range per slot. Keep the
+                    // narrowest range so collapsing legal scope-qualified slot reuse
+                    // cannot widen a declaration; #5617 tracks retaining every name
+                    // and scope instead.
                     var candidate = new LocalSlotScope(scope.StartOffset, scope.EndOffset);
                     if (scopes[variable.Index] is not { } existing || candidate.Length < existing.Length)
                         scopes[variable.Index] = candidate;

@@ -713,7 +713,11 @@ public sealed class InlineArrayCollectionPass : IIrPass
     static IrExpression? PlaceFromAddress(IrExpression address, TypeRef arrayType) => address switch
     {
         LoadLocalAddress local => new LoadLocal(local.Index, local.Type),
-        LoadArgumentAddress argument => new LoadArgument(argument.Index, argument.Name, argument.Type),
+        LoadArgumentAddress argument => new LoadArgument(
+            argument.Index,
+            argument.Name,
+            argument.Type,
+            argument.Parameter),
         LoadFieldAddress field => new LoadField(
             field.Field,
             field.Instance is null ? null : (IrExpression)field.DetachChildren()[0]),
