@@ -34,9 +34,9 @@ This owner defines:
 The exact claim is:
 
 > One host-neutral Gallery discovery operation binds an authorized source and
-> typed search intent to ordered package metadata and honest completion
-> evidence. Its supported delegated selection has the same meaning as the
-> caller's reference computation; it is not a provider page-size shortcut.
+> typed search intent to an explicitly bounded, ordered package-metadata input
+> and honest scope/completion evidence. Row selection preserves that named
+> input; a provider page-size shortcut cannot replace semantic selection.
 
 This does not own generic feed behavior, source authorization or identity,
 row-schema binding, row predicates, selection-stage meaning, Count, CLI
@@ -65,8 +65,9 @@ tracker, not this document, assigns their implementation work.
 ## Gallery input and discovery domain
 
 A request names one authorized Gallery source, optional search text, zero or
-one package-type selector, a source order, and prerelease policy. The caller's
-semantic selection and the operation's resource ceilings are separate inputs.
+one package-type selector, a source order, prerelease policy, and bounded
+response capacity K. The caller's semantic selection and the operation's other
+resource ceilings are separate inputs.
 
 Missing or whitespace-only text means **browse**, not invalid input and not a
 request for a fabricated wildcard. Nonempty text uses Gallery search semantics;
@@ -74,26 +75,40 @@ it is encoded as one provider parameter, not interpreted as CLI text, a row
 predicate, or a literal package-ID prefix. Existing literal-prefix inspection
 remains a separate supported operation.
 
-The discovery domain is the Gallery's searchable listed package IDs under that
-text, type, and version policy, including the provider's browse eligibility
+The discovery population is the Gallery's searchable listed package IDs under
+that text, type, and version policy, including the provider's browse eligibility
 rules. It is not every package ever uploaded or every version of each package.
 One result identifies one package ID and its provider-selected eligible
 version. Stable-only is the default; SemVer 2 packages remain eligible.
 Package-type selection applies to the provider-selected version under the same
 prerelease policy, not to an arbitrary historical version.
 
+The initial **row input is one bounded Gallery response**, not the whole
+discovery population. Its capacity K is part of the declared source input,
+chosen before row planning and preserved with the result. It requests offset
+zero and up to K rows, with positive K within the adapter's advertised maximum
+of 1,000.
+Changing only a semantic selection such as `Head(10)` must not silently change
+K. The source cannot shrink K to ten as an optimization.
+
+This restriction matters because Gallery selects page membership using indexed
+download counts, then re-sorts that page using auxiliary lifetime counts.
+The first ten of a 200-candidate response need not equal a ten-candidate
+response. Each is useful Gallery discovery; neither certifies the globally
+most-downloaded ten packages.
+
 The initial source orders are:
 
 | Order | Meaning |
 | --- | --- |
-| Most downloaded | Descending package-level lifetime downloads, retaining the provider's tie order. Not recent activity or unique users. |
+| Most downloaded | Gallery's download-ranked candidate selection, then descending package-level lifetime downloads within that response, retaining provider tie order. Not global top-N, recent activity, or unique users. |
 | Relevance | The Gallery's relevance order for this query, including its provider ranking policy. Not a locally reproducible numeric score. |
 
 An omitted source order resolves to Most downloaded for browse and Relevance
 for nonempty text. An explicit order wins in either case. Selection never
 changes that resolved source order.
 
-These are source-input orders: they define the incoming logical sequence.
+These are source-input orders: they define the incoming bounded sequence.
 They are not aliases for L2 `--order-by` or semantic `Top`. A caller that
 retains this incoming order can select its head; an additional row-order
 operation still occupies its normal place in the caller's plan.
@@ -160,11 +175,13 @@ Selected package type can be reported as evidence of the provider-applied
 selector. It is not a claim that the response included an exhaustive list of
 that package's types, or that its archive has been inspected.
 
-The typed result retains the request association and completion evidence with
-its ordered rows. It reuses the existing source-result identity and containment
-contracts rather than introducing caller-policing tokens. Source-reported
-`totalHits` belongs to this response's discovery domain; it is not an L2 Count
-and does not authorize a count after residual predicates or semantic stages.
+The typed result retains the full source-input association, including K, and
+completion evidence with its ordered rows. It reuses the existing source-result
+identity and containment contracts rather than introducing caller-policing
+tokens. Source-reported `totalHits` is an **estimate** of the discovery
+population, not an L2 Count. It cannot prove population exhaustion, including
+when it equals the returned row count or is zero. A missing or unusable
+estimate remains unavailable without making otherwise valid rows unavailable.
 This Gallery response has its own wire shape, including
 `PackageRegistration.Id`, `Version`, and `NormalizedVersion`. It is not the
 V3 search DTO; its count interpretation does not change generic feed parsing,
@@ -177,73 +194,63 @@ unverified until that gate runs against the product adapter.
 
 ## Source delegation and semantic limits
 
-The first optimized adoption supports a single declared package-row sequence
-and a source-closed `Head(N)` over the incoming Gallery order, with no preceding
-membership-changing projection, row predicate, or local ordering operation.
-It consumes an owner-formed candidate rather than parsing `-n` or inventing a
-row plan. The RowSelection owner's source-closed declaration and the Source
-Delegation implementation are prerequisites, not claims made by this design.
+The initial adoption supports **acquisition-only row handoff** for one declared
+bounded Gallery response input. The delegated operation prefix is empty;
+semantic `Head`, predicates, ordering, and other stages stay in the caller's
+exact residual. NuGetFetch consumes the owner-formed candidate and does not
+parse `-n`, invent a row plan, or imply that using the row language authorizes
+selection pushdown.
 
 Acceptance, failure, and publication follow
 [Source Delegation's effect protocol](source-delegation.md#effect-protocol).
-This owner contributes only the supported input/operation combination and the
-provider evidence below. Accepted execution never silently retries a different
-plan or substitutes another source.
+The Source Delegation implementation and L2's declared finite-input binding are
+prerequisites. This source design does not implement or alter their contracts.
+Nonempty delegated prefixes, whole-population completion requirements, and
+upstream exact Count decline before source work. A caller may use another
+separately supported strategy after decline or report unsupported; it must not
+quietly reinterpret the input.
 
-The initial exact optimization is deliberately **one provider response from
-offset zero**, for `N` within the adapter's advertised response capacity
-(at most the provider's 1,000-row `take` ceiling). Publication is atomic.
-Larger selections, strict windows, Tail, reordered or callback-bearing
-operations, and exact upstream Count are not advertised by this initial
-delegation capability. They decline before source work. A caller may use a
-separately supported reference strategy after decline, or report unsupported;
-it must not quietly clamp the request.
+Publication is atomic after one complete successful provider response. The
+adapter admits its full ordered row sequence, without silently dropping
+malformed rows or repeated package IDs, and preserves the accepted source
+input. The named finite input is precisely the rows in that response, whose
+membership and order belong to Gallery; K is its maximum requested capacity,
+not a promise that K rows exist or will be returned.
 
-For that response, the adapter establishes:
+The matching evidence proves that this **finite response input** was fully
+acquired and admitted. It can establish logical exhaustion only of that named
+input when the caller's completion requirement accepts that scope. Neither
+transport EOF nor a response containing K rows establishes exhaustion or a
+Head witness over the discovery population. The candidate must name the finite
+input before execution; the source cannot relabel an incomplete population
+request after receiving a short response.
 
-- the response answers the accepted text/type/version/order input at offset
-  zero, under the adopted provider filtering and ordering contract;
-- the admitted rows are the response's complete ordered package-ID prefix,
-  without silently dropping malformed rows or repeated package IDs; and
-- either N applicable rows reached the caller's clamp, or the response's
-  source-reported population is exhausted by the admitted rows.
+A valid short or empty response can therefore be a complete finite input,
+while remaining inconclusive about the wider population. Malformed/truncated
+transport, decode failure, byte/time limits, or cancellation do not become
+complete empty inputs. Accepted failures retain the existing source/delegation
+failure outcomes and never silently switch plan or source.
 
-The first case supplies the caller's required Head witness. The second requires
-a well-formed nonnegative integral `totalHits` for that same response equal to
-the admitted row count and smaller than N. A short/empty page alone is not
-exhaustion. A contradictory count, malformed response, unknown provider cap,
-byte/time limit, or cancellation cannot construct either proof.
-
-Returning N rows is not sufficient in isolation: an operational candidate cap,
-a page from an unfiltered domain, or a relevance page later sorted locally
-does not establish the accepted ordered-prefix claim. Equivalence fixtures
-must distinguish these cases. Trust in the Gallery's declared computation is
-the explicit provider-contract assumption permitted by Source Delegation; this
-does not claim to detect a provider that lies consistently about its results.
-
-The one-response restriction avoids treating successive requests against a
-changing index as one stable snapshot. There is no immutable corpus or
-repeatability claim across refreshes, and no cross-page exactness claim.
-Later paging adoption must establish its own completion basis rather than
-promoting provider offsets or a repeated `totalHits` into snapshot identity.
+There is no immutable-corpus, cross-page, or refresh-repeatability claim.
+Future selection delegation needs both the operation owner's source-closed
+declaration and a provider basis that proves equivalence over the same input.
+The one-response restriction alone does not make download ranking
+prefix-stable, and approximate `totalHits` cannot supply the missing proof.
 
 ### Residual predicates are a real boundary
 
-Consider Most downloaded tools followed by a manifest predicate and `Head(10)`.
-The first ten tools need not contain ten predicate matches. The source cannot
-push `Head(10)` ahead of that predicate, fetch ten, filter locally, and claim
-the requested result.
+Consider a 200-candidate tools input followed by a manifest predicate and
+`Head(10)`. The caller evaluates that exact residual over the acquired input.
+It may produce fewer than ten matches because this finite input contains fewer,
+not because the Gallery has no further matching tools. Product adoption must
+make the bounded scope visible; it cannot describe those rows as an exhausted
+global top ten.
 
-Such a plan keeps the operation under its existing owner and uses an
-acquisition-only handoff or another separately supported strategy. Its retained
-residual and source-result usability remain caller-owned. If bounded
-acquisition cannot satisfy the complete semantic request, report that
-limitation; do not describe fewer matches as an exhausted top ten.
-
-Likewise, `Head(100) -> Top(10, downloads)` is not equivalent to changing the
-source order and requesting its first ten. Registry discovery grants no
-permission to reorder either plan. General predicate/order pushdown requires
-separate source-closed declarations by the relevant operation owners.
+Fetching only ten candidates before evaluating the predicate changes both the
+input and the plan. Likewise, `Head(100) -> Top(10, downloads)` does not
+authorize changing the source order or capacity. Registry discovery grants no
+permission to reorder either plan. These barriers leave useful local selection
+available without promising unsupported global search semantics.
 
 ## Failures, resources, and platform
 
@@ -254,9 +261,11 @@ remote strings and failures retain the existing contained source-result form.
 There is no new local-actor or inspected-code-execution threat model.
 
 Provider page and response limits are operational ceilings, distinct from the
-semantic row count. Expected source failure and insufficient completion evidence
-remain visible through the existing source/delegation outcomes. Failed
-execution does not become unsupported planning or success-shaped empty rows.
+semantic row count. The declared response capacity makes the initial source
+scope explicit; additional operational limits cannot truncate it into success.
+Expected source failure and insufficient completion evidence remain visible
+through the existing source/delegation outcomes. Failed execution does not
+become unsupported planning or success-shaped empty rows.
 
 The new endpoint must remain usable through the existing injected HTTP
 capability on CLI and Browser/Wasm. CORS is a concrete browser-adoption
@@ -280,6 +289,9 @@ CLI gestures / browser controls
 
 The CLI should consume its existing semantic `-n` lowering, not forward the
 token to HTTP. The browser should express the equivalent typed selection.
+Both should disclose the bounded Gallery input independently of the selected
+row count. The shared product binding owns its default capacity; the example
+below uses 200, not a new CLI flag or a mandatory source default.
 CLI text/Markdown/JSON lowering uses the existing Markout/Sections path.
 Browser interactive controls and cards remain host-specific rendering over
 typed rows; browser adoption must name that lowering boundary rather than
@@ -289,6 +301,7 @@ Mockup, not shipped syntax or a new CLI grammar:
 
 ```text
 Gallery browse: .NET Tool, Most downloaded
+Source input:  up to 200 Gallery candidates
 CLI selection: -n 10
 Browser:       Search [ optional text ] Type [ .NET tools ]
                Sort [ Most downloads ]  [ Search ]
@@ -298,12 +311,15 @@ Cake.Tool                            170,466,408
 dotnet-ef                            123,908,981
 GitVersion.Tool                      122,595,411
 ...                                  ...
-10 packages shown; Gallery reports 8,868 matching package IDs
+10 packages shown from a bounded Gallery input
+Gallery estimates about 8,868 matching package IDs
 ```
 
-The neighboring case uses nonempty text and Relevance without changing the
-row pipeline. A generic V3 feed lacking Gallery browse/order capability remains
-a feed, not an automatic substitute. A content-enriched query still exposes
+The package values illustrate the observed ten-candidate request, not a claim
+that every capacity returns the same prefix. The neighboring case uses
+nonempty text and Relevance without changing the row pipeline. A generic V3
+feed lacking Gallery browse/order capability remains a feed, not an automatic
+substitute. A content-enriched query still exposes
 its acquisition cost and semantic-selection boundary.
 
 [#5919](https://github.com/richlander/dotnet-inspect/issues/5919) owns the
@@ -327,10 +343,22 @@ download counts. The Gallery implementation at
 [`bc5a59e3cf5d4d357e40615639b78615f97b2cc0`][gallery-controller] separately
 accepts sorting on `/search/query`, not `/query`.
 [Its parameter mapping][gallery-parameters] recognizes
-`totalDownloads-desc`; [its search builder][gallery-order] orders by lifetime
-download count and provider creation-time tie order. That same builder limits
-`take` to 1,000; out-of-range values fall back to the provider's default rather
-than honoring a larger semantic request.
+`totalDownloads-desc`; [its search builder][gallery-order] selects candidates
+using indexed download counts and creation-time tie order.
+[Its response builder][gallery-response] then re-sorts only the selected page
+using auxiliary lifetime counts. That is why capacity is part of input meaning.
+The search builder limits `take` to 1,000; out-of-range values fall back to the
+provider's default rather than honoring a larger request.
+
+A fixed-state counterexample preserves this boundary as reproducible design
+evidence: A has indexed/auxiliary counts 200/200; B has 100/300. `take=1`
+selects A, while the response for `take=2` orders B before A. Thus changing K
+to implement `Head(1)` changes the answer without any concurrent index update.
+
+[The Gallery wrapper][gallery-wrapper] reads only the first Azure result page
+and forwards its `TotalCount`. Azure's [IncludeTotalCount contract][azure-count]
+explicitly describes that value as approximate. A short page whose approximate
+total happens to equal its length cannot prove population exhaustion.
 
 This is the deliberate provider-specific extension of the existing Gallery
 source, not an extension silently imposed on generic V3. Gallery browse is the
@@ -367,12 +395,12 @@ They are not present or passing merely because this design names them.
 | `GalleryDiscoveryRequestAndCatalog` | Termless/type-filtered requests, explicit/default orders, stable/prerelease selection, custom valid package types, invalid/unknown selections, and inert shared descriptor discovery retain their declared meaning. |
 | `GalleryDiscoveryUsesSearchMetadataOnly` | The product adapter returns basic browse rows with only search transport; no per-package enrichment is requested. |
 | `GalleryDiscoveryProviderProjection` | Lifetime versus version downloads, optional missing fields, required-field failures, source association, provider ordering, and selector evidence are preserved. |
-| `GalleryDiscoveryHeadMatchesReference` | Product delegation matches `RowSelectionExecutor` over independently authored complete finite source sequences, including ties, zero/fewer/exactly/more-than-N rows, and the full emitted order. |
-| `GalleryDiscoveryCompletionEvidence` | A matching offset-zero prefix and same-response total establish the accepted witness/exhaustion cases; short pages, operational caps, contradictory totals, malformed/duplicate rows, cancellation, and resource failures do not become exact success. |
-| `GalleryDiscoveryDelegationBoundaries` | Plans with prior predicates/order, unsupported stages, larger response requirements, or upstream Count decline before source work; accepted failures do not fall back. The acquired-prefix/local-filter counterexample cannot claim ten matches. |
+| `GalleryDiscoveryFiniteInputSelection` | Product acquisition preserves K and the whole provider response; the shared adopter's residual matches `RowSelectionExecutor` over that exact finite input, including ties and zero/fewer/exactly/more-than-N rows. The fixed index/auxiliary divergence detects replacing K with N. |
+| `GalleryDiscoveryCompletionEvidence` | Evidence binds complete acquisition to the predeclared finite input, never to population exhaustion. Short/empty responses and approximate totals retain that distinction; malformed/duplicate rows, truncated transport, cancellation, and resource failures do not become complete inputs. |
+| `GalleryDiscoveryDelegationBoundaries` | Nonempty delegated prefixes, whole-population completion, out-of-range capacity, and upstream Count decline before source work; accepted failures do not fall back. Local predicate/Head composition retains the declared candidate scope. |
 
 The adoption consumes the Source Delegation and RowSelection owners' own gates;
-these tests do not replace their source-closed or effect-protocol evidence.
+these tests do not replace their effect-protocol or reference-semantics evidence.
 The L2 and host milestones separately gate binding and CLI/browser equivalence.
 A live provider probe detects observed provider drift but does not prove future
 provider honesty; deterministic fixtures enforce adapter behavior in CI.
@@ -385,3 +413,6 @@ publication would require separate owner work and corresponding model evidence.
 [gallery-controller]: https://github.com/NuGet/NuGetGallery/blob/bc5a59e3cf5d4d357e40615639b78615f97b2cc0/src/NuGet.Services.SearchService.Core/Controllers/SearchController.cs
 [gallery-parameters]: https://github.com/NuGet/NuGetGallery/blob/bc5a59e3cf5d4d357e40615639b78615f97b2cc0/src/NuGet.Services.AzureSearch/SearchService/Models/ParameterUtilities.cs
 [gallery-order]: https://github.com/NuGet/NuGetGallery/blob/bc5a59e3cf5d4d357e40615639b78615f97b2cc0/src/NuGet.Services.AzureSearch/SearchService/SearchParametersBuilder.cs
+[gallery-response]: https://github.com/NuGet/NuGetGallery/blob/bc5a59e3cf5d4d357e40615639b78615f97b2cc0/src/NuGet.Services.AzureSearch/SearchService/SearchResponseBuilder.cs#L330-L353
+[gallery-wrapper]: https://github.com/NuGet/NuGetGallery/blob/bc5a59e3cf5d4d357e40615639b78615f97b2cc0/src/NuGet.Services.AzureSearch/Wrappers/SearchClientWrapper.cs#L40-L61
+[azure-count]: https://learn.microsoft.com/en-us/dotnet/api/azure.search.documents.searchoptions.includetotalcount?view=azure-dotnet
