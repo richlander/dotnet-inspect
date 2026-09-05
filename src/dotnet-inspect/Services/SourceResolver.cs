@@ -50,6 +50,23 @@ public static class SourceResolver
     public static bool HasExplicitSource(string? package, string? assembly, string? platform, bool isLibrarySelector)
         => package != null || (assembly != null && !isLibrarySelector) || platform != null;
 
+    public static bool IsPackageRelativeLibraryValue(string value)
+    {
+        if (value.StartsWith('-'))
+            return false;
+
+        if (IsLibrarySelector(value, package: null))
+            return true;
+
+        return PackageCoordinateResolver
+                .IsPackageRelativeAssetPath(value)
+            && value.EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase)
+            && !CommandLineHelpers
+                .IsExplicitLibraryPath(value);
+    }
+
     /// <summary>
     /// Peels segments from the right of a dotted name, probing each candidate
     /// against the dotnet hive and source-scoped package candidate metadata.
