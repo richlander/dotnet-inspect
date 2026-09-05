@@ -44,16 +44,18 @@ The following contracts supply those responsibilities:
 
 | Dependency | Consumed responsibility | Delivery status |
 | --- | --- | --- |
-| [Population boundary](inspection-layers.md#queries-to-research-population-boundary) | Sealed query occurrences and their bijective Research receipt | Runtime prerequisite: #5860, tracker step 1 |
-| [Workspace target composition](research-workspace-target-composition.md) | Exact root-to-terminal association when selection traverses a workspace facade | Runtime prerequisite: #5676 / #5699, step 4 |
+| [Population boundary](inspection-layers.md#queries-to-research-population-boundary) | Sealed query occurrences and their bijective Research receipt | Landed in #5874 for #5860, tracker step 1 |
+| [Workspace target composition](research-workspace-target-composition.md) | Exact root-to-terminal association when selection traverses a workspace facade | #5676 / #5699, step 4; required for that selection route, not an already-selected physical pair |
 | [Research target and session contracts](implementation-diff.md#research-local-producer-session-and-completion) | Owner-issued target evidence, native producer results, and local session completion | Local session landed in #5827; designated pairing remains #5877, step 18 |
-| Queries outer publication, historical rank 6 | Association of the query receipt with Research completion and Queries-owned primary/cleanup outcomes | Separate design/runtime prerequisite: step 5 |
+| [Local comparison publication](local-comparison-publication.md) | Association of the query receipt with terminal evidence for the borrowed-input profile | #5925, the first profile of step 5; runtime is not yet implemented |
 
 The publication dependency is intentional: this adapter must not invent a
-temporary public result union that step 5 immediately replaces. Its concrete
-return type is selected by that owner-local publication effort before adapter
-implementation. The design here fixes how the adapter uses that boundary,
-not its internal result or cleanup inventory.
+temporary public result union that step 5 immediately replaces.
+`LocalComparisonQueryResult` is the selected boundary for the first
+borrowed-input profile. Its focused contract must lock before adapter
+implementation. This design fixes how the adapter uses that boundary, not its
+internal result or cleanup inventory. Queries-owned acquisition and cleanup
+composition remain outside this first profile.
 
 ### Designated pairing is not strict correspondence
 
@@ -154,6 +156,52 @@ row schema nor a browser-specific rendering bypass. Any such bypass needs its
 own host design rather than parsing the CLI's rendered output.
 
 ## Adoption and retirement ledger
+
+### First production punch-through
+
+The first bounded scenario is two explicitly selected physical methods in one
+already-open implementation assembly. CLI `match --implementation` is the
+existing production caller. Browser adoption adds an explicit comparison
+action over its member selection and retained implementation participant;
+ordinary selection does not silently become pair selection.
+
+This route consumes the working assembly-context boundary rather than waiting
+for unrelated package-role, whole-assembly, body-signal, or Source migrations.
+It does not invoke root-to-terminal forwarding composition. Those scenarios
+remain separate; a physical `ExactAddress` is not retargeted.
+
+The selected route has **8 delivery milestones: 1 complete, 7 remaining** at
+this update. These are outcomes, not a promise of eight PRs:
+
+| Tracker step | Selected outcome | Status |
+| --- | --- | --- |
+| 1 | Population sealing and exact projection receipt | Complete: #5874 |
+| 18 | Research designated-pair local session | In progress: #5908 |
+| 5 | Lock and implement borrowed-input local publication | #5925 |
+| 6 | Implement the physical-pair Queries adapter | Planned |
+| 8 | Cut over CLI `match --implementation`, including presentation and removal of its replaced dispatch/wrapper | Planned |
+| 9 | Add the Browser managed facade, explicit pair interaction, and typed result view | Planned |
+| 16, scoped | Remove unused or superseded Queries substrate established by this route's caller inventory | After both hosts |
+| 17, scoped | Remove unused or superseded Research substrate established by this route's caller inventory | After both hosts |
+
+Each host path contains **5 milestones, 1 complete and 4 remaining**:
+1, 18, 5, 6, then 8 or 9. The two scoped cleanups close the selected route,
+not all global retirement in #4706.
+
+Keep the first publication and adapter runtime together with the CLI
+adopting change; the bounded first-adopter exception permits that focused
+pattern plus one adopting owner. Browser adoption follows immediately as
+its own owner effort. Do not introduce another standalone substrate PR between
+that query and its production caller.
+
+The Browser currently has no direct member-comparison path to delete.
+The CLI cutover removes `MatchCommand.BuildImplementationDiffView`'s direct
+`CompareMembers` call and synthetic result wrapper. Final owner cleanups use
+an actual caller inventory: preserve Source-dependent and assembly-comparison
+behavior, but do not retain unused substrate merely for a future proposal.
+No deletion or production adoption is claimed by this design.
+
+### Broader migration snapshot
 
 [#4706](https://github.com/richlander/dotnet-inspect/issues/4706) is the single
 counted end-to-end tracker. At this design's introduction it has **18 remaining
