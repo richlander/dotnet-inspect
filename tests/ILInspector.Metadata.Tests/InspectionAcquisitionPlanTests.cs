@@ -1986,7 +1986,7 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildModuleImage()
+    internal static byte[] BuildModuleImage()
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -2005,7 +2005,7 @@ public class InspectionAcquisitionPlanTests
         return Serialize(metadata);
     }
 
-    static byte[] BuildSimpleAssembly(
+    internal static byte[] BuildSimpleAssembly(
         string assemblyName,
         string typeName,
         Guid mvid)
@@ -2243,7 +2243,7 @@ public class InspectionAcquisitionPlanTests
         return image.ToArray();
     }
 
-    static byte[] BuildNativePeImage()
+    internal static byte[] BuildNativePeImage()
     {
         var image = new byte[0x400];
         using var stream = new MemoryStream(image, writable: true);

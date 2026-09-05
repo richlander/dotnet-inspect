@@ -281,14 +281,14 @@ descriptor-based PDB entry point belongs here.
 #### Admission-scoped artifact projection
 
 Issue [#5143](https://github.com/richlander/dotnet-inspect/issues/5143)
-defines the target replacement for using
+defines the replacement for using
 `ResolvedAssemblyReference.CreateFromArtifactIfManaged` while a workspace is
 constructing an assembly context. This is an assembly-inspection-query
 contract. Artifact acquisition still owns admission and query authorization,
 retained bytes, source provenance, and publication. Metadata still owns PE
 classification, assembly identity, and MVID decoding.
 
-The target operation has two distinct phases:
+The operation has two distinct phases:
 
 1. During admission, the artifact owner validates the current admission
    authority, derives an owner-attested view from the exact selected
@@ -307,9 +307,9 @@ does not retain the callback input, and does not mint artifact authority. This
 is the immediate typed boundary the assembly query consumes:
 
 ```csharp
-public readonly ref struct ArtifactAssemblyAdmissionView
+public readonly ref struct ArtifactAdmissionContentView
 {
-    internal ArtifactAssemblyAdmissionView(
+    internal ArtifactAdmissionContentView(
         ArtifactGenerationIdentity generation,
         ArtifactIdentity artifact,
         ReadOnlySpan<byte> content)
@@ -324,9 +324,9 @@ public readonly ref struct ArtifactAssemblyAdmissionView
     public ReadOnlySpan<byte> Content { get; }
 }
 
-public readonly ref struct ArtifactAssemblyQueryView
+public readonly ref struct ArtifactQueryContentView
 {
-    internal ArtifactAssemblyQueryView(
+    internal ArtifactQueryContentView(
         ArtifactGenerationIdentity generation,
         ArtifactIdentity artifact,
         ReadOnlySpan<byte> content)
@@ -412,11 +412,26 @@ public enum ArtifactAssemblyQueryFailureKind
 
 These declarations describe the value shape and typed outcomes; they do not
 assign the artifact owner's callback API or authorization implementation to
-Metadata. The implementation may use a closed hierarchy instead of records or
-enums, but it must preserve the distinctions above. The two `ref struct` views
-illustrate the required phase distinction and non-retention boundary; the
-artifact owner owns their construction and may expose an equivalent scoped
-callback shape.
+Metadata. `DotnetInspector.Artifacts` owns the two `ref struct` views and their
+construction, implemented by #5906. Their distinct types and scoped callbacks
+provide the phase distinction and non-retention boundary.
+
+`ArtifactAssemblyInspection.Project` consumes `ArtifactAdmissionContentView`.
+`ArtifactAssemblyInspection.Execute<TResult>` consumes
+`ArtifactQueryContentView`, the published projection, and a synchronous
+producer over `AssemblyInspectionSession`. Each operation pins the borrowed
+span only for its reader lifetime; query session disposal also occurs inside
+that pin. This adapts the owner's retained image without another full-image
+copy or a source reopen. The producer must return materialized results rather
+than deferred work or session-bound objects.
+
+The outer composition calls
+`ArtifactAssemblyProjectionOutcome.FromAccess` or
+`ArtifactAssemblyQueryOutcome<TResult>.FromAccess` on the artifact owner's
+`ArtifactContentAccessOutcome<T>`: an accessed value passes through, while
+`Unauthorized` becomes the phase-specific Metadata rejection. These mapping
+operations receive neither leases nor content handles. Owner callback
+exceptions and cancellation propagate rather than entering that mapping.
 
 `ArtifactAssemblyProjection` is immutable, content-free, and bound to one
 in-process artifact generation. It is not a durable or serializable identity.
@@ -490,7 +505,7 @@ nor constructs the group.
 The later query path starts from a published
 `ArtifactAssemblyProjection`. Under current query authorization, the artifact
 owner locates the exact retained acquisition registration and supplies an
-owner-attested `ArtifactAssemblyQueryView` for one operation. Registration and
+owner-attested `ArtifactQueryContentView` for one operation. Registration and
 generation are not decoded from PE bytes: they come from this scoped owner
 view. Before any producer observes assembly evidence, the assembly query
 validates all of:
@@ -501,7 +516,8 @@ validates all of:
    supported ECMA-335 before any `MetadataReader` construction or managed
    metadata work;
 4. the retained image is still a managed assembly;
-5. its assembly identity equals the projected identity; and
+5. its assembly identity is equivalent to the projected identity under
+   `AssemblyReferenceIdentity.IsEquivalentTo`; and
 6. its non-empty MVID equals the projection registration's MVID.
 
 Because an `ArtifactIdentity` is scoped to its owner-issued generation, exact
@@ -574,7 +590,7 @@ conformance or the outer authorization-result mapping.
 
 ##### Required gates
 
-Implementation is complete only when Release tests equivalent to these exist:
+`ArtifactAssemblyInspectionTests` implements these Release gates:
 
 - `AdmissionProjection_BindsExactArtifactIdentityAssemblyRegistrationIdentityAndMvid`
 - `AdmissionProjection_MapsUnauthorizedAuthorityWithoutInvokingCallback`
