@@ -553,6 +553,8 @@ internal static class ClassicInverseRealizationRules
             (Return, Return) => true,
             (ExpressionStatement, ExpressionStatement) => true,
             (LogicalNot, LogicalNot) => true,
+            (ArrayLength, ArrayLength) => true,
+            (Unary left, Unary right) => left.Kind == right.Kind,
             (LoadArgument left, LoadArgument right) =>
                 left.Index == right.Index
                 && left.Name == right.Name
@@ -586,6 +588,9 @@ internal static class ClassicInverseRealizationRules
                 left.Accessor == right.Accessor
                 && left.IsVirtual == right.IsVirtual
                 && left.HasInstance == right.HasInstance,
+            (LoadField left, LoadField right) =>
+                left.Field == right.Field
+                && left.IsVolatile == right.IsVolatile,
             (NewObject left, NewObject right) =>
                 left.Constructor == right.Constructor
                 && left.AnonymousPropertyNames.SequenceEqual(

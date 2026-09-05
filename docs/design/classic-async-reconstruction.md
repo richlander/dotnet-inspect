@@ -503,10 +503,18 @@ effect rather than realize it one-to-one:
   exact instance, parameterless member declared by the operand type, returns
   the proven suspension awaiter type, and has the same typed member and
   call-site identity in raw and planning spaces. Reference operands require
-  `callvirt`; the existing core-library `ValueTask`/`ValueTask<T>` lowering
-  instead uses a direct call on an address of that exact value type. A
-  same-named static helper, direct reference call, or mismatched address
-  remains outside the source-faithful dispatch boundary.
+  `callvirt`; the existing core-library `ValueTask`/`ValueTask<T>` and configured
+  Task/ValueTask awaitable families instead use a direct call on an address of
+  that exact value type. This includes the generic and non-generic
+  `ConfiguredTaskAwaitable` and `ConfiguredValueTaskAwaitable` types.
+  `ConfigureAwait` itself remains an ordinary realized call with its exact
+  receiver and option argument. When planning inlines a configured-value
+  temporary, the raw bind must immediately follow its exact typed store in the
+  same block; the store's rvalue and planning receiver retain the same import
+  offset. Only that proven address use and store frame become protocol; other
+  uses remain in raw accounting. A same-named static helper, direct reference
+  call, or mismatched address remains outside the source-faithful dispatch
+  boundary.
 - **an awaited result.** `awaiter.GetResult()` is the input spelling of
   `await` only when it is the exact instance, parameterless member of the type
   that suspension's local, its `GetAwaiter` return, and its `<>u__N` cache field
@@ -563,6 +571,21 @@ An implicit assignment conversion alone does not license erasing a conversion
 inside an expression: arithmetic width, rounding, and overflow behavior must
 remain unchanged. Property reads preserve the exact accessor, dispatch,
 instance presence, and ordered index arguments through detached publication.
+Unary operators retain their operator kind and operand; array lengths retain
+their array; ordinary field reads retain exact field identity, volatility, and
+optional receiver. These expressions are ordinary realizations, not protocol.
+
+The compiler's unchecked, signed `conv.i4` directly over an `ArrayLength` is
+an identity under the imported int-typed array-length model, as recognized by
+`IdentityConvertPass`. Raw accounting may preserve that frame while still
+accounting for its array-length operation and receiver. Checked, unsigned,
+widening, narrowing, and floating-point conversions are not covered by that
+exception.
+
+The `0`/`1` literals consumed by an exactly bool-typed call parameter may
+correspond to `false`/`true` after `TypedConstantsPass`; the value, parameter
+position, and import offset must remain the same. This does not authorize
+integer retyping in other positions or recovery from a missing import anchor.
 
 ### Structured-ancestor receipts
 
@@ -718,6 +741,15 @@ Release gates:
 | `ClassicInversePreservesPropertyAccess` | Existing property, indexer, static, or virtual getter expressions stop reconstructing or lose their typed shape. |
 | `ClassicInverseRejectsChangedPropertyIdentityOrDispatch` | The accountant licenses a changed getter member or call-site dispatch. |
 | `ClassicInversePropertyPlanIsDetached` | A property's receiver or index arguments alias a request or another materialization, or its accessor retains an acquisition guard. |
+| `ClassicInversePreservesOrdinaryExpressionForms` | Existing unary, array-length, instance-field, static-field, or volatile-field expressions stop reconstructing or lose their expression facts. |
+| `ClassicInverseRejectsChangedUnaryKind` | The accountant licenses a changed unary operator. |
+| `ClassicInverseRejectsChangedFieldIdentityOrVolatility` | The accountant licenses a changed field identity or volatility. |
+| `ClassicInverseOrdinaryExpressionPlansAreDetached` | An ordinary expression blueprint aliases the input or an earlier materialization. |
+| `ClassicInversePreservesConfiguredAwaitables` | Existing configured Task/ValueTask awaits stop reconstructing or lose their option argument. |
+| `ClassicInverseConfiguredDispatchCannotBeHealedByPlanning` | A planning-only repair hides changed raw configured-awaitable dispatch. |
+| `ClassicInverseArrayLengthConversionCannotBeHealedByPlanning` | A planning-only repair hides a checked, unsigned, or widening conversion over the raw array length. |
+| `ClassicInverseConfiguredOperandCannotBeHealedByPlanning` | A planning-only repair hides a changed configured-await option or an operand store moved after its consuming bind. |
+| `ClassicInverseFieldVolatilityCannotBeHealedByPlanning` | A planning-only repair hides a raw field read's volatility. |
 
 The first five gates need compiler-produced positives plus synthetic close
 negatives. Two later gates are deliberately narrower.

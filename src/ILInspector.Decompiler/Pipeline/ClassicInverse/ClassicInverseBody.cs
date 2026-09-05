@@ -266,6 +266,24 @@ internal sealed record ClassicInverseLogicalNotNode(
     internal override string Signature => $"not({Operand.Signature})";
 }
 
+internal sealed record ClassicInverseUnaryNode(
+    UnaryKind Kind,
+    ClassicInverseBodyNode Operand)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new Unary(Kind, Expr(Operand));
+
+    internal override string Signature => $"unary[{Kind}]({Operand.Signature})";
+}
+
+internal sealed record ClassicInverseArrayLengthNode(ClassicInverseBodyNode Array)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new ArrayLength(Expr(Array));
+
+    internal override string Signature => $"length({Array.Signature})";
+}
+
 internal sealed record ClassicInverseConvertNode(
     TypeRef Target,
     bool IsChecked,
@@ -366,6 +384,22 @@ internal sealed record ClassicInverseLoadElementNode(
     internal override string Signature =>
         $"ldelem[{TypeText(ElementType)}:{ResultIsDynamic}]"
         + $"({Array.Signature},{Index.Signature})";
+}
+
+internal sealed record ClassicInverseLoadFieldNode(
+    FieldRef Field,
+    bool IsVolatile,
+    ClassicInverseBodyNode? Instance)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new LoadField(Field, Instance is null ? null : Expr(Instance))
+        {
+            IsVolatile = IsVolatile,
+        };
+
+    internal override string Signature =>
+        $"ldfld[{FieldText(Field)}:{IsVolatile}]({Instance?.Signature ?? ""})";
 }
 
 internal sealed record ClassicInverseTupleNode(
@@ -600,6 +634,22 @@ internal static class ClassicInverseBodyCapture
                     : new ClassicInverseLogicalNotNode(operand);
             }
 
+            case Unary unary:
+            {
+                var operand = TryCapture(unary.Operand, budget);
+                return operand is null
+                    ? null
+                    : new ClassicInverseUnaryNode(unary.Kind, operand);
+            }
+
+            case ArrayLength length:
+            {
+                var array = TryCapture(length.Array, budget);
+                return array is null
+                    ? null
+                    : new ClassicInverseArrayLengthNode(array);
+            }
+
             case Convert convert:
             {
                 var operand = TryCapture(convert.Operand, budget);
@@ -654,6 +704,18 @@ internal static class ClassicInverseBodyCapture
                         load.IsVirtual,
                         load.HasInstance,
                         arguments.Value);
+            }
+
+            case LoadField load:
+            {
+                if (load.Instance is null)
+                    return new ClassicInverseLoadFieldNode(
+                        load.Field, load.IsVolatile, null);
+                var instance = TryCapture(load.Instance, budget);
+                return instance is null
+                    ? null
+                    : new ClassicInverseLoadFieldNode(
+                        load.Field, load.IsVolatile, instance);
             }
 
             case LoadElement load:

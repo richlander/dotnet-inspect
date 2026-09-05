@@ -224,7 +224,9 @@ public sealed class TypedConstantsPass : IIrPass
                 {
                     case "Boolean" when value is 0 or 1:
                         stepper.StepOver($"retype constant {value} to bool", constant);
-                        constant.ReplaceWith(new Constant(value == 1, target));
+                        var boolean = new Constant(value == 1, target);
+                        boolean.InheritSourceOffset(constant);
+                        constant.ReplaceWith(boolean);
                         return;
                     case "Char" when value >= char.MinValue && value <= char.MaxValue:
                         stepper.StepOver($"retype constant {value} to char", constant);

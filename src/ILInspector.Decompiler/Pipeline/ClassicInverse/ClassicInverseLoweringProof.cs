@@ -46,6 +46,8 @@ internal sealed class ClassicInverseLoweringProof
     internal const string AwaiterClear = "awaiter-clear";
     internal const string AwaiterBind = "awaiter-bind";
     internal const string GetAwaiterCall = "get-awaiter";
+    internal const string AwaitOperandStore = "await-operand-store";
+    internal const string AwaitOperandAddress = "await-operand-address";
     internal const string AwaitCompletionBranch = "awaiter-completed-branch";
 
     const string BudgetFailure =
@@ -266,7 +268,8 @@ internal sealed class ClassicInverseLoweringProof
         string Method,
         bool IsVirtual,
         string ConstrainedTo,
-        string ReceiverType);
+        string ReceiverType,
+        int ReceiverOffset);
 
     /// <summary>
     /// One await's exact completion test and the two paths that join at its
@@ -338,12 +341,33 @@ internal sealed class ClassicInverseLoweringProof
                 || getAwaiter.Arguments is not [IrExpression receiver]
                 || getAwaiter.ConstrainedTo is not null
                 || receiver.ResultType is not { } receiverType
-                || !IsSourceAwaitDispatch(getAwaiter, receiverType)
+                || !IsSourceAwaitDispatch(getAwaiter, receiver, receiverType, isRawImport)
                 || !bind.Type.Equals(getAwaiter.Callee.ReturnType))
             {
                 failure = "an awaiter bind does not preserve source dispatch "
                     + "to the exact instance GetAwaiter member of its operand type";
                 return null;
+            }
+
+            // StructReceiverInliningPass removes the adjacent rvalue spill.
+            // Bind its exact source offset across spaces; no other local use
+            // receives the address-use protocol role.
+            IrExpression operand = receiver;
+            if (isRawImport
+                && !getAwaiter.IsVirtual
+                && receiver is LoadLocalAddress address
+                && bind.Parent is Block block
+                && index.PositionOf(bind) is > 0 and var position
+                && block.Children[position - 1] is StoreLocal store
+                && store.Index == address.Index
+                && store.Type.Equals(address.Type)
+                && store.Value is Call or LoadProperty
+                && store.Value.ResultType is { } valueType
+                && valueType.Equals(address.Type))
+            {
+                operand = store.Value;
+                roles[store] = AwaitOperandStore;
+                roles[address] = AwaitOperandAddress;
             }
 
             roles[bind] = AwaiterBind;
@@ -355,7 +379,9 @@ internal sealed class ClassicInverseLoweringProof
                 ClassicInverseTypedIdentity.Method(getAwaiter.Callee),
                 getAwaiter.IsVirtual,
                 ClassicInverseTypedIdentity.Type(getAwaiter.ConstrainedTo),
-                ClassicInverseTypedIdentity.Type(receiverType)));
+                ClassicInverseTypedIdentity.Type(
+                    getAwaiter.IsVirtual ? receiverType : getAwaiter.Callee.DeclaringType),
+                getAwaiter.IsVirtual ? -1 : operand.SourceOffset));
         }
         foreach (int local in awaiterLocals)
         {
@@ -640,19 +666,30 @@ internal sealed class ClassicInverseLoweringProof
     static bool IsVoid(TypeRef type)
         => MemberIdentity.IsCoreLibraryType(type, "System", "Void");
 
-    static bool IsSourceAwaitDispatch(Call getAwaiter, TypeRef receiverType)
+    static bool IsSourceAwaitDispatch(
+        Call getAwaiter, IrExpression receiver, TypeRef receiverType, bool isRawImport)
     {
         if (getAwaiter.IsVirtual)
             return receiverType.Equals(getAwaiter.Callee.DeclaringType);
 
         TypeRef declared = getAwaiter.Callee.DeclaringType;
         TypeRef definition = ClassicInverseNodeFacts.Definition(declared);
-        return receiverType is
-                { Kind: TypeRefKind.ByRef, ElementType: { } element }
-            && element.Equals(declared)
-            && definition.Name is "ValueTask" or "ValueTask`1"
+        string? typeNamespace = definition.Name switch
+        {
+            "ValueTask" or "ValueTask`1" => "System.Threading.Tasks",
+            "ConfiguredTaskAwaitable" or "ConfiguredTaskAwaitable`1"
+                or "ConfiguredValueTaskAwaitable" or "ConfiguredValueTaskAwaitable`1"
+                => "System.Runtime.CompilerServices",
+            _ => null,
+        };
+        bool exactReceiver = receiverType is
+            { Kind: TypeRefKind.ByRef, ElementType: { } element }
+                && element.Equals(declared);
+        if (!isRawImport && receiver is Call or LoadProperty)
+            exactReceiver |= receiverType.Equals(declared);
+        return exactReceiver && typeNamespace is not null
             && MemberIdentity.IsCoreLibraryType(
-                definition, "System.Threading.Tasks", definition.Name);
+                definition, typeNamespace, definition.Name);
     }
 
     /// <summary>

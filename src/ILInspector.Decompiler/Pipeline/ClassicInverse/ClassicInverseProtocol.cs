@@ -151,6 +151,16 @@ internal static class ClassicInverseProtocol
                     ClassicInverseLoweringProof.GetAwaiterCall,
                     0);
 
+            case StoreLocal store when shell.Protocol.Proves(
+                store, ClassicInverseLoweringProof.AwaitOperandStore):
+                return ClassicInverseProtocolRule.Frame(
+                    ClassicInverseLoweringProof.AwaitOperandStore, 0);
+
+            case LoadLocalAddress address when shell.Protocol.Proves(
+                address, ClassicInverseLoweringProof.AwaitOperandAddress):
+                return ClassicInverseProtocolRule.Owned(
+                    ClassicInverseLoweringProof.AwaitOperandAddress);
+
             case ExpressionStatement { Expression: Call builderCall }
                 when IsProvenCompletionCallback(builderCall, shell, candidate):
                 return ClassicInverseProtocolRule.Owned(

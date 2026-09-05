@@ -398,7 +398,8 @@ internal sealed class ClassicInverseAccountant
                     planningOffsets.Contains(node.SourceOffset)
                     || IsMappedMachineValue(node)
                     || (HasRawSemanticOwner(node)
-                        && !IsProvenRecipeTemporaryRead(node)))
+                        && !IsProvenRecipeTemporaryRead(node)
+                        && !IsIdentityArrayLengthConversion(node)))
                 .ToImmutableArray();
         if (_terminal is not null)
             return false;
@@ -452,6 +453,15 @@ internal sealed class ClassicInverseAccountant
                 out int hoisted)
             && _candidate.LocalRemap.TryGetValue(read.Index, out int mapped)
             && mapped == hoisted;
+
+    static bool IsIdentityArrayLengthConversion(IrNode node)
+        => node is Convert
+            {
+                IsChecked: false,
+                IsUnsigned: false,
+                Operand: ArrayLength length,
+            } convert
+            && convert.Target.Equals(length.ResultType);
 
     bool IsMappedMachineValue(IrNode node)
     {
@@ -668,12 +678,14 @@ internal sealed class ClassicInverseAccountant
             (LoadLocalAddress left, LoadLocalAddress right) =>
                 left.Index == right.Index && Equals(left.Type, right.Type),
             (LoadField left, LoadField right) =>
-                left.Field == right.Field,
+                left.Field == right.Field
+                && left.IsVolatile == right.IsVolatile,
             (LoadFieldAddress left, LoadFieldAddress right) =>
                 left.Field == right.Field,
             (Constant left, Constant right) =>
-                Equals(left.Value, right.Value)
-                && Equals(left.Type, right.Type),
+                (Equals(left.Value, right.Value)
+                    && Equals(left.Type, right.Type))
+                || IsRetypedBooleanArgument(left, right),
             (Binary left, Binary right) =>
                 left.Kind == right.Kind
                 && left.IsChecked == right.IsChecked
@@ -705,6 +717,23 @@ internal sealed class ClassicInverseAccountant
                 left.Constructor == right.Constructor,
             _ => false,
         };
+
+    static bool IsRetypedBooleanArgument(Constant raw, Constant planning)
+    {
+        if (raw.Value is not int value || value is not (0 or 1)
+            || planning.Value is not bool boolean || boolean != (value == 1)
+            || !MemberIdentity.IsCoreLibraryType(raw.Type, "System", "Int32")
+            || !MemberIdentity.IsCoreLibraryType(planning.Type, "System", "Boolean")
+            || raw.Parent is not Call call)
+        {
+            return false;
+        }
+
+        int parameter = raw.ChildIndex - (call.Callee.HasThis ? 1 : 0);
+        return parameter >= 0 && parameter < call.Callee.ParameterTypes.Length
+            && MemberIdentity.IsCoreLibraryType(
+                call.Callee.ParameterTypes[parameter], "System", "Boolean");
+    }
 
     bool ValidateRawKickoff()
     {
@@ -1000,7 +1029,9 @@ internal sealed class ClassicInverseAccountant
                 ? $"raw:user-effect:{effect}"
                 : semanticValue
                     ? "raw:user-value"
-                    : "raw:pure-structure");
+                    : IsIdentityArrayLengthConversion(node)
+                        ? "raw:identity-array-length-conversion"
+                        : "raw:pure-structure");
         _rawCovered.Add(node);
         return WalkRawChildren(node);
     }
