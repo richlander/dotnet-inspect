@@ -299,3 +299,35 @@ test("modal makes the background inert and traps forward and reverse Tab", async
   await page.keyboard.press("Shift+Tab");
   await expect(last).toBeFocused();
 });
+
+// Prism is bundled rather than loaded from a CDN, so this asserts the grammar registered
+// and tokenized real C#. Before bundling, a test like this needed the network to pass and
+// so could not be a gate at all.
+test("bundled Prism tokenizes the C# source", async ({ page }) => {
+  const keywords = page.locator(".annotated-source-code .token.keyword");
+  await expect(keywords.first()).toHaveText("for");
+
+  // A class the C# grammar produces and the clike grammar alone does not, so this fails if
+  // the language modules are imported in the wrong order or one is dropped.
+  await expect(page.locator(".annotated-source-code .token.class-name").first())
+    .toBeVisible();
+});
+
+// This observes only the annotated-source fixture's load through highlighting readiness,
+// not every application route, later interaction, or possible resource type.
+test("loading the annotated-source fixture uses only same-origin requests", async ({ page }) => {
+  const external: string[] = [];
+  await page.route("**", route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== new URL(page.url() || "http://127.0.0.1:4175").origin) {
+      external.push(url.href);
+    }
+    return route.continue();
+  });
+
+  await page.reload();
+  await expect(page.locator("#explore-annotated")).toBeVisible();
+  await expect(page.locator(".annotated-source-code .token.keyword").first()).toBeVisible();
+
+  expect(external).toEqual([]);
+});
