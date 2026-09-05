@@ -420,34 +420,40 @@ public static partial class PackageExports
     public static async Task<string> ActivateWorkspacePackageOccurrence(
         string action)
     {
+        BrowserWorkspacePackageOccurrenceActivation activation =
+            await ActivateWorkspacePackageOccurrenceAsync(action);
+        return JsonSerializer.Serialize(
+            activation,
+            BrowserPackageJsonContext.Default
+                .BrowserWorkspacePackageOccurrenceActivation);
+    }
+
+    static async Task<BrowserWorkspacePackageOccurrenceActivation>
+        ActivateWorkspacePackageOccurrenceAsync(string action)
+    {
         BrowserWorkspaceOccurrenceSelection? selection =
             BrowserWorkspaceOccurrenceOperations
                 .Activate(action);
         if (selection is null)
         {
-            return JsonSerializer.Serialize(
-                new BrowserWorkspacePackageOccurrenceActivation(
-                    Activated: false,
-                    Superseded: true,
-                    Package: null),
-                BrowserPackageJsonContext.Default
-                    .BrowserWorkspacePackageOccurrenceActivation);
+            return new BrowserWorkspacePackageOccurrenceActivation(
+                Activated: false,
+                Superseded: true,
+                Package: null);
         }
 
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [selection.Coordinate]);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageSurface package =
             BrowserPackageWireProjection.Project(
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinate(selection.Coordinate)));
-        return JsonSerializer.Serialize(
-            new BrowserWorkspacePackageOccurrenceActivation(
-                Activated: true,
-                Superseded: false,
-                package),
-            BrowserPackageJsonContext.Default
-                .BrowserWorkspacePackageOccurrenceActivation);
+        return new BrowserWorkspacePackageOccurrenceActivation(
+            Activated: true,
+            Superseded: false,
+            package);
     }
 }

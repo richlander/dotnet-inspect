@@ -695,6 +695,12 @@ internal static class BrowserPlatformWorkspace
                 retainedLease);
         }
 
+        // The counted workspace entry — and with it the full image allowance — is reserved before
+        // any platform image is loaded, so a platform load under construction counts against the
+        // same bound as a ready workspace.
+        await using ScopeReservation reservation =
+            await BrowserPackageWorkspace.ReserveScopeAsync(deadline.Token)
+                .ConfigureAwait(false);
         ImmutableArray<RealizedMemberCoordinate.Platform> coordinates =
             state.Coordinates;
         BrowserPlatformScope? candidate = null;
@@ -806,19 +812,19 @@ internal static class BrowserPlatformWorkspace
                 selected.Assembly,
                 StringComparison.OrdinalIgnoreCase));
         string scopeKey = ScopeKey(coordinates);
-        BrowserPlatformScope registered =
+        BrowserScopeLease<BrowserPlatformScope> lease =
             await BrowserPackageWorkspace.RegisterScopeAsync(
+                    reservation,
                     scopeKey,
                     candidate,
                     packageKeys,
                     ForgetScope)
                 .ConfigureAwait(false);
+        BrowserPlatformScope registered = lease.Scope;
         WorkspaceContextMember participant =
             registered.Participant(
                 selected.Family,
                 selected.Assembly);
-        BrowserScopeLease<BrowserPlatformScope> lease =
-            BrowserPackageWorkspace.LeaseScope(registered);
         BrowserPlatformScope? previous = state.Scope;
         state.Coordinates = coordinates;
         state.Scope = registered;

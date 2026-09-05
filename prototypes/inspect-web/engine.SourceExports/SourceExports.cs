@@ -139,7 +139,7 @@ public static partial class SourceExports
     {
         using BrowserSourceOperationLease operation =
             await BrowserSourceOperationCoordinator.BeginAsync();
-        BrowserMemberResolution.ScopedResolution resolved =
+        await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
                 version,
@@ -191,16 +191,16 @@ public static partial class SourceExports
             string typeIdentity,
             CancellationToken cancellationToken)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework,
-            cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            BrowserPackageWorkspace.LeaseScope(scope);
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             BrowserPackageCoordinate coordinate = scope.Coordinates[0];
             PackageCompileAsset surfaceAsset = coordinate.CompileAsset(assemblyName);
             BrowserWorkspaceParticipant surfaceParticipant =

@@ -43,8 +43,36 @@ public static partial class AnalysisExports
         int metadataToken,
         bool implementationBodySelected)
     {
+        BrowserMemberFacts facts = await MemberFactsAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            implementationBodySelected);
+        return JsonSerializer.Serialize(
+            facts,
+            BrowserAnalysisJsonContext.Default.BrowserMemberFacts);
+    }
+
+    static async Task<BrowserMemberFacts> MemberFactsAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        bool implementationBodySelected)
+    {
         _ = memberSignature;
-        BrowserMemberResolution.ScopedResolution resolved =
+        await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
                 version,
@@ -184,9 +212,7 @@ public static partial class AnalysisExports
                         $"{diagnostic.Method}: {diagnostic.Message}"),
             ]);
 
-        return JsonSerializer.Serialize(
-            result,
-            BrowserAnalysisJsonContext.Default.BrowserMemberFacts);
+        return result;
     }
 
     static string FormatOffset(int offset) => $"IL_{offset:X4}";
@@ -223,40 +249,50 @@ public static partial class AnalysisExports
         string version,
         string targetFramework)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
+        BrowserPackageIntegrations integrations =
+            await PackageIntegrationsAsync(packageId, version, targetFramework);
+        return JsonSerializer.Serialize(
+            integrations,
+            BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
+    }
+
+    static async Task<BrowserPackageIntegrations> PackageIntegrationsAsync(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserAnalysisWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
         if (!coordinate.Selection.IsSelected)
         {
-            return JsonSerializer.Serialize(
-                new BrowserPackageIntegrations(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    BrowserFrameworkText.Active(coordinate),
-                    Categories: [],
-                    TotalSignals: 0,
-                    IsComplete: false,
-                    InspectionError: null,
-                    compileLibrary),
-                BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
+            return new BrowserPackageIntegrations(
+                coordinate.PackageId,
+                coordinate.Version,
+                BrowserFrameworkText.Active(coordinate),
+                Categories: [],
+                TotalSignals: 0,
+                IsComplete: false,
+                InspectionError: null,
+                compileLibrary);
         }
 
         PackageWorkspaceIntegrationsResult result =
             scope.QueryIntegrations();
 
-        return JsonSerializer.Serialize(
-            CreateIntegrations(
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
-                result.Libraries.Select(entry => entry.Integrations),
-                compileLibrary),
-            BrowserAnalysisJsonContext.Default.BrowserPackageIntegrations);
+        return CreateIntegrations(
+            coordinate.PackageId,
+            coordinate.Version,
+            coordinate.Framework,
+            result.Libraries.Select(entry => entry.Integrations),
+            compileLibrary);
     }
 
     /// <summary>
@@ -270,27 +306,39 @@ public static partial class AnalysisExports
         string version,
         string targetFramework)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
+        BrowserPackageOpportunities opportunities =
+            await PackageOpportunitiesAsync(packageId, version, targetFramework);
+        return JsonSerializer.Serialize(
+            opportunities,
+            BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    static async Task<BrowserPackageOpportunities> PackageOpportunitiesAsync(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserAnalysisWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
         if (!coordinate.Selection.IsSelected)
         {
-            return JsonSerializer.Serialize(
-                new BrowserPackageOpportunities(
-                    coordinate.PackageId,
-                    coordinate.Version,
-                    BrowserFrameworkText.Active(coordinate),
-                    Categories: [],
-                    TotalOpportunities: 0,
-                    IsComplete: false,
-                    InspectionError: null,
-                    compileLibrary),
-                BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
+            return new BrowserPackageOpportunities(
+                coordinate.PackageId,
+                coordinate.Version,
+                BrowserFrameworkText.Active(coordinate),
+                Categories: [],
+                TotalOpportunities: 0,
+                IsComplete: false,
+                InspectionError: null,
+                compileLibrary);
         }
 
         var registry = new InspectionQueryRegistry<AssemblyContextGroup>()
@@ -308,14 +356,12 @@ public static partial class AnalysisExports
                         group)
                     .Get(AssemblyContextIntegrationOpportunitiesQuery.Definition));
 
-        return JsonSerializer.Serialize(
-            CreateOpportunities(
-                coordinate.PackageId,
-                coordinate.Version,
-                coordinate.Framework,
-                result.Assemblies,
-                compileLibrary),
-            BrowserAnalysisJsonContext.Default.BrowserPackageOpportunities);
+        return CreateOpportunities(
+            coordinate.PackageId,
+            coordinate.Version,
+            coordinate.Framework,
+            result.Assemblies,
+            compileLibrary);
     }
 
     internal static BrowserPackageIntegrations CreateIntegrations(
@@ -498,25 +544,36 @@ public static partial class AnalysisExports
         string version,
         string targetFramework)
     {
-        BrowserInspectionScope scope =
+        BrowserPackagePerformance performance =
+            await PackagePerformanceAsync(packageId, version, targetFramework);
+        return JsonSerializer.Serialize(
+            performance,
+            BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    static async Task<BrowserPackagePerformance> PackagePerformanceAsync(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserAnalysisWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
         if (!coordinate.Selection.IsSelected)
         {
-            return JsonSerializer.Serialize(
-                new BrowserPackagePerformance(
-                    Members: [],
-                    InspectionError: null,
-                    NonPublicOpportunities: 0,
-                    TotalOpportunities: 0,
-                    compileLibrary),
-                BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
+            return new BrowserPackagePerformance(
+                Members: [],
+                InspectionError: null,
+                NonPublicOpportunities: 0,
+                TotalOpportunities: 0,
+                compileLibrary);
         }
 
         ImmutableArray<BrowserWorkspaceParticipant> participants =
@@ -612,16 +669,14 @@ public static partial class AnalysisExports
                     navigableMembers),
                 failures);
 
-        return JsonSerializer.Serialize(
-            new BrowserPackagePerformance(
-                members,
-                failures.Count == 0
-                    ? null
-                    : string.Join("; ", failures),
-                result.NonPublicOpportunities,
-                result.TotalOpportunities,
-                compileLibrary),
-            BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
+        return new BrowserPackagePerformance(
+            members,
+            failures.Count == 0
+                ? null
+                : string.Join("; ", failures),
+            result.NonPublicOpportunities,
+            result.TotalOpportunities,
+            compileLibrary);
     }
 
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(

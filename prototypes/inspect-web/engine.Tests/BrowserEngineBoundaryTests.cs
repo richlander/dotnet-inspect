@@ -437,22 +437,27 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate activeCoordinate = await Coordinate(
             "Active.Source",
             Package(image, "lib/net11.0/Active.Source.dll"));
-        BrowserInspectionScope active = await BrowserPackageWorkspace.OpenScopeAsync(
+        await using BrowserScopeLease<BrowserInspectionScope> activeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [activeCoordinate],
             TestContext.Current.CancellationToken);
+        BrowserInspectionScope active = activeLease.Scope;
         await using BrowserScopeLease<BrowserInspectionScope> lease =
             BrowserPackageWorkspace.LeaseScope(active);
 
         foreach (string id in new[] { "Lease.B", "Lease.C", "Lease.D", "Lease.E" })
         {
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await (await BrowserPackageWorkspace.OpenScopeAsync(
                 [await Coordinate(id, Package(image, $"lib/net11.0/{id}.dll"))],
-                TestContext.Current.CancellationToken);
+                TestContext.Current.CancellationToken))
+                .DisposeAsync();
         }
 
-        BrowserInspectionScope reopened = await BrowserPackageWorkspace.OpenScopeAsync(
+        await using BrowserScopeLease<BrowserInspectionScope> reopenedLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [activeCoordinate],
             TestContext.Current.CancellationToken);
+        BrowserInspectionScope reopened = reopenedLease.Scope;
         Assert.Same(active, reopened);
         Assert.InRange(BrowserPackageWorkspace.Stats().Workspaces, 1, 4);
     }
@@ -1631,8 +1636,9 @@ public sealed class BrowserEngineBoundaryTests
             () => directScope.Coordinate(secondCoordinate));
 
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(firstPackage);
-        BrowserInspectionScope retained =
+        await using BrowserScopeLease<BrowserInspectionScope> retainedLease =
             await BrowserPackageWorkspace.OpenScopeAsync([firstCoordinate], TestContext.Current.CancellationToken);
+        BrowserInspectionScope retained = retainedLease.Scope;
         try
         {
             await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(secondPackage);
@@ -1765,10 +1771,12 @@ public sealed class BrowserEngineBoundaryTests
                 "1.0.0",
                 "net9.0"));
 
-        BrowserInspectionScope craftedScope =
+        await using BrowserScopeLease<BrowserInspectionScope> craftedScopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([crafted], TestContext.Current.CancellationToken);
-        BrowserInspectionScope legitimateScope =
+        BrowserInspectionScope craftedScope = craftedScopeLease.Scope;
+        await using BrowserScopeLease<BrowserInspectionScope> legitimateScopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([first, second], TestContext.Current.CancellationToken);
+        BrowserInspectionScope legitimateScope = legitimateScopeLease.Scope;
         try
         {
             Assert.NotSame(craftedScope, legitimateScope);
@@ -1853,8 +1861,9 @@ public sealed class BrowserEngineBoundaryTests
         Assert.Contains("reference assembly only", coordinateFailure.Message);
         Assert.DoesNotContain(bidi, coordinateFailure.Message);
 
-        await using BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([coordinate], TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         InvalidOperationException scopeFailure =
             Assert.Throws<InvalidOperationException>(
                 () => scope.ImplementationParticipant(
@@ -1931,8 +1940,9 @@ public sealed class BrowserEngineBoundaryTests
             Package(
                 image,
                 "lib/net11.0/InspectWeb.Engine.Tests.dll"));
-        await using BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([coordinate], TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant =
             Assert.Single(scope.ImplementationParticipants);
         AssemblyContextApiSurfaceResult result =
@@ -2001,9 +2011,10 @@ public sealed class BrowserEngineBoundaryTests
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
 
-        await BrowserPackageWorkspace.OpenScopeAsync(
+        await (await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate("Large.A", Package(image, "lib/net11.0/Large.A.dll", 60 * MiB))],
-            TestContext.Current.CancellationToken);
+            TestContext.Current.CancellationToken))
+            .DisposeAsync();
         long expectedResidentBytes = 0;
         foreach (string id in new[] { "Small.B", "Small.C", "Small.D" })
         {
@@ -2012,9 +2023,10 @@ public sealed class BrowserEngineBoundaryTests
                 $"lib/net11.0/{id}.dll",
                 25 * MiB);
             expectedResidentBytes += package.LongLength;
-            await BrowserPackageWorkspace.OpenScopeAsync(
+            await (await BrowserPackageWorkspace.OpenScopeAsync(
                 [await Coordinate(id, package)],
-                TestContext.Current.CancellationToken);
+                TestContext.Current.CancellationToken))
+                .DisposeAsync();
         }
 
         BrowserPackageCacheSnapshot stats = BrowserPackageWorkspace.Stats();
@@ -2031,11 +2043,13 @@ public sealed class BrowserEngineBoundaryTests
             Assert.Equal(1, reserved.Workspaces);
         }
 
-        BrowserInspectionScope malformed = await BrowserPackageWorkspace.OpenScopeAsync(
+        await using BrowserScopeLease<BrowserInspectionScope> malformedLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Malformed",
                 Package([0x01, 0x02, 0x03], "lib/net11.0/Malformed.dll"))],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope malformed = malformedLease.Scope;
         AssemblyContextApiSurfaceResult malformedResult = malformed.UseSurface(
             group => AssemblyContextApiSurfaceQuery.Execute(group));
         Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Rejected>(
@@ -2043,13 +2057,15 @@ public sealed class BrowserEngineBoundaryTests
 
         byte[] largeReferenceImage = new byte[40 * MiB];
         image.CopyTo(largeReferenceImage, 0);
-        BrowserInspectionScope referenceOnly = await BrowserPackageWorkspace.OpenScopeAsync(
+        await using BrowserScopeLease<BrowserInspectionScope> referenceOnlyLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Reference.Only",
                 Package(
                     largeReferenceImage,
                     "ref/net11.0/Reference.Only.dll"))],
                     TestContext.Current.CancellationToken);
+        BrowserInspectionScope referenceOnly = referenceOnlyLease.Scope;
         AssemblyContextApiSurfaceResult referenceResult = referenceOnly.UseSurface(
             group => AssemblyContextApiSurfaceQuery.Execute(group));
         Assert.IsType<AssemblyContextEntry<AssemblyApiSurface>.Available>(
@@ -2488,23 +2504,29 @@ public sealed class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
 
-        BrowserInspectionScope firstPackage = await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserScopeLease<BrowserInspectionScope> firstPackageLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Platform.Lru.A",
                 Package(image, "lib/net11.0/Platform.Lru.A.dll"))],
                 TestContext.Current.CancellationToken);
-        BrowserInspectionScope secondPackage = await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserInspectionScope firstPackage = firstPackageLease.Scope;
+        BrowserScopeLease<BrowserInspectionScope> secondPackageLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Platform.Lru.B",
                 Package(image, "lib/net11.0/Platform.Lru.B.dll"))],
                 TestContext.Current.CancellationToken);
-        BrowserInspectionScope thirdPackage = await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserInspectionScope secondPackage = secondPackageLease.Scope;
+        BrowserScopeLease<BrowserInspectionScope> thirdPackageLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Platform.Lru.C",
                 Package(image, "lib/net11.0/Platform.Lru.C.dll"))],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope thirdPackage = thirdPackageLease.Scope;
 
-        await using BrowserPlatformScopeResolution reused =
+        BrowserPlatformScopeResolution reused =
             await BrowserPlatformWorkspace.OpenRuntimeAsync(
                 "net11.0-android",
                 client,
@@ -2512,7 +2534,18 @@ public sealed class BrowserEngineBoundaryTests
                 TimeSpan.FromSeconds(5),
                 TestContext.Current.CancellationToken);
         Assert.Same(platform.Scope, reused.Scope);
-        _ = await BrowserPackageWorkspace.OpenScopeAsync(
+
+        // Every protected use is released before the fifth workspace asks for a slot, so the
+        // eviction is decided by the shared recency order alone — and reusing the platform
+        // workspace moved it out of the victim position.
+        await reused.DisposeAsync();
+        await platform.DisposeAsync();
+        await firstPackageLease.DisposeAsync();
+        await secondPackageLease.DisposeAsync();
+        await thirdPackageLease.DisposeAsync();
+
+        await using BrowserScopeLease<BrowserInspectionScope> fourthPackageLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate(
                 "Platform.Lru.D",
                 Package(image, "lib/net11.0/Platform.Lru.D.dll"))],
@@ -3028,8 +3061,9 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = await Coordinate(
             "Platform.Confusable",
             Package(image, "lib/net11.0/Platform.Confusable.dll"));
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([coordinate], TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         BrowserWorkspaceParticipant participant =
             Assert.Single(scope.SurfaceParticipants);
         AssemblyBindingSelection any =
@@ -3103,8 +3137,9 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate equivalent = await Coordinate(
             "Identity.Equivalent",
             PackagePair(surfaceImage, surfaceImage, "Identity.Pair.dll"));
-        await using BrowserInspectionScope equivalentScope =
+        await using BrowserScopeLease<BrowserInspectionScope> equivalentScopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([equivalent], TestContext.Current.CancellationToken);
+        BrowserInspectionScope equivalentScope = equivalentScopeLease.Scope;
         BrowserWorkspaceParticipant equivalentSurface =
             Assert.Single(equivalentScope.SurfaceParticipants);
 
@@ -3435,12 +3470,13 @@ public sealed class BrowserEngineBoundaryTests
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(packageId, "1.0.0", package, fromCache: false));
 
-        BrowserInspectionScope rootScope =
+        await using BrowserScopeLease<BrowserInspectionScope> rootScopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 "1.0.0",
                 "net11.0",
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope rootScope = rootScopeLease.Scope;
         BrowserPackageCoordinate coordinate = Assert.Single(rootScope.Coordinates);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoCompileAssets,
@@ -4640,10 +4676,11 @@ public sealed class BrowserEngineBoundaryTests
             Package(
                 File.ReadAllBytes(peerAssemblyPath),
                 $"lib/net11.0/{Path.GetFileName(peerAssemblyPath)}"));
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [peerCoordinate, coordinate],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         try
         {
             var plan = new BrowserHomeDemoRunPlan(
@@ -4662,7 +4699,7 @@ public sealed class BrowserEngineBoundaryTests
                 ProductDemoSections.Methods,
                 Member: null);
             var resolution = new BrowserScopeResolution(
-                scope,
+                scopeLease,
                 [peerCoordinate, coordinate]);
 
             BrowserHomeDemoRunResult result =
@@ -4717,10 +4754,11 @@ public sealed class BrowserEngineBoundaryTests
             Package(
                 File.ReadAllBytes(peerAssemblyPath),
                 $"lib/net11.0/{Path.GetFileName(peerAssemblyPath)}"));
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [peerCoordinate, coordinate],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         try
         {
             BrowserPackageSurfaceInfo surface =
@@ -4756,7 +4794,7 @@ public sealed class BrowserEngineBoundaryTests
                     member.AnchorDigest[..6],
                     MemberSection: "call-graph"));
             var resolution = new BrowserScopeResolution(
-                scope,
+                scopeLease,
                 [peerCoordinate, coordinate]);
 
             BrowserHomeDemoRunResult result =
@@ -5867,8 +5905,9 @@ public sealed class BrowserEngineBoundaryTests
         BrowserPackageCoordinate coordinate = await Coordinate(
             "Late.Success",
             Package(image, "lib/net11.0/Late.Success.dll"));
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync([coordinate], TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
 
         await Assert.ThrowsAsync<TimeoutException>(
             () => BrowserPackageWorkspace.RunPackageOperationAsync<
@@ -5884,7 +5923,11 @@ public sealed class BrowserEngineBoundaryTests
                 TimeSpan.FromMilliseconds(10),
                 TestContext.Current.CancellationToken));
 
+        // Removal waits for the caller's own protected use, and then retires: the abandoned
+        // late result released the lease it took rather than stranding it here.
         await BrowserPackageWorkspace.RemoveScopeAsync(scope);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(scope));
+        await scopeLease.DisposeAsync();
         Assert.False(BrowserPackageWorkspace.IsScopeRetained(scope));
     }
 
@@ -6052,9 +6095,11 @@ public sealed class BrowserEngineBoundaryTests
     public async Task ApiSurfaceProjection_IsBoundedAndReportsTruncation()
     {
         byte[] image = File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
             [await Coordinate("Bounded.Surface", Package(image, "lib/net11.0/Bounded.Surface.dll"))],
             TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
 
         AssemblyContextApiSurfaceResult complete = scope.UseSurface(group =>
             AssemblyContextApiSurfaceQuery.ExecuteBounded(
@@ -6241,10 +6286,11 @@ public sealed class BrowserEngineBoundaryTests
             Package(image, "lib/net11.0/Artifact.Single.dll"),
             TestContext.Current.CancellationToken);
 
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
 
         Assert.True(scope.ArtifactBacked);
         BrowserWorkspaceParticipant participant =
@@ -6280,10 +6326,11 @@ public sealed class BrowserEngineBoundaryTests
             Package(otherImage, $"lib/net11.0/{secondId}.dll"),
             TestContext.Current.CancellationToken);
 
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [first, second],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
 
         Assert.False(scope.ArtifactBacked);
         Assert.Equal(2, scope.SurfaceParticipants.Length);
@@ -6303,39 +6350,74 @@ public sealed class BrowserEngineBoundaryTests
             $"Artifact.SingleFlight.{Guid.NewGuid():N}",
             Package(image, "lib/net11.0/Artifact.SingleFlight.dll"),
             TestContext.Current.CancellationToken);
-        string scopeKey = BrowserPackageWorkspace.PackageScopeKey([coordinate]);
+
+        // Fill the registry so neither open can be admitted immediately: three workspaces whose
+        // queries are still running, and one whose retirement is suspended inside disposal.
+        var held = new List<BrowserScopeLease<GatedScope>>();
+        var settled = new TaskCompletionSource();
+        settled.SetResult();
+        for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes - 1; index++)
+        {
+            ScopeReservation reservation =
+                await BrowserPackageWorkspace.ReserveScopeAsync(
+                    TestContext.Current.CancellationToken);
+            held.Add(await BrowserPackageWorkspace.RegisterScopeAsync(
+                reservation,
+                $"single-flight-holder-{index}-{Guid.NewGuid():N}",
+                new GatedScope(settled),
+                ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal)));
+        }
+
         var release = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var closing = new GatedScope(release);
         await BrowserPackageWorkspace.RegisterScopeAsync(
-            scopeKey,
-            closing,
-            [BrowserPackageWorkspace.PackageKey(coordinate.PackageId, coordinate.Version)]);
+            $"single-flight-closing-{Guid.NewGuid():N}",
+            closing);
         Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
         await closing.DisposeStarted.Task;
         Assert.False(removal.IsCompleted);
 
-        Task<BrowserInspectionScope> firstOpen =
+        Task<BrowserScopeLease<BrowserInspectionScope>> firstOpen =
             BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 TestContext.Current.CancellationToken);
-        Task<BrowserInspectionScope> secondOpen =
+        Task<BrowserScopeLease<BrowserInspectionScope>> secondOpen =
             BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 TestContext.Current.CancellationToken);
 
+        // Both callers are genuinely suspended: the single freed slot is not available until the
+        // gated retirement settles.
         Assert.False(firstOpen.IsCompleted);
         Assert.False(secondOpen.IsCompleted);
 
         release.SetResult();
         await removal;
-        BrowserInspectionScope first = await firstOpen;
-        BrowserInspectionScope second = await secondOpen;
+        BrowserScopeLease<BrowserInspectionScope> firstLease = await firstOpen;
+        BrowserScopeLease<BrowserInspectionScope> secondLease = await secondOpen;
+        BrowserInspectionScope first = firstLease.Scope;
+        BrowserInspectionScope second = secondLease.Scope;
 
+        // Only one slot was freed, and both callers hold the one realization it admitted: the
+        // caller that resumed second joined the entry rather than demanding a second slot.
         Assert.Same(first, second);
+        Assert.NotSame(firstLease, secondLease);
         Assert.True(first.ArtifactBacked);
         Assert.True(BrowserPackageWorkspace.IsScopeRetained(first));
         Assert.True(closing.Disposed);
+
+        // Each caller's use is independent: releasing one leaves the other's workspace usable.
+        await firstLease.DisposeAsync();
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(second));
+        Assert.NotEmpty(
+            second.UseSurface(group => AssemblyContextApiSurfaceQuery.Execute(group))
+                .Assemblies
+                .Assemblies);
+        await secondLease.DisposeAsync();
+
+        foreach (BrowserScopeLease<GatedScope> lease in held)
+            await lease.DisposeAsync();
     }
 
     [Fact]
@@ -6424,6 +6506,13 @@ public sealed class BrowserEngineBoundaryTests
         byte[] image =
             File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
         string packageId = $"Artifact.Budget.{Guid.NewGuid():N}";
+
+        // Drain every unleased archive first: this gate measures the budget its own reservations
+        // and its own dependent workspace occupy, not whatever an earlier test left resident.
+        (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+            $"artifact.budget.drain.{Guid.NewGuid():N}@1.0.0",
+            128L * MiB)).Dispose();
+
         BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
             packageId,
             Package(image, "lib/net11.0/Artifact.Budget.dll", 60 * MiB),
@@ -6485,8 +6574,13 @@ public sealed class BrowserEngineBoundaryTests
         }
     }
 
+    /// <summary>
+    /// A terminal cleanup failure leaves the entry charged and unavailable with an observable
+    /// failure record, and the archive it depended on stays charged with it: the registry never
+    /// hands that capacity to a later workspace, and a runtime restart is the only recovery.
+    /// </summary>
     [Fact]
-    public async Task BrowserWorkspace_FailedScopeCloseReleasesItsPackageLeases()
+    public async Task BrowserWorkspace_FailedScopeCloseStaysChargedAndUnavailable()
     {
         byte[] image =
             File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
@@ -6516,15 +6610,48 @@ public sealed class BrowserEngineBoundaryTests
             failure.Message,
             StringComparison.Ordinal);
         Assert.False(BrowserPackageWorkspace.IsScopeRetained(failing));
+        Assert.Equal(1, BrowserPackageWorkspace.QuarantinedWorkspaces);
 
-        using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
-            $"artifact.closefailure.pressure.{Guid.NewGuid():N}@1.0.0",
-            120L * MiB))
+        // The entry stays charged: the archive it depended on is not handed back to the cache,
+        // and an admission that needs its capacity is rejected with the recorded failure.
+        Assert.Contains(packageKey, BrowserPackageWorkspace.ResidentPackageKeys());
+        var pressure = new List<BrowserScopeLease<BrowserInspectionScope>>();
+        InvalidOperationException? rejection = null;
+        try
         {
-            Assert.DoesNotContain(
-                packageKey,
-                BrowserPackageWorkspace.ResidentPackageKeys());
+            for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes; index++)
+            {
+                string pressureId = $"Artifact.CloseFailure.Pressure.{index}.{Guid.NewGuid():N}";
+                pressure.Add(await BrowserPackageWorkspace.OpenScopeAsync(
+                    [
+                        await ArtifactCoordinate(
+                            pressureId,
+                            Package(image, $"lib/net11.0/{pressureId}.dll"),
+                            TestContext.Current.CancellationToken),
+                    ],
+                    TestContext.Current.CancellationToken));
+            }
         }
+        catch (InvalidOperationException capacityFailure)
+        {
+            rejection = capacityFailure;
+        }
+        finally
+        {
+            foreach (BrowserScopeLease<BrowserInspectionScope> held in pressure)
+                await held.DisposeAsync();
+        }
+
+        Assert.NotNull(rejection);
+        Assert.Contains(
+            "stay charged after a terminal cleanup failure",
+            rejection!.Message,
+            StringComparison.Ordinal);
+
+        // The owning design names the runtime restart as the recovery boundary; nothing short of
+        // one returns the entry's capacity.
+        BrowserPackageWorkspace.SimulateRuntimeRestart();
+        Assert.Equal(0, BrowserPackageWorkspace.QuarantinedWorkspaces);
     }
 
     [Fact]
@@ -6544,10 +6671,11 @@ public sealed class BrowserEngineBoundaryTests
                 [coordinate],
                 cancelled.Token));
 
-        BrowserInspectionScope opened =
+        await using BrowserScopeLease<BrowserInspectionScope> openedLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope opened = openedLease.Scope;
 
         Assert.True(opened.ArtifactBacked);
         Assert.True(BrowserPackageWorkspace.IsScopeRetained(opened));
@@ -6585,10 +6713,11 @@ public sealed class BrowserEngineBoundaryTests
             Package([0x01, 0x02, 0x03], "lib/net11.0/Artifact.Malformed.dll"),
             TestContext.Current.CancellationToken);
 
-        BrowserInspectionScope scope =
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [malformed],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
 
         Assert.True(scope.ArtifactBacked);
         Assert.Single(scope.SurfaceParticipants);
@@ -6637,12 +6766,33 @@ public sealed class BrowserEngineBoundaryTests
             $"Artifact.Evicted.{Guid.NewGuid():N}",
             Package(image, "lib/net11.0/Artifact.Evicted.dll", 60 * MiB),
             TestContext.Current.CancellationToken);
-        BrowserInspectionScope scope =
+        BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [coordinate],
                 TestContext.Current.CancellationToken);
+        BrowserInspectionScope scope = scopeLease.Scope;
         Assert.True(BrowserPackageWorkspace.IsScopeRetained(scope));
 
+        // The lease is the caller's protection: archive pressure that could only be satisfied by
+        // dropping the archive this query is reading is rejected instead of silently evicting it.
+        InvalidOperationException rejected =
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await BrowserPackageWorkspace.ReservePackageDownloadAsync(
+                    $"artifact.pressure.{Guid.NewGuid():N}@1.0.0",
+                    120L * MiB));
+        Assert.Contains(
+            "cannot accommodate the requested workspace",
+            rejected.Message,
+            StringComparison.Ordinal);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(scope));
+        Assert.NotEmpty(
+            scope.UseSurface(group => AssemblyContextApiSurfaceQuery.Execute(group))
+                .Assemblies
+                .Assemblies);
+
+        // Once the protected use has been released the same pressure is satisfied by awaiting the
+        // dependent workspace's disposal, and only then are the retained bytes counted as free.
+        await scopeLease.DisposeAsync();
         using (await BrowserPackageWorkspace.ReservePackageDownloadAsync(
             $"artifact.pressure.{Guid.NewGuid():N}@1.0.0",
             120L * MiB))
@@ -6652,6 +6802,200 @@ public sealed class BrowserEngineBoundaryTests
                 () => scope.UseSurface(
                     group => AssemblyContextApiSurfaceQuery.Execute(group)));
         }
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_RepeatedUnboundRequestsJoinOneRetainedBinding()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Unbound.{Guid.NewGuid():N}";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                Package(image, $"lib/net11.0/{packageId}.dll"),
+                fromCache: false));
+
+        await using BrowserScopeLease<BrowserInspectionScope> firstLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                targetFramework: null,
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> secondLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                targetFramework: null,
+                TestContext.Current.CancellationToken);
+
+        // The second unbound request joined the retained workspace before a second selection
+        // token could be issued, so both callers read the one artifact-backed realization.
+        Assert.Same(firstLease.Scope, secondLease.Scope);
+        Assert.True(firstLease.Scope.ArtifactBacked);
+        Assert.Single(firstLease.Scope.SurfaceParticipants);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_IndependentlyIssuedBindingsDoNotJoinOnLabelMatch()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Issued.{Guid.NewGuid():N}";
+        BrowserPackageCoordinate first = await ArtifactCoordinate(
+            packageId,
+            Package(image, $"lib/net11.0/{packageId}.dll"),
+            TestContext.Current.CancellationToken);
+        BrowserPackageCoordinate second = await BrowserPackageWorkspace.ResolveAsync(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(second.Binding);
+        Assert.NotSame(first.Binding!.SelectionIdentity, second.Binding!.SelectionIdentity);
+
+        await using BrowserScopeLease<BrowserInspectionScope> firstLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [first],
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> secondLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [second],
+                TestContext.Current.CancellationToken);
+
+        // Two independently issued selection tokens name the same labels but are not
+        // interchangeable: each keeps its own workspace.
+        Assert.NotSame(firstLease.Scope, secondLease.Scope);
+        Assert.True(firstLease.Scope.ArtifactBacked);
+        Assert.True(secondLease.Scope.ArtifactBacked);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_DefaultAndExplicitSelectionRequestsDoNotJoin()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        string packageId = $"Artifact.Selection.{Guid.NewGuid():N}";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                Package(image, $"lib/net11.0/{packageId}.dll"),
+                fromCache: false));
+
+        await using BrowserScopeLease<BrowserInspectionScope> defaultLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                targetFramework: null,
+                TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> explicitLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                "1.0.0",
+                "net11.0",
+                TestContext.Current.CancellationToken);
+
+        // A default selection is not an explicit one, even when it resolves to the same
+        // framework: the two requests keep separate workspaces.
+        Assert.NotSame(defaultLease.Scope, explicitLease.Scope);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_ProtectedUseSurvivesWorkspacePressureAcrossAnAsyncReturn()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate protectedCoordinate = await ArtifactCoordinate(
+            $"Artifact.Protected.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Protected.dll"),
+            TestContext.Current.CancellationToken);
+        await using BrowserScopeLease<BrowserInspectionScope> protectedLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [protectedCoordinate],
+                TestContext.Current.CancellationToken);
+        BrowserInspectionScope protectedScope = protectedLease.Scope;
+
+        // Every later workspace competes for the remaining slots and forces eviction. The
+        // protected use is what keeps this caller's workspace out of every candidate set.
+        for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes + 1; index++)
+        {
+            BrowserPackageCoordinate pressure = await ArtifactCoordinate(
+                $"Artifact.Pressure.{index}.{Guid.NewGuid():N}",
+                Package(image, $"lib/net11.0/Artifact.Pressure.{index}.dll"),
+                TestContext.Current.CancellationToken);
+            await using BrowserScopeLease<BrowserInspectionScope> transient =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    [pressure],
+                    TestContext.Current.CancellationToken);
+            Assert.True(BrowserPackageWorkspace.IsScopeRetained(protectedScope));
+        }
+
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(protectedScope));
+        Assert.NotEmpty(
+            protectedScope.UseSurface(group => AssemblyContextApiSurfaceQuery.Execute(group))
+                .Assemblies
+                .Assemblies);
+    }
+
+    [Fact]
+    public async Task BrowserWorkspace_CancelledWaiterLeavesTheOtherWaiterUnaffected()
+    {
+        byte[] image =
+            File.ReadAllBytes(typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        BrowserPackageCoordinate coordinate = await ArtifactCoordinate(
+            $"Artifact.Waiters.{Guid.NewGuid():N}",
+            Package(image, "lib/net11.0/Artifact.Waiters.dll"),
+            TestContext.Current.CancellationToken);
+
+        var held = new List<BrowserScopeLease<GatedScope>>();
+        var settled = new TaskCompletionSource();
+        settled.SetResult();
+        for (int index = 0; index < BrowserPackageWorkspace.MaxOpenScopes - 1; index++)
+        {
+            ScopeReservation reservation =
+                await BrowserPackageWorkspace.ReserveScopeAsync(
+                    TestContext.Current.CancellationToken);
+            held.Add(await BrowserPackageWorkspace.RegisterScopeAsync(
+                reservation,
+                $"waiter-holder-{index}-{Guid.NewGuid():N}",
+                new GatedScope(settled),
+                ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal)));
+        }
+
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var closing = new GatedScope(release);
+        await BrowserPackageWorkspace.RegisterScopeAsync(
+            $"waiter-closing-{Guid.NewGuid():N}",
+            closing);
+        Task removal = BrowserPackageWorkspace.RemoveScopeAsync(closing).AsTask();
+        await closing.DisposeStarted.Task;
+
+        using var abandoning = new CancellationTokenSource();
+        Task<BrowserScopeLease<BrowserInspectionScope>> abandoned =
+            BrowserPackageWorkspace.OpenScopeAsync([coordinate], abandoning.Token);
+        Task<BrowserScopeLease<BrowserInspectionScope>> waiting =
+            BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                TestContext.Current.CancellationToken);
+        Assert.False(abandoned.IsCompleted);
+        Assert.False(waiting.IsCompleted);
+
+        await abandoning.CancelAsync();
+        release.SetResult();
+        await removal;
+
+        // Cancellation is per waiter: the abandoning caller observes its own cancellation and
+        // the remaining caller still gets the workspace.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await abandoned);
+        await using BrowserScopeLease<BrowserInspectionScope> lease = await waiting;
+        Assert.True(lease.Scope.ArtifactBacked);
+        Assert.True(BrowserPackageWorkspace.IsScopeRetained(lease.Scope));
+
+        foreach (BrowserScopeLease<GatedScope> holder in held)
+            await holder.DisposeAsync();
     }
 
     /// <summary>
