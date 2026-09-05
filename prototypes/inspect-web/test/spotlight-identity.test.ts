@@ -1405,10 +1405,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /export function bindGraphPanZoom\([\s\S]*"wheel"[\s\S]*"pointerdown"[\s\S]*"pointermove"[\s\S]*"pointerup"[\s\S]*"pointercancel"[\s\S]*\.graph-controls button[\s\S]*id: "graph\.zoom"[\s\S]*id: "graph\.pan-horizontal"[\s\S]*id: "graph\.pan-vertical"[\s\S]*resolveCallGraphNode/);
   assert.match(
     graphInteractionsSource,
-    /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
+    /resolveTypeGraphNode[\s\S]*"t"[\s\S]*"unavailableLabel" in binding[\s\S]*non-nav[\s\S]*createElementNS/);
   assert.match(
     graphInteractionsSource,
-    /const resolveNode = options\.resolveCallGraphNode \?\? options\.resolveDependencyGraphNode;[\s\S]*mermaidNodeId\(node, options\.resolveCallGraphNode \? "n" : "d"\)[\s\S]*if \(!moved\) binding\.onSelect\(\)/);
+    /const resolveNode = options\.resolveCallGraphNode\s*\?\? options\.resolveDependencyGraphNode\s*\?\? options\.resolveTypeGraphNode;[\s\S]*mermaidNodeId\(node, prefix\)[\s\S]*if \(!moved\) binding\.onSelect\(\)/);
   assert.match(
     appSource,
     /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
@@ -1417,7 +1417,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphBack\(document, graphBackActions\)/);
   assert.match(
     typeGraph,
-    /bindGraphPanZoom\(container, viewport, \{ keybindings \}\);[\s\S]*bindTypeGraphNodes\(viewport, nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*onSelect: \(\) => navigateToType\(target\)[\s\S]*unavailableLabel/);
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveTypeGraphNode: nodeId => \{[\s\S]*graphNodeOf\.get\(nodeId\)[\s\S]*closeGraphExplorerForNavigation\(\);[\s\S]*navigateToType\(target\)[\s\S]*unavailableLabel/);
   assert.match(
     typeGraph,
     /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
@@ -1456,7 +1456,6 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
-  assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${typeGraph}\n${dependencyGraph}\n${callGraph}`,

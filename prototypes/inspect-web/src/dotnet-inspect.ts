@@ -209,7 +209,6 @@ import {
 import {
   bindGraphBack,
   bindGraphPanZoom,
-  bindTypeGraphNodes,
   type GraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
@@ -3394,8 +3393,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
-          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface || metadataWorkingSurface
+          ? `<div class="working-surface-actions" role="group" aria-label="${metadataWorkingSurface ? "Type graph actions" : packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${metadataWorkingSurface
+                ? `<button type="button" id="type-graph-explore" data-graph-explore${typeGraphAvailable() ? "" : " disabled"}>Explore</button>`
+                : ""}
               ${packageDependenciesWorkingSurface
                 ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
                 : ""}
@@ -9299,21 +9301,29 @@ async function renderTypeGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
-    bindGraphPanZoom(container, viewport, { keybindings });
-    bindTypeGraphNodes(viewport, nodeId => {
-      const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
-      if (!graphNode) return null;
-      const fullName = graphNode.id;
-      const pkg = currentPackage();
-      const target = graphNode.role === "self"
-        ? selectedType()
-        : uniqueTypeByQueryId(pkg.types, fullName);
-      return target
-        ? { onSelect: () => navigateToType(target) }
-        : {
-            unavailableLabel:
-              `${fullName} — not in the browsable public surface`,
-          };
+    bindGraphPanZoom(container, viewport, {
+      keybindings,
+      resolveTypeGraphNode: nodeId => {
+        const graphNode = nodeId ? graphNodeOf.get(nodeId) : null;
+        if (!graphNode) return null;
+        const fullName = graphNode.id;
+        const pkg = currentPackage();
+        const target = graphNode.role === "self"
+          ? selectedType()
+          : uniqueTypeByQueryId(pkg.types, fullName);
+        return target
+          ? {
+              onSelect: () => {
+                closeGraphExplorerForNavigation();
+                navigateToType(target);
+              },
+              label: `Open ${graphNode.displayName}`,
+            }
+          : {
+              unavailableLabel:
+                `${fullName} — not in the browsable public surface`,
+            };
+      },
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
@@ -10033,6 +10043,15 @@ function dependencyGraphAvailable() {
     && Boolean(state.packageDependencies?.dependencyGroups?.length);
 }
 
+function typeGraphAvailable() {
+  const type = selectedType();
+  return Boolean(type && state.package
+    && state.typeMetadataKey === typeMetadataSignature(type, state.package)
+    && !state.typeMetadataLoading
+    && !state.typeMetadataError
+    && state.typeMetadata && state.typeMetadata.graphNodes.length > 1);
+}
+
 function graphExplorerKey(): string | null {
   if (state.home || state.loading || state.error || state.packageQueryOpen
     || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
@@ -10041,8 +10060,14 @@ function graphExplorerKey(): string | null {
   if (scope() === "package" && state.packageLens === "dependencies") {
     return JSON.stringify(["dependencies", packageDependenciesSignature()]);
   }
-  if (scope() !== "member" || state.memberSection !== "call-graph") return null;
   const type = selectedType();
+  if (scope() === "type" && state.lens === "metadata" && type && state.package) {
+    const signature = typeMetadataSignature(type, state.package);
+    const metadata = state.typeMetadataKey === signature ? state.typeMetadata : null;
+    if (metadata && metadata.graphNodes.length < 2) return null;
+    return JSON.stringify(["type", signature]);
+  }
+  if (scope() !== "member" || state.memberSection !== "call-graph") return null;
   const member = selectedMember(type);
   const overload = member
     ? selectedConcreteOverload(member.overloads, state.selectedOverloadIndex)
@@ -10058,13 +10083,15 @@ function graphExplorerKey(): string | null {
 function graphExplorerTarget() {
   const key = graphExplorerKey();
   const dependencies = scope() === "package";
+  const type = scope() === "type";
   const content = document.querySelector<HTMLElement>(
-    dependencies ? "[data-dependency-graph-surface]" : "[data-call-graph-surface]");
+    dependencies ? "[data-dependency-graph-surface]"
+      : type ? "[data-type-graph-surface]" : "[data-call-graph-surface]");
   const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
   return key && content && invoker
     ? {
         key,
-        title: dependencies ? "Dependency graph" : "Call graph",
+        title: dependencies ? "Dependency graph" : type ? "Type relationships" : "Call graph",
         context: dependencies
           ? `${currentPackage().id}@${currentPackage().version} · ${currentPackage().activeFramework}`
           : currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
@@ -10089,6 +10116,7 @@ function restoreGraphExplorerNavigationFocus() {
     return;
   }
   if (state.loading || state.graphMemberNavigationTitle || state.platformDrillLoading) return;
+  if (scope() === "type" && state.lens === "metadata" && state.typeMetadataLoading) return;
   graphExplorerNavigationFocusPending = false;
   const explore = document.querySelector<HTMLButtonElement>("[data-graph-explore]");
   if (graphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {
