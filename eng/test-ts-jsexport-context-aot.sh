@@ -7,7 +7,7 @@ scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
 
 dotnet build \
-  "$repo_root/tests/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" \
+  "$repo_root/fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" \
   -c Release \
   --nologo >/dev/null
 dotnet publish \
@@ -23,7 +23,7 @@ if [[ "$rid" == win-* ]]; then
   tool_name=ts-jsexport.exe
 fi
 
-context_assembly="$repo_root/tests/TsJsExport.ContextFixtures.Host/bin/Release/net11.0/TsJsExport.ContextFixtures.Host.dll"
+context_assembly="$repo_root/artifacts/bin/TsJsExport.ContextFixtures.Host/release/TsJsExport.ContextFixtures.Host.dll"
 "$scratch/tool/$tool_name" \
   "$context_assembly" \
   --context TsJsExport.ContextFixtures.Host.MultiAssemblyContext \
@@ -46,9 +46,9 @@ if "$scratch/tool/$tool_name" \
   "$context_assembly" \
   --context TsJsExport.ContextFixtures.Host.NormalizationCollisionContext \
   --assembly-search-path \
-    "$repo_root/tests/TsJsExport.ContextFixtures.NormalizationComposed/bin/Release/net11.0" \
+    "$repo_root/artifacts/bin/TsJsExport.ContextFixtures.NormalizationComposed/release" \
   --assembly-search-path \
-    "$repo_root/tests/TsJsExport.ContextFixtures.NormalizationDecomposed/bin/Release/net11.0" \
+    "$repo_root/artifacts/bin/TsJsExport.ContextFixtures.NormalizationDecomposed/release" \
   --runtime-module ./dotnet.js \
   --output "$scratch/normalization-facades" \
   2>"$normalization_error"; then
