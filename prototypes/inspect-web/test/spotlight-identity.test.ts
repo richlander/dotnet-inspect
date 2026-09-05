@@ -108,7 +108,8 @@ import type {
 } from "../src/data.ts";
 import {
   buildDependencyGraphMermaid,
-  buildTypeGraphMermaid
+  buildTypeGraphMermaid,
+  resolveMermaidCssVariables,
 } from "../src/graph-mermaid.ts";
 
 const packageAt = (version: string, framework: string, types = 1) => ({
@@ -1397,9 +1398,6 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   const callGraphBinding =
     appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
     ?? "";
-  const dependencyNodeBinding =
-    graphInteractionsSource.match(/export function bindDependencyGraphNodes\([\s\S]*?\n}(?=\n\nexport function bindGraphPanZoom)/)?.[0]
-    ?? "";
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -1413,8 +1411,8 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /export function bindTypeGraphNodes\([\s\S]*"t"[\s\S]*nav-node[\s\S]*non-nav[\s\S]*createElementNS/);
   assert.match(
-    dependencyNodeBinding,
-    /mermaidNodeId\(node, "d"\)[\s\S]*classList\.add\("nav-node"\)[\s\S]*style\.cursor = "pointer"[\s\S]*addEventListener\("click", binding\.onSelect\)/);
+    graphInteractionsSource,
+    /const resolveNode = options\.resolveCallGraphNode \?\? options\.resolveDependencyGraphNode;[\s\S]*mermaidNodeId\(node, options\.resolveCallGraphNode \? "n" : "d"\)[\s\S]*if \(!moved\) binding\.onSelect\(\)/);
   assert.match(
     appSource,
     /const graphBackActions: GraphBackBindingActions = \{\s*onBack: popPlatformDrill,\s*};/);
@@ -1429,7 +1427,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /const target = graphNode\.role === "self"\s*\? selectedType\(\)\s*: uniqueTypeByQueryId\(pkg\.types, fullName\)/);
   assert.match(
     dependencyGraph,
-    /bindGraphPanZoom\(container, viewport, \{ keybindings \}\);[\s\S]*bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
+    /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
   assert.match(
     dependencyGraph,
     /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
@@ -1459,11 +1457,10 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /if \(loaded\) \{[\s\S]*navigateToGraphMember\([\s\S]*loaded,[\s\S]*target,[\s\S]*loadedSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(disposition === "resident"\) \{[\s\S]*startPlatformDrill\(target\)[\s\S]*\} else if \(platform\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)/);
   assert.match(
     graphInteractionsSource,
-    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
+    /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
   assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 3);
   assert.equal(appSource.match(/\bbindTypeGraphNodes\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindDependencyGraphNodes\(/g)?.length, 1);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${typeGraph}\n${dependencyGraph}\n${callGraph}`,
@@ -3260,7 +3257,17 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /state\.packageQueryReturnFocusPending = true/);
   assert.match(
     appSource,
-    /function renderPackageQueryPage\(\) \{\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+    /function renderPackageQueryPage\(\) \{\s*cancelPackageQueryStreamRender\(\);\s*const focus = capturePackageQueryFocus\(document\);\s*const scrollTop = capturePackageQueryScroll\(document\);[\s\S]*app\.innerHTML = renderPackageQueryView\([\s\S]*bindPackageQueryView\(document, packageQueryActions\);\s*const focusRestoration = restorePackageQueryFocus\(document, focus\);\s*if \(focusRestoration !== "fallback"\) \{\s*restorePackageQueryScroll\(document, scrollTop\)/);
+  const streamPatch =
+    appSource.match(/function patchPackageQueryPage\(\) \{[\s\S]*?\n}\n/)?.[0]
+    ?? "";
+  assert.match(
+    streamPatch,
+    /patchPackageQueryStream\(\s*document,[\s\S]*packageQueryActions\)/);
+  assert.doesNotMatch(streamPatch, /app\.innerHTML/);
+  assert.match(
+    appSource,
+    /function schedulePackageQueryStreamRender\(\) \{\s*if \(packageQueryStreamRenderFrame !== null\) return;\s*packageQueryStreamRenderFrame = requestAnimationFrame\(/);
   const popstate =
     appSource.match(/window\.addEventListener\("popstate",[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -3704,7 +3711,7 @@ test("dependency graph binds navigation to generated node identities", () => {
     /const dataId = node\.getAttribute\("data-id"\);[\s\S]*return dataId \|\| idMatch\?\.\[1\] \|\| ""/);
   assert.match(
     appSource,
-    /bindDependencyGraphNodes\(viewport, nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
+    /resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)/);
   assert.doesNotMatch(appSource, /nodeInfoByLabel/);
   assert.match(
     appSource,
@@ -3854,10 +3861,9 @@ test("member detail adapters preserve exact engine coordinates", () => {
     appSource.match(
       /async function loadSelectedMemberFacts\(\)[\s\S]*?\n}\n\ninterface LoadPackageOptions/)?.[0]
     ?? "";
-  const factsRenderer =
-    appSource.match(
-      /function renderMemberFacts\([\s\S]*?\n}\n\ntype FactTableColumn/)?.[0]
-    ?? "";
+  const factsRenderer = readFileSync(
+    new URL("../src/member-facts.ts", import.meta.url), "utf8");
+  assert.match(appSource, /content = renderMemberFacts\(state\)/);
 
   assert.match(
     coordinator,
@@ -5383,6 +5389,33 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /\.package-dependencies-scroll,[\s\S]*?overflow: auto;/s);
 });
 
+test("Dependencies adopts the shared graph viewer without moving the package lists", () => {
+  assert.match(
+    appSource,
+    /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
+  assert.match(
+    appSource,
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}\$\{assemblyReferences\}/);
+  assert.match(
+    appSource,
+    /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);
+  assert.match(
+    appSource,
+    /graphExplorer\.afterRender\(graphExplorerTarget\(\)\)/);
+  const key = appSource.match(/function graphExplorerKey\(\)[\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(key, /JSON\.stringify\(\["dependencies", packageDependenciesSignature\(\)\]\)/);
+  assert.doesNotMatch(key, /dependenciesGroupIndex/);
+  assert.match(
+    appSource,
+    /function switchToPackageForDependencies[\s\S]*?closeGraphExplorerForNavigation\(\);[\s\S]*?activatePackage\(target/);
+  assert.match(
+    appSource,
+    /async function openDependencyPackage[\s\S]*?closeGraphExplorerForNavigation\(\);[\s\S]*?navigationSequence\.begin\(\)/);
+  assert.match(
+    appSource,
+    /function restoreGraphExplorerNavigationFocus[\s\S]*?querySelector<HTMLButtonElement>\("\[data-graph-explore\]"\)/);
+});
+
 test("graph member projections stay transport- and package-bounded", () => {
   assert.match(
     browserGraphMemberSource,
@@ -5516,7 +5549,7 @@ test("ambiguous call graph targets expose a visible refusal", () => {
     /invalidateGraphMemberNavigation\(\);\s*state\.memberCallGraphSeq\+\+;[\s\S]*?state\.graphMemberNavigationError\s*=\s*`Could not open \$\{target\.typeFullName\}\.\$\{target\.memberName\}: \$\{reason\}\.`;[\s\S]*?render\(\)/);
   assert.match(
     graphInteractionsSource,
-    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*id: "call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
+    /node\.setAttribute\("tabindex", "0"\);[\s\S]*node\.setAttribute\("role", "button"\)[\s\S]*node\.addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
 });
 
 test("navigable call graph targets share mouse and keyboard activation", () => {
@@ -6532,6 +6565,14 @@ test("type graph rendering contains artifact labels", () => {
     /t0\["A&#92;u202E&#92;uD800-Café😀"\]:::self/);
   assert.equal(definition.includes("\u202E"), false);
   assert.equal(definition.includes("\uD800"), false);
+});
+
+test("Mermaid resolves the current theme without inventing missing colors", () => {
+  assert.equal(
+    resolveMermaidCssVariables(
+      "classDef self fill:var(--accent-soft),stroke:var(--accent);",
+      name => name === "--accent-soft" ? " #abcdef " : ""),
+    "classDef self fill:#abcdef,stroke:var(--accent);");
 });
 
 test("dependency graph rendering contains artifact labels", () => {

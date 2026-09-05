@@ -826,6 +826,31 @@ own assembly, and exercises build identity plus `asyncLoweringCanary()`, a
 genuinely awaited operation with a fixed typed result and no network,
 package-cache, server-API, or user-data dependency.
 
+The same generated facade set also bootstraps in a dedicated module Worker.
+The publish step binds `runtime-loader.js` to the SDK's fingerprinted runtime
+module, so Worker startup does not depend on the document's import map.
+`src/engine-worker-client.ts` is a separately published entry: its explicit
+diagnostic probe drives the existing managed async-lowering canary through the
+Worker core and operation authority. It does not move current UI features off
+the main thread.
+
+After a Release publish, run the native binding gate:
+
+```bash
+dotnet publish prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  -c Release --output artifacts/inspect-web-publish
+cd prototypes/inspect-web
+npm run inspect-web-worker-browser-binding
+```
+
+The existing frontend build must precede the publish. Set
+`INSPECT_WEB_WORKER_SITE` to use another published `wwwroot` directory.
+The gate uses Firefox and the complete published artifact, covering cold and
+warm managed calls, restart, bootstrap rejection, and input during stalled
+Wasm initialization. It does not yet prove responsiveness during managed CPU
+work or complete the Worker lifecycle gate; those and source-feature adoption
+remain focused follow-on slices under #5418 and #5420.
+
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
 deliberately use the same namespace, declaring-type names, method names,
