@@ -171,6 +171,8 @@ import {
   setProductHomeDemoCatalog,
   type ProductHomeDemoId,
 } from "./product-home-demos.ts";
+import { createSavedWorkspaces, type SavedWorkspace } from "./saved-workspaces.ts";
+import { bindSavedWorkspaces, restoreSavedWorkspaceFocus } from "./saved-workspaces-view.ts";
 import {
   createSourceInspectionCoordinator,
   type GraphSourceRequest,
@@ -1738,6 +1740,18 @@ const packageRemoval = createPackageRemoval({
     localStorage.setItem("inspect-recent-packages", JSON.stringify(entries)),
   activate: activateAfterPackageRemoval,
   release: finishPackageRemoval,
+});
+const savedWorkspaces = createSavedWorkspaces({
+  read: () => localStorage.getItem("inspect-saved-workspaces"),
+  write: value => localStorage.setItem("inspect-saved-workspaces", value),
+  capture: captureSavedWorkspacePacket,
+  open: openSavedWorkspace,
+  render: focus => {
+    render();
+    if (focus) {
+      afterCurrentNavigationFrame(() => restoreSavedWorkspaceFocus(document, focus));
+    }
+  },
 });
 const spotlight = createSpotlight({
   keybindings,
@@ -3963,6 +3977,11 @@ function renderPackageView() {
 function renderWorkspaceView() {
   if (state.packages.length > 0) ensureWorkspaceOccurrenceView();
   return renderWorkspaceViewPure({
+    savedWorkspaces: {
+      state: savedWorkspaces.state,
+      canSave: state.engineReady && !state.loading && !state.error && state.packages.length > 0,
+      canOpen: state.engineReady && !state.loading && !state.error,
+    },
     occurrences: state.workspaceOccurrences?.occurrences ?? [],
     packages: state.packages,
     demos: productHomeDemoCatalog(),
@@ -6378,6 +6397,7 @@ const graphBackActions: GraphBackBindingActions = {
 };
 
 function bindWorkspaceSubjectEvents() {
+  bindSavedWorkspaces(document, savedWorkspaces);
   bindWorkspaceSubject(document, {
     onSelect: openDefaultWorkspace,
     onActivate: action =>
@@ -7804,6 +7824,32 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
   };
 }
 
+function captureSavedWorkspacePacket(): string {
+  if (state.home || state.credits || state.packageQueryOpen
+    || scope() !== "workspace") {
+    throw new Error("Save is only available on the Workspace page.");
+  }
+  if (!state.engineReady || state.loading || state.error) {
+    throw new Error("Wait until the Workspace is ready before saving.");
+  }
+  const snapshot = captureWorkspaceUrlState();
+  if (!snapshot || snapshot.tabs.length === 0) {
+    throw new Error("Load a package before saving the Workspace.");
+  }
+  const tabs = snapshot.tabs.map((tab, index) => {
+    const pkg = state.packages[index];
+    if (!pkg?.version || !pkg.activeFramework) {
+      throw new Error("Every saved coordinate must have a resolved version and framework.");
+    }
+    return { ...tab, version: pkg.version, framework: pkg.activeFramework };
+  });
+  const packet = workspaceLocation.build({ ...snapshot, tabs }).searchParams.get("w");
+  if (!packet) {
+    throw new Error("The Workspace could not be captured as a canonical share packet.");
+  }
+  return packet;
+}
+
 function buildStateUrl(base = location.href) {
   if (scope() === "workspace") {
     const snapshot = captureWorkspaceUrlState();
@@ -8559,19 +8605,53 @@ function runHomeDemo(kind: ProductHomeDemoId) {
   }
   const navigationSeq = beginDemoNavigation(destination);
   observeAsync(
-    restoreHomeDemoWorkspace(
-      kind,
+    restoreWorkspaceCatalogEntry(
       loc,
       navigationSeq,
-      snapshot),
+      snapshot,
+      message => failDemoWorkspaceOpen(kind, message, snapshot, true)),
     "Loading the demo workspace");
 }
 
-async function restoreHomeDemoWorkspace(
-  demoId: ProductHomeDemoId,
+function openSavedWorkspace(entry: SavedWorkspace): void {
+  const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
+  const fail = (message: string, retryable: boolean) =>
+    failWorkspaceCatalogAction(
+      `Saved Workspace "${entry.name}" failed: ${message}`,
+      snapshot,
+      retryable ? () => openSavedWorkspace(entry) : null,
+      () => restoreWorkspaceFocus(
+        document, { kind: "saved-open", name: entry.name, index: 0 }));
+  const url = new URL("/", location.origin);
+  url.searchParams.set("w", entry.packet);
+  url.hash = "workspace";
+  const destination = url.toString();
+  const navigationSeq = beginDemoNavigation(destination);
+  let loc: ParsedLocation;
+  try {
+    loc = parseWorkspaceHref(destination);
+  } catch (error) {
+    try {
+      fail(errorMessage(error), false);
+    } finally {
+      cancelDemoNavigation(navigationSeq);
+    }
+    return;
+  }
+  observeAsync(
+    restoreWorkspaceCatalogEntry(
+      loc,
+      navigationSeq,
+      snapshot,
+      message => fail(message, true)),
+    "Loading the saved workspace");
+}
+
+async function restoreWorkspaceCatalogEntry(
   loc: ParsedLocation,
   navigationSeq: number,
   snapshot: CanonicalWorkspaceRestoreSnapshot,
+  failureHandler: WorkspaceRestoreFailureHandler,
 ): Promise<void> {
   try {
     await restoreWorkspaceFromLocation(
@@ -8580,18 +8660,10 @@ async function restoreHomeDemoWorkspace(
       navigationSeq,
       snapshot,
       true,
-      message => failDemoWorkspaceOpen(
-        demoId,
-        message,
-        snapshot,
-        true));
+      failureHandler);
   } catch (error) {
     if (navigationSequence.isCurrent(navigationSeq)) {
-      failDemoWorkspaceOpen(
-        demoId,
-        errorMessage(error),
-        snapshot,
-        true);
+      failureHandler(errorMessage(error));
     }
   } finally {
     cancelDemoNavigation(navigationSeq);

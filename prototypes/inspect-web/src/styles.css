@@ -404,6 +404,17 @@ body {
 .workspace-overview { max-width: 900px; margin-top: 28px; }
 .workspace-overview p { color: var(--muted); line-height: 1.6; }
 .workspace-section { margin-top: 14px; }
+.workspace-heading { flex-wrap: wrap; }
+.workspace-heading > [data-workspace-save] { margin-left: auto; }
+.workspace-save-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.workspace-save-form label { color: var(--muted); font-size: 12px; }
+.workspace-save-form input { flex: 1 1 200px; min-width: 0; max-width: 100%; }
+.workspace-saved-list { list-style: none; margin: 0; padding: 0; }
+.workspace-saved-row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 8px 0; }
+.workspace-saved-row:first-child { border-top: 0; }
+.workspace-saved-open { flex: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; text-align: left; }
+.workspace-saved-open strong { min-width: 0; overflow-wrap: anywhere; font: 12px var(--mono); }
+.workspace-saved-open small { color: var(--muted); }
 .workspace-detail-list { list-style: none; margin: 0; padding: 0; }
 .workspace-detail-list li {
   display: grid;
