@@ -87,28 +87,35 @@ public static class SharedParsers
             $"Unrecognized option '{option}'.");
     }
 
-    internal static OptionError? GetStructuralUnrecognizedOptionError(
-        IEnumerable<ParseResult> interpretations)
+    internal static OptionError? GetStructuralParseError(ParseResult interpretation)
     {
-        HashSet<string>? unrecognized = null;
-        foreach (ParseResult interpretation in interpretations)
+        if (interpretation.Errors.FirstOrDefault() is { } error)
         {
-            IEnumerable<string> positionalOptions = interpretation.CommandResult.Children
-                .OfType<ArgumentResult>()
-                .SelectMany(argument => argument.Tokens)
-                .Select(token => token.Value)
-                .Concat(interpretation.UnmatchedTokens)
-                .Where(value => value.StartsWith('-'));
-            if (unrecognized is null)
-                unrecognized = new HashSet<string>(positionalOptions, StringComparer.Ordinal);
-            else
-                unrecognized.IntersectWith(positionalOptions);
+            return new OptionError(CommandLineBuilder.FormatParseError(error.Message));
         }
 
-        string? option = unrecognized?.FirstOrDefault();
+        string? option = interpretation.CommandResult.Children
+            .OfType<ArgumentResult>()
+            .SelectMany(argument => argument.Tokens)
+            .Select(token => token.Value)
+            .Concat(interpretation.UnmatchedTokens)
+            .FirstOrDefault(value => value.StartsWith('-'));
         if (option is null)
             return null;
         return new OptionError($"Unrecognized option '{option}'.");
+    }
+
+    internal static OptionError? GetOptionParseError(ParseResult interpretation)
+    {
+        foreach (ParseError error in interpretation.Errors)
+        {
+            for (SymbolResult? result = error.SymbolResult; result is not null; result = result.Parent)
+            {
+                if (result is OptionResult)
+                    return new OptionError(CommandLineBuilder.FormatParseError(error.Message));
+            }
+        }
+        return null;
     }
 
     public static int GetStructuralTypeArgumentIndex(

@@ -22,7 +22,8 @@ public static class TypeOptionsParser
         TypeCommandArgs args,
         out StructuralDiscoveryPlan? plan,
         out OptionError? error,
-        out bool targetFree)
+        out bool targetFree,
+        string? interpretedTypeTarget = null)
     {
         plan = null;
         error = null;
@@ -60,10 +61,10 @@ public static class TypeOptionsParser
                 sourceInputs,
                 hasProjectSource);
         string? typeName =
-            typeIndex >= 0
+            interpretedTypeTarget ?? (typeIndex >= 0
             && typeIndex < sourceInputs.Args.Length
                 ? sourceInputs.Args[typeIndex]
-                : null;
+                : null);
         if (hasProjectSource && sourceInputs.HasExplicitSource)
         {
             error = new OptionError(

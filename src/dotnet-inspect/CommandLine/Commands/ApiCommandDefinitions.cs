@@ -18,7 +18,9 @@ public static class ApiCommandDefinitions
     /// <summary>
     /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>
-    public static Command CreateTypeCommand(SharedOptions opts)
+    public static Command CreateTypeCommand(
+        SharedOptions opts,
+        out TypeOptionsParser.TypeCommandArgs structuralArgs)
     {
         var typeCommand = new Command(TypeCommand.Name, "Discover types in a package or library (compact table output)");
 
@@ -95,6 +97,7 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, projectOption, frameworkOption, tfmOption,
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, shapeOption, unsafeOption, repoOption, memberOption, kindOption, atOption);
+        structuralArgs = commandArgs;
 
         typeCommand.SetAction(async (parseResult, ct) =>
         {
@@ -179,7 +182,9 @@ public static class ApiCommandDefinitions
     /// <summary>
     /// Creates the member command for deep member inspection (docs on by default).
     /// </summary>
-    public static Command CreateMemberCommand(SharedOptions opts)
+    public static Command CreateMemberCommand(
+        SharedOptions opts,
+        out MemberOptionsParser.MemberCommandArgs structuralArgs)
     {
         var memberCommand = new Command(MemberCommand.Name, "Inspect type members (docs on by default)");
 
@@ -292,6 +297,7 @@ public static class ApiCommandDefinitions
             unsafeOption, indexOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             shapeOption, routerDeferredTargetOption);
+        structuralArgs = commandArgs;
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

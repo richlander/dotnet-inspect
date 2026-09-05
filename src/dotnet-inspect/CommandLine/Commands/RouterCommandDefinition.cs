@@ -30,7 +30,11 @@ public static class RouterCommandDefinition
     internal static bool IsDeferredTypeOrMemberCapability(string? value) =>
         value == DeferredTypeOrMemberCapability;
 
-    public static Command Create(RootCommand rootCommand, SharedOptions opts)
+    public static Command Create(
+        RootCommand rootCommand,
+        SharedOptions opts,
+        TypeOptionsParser.TypeCommandArgs typeArgs,
+        MemberOptionsParser.MemberCommandArgs memberArgs)
     {
         var routerCommand = new Command("router", "Auto-route bare input to a real command")
         {
@@ -151,21 +155,11 @@ public static class RouterCommandDefinition
 
             if (structuralDiscovery)
             {
-                ParseResult analysisParseResult =
-                    rootCommand.Parse(
-                        [MemberCommand.Name, .. tokens]);
-                OptionError? analysisError =
-                    SharedParsers.ParseAnalysisQueryOptions(
-                        analysisParseResult,
-                        opts,
-                        typeScoped: false,
-                        typeName: null,
-                        out _,
-                        out _);
-                analysisError ??=
-                    MemberOptionsParser.GetMermaidOptionError(
-                        analysisParseResult,
-                        opts);
+                ParseResult analysisParseResult = rootCommand.Parse([MemberCommand.Name, .. tokens]);
+                OptionError? analysisError = SharedParsers.GetOptionParseError(analysisParseResult);
+                analysisError ??= SharedParsers.ParseAnalysisQueryOptions(
+                    analysisParseResult, opts, typeScoped: false, typeName: null, out _, out _);
+                analysisError ??= MemberOptionsParser.GetMermaidOptionError(analysisParseResult, opts);
                 if (analysisError is not null)
                 {
                     CommandError.Write(analysisError.Value);
@@ -182,17 +176,50 @@ public static class RouterCommandDefinition
                             tokens,
                             request,
                             sourceIdentityTypeTarget);
-                OptionError? optionError = SharedParsers.GetStructuralUnrecognizedOptionError(
-                    alternatives.Alternatives
-                        .Where(alternative => alternative.Error is null)
-                        .Select(alternative => alternative.Route.View.DestinationCommand)
-                        .Distinct(StringComparer.Ordinal)
-                        .Select(command => rootCommand.Parse([command, .. tokens])));
-                if (optionError is not null)
+                var optionErrors = new Dictionary<string, OptionError?>(StringComparer.Ordinal);
+                string[] interpretationTokens = sourceParseResult.CommandResult.Children
+                    .OfType<OptionResult>()
+                    .Any(result => result.Option.Name == "--all-libraries"
+                        && !result.Implicit
+                        && !result.GetValueOrDefault<bool>())
+                    ? RouterTokenRewriter.RemoveOptionWithValue(tokens, "--all-libraries", "false")
+                    : tokens;
+                foreach (string command in alternatives.Alternatives
+                    .Select(alternative => alternative.Route.View.DestinationCommand)
+                    .Distinct(StringComparer.Ordinal))
                 {
-                    CommandError.Write(optionError.Value);
-                    return 1;
+                    ParseResult interpretation = rootCommand.Parse([command, .. interpretationTokens]);
+                    OptionError? optionError = SharedParsers.GetStructuralParseError(interpretation);
+                    if (optionError is null)
+                    {
+                        string typeTarget = sourceIdentityTypeTarget ?? tokens[0];
+                        if (command == TypeCommand.Name)
+                        {
+                            TypeOptionsParser.TryCreateStructuralPlan(
+                                interpretation, opts, typeArgs,
+                                out _, out optionError, out _,
+                                interpretedTypeTarget: typeTarget);
+                        }
+                        else if (command == MemberCommand.Name)
+                        {
+                            MemberOptionsParser.TryCreateStructuralPlan(
+                                interpretation, opts, memberArgs,
+                                out _, out optionError, out _,
+                                interpretedTypeTarget: typeTarget);
+                        }
+                    }
+                    optionErrors.Add(command, optionError);
                 }
+                alternatives = new StructuralCatalogAlternatives(
+                    [.. alternatives.Alternatives.Select(alternative =>
+                        optionErrors[alternative.Route.View.DestinationCommand] is { } error
+                            ? alternative with
+                            {
+                                CompleteCatalog = false,
+                                ResolvedSections = [],
+                                Error = error,
+                            }
+                            : alternative)]);
                 RequestTelemetry.Breadcrumb(
                     "router-structural",
                     "alternatives: "
@@ -1505,7 +1532,7 @@ public static class RouterCommandDefinition
                 optionName,
                 StringComparer.OrdinalIgnoreCase);
 
-        private static string[] RemoveOptionWithValue(
+        internal static string[] RemoveOptionWithValue(
             string[] tokens,
             string option,
             string value)

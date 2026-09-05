@@ -3009,6 +3009,49 @@ public sealed class InspectionPlanningTests
         Assert.Contains("[type/type/ApiMember]", result.Output);
     }
 
+    [Fact]
+    public async Task AmbiguousSchemaDoesNotBorrowAnotherCommandsOptionAuthority()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", "--shape", "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("--shape", result.Error);
+        Assert.DoesNotContain("System.InvalidOperationException", result.Error);
+    }
+
+    [Fact]
+    public async Task AmbiguousSchemaPreservesValidTypeOptionInterpretation()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", "--shape", "-D", SectionNames.Classes,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[type/type/ApiType] Classes", result.Output);
+        Assert.Contains("[member/member-target/ApiMemberOverload] error:", result.Output);
+        Assert.DoesNotContain("[package/package/Package] Signature", result.Output);
+    }
+
+    [Theory]
+    [InlineData("--depth")]
+    [InlineData("--top")]
+    public async Task AmbiguousSchemaRejectsInvalidOptionConversionsWithoutStack(string option)
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", option, "nope", "-D", SectionNames.Signature,
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(option, result.Error);
+        Assert.DoesNotContain("System.InvalidOperationException", result.Error);
+        Assert.DoesNotContain(" at DotnetInspector.", result.Error);
+    }
+
     [Theory]
     [InlineData("--tfm", "-example")]
     [InlineData("--tfm=-example", null)]
@@ -3045,6 +3088,45 @@ public sealed class InspectionPlanningTests
         Assert.Equal(0, explicitType.Exit);
         Assert.Equal(explicitType.Output, commandless.Output);
         Assert.Contains("Members", commandless.Output);
+    }
+
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task PrefixDiscoveryValidatesTabularSelectionAgainstFinalListing(string format)
+    {
+        string[] projection =
+        [
+            "-S", "Methods,Properties,Classes", "-D", SectionNames.Classes, format, "--tips", "q",
+        ];
+        var prefix = await RunAppAsync(
+            ["System.Str", "--platform", "System.Private.CoreLib", .. projection]);
+        var listing = await RunAppAsync(
+            ["type", "--platform", "System.Private.CoreLib", "-t", "System.Str*", .. projection]);
+
+        Assert.Equal(0, prefix.Exit);
+        Assert.Equal(0, listing.Exit);
+        Assert.Equal(listing.Output, prefix.Output);
+        Assert.Contains("Members", prefix.Output);
+        Assert.DoesNotContain("Select value 'Classes' not found", prefix.Error);
+    }
+
+    [Theory]
+    [InlineData("Methods,Classes", 0)]
+    [InlineData("Methods,Properties,Classes", 1)]
+    public async Task DeferredSelectionStillValidatesResolvedSingleType(string selection, int expectedExit)
+    {
+        var result = await RunAppAsync(
+            "type", "System.String", "--platform", "System.Private.CoreLib",
+            "-S", selection, "-D", SectionNames.Methods, "--table", "--tips", "q");
+
+        Assert.Equal(expectedExit, result.Exit);
+        Assert.Contains("Select value 'Classes' not found", result.Error);
+        if (expectedExit == 0)
+            Assert.Contains("Name", result.Output);
+        else
+            Assert.Contains("Selection matches 2 sections", result.Error);
     }
 
     [Fact]
@@ -3172,16 +3254,16 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public async Task InvalidMemberAlternativeDoesNotEraseValidPackageSchema()
+    public async Task InvalidMemberAlternativeDoesNotEraseValidTypeSchema()
     {
         var result = await RunAppAsync(
             "Some.Container<T>.Nested",
-            "-m", "Add", "-m", "Clear", "-D", SectionNames.Signature,
+            "-m", "Add", "-m", "Clear", "-D", "Methods,Signature",
             "--schema", "--table", "--tips", "q");
 
         Assert.Equal(0, result.Exit);
         Assert.Empty(result.Error);
-        Assert.Contains("[package/package/Package] Signature", result.Output);
+        Assert.Contains("[type/type/ApiMember] Methods", result.Output);
         Assert.Contains(
             "[member/member-target/ApiMemberDetail] error: Exact-member section selection requires exactly one member name.",
             result.Output);

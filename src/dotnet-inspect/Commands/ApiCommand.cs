@@ -327,35 +327,21 @@ public class ApiCommand
     // ===== Shared Preamble =====
 
     /// <summary>
-    /// True when <c>-S</c> failed against the single-type pipeline but resolves against the type
-    /// listing, so the preamble must carry the decision forward instead of rejecting it.
+    /// True when a single-type request's selection can belong to a type listing, so
+    /// catalog-dependent validation must wait for target resolution.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// This deliberately only intercepts the <em>total</em> failure that would otherwise return 1,
-    /// mirroring <see cref="SelectOutput.WriteUnresolved"/>'s own definition of that state. Nothing
-    /// that succeeds today can reach the deferral, which bounds the change to invocations that
-    /// already exit 1: a partial match still warns and proceeds exactly as before.
-    /// </para>
-    /// <para>
     /// A name valid for neither pipeline is a plain typo and still fails here, keeping the fast
     /// rejection -- and the single-type suggestions -- for the case that cannot be a listing.
-    /// </para>
     /// </remarks>
     internal static bool ShouldDeferSelectToListing(
         ApiOptions options,
         bool singleTypeMode,
-        SelectResult singleTypeResult,
         SectionPipeline<ApiSurface> typePipeline)
     {
-        // Only `type` falls back from a single-type request to a listing. `member` renders a member
-        // view or nothing, and the `api` shim renders nothing at all.
-        if (options is not TypeOptions || !singleTypeMode || options.Select is not { Length: > 0 })
-            return false;
-
-        bool totalFailure = singleTypeResult.Unresolved.Count > 0
-            && singleTypeResult.Sections is null or { Count: 0 };
-        if (!totalFailure)
+        if (options is not TypeOptions
+            || !singleTypeMode
+            || (options.Select is not { Length: > 0 } && !options.SelectDefault))
             return false;
 
         return ResolveSelectForListing(options, typePipeline).Sections is { Count: > 0 };
@@ -404,30 +390,18 @@ public class ApiCommand
     }
 
     /// <summary>
-    /// Reports a deferred <c>-S</c> against the single-type pipeline for a query that turned out to
-    /// render a single type after all, restoring the rejection the preamble held back. Returns true
-    /// when the caller should stop.
+    /// Resolves a deferred selection and validates its output shape after lookup
+    /// chooses the single-type catalog.
     /// </summary>
-    /// <remarks>
-    /// Resolution is repeated against the same three inputs the preamble used, so it reproduces the
-    /// same total failure and the same message. It reports unconditionally rather than forwarding
-    /// <see cref="SelectOutput.WriteUnresolved"/>'s partial-match result: a deferral is only ever
-    /// created from a total failure, and treating a hypothetical partial as "carry on" would render
-    /// the single-type view with the selector silently dropped.
-    /// </remarks>
-    internal static bool RejectDeferredSelectForSingleType(ApiOptions options, SectionPipeline<ApiType> memberPipeline)
+    internal static TypeOptions? ReresolveSectionsForSingleType(TypeOptions options)
     {
         if (!options.SelectDeferredToListing)
-            return false;
+            return options;
 
-        var result = SelectResolver.ResolveSelectAsSections(
-            options.Select,
-            memberPipeline.SelectableSectionNames,
-            memberPipeline.FixedOverviewSectionNames,
-            memberPipeline.GetCategoryMap(),
-            selectDefault: options.SelectDefault);
-        SelectOutput.WriteUnresolved(result);
-        return true;
+        var (preamble, error) = RunPreamble(
+            options with { SelectDeferredToListing = false },
+            allowListingFallback: false);
+        return error.HasValue ? null : (TypeOptions)preamble.Options;
     }
 
     internal static bool RejectDeferredDiscoveryForSingleType(
@@ -455,7 +429,8 @@ public class ApiCommand
 
     internal static (PreambleResult Result, int? Error) RunPreamble(
         ApiOptions options,
-        ResolvedMemberInspectionPlan? resolvedPlan = null)
+        ResolvedMemberInspectionPlan? resolvedPlan = null,
+        bool allowListingFallback = true)
     {
         options = options with { UserVerbosityOverride = options.UserVerbosity };
         if (options.Discover is not null
@@ -562,15 +537,13 @@ public class ApiCommand
             bool discoveryOnly =
                 options.Discover is not null
                 && !hasSelection;
-            if (ShouldDeferSelectToListing(options, singleTypeMode, selectResult, typePipeline))
+            if (allowListingFallback
+                && ShouldDeferSelectToListing(options, singleTypeMode, typePipeline))
             {
-                // `-D` advertised these names and `-S` rejected them, on the same command line: the
-                // preamble was answering for the single-type pipeline while the render is a listing.
-                // Hold the rejection rather than resolving it here, because which pipeline is right is
-                // not known until the type lookup runs.
                 options = options with { SelectDeferredToListing = true };
             }
-            else if (discoveryOnly
+            else if (allowListingFallback
+                && discoveryOnly
                 && ShouldDeferDiscoveryToListing(
                     options,
                     singleTypeMode,
@@ -730,6 +703,9 @@ public class ApiCommand
         // Warn if tabular output is combined with detailed verbosity without section selector
         if (!options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
+
+        if (options.RenderOptions is not null)
+            return (new PreambleResult(options, typePipeline, memberPipeline), null);
 
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
         // CLI edge and attach the decompiler spelling options to the flowed

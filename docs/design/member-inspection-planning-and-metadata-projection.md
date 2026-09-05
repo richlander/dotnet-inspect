@@ -1412,6 +1412,9 @@ Depends on: slice 1.
 - Apply query syntax to each surviving interpretation rather than using it to
   erase target ambiguity. For example, a Body Shapes predicate keeps the type
   alternative and promotes only the member alternative to exact-member detail.
+  An interpretation rejected by its command's options contributes a typed
+  diagnostic, not schema authority; another command's acceptance cannot make
+  it valid.
 - Resolve the active catalog only after target/member resolution.
 - For non-static dotted ambiguity, reject selectors absent from every candidate
   catalog before acquisition, but defer selectors valid in at least one
@@ -1419,6 +1422,8 @@ Depends on: slice 1.
   intentionally replaces a provisional-catalog diagnostic when the same
   selector is valid for another interpretation.
 - Move shape validation to the resolved plan.
+  Partial provisional selection success does not settle the target catalog or
+  authorize a catalog-dependent cardinality check.
 - Preserve current address precedence and all other diagnostics for non-static
   execution through a compatibility adapter except for the declared ambiguity
   and `--all-libraries` corrections.

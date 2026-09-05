@@ -285,15 +285,12 @@ public static class TypeCommand
                 {
                     var apiType = lookupResult.Type!;
 
-                    // The type resolved after all, so a select the preamble deferred was never a
-                    // listing request. Report it against the pipeline that is rendering.
-                    if (ApiCommand.RejectDeferredSelectForSingleType(
+                    if (ApiCommand.ReresolveSectionsForSingleType(options) is not { } resolvedOptions)
+                        return 1;
+                    options = resolvedOptions;
+                    if (ApiCommand.RejectDeferredDiscoveryForSingleType(
                             options,
-                            memberPipeline)
-                        || ApiCommand
-                            .RejectDeferredDiscoveryForSingleType(
-                                options,
-                                memberPipeline))
+                            memberPipeline))
                         return 1;
 
                     // Check each member filter before producing output
@@ -517,17 +514,12 @@ public static class TypeCommand
                     if (widePrefixExitCode.HasValue)
                         return widePrefixExitCode.Value;
 
-                    // Nothing below renders a listing -- the glob branch is unreachable with a
-                    // deferred select, because a glob never enters the preamble as a single type --
-                    // so a deferred select has no listing to belong to and is reported the way the
-                    // preamble would have reported it.
-                    if (ApiCommand.RejectDeferredSelectForSingleType(
+                    if (ApiCommand.ReresolveSectionsForSingleType(options) is not { } resolvedOptions)
+                        return 1;
+                    options = resolvedOptions;
+                    if (ApiCommand.RejectDeferredDiscoveryForSingleType(
                             options,
-                            memberPipeline)
-                        || ApiCommand
-                            .RejectDeferredDiscoveryForSingleType(
-                                options,
-                                memberPipeline))
+                            memberPipeline))
                         return 1;
 
                     if (lookupResult.Suggestions.Count > 0)

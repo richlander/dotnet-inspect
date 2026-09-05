@@ -76,7 +76,8 @@ public static class MemberOptionsParser
         MemberCommandArgs args,
         out StructuralDiscoveryPlan? plan,
         out OptionError? error,
-        out bool targetFree)
+        out bool targetFree,
+        string? interpretedTypeTarget = null)
     {
         plan = null;
         error = null;
@@ -117,10 +118,10 @@ public static class MemberOptionsParser
             SharedParsers.GetStructuralTypeArgumentIndex(
                 sourceInputs,
                 hasProjectSource);
-        string? typeName = typeIndex >= 0
+        string? typeName = interpretedTypeTarget ?? (typeIndex >= 0
             && typeIndex < sourceInputs.Args.Length
             ? sourceInputs.Args[typeIndex]
-            : null;
+            : null);
         List<string> positionalMembers =
             typeIndex >= 0
             && sourceInputs.Args.Length > typeIndex + 1
