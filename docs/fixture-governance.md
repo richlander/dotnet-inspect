@@ -12,9 +12,14 @@ Independently compiled artifacts inspected by tests or harnesses live under
 tools and harnesses live under `tools/`.
 
 Keep compiler-produced source that is compiled as part of a test assembly beside
-its owning tests. A corpus, platform probe, consumer canary, or
-negative-compilation project remains under `tests/` unless its built artifact is
-itself an inspected fixture.
+its owning tests. A corpus, platform probe, executed test double, consumer
+canary, or negative-compilation project remains under `tests/` unless its built
+artifact is itself an inspected fixture.
+
+Classify by consumption, not by project name. For example,
+`NuGetFetch.PluginFixture` is executed as a protocol test double and
+`NuGetFetch.CustomClientFixture` is compiled and invoked as an external API
+consumer. Both live under `tests/nuget/`, not in the inspected-artifact catalog.
 
 `tests/DotnetInspector.FixtureInfrastructure` owns fixture registration and
 resolution. It records repository-relative project directories explicitly;

@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\NuGetFetch\NuGetFetch.csproj" />
+    <ProjectReference Include="..\..\..\src\NuGetFetch\NuGetFetch.csproj" />
   </ItemGroup>
 
 </Project>
