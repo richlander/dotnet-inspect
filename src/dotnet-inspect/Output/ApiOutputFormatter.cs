@@ -1514,11 +1514,11 @@ public static class ApiOutputFormatter
     /// the owner's bare return type. The value type is the property/event type; a value-
     /// returning accessor (a getter) returns it and carries only the index parameters, while a
     /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
-    /// Modifiers mirror the accessor: virtual/override/sealed/abstract/static come from the
-    /// owner (both accessors share the property/event slot), while accessibility uses the
-    /// per-accessor entry (a <c>private set</c> stays private) and only falls back to the
-    /// owner's when the accessor declares none — events carry no per-accessor entry and so
-    /// inherit the event's accessibility.
+    /// Modifiers mirror the owner aggregate, except that an accessor's managed body is
+    /// accessor-specific proof that it is concrete even when a sibling makes the owner
+    /// abstract. Accessibility uses the per-accessor entry (a <c>private set</c> stays
+    /// private) and only falls back to the owner's when the accessor declares none —
+    /// events carry no per-accessor entry and so inherit the event's accessibility.
     /// </summary>
     static ApiMember Accessor(
         ApiMember owner,
@@ -1567,7 +1567,7 @@ public static class ApiOutputFormatter
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract,
+            IsAbstract = owner.IsAbstract && hasMethodBody != true,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,

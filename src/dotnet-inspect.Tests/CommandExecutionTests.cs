@@ -751,7 +751,7 @@ public partial class CommandExecutionTests
         var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
         var typeBuilder = moduleBuilder.DefineType(
             "RuntimeAccessor.Target",
-            TypeAttributes.Public | TypeAttributes.Class);
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract);
         typeBuilder.DefineDefaultConstructor(MethodAttributes.Public);
 
         var property = typeBuilder.DefineProperty(
@@ -794,6 +794,49 @@ public partial class CommandExecutionTests
             [typeof(Action)]);
         remover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
         @event.SetRemoveOnMethod(remover);
+
+        var mixedProperty = typeBuilder.DefineProperty(
+            "MixedValue",
+            PropertyAttributes.None,
+            typeof(int),
+            Type.EmptyTypes);
+        var abstractGetter = typeBuilder.DefineMethod(
+            "get_MixedValue",
+            MethodAttributes.Public | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+            typeof(int),
+            Type.EmptyTypes);
+        mixedProperty.SetGetMethod(abstractGetter);
+
+        var concreteSetter = typeBuilder.DefineMethod(
+            "set_MixedValue",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(int)]);
+        concreteSetter.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        mixedProperty.SetSetMethod(concreteSetter);
+
+        var mixedEvent = typeBuilder.DefineEvent(
+            "MixedChanged",
+            EventAttributes.None,
+            typeof(Action));
+        var abstractAdder = typeBuilder.DefineMethod(
+            "add_MixedChanged",
+            MethodAttributes.Public | MethodAttributes.SpecialName
+                | MethodAttributes.HideBySig | MethodAttributes.Virtual
+                | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+            typeof(void),
+            [typeof(Action)]);
+        mixedEvent.SetAddOnMethod(abstractAdder);
+
+        var concreteRemover = typeBuilder.DefineMethod(
+            "remove_MixedChanged",
+            MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeof(void),
+            [typeof(Action)]);
+        concreteRemover.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        mixedEvent.SetRemoveOnMethod(concreteRemover);
 
         typeBuilder.CreateType();
         assemblyBuilder.Save(path);
@@ -16658,7 +16701,13 @@ public partial class CommandExecutionTests
             var dllPath = Path.Combine(tempDir, "RuntimeAccessor.dll");
             WriteRuntimeAccessorAssembly(dllPath);
 
-            foreach (var memberName in (string[])["Value", "Changed"])
+            foreach (var memberName in (string[])
+            [
+                "Value",
+                "Changed",
+                "MixedValue",
+                "MixedChanged",
+            ])
             {
                 var (bodylessDiscoverExit, bodylessDiscoverOutput, bodylessDiscoverError) =
                     await RunAppAsync(
