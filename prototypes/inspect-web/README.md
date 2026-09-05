@@ -174,6 +174,7 @@ name; reloading the browser session is the recovery boundary.
 `BrowserWorkspace_PackageEvictionAwaitsScopeClosedByAnotherPath`,
 `BrowserWorkspace_ConcurrentReservationsStayWithinTheByteBudget`,
 `BrowserWorkspace_FailedScopeCloseStaysChargedAndUnavailable`,
+`BrowserWorkspace_DuplicateCandidateRetiresItsOwnReservation`,
 `BrowserWorkspace_ConcurrentScopeOpensShareOneRealization`,
 `BrowserWorkspace_RepeatedUnboundRequestsJoinOneRetainedBinding`,
 `BrowserWorkspace_IndependentlyIssuedBindingsDoNotJoinOnLabelMatch`,
@@ -182,8 +183,10 @@ name; reloading the browser session is the recovery boundary.
 `BrowserWorkspace_CancelledWaiterLeavesTheOtherWaiterUnaffected`,
 `BrowserWorkspace_CancelledScopeOpenYieldsNoScopeAndKeepsRegistryUsable`,
 `BrowserWorkspace_ArtifactScopeDisposalClosesItsSession`,
-`BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`, and
-`BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal` gate those
+`BrowserWorkspace_ReplacedArchiveRejectsStaleArtifactCoordinate`,
+`BrowserWorkspace_CacheRoomAwaitsDependentScopeDisposal`,
+`WorkspaceOccurrences_ActivationCannotOutliveItsView`, and
+`PackageOperation_LateCancellationPreservesCleanupFailure` gate those
 lifetimes.
 The host supplies one 64 MB aggregate retained-image budget and a 256-assembly
 ceiling per role, and the realization it selects decides how that aggregate is
@@ -398,13 +401,14 @@ participant exists.
 
 ### Artifact-backed package scope adoption
 
-**Status: planned, not implemented.** This section owns the Browser registry
+**Status: implemented.** This section owns the Browser registry
 contract for [#5576](https://github.com/richlander/dotnet-inspect/issues/5576).
-The synchronous behavior described above remains current until that adoption
-lands. The end-to-end tracker is
-[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); the CLI
-consumer has landed in
-[#5799](https://github.com/richlander/dotnet-inspect/pull/5799).
+The end-to-end adoption and retirement tracker is
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577). The CLI
+default-framework consumer landed in
+[#5799](https://github.com/richlander/dotnet-inspect/pull/5799), and compatible
+explicit-framework requests followed in
+[#5928](https://github.com/richlander/dotnet-inspect/pull/5928).
 [Package Root realization](../../docs/design/artifact-acquisition-and-workspaces.md#package-root-realization)
 owns artifact construction, role selection, rejection, and the budget split.
 [Inspection space](../../docs/inspection-space.md#retained-package-realization-caller)
@@ -431,9 +435,10 @@ binding preserves that binding's coordinate, `ContentGenerationIdentity`, and
 `SelectionIdentity`; independently issued selection tokens are not
 interchangeable merely because package/version/TFM labels match. Such a request
 can join only its exact binding operation, otherwise it is a distinct demand.
-Every singleton entry point uses the same opener; synchronous occurrence
-activation must become awaitable rather than constructing a competing legacy
-singleton scope.
+Every singleton entry point uses the same opener. Workspace occurrence
+activation is awaitable and uses that opener rather than constructing a
+competing legacy singleton scope. It rechecks the occurrence after opening, so
+a view cleared or replaced during the await cannot return an active selection.
 
 Concurrent callers join pending work as well as ready work. Each caller has its
 own cancellation and receives protected use of the exact entry before the
@@ -495,18 +500,34 @@ broken-policy controls and required reachability witnesses. It abstracts
 authoritative factory and cleanup outcomes; it does not establish production
 conformance, binding issuance, archive accounting, or lower-owner cleanup.
 
-**Adoption evidence: unverified.** The implementation must add Release Browser
-engine gates for joined requests and independent cancellation, non-joining
-content/selection identities, use protected across async return, four-entry
-pressure and awaited eviction, stale completion after cancellation/replacement,
-and observable cleanup failure. It must preserve visible selected rejection
-carriers beside healthy participants and the existing multi-package/Platform
-registry cases. The Browser/Wasm gate must exercise the awaitable production
-opening/activation path. The two-host demo uses
-`Microsoft.Extensions.Http@10.0.0`: record the concrete TFM resolved by the CLI
-pilot's default selection and select that same TFM in Browser, with a
-neighboring replacement/eviction and valid-reference/malformed-implementation
-fixture. These are required future gates, not evidence supplied by this design.
+**Adoption evidence.** The Release `BrowserEngineBoundaryTests` cases listed
+above cover retained binding reuse, queued bound and unbound joins, independent
+wait cancellation, distinct content/selection identities, protected use,
+four-entry pressure, awaited reclamation, stale activation, and cleanup-failure
+quarantine. They also preserve the existing multi-package and Platform cases.
+`BrowserTypeSourceOperationTests` covers the managed source consumer's release
+through success, expected failure, and unexpected failure.
+
+`eng/test-inspect-web-package-adoption-gate.sh` runs the public generated
+Package and Analysis facades against the published production engine in
+Firefox/Wasm. It exercises concurrent initial opening and retained reuse,
+Workspace occurrence activation and supersession, and admission of a fifth
+scope under the four-scope bound. Its mixed fixture uses the cataloged
+`diff-asm.lib-a` and `diff-asm.lib-b` assemblies as valid, distinct-identity
+reference assets, with malformed bytes only in the latter's implementation
+asset. The API surface remains healthy while Integrations reports an incomplete
+result with the selected implementation rejection. The fixture resolver uses
+`FixtureCatalog.AssemblyPath`; its build-only references keep these inputs in
+the normal solution graph rather than discovering arbitrary build outputs.
+
+The same gate includes the two-host scenario
+`Microsoft.Extensions.Http@10.0.0` / `net10.0`. The production CLI's default
+selection resolves `net10.0`; Browser explicitly selects that framework, opens
+and activates its occurrence, and reports the matching `IHttpClientFactory`
+and `AddHttpClient` signals. This network-backed case uses the live Gallery CDN;
+the lifecycle and malformed-implementation cases use deterministic local
+archive responses. Run the gate after building the frontend and publishing
+`InspectWeb.Engine.csproj` in Release to `artifacts/inspect-web-publish`.
 
 ## Supported
 

@@ -1039,6 +1039,7 @@ internal static class BrowserPackageWorkspace
             coordinate = new BrowserPackageCoordinate(
                 package,
                 package.CreateRootBinding(request.TargetFramework));
+            RetainCoordinatePackages([coordinate]);
         }
         catch
         {
