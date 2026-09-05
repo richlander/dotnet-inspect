@@ -16677,7 +16677,8 @@ public partial class CommandExecutionTests
     [InlineData(SectionNames.DecompiledSource, true)]
     [InlineData(SectionNames.AnnotatedSource, true)]
     [InlineData(SectionNames.AnnotatedSourceDocument, true)]
-    [InlineData(SectionNames.FindingCensus, true)]
+    // Finding Census additionally requires a proven body.
+    [InlineData(SectionNames.FindingCensus, false)]
     [InlineData(SectionNames.BodyShapes, true)]
     [InlineData(SectionNames.Facts, true)]
     [InlineData(SectionNames.FidelityCauses, false)]
