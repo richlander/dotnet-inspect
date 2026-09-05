@@ -675,6 +675,48 @@ Implementation proceeds in independently coherent slices:
 The migration must not thread browser operation IDs into host-neutral
 inspection models. IDs terminate at the browser host adapter.
 
+### Source-host adoption and retirement
+
+The first production consumer is the existing Type Source view, tracked by
+[#5419](https://github.com/richlander/dotnet-inspect/issues/5419). Its
+operation-authority adapter passes the page-owned ID and normalized cancellation
+reason through the generated source facade. The managed wrapper participates
+in the existing aggregate source-acquisition budget; keyed admission does not
+authorize concurrent source acquisition. Its scope and budget leases are
+released before the managed terminal result settles.
+
+Type Source has no nonterminal payload in this slice. It uses the bridge's
+existing admission-without-callback contract rather than manufacturing progress
+events. Its concrete result and cancellation-status DTOs use supported
+source-generated JSON contracts; native C# JSON union projection is not a
+prerequisite. Source rendering, provenance, and acquisition policy remain
+feature-owned.
+
+`BrowserTypeSourceOperationTests` gates keyed cancellation, shared-budget
+accounting, result classification, and lease release in the Release engine
+suite. `test/type-source-managed-operation.test.ts` gates browser-adapter
+publication, late-failure diagnostics, cancellation, and quiescence;
+`scripts/verify-engine-facade-runtime.ts` gates the generated DTO projection
+and argument forwarding.
+
+Source singleton retirement has **two ordered adoption slices**:
+
+1. migrate the Type Source export and its production caller together to keyed
+   admission, cancellation, and terminal results;
+2. migrate the remaining member-source and graph-source callers and their
+   exports to the same operation-keyed boundary, then remove parameterless
+   source cancellation and the singleton cancellation slot in that slice,
+   retaining the feature's aggregate acquisition-budget enforcement.
+
+Only the first slice is included here. The legacy source coordinator remains
+necessary for the other callers. Shared-producer subscriptions and epoch-work
+leases remain separate bridge work, not a replacement for this source budget.
+The end-to-end Worker adoption scenario is
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420), composed through
+[#5095](https://github.com/richlander/dotnet-inspect/issues/5095). This direct
+facade adoption does not move work off the DOM thread or establish a
+responsiveness or prompt physical-cancellation claim.
+
 ## Checked abstract model
 
 The companion TLA+ model covers two managed operations and one shared producer.

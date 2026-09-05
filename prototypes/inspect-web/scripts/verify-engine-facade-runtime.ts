@@ -7,6 +7,23 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { BrowserTypeSourceResult } from "../src/facades/inspect-web-source.d.ts";
+
+const typeSourceResult: BrowserTypeSourceResult = {
+  version: 1,
+  kind: "Succeeded",
+  value: {
+    provider: "decompiled",
+    provenance: "facade transport probe",
+    url: null,
+    pdbSourceLimitation: null,
+    text: "class Example {}",
+  },
+  failureKind: null,
+  error: null,
+  diagnostic: null,
+  reason: null,
+};
 
 interface FacadeIdentity {
   readonly module: string;
@@ -242,6 +259,12 @@ const assemblies = new Map(managedAssemblies.map(entry => [entry.assembly, {
       if (operation.key.startsWith("AsyncLoweringCanary.")) {
         return Promise.resolve("inspect-web-async-lowering-ok");
       }
+      if (operation.key.startsWith("QueryTypeSource.")) {
+        return Promise.resolve(${JSON.stringify(JSON.stringify(typeSourceResult))});
+      }
+      if (operation.key.startsWith("CancelTypeSourceQuery.")) {
+        return JSON.stringify({ kind: "Requested", reason: args[1] });
+      }
       return operation.asynchronous ? Promise.resolve("null") : "null";
     },
   ])),
@@ -334,6 +357,25 @@ for (const facade of facades) {
       representative.key}\\.-?\\d+:`),
     `${facade.module}.${representative.name}() must dispatch into its own assembly`);
 }
+
+const source = facadeModule("inspect-web-source");
+const sourceArguments = [
+  "page-owned-source-id", "Example.Package", "1.0.0", "net11.0",
+  "Example.dll", "Example.Type", "[]",
+];
+assert.deepEqual(
+  await callableOperation(source, "queryTypeSource")(...sourceArguments),
+  typeSourceResult,
+  "type source must decode the generated concrete terminal DTO");
+assert.ok(
+  importedState.calls.at(-1)?.endsWith(`:${JSON.stringify(sourceArguments)}`),
+  "type source must forward the page-owned operation ID and all query arguments");
+assert.deepEqual(
+  callableOperation(source, "cancelTypeSourceQuery")(
+    "page-owned-source-id", "superseded"),
+  { kind: "Requested", reason: "superseded" });
+assert.ok(importedState.calls.at(-1)?.endsWith(
+  ':["page-owned-source-id","superseded"]'));
 
 assert.equal(await host.runEntryPoint(), 0);
 assert.equal(importedState.calls.at(-1), "runMain:<default>:0");
