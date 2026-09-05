@@ -313,6 +313,10 @@ identity and completion status. Default table rows also carry scanner identity
 beside the ordinary Integration, kind, name, and shape. Explicit column,
 row, and count projections lower that scoped result through the existing
 section/Markout pipeline; they do not change its scope into a complete Census.
+Tabular streams contain only their table rows, without a document-context
+preamble; row windows count signals rather than context fields.
+Existing multi-TFM format restrictions remain: all-TFM output uses Markdown,
+structured JSON, or aggregate counts, not concatenated tabular streams.
 
 This is CLI adoption #5985, step 4 of the six-step scanner path in #5728.
 The [scanner owner](design/integration-scanner-binding.md#adoption-and-retirement)

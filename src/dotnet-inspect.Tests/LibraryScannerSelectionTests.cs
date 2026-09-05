@@ -104,6 +104,85 @@ public class LibraryScannerSelectionTests
         });
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    public async Task SelectedJsonlContainsOnlyWindowedRecords(int rows, bool noHeader)
+    {
+        await WithFixtureAsync(true, async path =>
+        {
+            List<string> args =
+                ["library", path, "--scanner", "ecosystem.aspire", "--jsonl", "--rows", rows.ToString()];
+            if (noHeader)
+                args.Add("--no-header");
+            var result = await RunAsync([.. args]);
+            Assert.True(result.ExitCode == 0, result.Error);
+            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(rows, lines.Length);
+            foreach (var line in lines)
+            {
+                using var json = JsonDocument.Parse(line);
+                Assert.Equal("ecosystem.aspire", json.RootElement.GetProperty("scanner").GetString());
+                Assert.Equal("Aspire", json.RootElement.GetProperty("integration").GetString());
+                Assert.False(string.IsNullOrEmpty(json.RootElement.GetProperty("name").GetString()));
+            }
+
+            var count = await RunAsync(
+                "library", path, "--scanner", "ecosystem.aspire", "--count", "--rows", rows.ToString());
+            Assert.True(count.ExitCode == 0, count.Error);
+            Assert.Equal(rows.ToString(), count.Output.Trim());
+        });
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(1, true)]
+    public async Task SelectedTsvContainsOnlyWindowedRows(int rows, bool noHeader)
+    {
+        await WithFixtureAsync(true, async path =>
+        {
+            List<string> args =
+                ["library", path, "--scanner", "ecosystem.aspire", "--tsv", "--rows", rows.ToString()];
+            if (noHeader)
+                args.Add("--no-header");
+            var result = await RunAsync([.. args]);
+            Assert.True(result.ExitCode == 0, result.Error);
+            var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(rows + (noHeader ? 0 : 1), lines.Length);
+            if (!noHeader)
+                Assert.Equal("scanner\tintegration\tkind\tname\tshape", lines[0]);
+            foreach (var line in lines.Skip(noHeader ? 0 : 1))
+            {
+                var columns = line.Split('\t');
+                Assert.Equal(5, columns.Length);
+                Assert.Equal("ecosystem.aspire", columns[0]);
+                Assert.Equal("Aspire", columns[1]);
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SelectedTableWindowsSignalsWithoutDocumentContext(bool noHeader)
+    {
+        await WithFixtureAsync(true, async path =>
+        {
+            List<string> args =
+                ["library", path, "--scanner", "ecosystem.aspire", "--table", "--rows", "1"];
+            if (noHeader)
+                args.Add("--no-header");
+            var result = await RunAsync([.. args]);
+            Assert.True(result.ExitCode == 0, result.Error);
+            Assert.Contains("AddSample", result.Output);
+            Assert.DoesNotContain("ApplicationModel.SampleResource", result.Output);
+            Assert.DoesNotContain("Scanner:", result.Output);
+            Assert.DoesNotContain("Scan Status:", result.Output);
+        });
+    }
+
     [Fact]
     public async Task EmptySelectionIsSuccessfulAndScoped()
     {
@@ -124,6 +203,11 @@ public class LibraryScannerSelectionTests
             Assert.Contains("ecosystem.aspire", markdown.Output);
             Assert.Contains("complete", markdown.Output);
             Assert.DoesNotContain("ecosystem.aspire", markdown.Output.Split('\n')[0]);
+
+            var jsonl = await RunAsync(
+                "library", path, "--scanner", "ecosystem.aspire", "--jsonl");
+            Assert.True(jsonl.ExitCode == 0, jsonl.Error);
+            Assert.Empty(jsonl.Output.Trim());
 
             var count = await RunAsync(
                 "library", path, "--scanner", "ecosystem.aspire", "--count");
@@ -345,6 +429,13 @@ public class LibraryScannerSelectionTests
                 Assert.Equal("ecosystem.aspire", scan.GetProperty("scanner").GetString());
                 Assert.Equal(2, scan.GetProperty("signals").GetArrayLength());
             });
+
+            var jsonl = await RunAsync(
+                "library", "--package", package, "--tfm", "all",
+                "--scanner", "ecosystem.aspire", "--jsonl", "--rows", "1", "--offline");
+            Assert.Equal(1, jsonl.ExitCode);
+            Assert.Contains("requires exactly one table shape", jsonl.Error);
+            Assert.Empty(jsonl.Output);
         });
     }
 

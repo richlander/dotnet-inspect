@@ -17,12 +17,15 @@ public class LibraryInspectionView
 {
     private readonly LibraryInspection _data;
     private readonly bool _topFieldsOnly;
+    private readonly bool _includeScannerContext;
     private readonly Dictionary<LibraryIntegrationDescriptor, List<(string Kind, string Name, string Shape)>> _integrationSignals = [];
 
-    public LibraryInspectionView(LibraryInspection data, bool topFieldsOnly = false)
+    public LibraryInspectionView(
+        LibraryInspection data, bool topFieldsOnly = false, bool includeScannerContext = true)
     {
         _data = data;
         _topFieldsOnly = topFieldsOnly;
+        _includeScannerContext = includeScannerContext;
     }
 
     [MarkoutIgnore]
@@ -70,11 +73,13 @@ public class LibraryInspectionView
     public string? Modified => _topFieldsOnly ? _data.LastModified?.ToString("yyyy-MM-dd") : null;
 
     [MarkoutSkipNull]
-    public string? Scanner => LibraryViewText.Contain(_data.IntegrationScan?.Scanner);
+    public string? Scanner => _includeScannerContext
+        ? LibraryViewText.Contain(_data.IntegrationScan?.Scanner)
+        : null;
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Scan Status")]
-    public string? ScanStatus => _data.IntegrationScan?.Status;
+    public string? ScanStatus => _includeScannerContext ? _data.IntegrationScan?.Status : null;
 
     /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutPropertyName("Library")]

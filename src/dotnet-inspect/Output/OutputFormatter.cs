@@ -518,7 +518,7 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, inspection, writerOpts, options);
+            WriteLibraryTabular(inspection, topFieldsOnly, writerOpts, options);
         }
     }
 
@@ -637,7 +637,7 @@ public static class OutputFormatter
     /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
     /// </summary>
     private static void WriteLibraryTabular(
-        LibraryInspectionView auditView, LibraryInspection inspection,
+        LibraryInspection inspection, bool topFieldsOnly,
         MarkoutWriterOptions writerOpts, LibraryOptions options)
     {
         // The metadata lens owns its own tabular rendering for the same reason it owns its
@@ -656,6 +656,8 @@ public static class OutputFormatter
             return;
         }
 
+        var auditView = new LibraryInspectionView(
+            inspection, topFieldsOnly, includeScannerContext: false);
         if (writerOpts.IncludeSections is { Count: > 1 }
             && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
         {
@@ -757,10 +759,9 @@ public static class OutputFormatter
         {
             foreach (var inspection in inspections)
             {
-                var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var writerOpts = WriterOptions(inspection);
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(auditView, inspection, writerOpts, options);
+                WriteLibraryTabular(inspection, topFieldsOnly, writerOpts, options);
             }
         }
     }
