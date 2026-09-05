@@ -361,7 +361,8 @@ internal static class CliRowSelectionArgumentAdapter
     internal static bool IsDeclared(
         ParseResult parseResult,
         CliRowSelectionOptionBindings bindings,
-        CliRowSelectionOccurrenceKind kind)
+        CliRowSelectionOccurrenceKind kind,
+        bool recursiveAncestorsOnly = false)
     {
         Option? option = null;
         foreach (BoundOption bound in BoundOptions(bindings))
@@ -382,7 +383,10 @@ internal static class CliRowSelectionArgumentAdapter
             command is not null;
             command = command.Parent as CommandResult)
         {
-            if (command.Command.Options.Any(
+            if ((!recursiveAncestorsOnly
+                    || ReferenceEquals(command, parseResult.CommandResult)
+                    || option.Recursive)
+                && command.Command.Options.Any(
                     candidate =>
                         ReferenceEquals(
                             candidate,
