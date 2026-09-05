@@ -107,6 +107,20 @@ dnx dotnet-inspect -y -- type Type --library MyLib.dll -S "Called Types"
 
 ## What does it integrate with? (ecosystem)
 
+For one explicit ecosystem scanner, use the canonical catalog identity:
+
+```bash
+dnx dotnet-inspect -y -- library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 --scanner ecosystem.aspire
+dnx dotnet-inspect -y -- library MyLibrary.dll --scanner ecosystem.aspire --json
+```
+
+`--scanner` selects the `Integration Scan` section by default. Markdown and
+JSON retain scanner scope and status; table rows include the scanner ID.
+An empty completed result describes only that scanner, not absence of all
+Integration support. Unknown IDs and known packs without a scanner fail
+explicitly. Existing full-library presence and `@Integrations` are unchanged.
+This option belongs to `library`, not `package --library` or `graph`.
+
 `graph integrations` compares an explicit package set inside one
 binding-consistent target. Repeat `--package name[@version]`, provide the shared
 `--tfm`, and add `--relationship <id>` only when the default Integration family

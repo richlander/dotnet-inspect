@@ -173,6 +173,15 @@ Integration support is exposed through `@Integrations` or focused
 `Integration: ...` sections such as `Integration: Logging` or
 `Integration: OpenTelemetry`.
 
+Select one catalog scanner with `library --scanner ecosystem.aspire`.
+This adds a separately scoped `Integration Scan` section; it does not replace
+ordinary full-library Integration presence or claim a complete Census.
+
+```bash
+dotnet-inspect library Aspire.Hosting.Redis@13.5.3 --tfm net8.0 --scanner ecosystem.aspire
+dotnet-inspect library ./MyLibrary.dll --scanner ecosystem.aspire --json
+```
+
 For deeper how-to guidance, use the embedded skills instead of relying on a very
 long README:
 

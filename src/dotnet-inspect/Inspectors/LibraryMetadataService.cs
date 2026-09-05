@@ -47,9 +47,26 @@ internal static class LibraryMetadataService
         AssemblyIntegrationOpportunitiesEntry?
             integrationOpportunitiesEntry = null,
         bool discoveryOnly = false,
-        Sections.InspectionTrace? trace = null)
+        Sections.InspectionTrace? trace = null,
+        AssemblyIntegrationsEntry? integrationScanEntry = null)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
+        LibraryIntegrationScan? selectedScan = integrationScanEntry is null
+            ? null
+            : new(
+                options.Scanner
+                    ?? throw new InspectionQueryException("Selected scan scope is missing."),
+                integrationScanEntry);
+        if (selectedScan?.Error is { } scanError)
+        {
+            logger.LogWarning(
+                $"Integration scanner '{selectedScan.Scanner}' failed for '{path}': {scanError}");
+            return new LibraryInspection
+            {
+                FileName = Path.GetFileName(path),
+                IntegrationScan = selectedScan,
+            };
+        }
 
         try
         {
@@ -206,6 +223,7 @@ internal static class LibraryMetadataService
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
+            inspection.IntegrationScan = selectedScan;
 
             // Populate cheap presence flags for fast -s discovery
             PresenceFlags presenceFlags = integrationsEntry switch

@@ -259,7 +259,8 @@ public operation exercised here.
 | `SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults`, `SelectedScan_BudgetRejectionDoesNotInvokeScanner`, `SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem` | Participant failures remain visible beside later results; callback faults do not become metadata failure or empty success. |
 | `SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope`, `PackageRealizationProjection_SelectedScanKeepsTheSharedRoleReusable` | Selections do not share the full-query cache or completeness scope, and role execution preserves the reusable group. |
 | `AspireBinding_PreservesExistingCurrencyWithoutIncludingNeighboringConcepts`, `AspireBinding_DoesNotClassifyNonAspireDependencyInjection` | The compatibility binding shares the current Aspire policy and excludes neighboring DI currency. |
-| Aspire and neighboring host cases (**planned, unverified**) | CLI and CatalogExports select the same binding and consume equivalent Integration-owned rows/outcomes; no host selection has been enabled yet. |
+| `LibraryScannerSelectionTests` | CLI catalog selection preserves scanner scope, selected/full-result separation, repeated execution, rejected participants, and ordinary source/TFM paths. |
+| Browser host cases (**planned, unverified**) | CatalogExports will select the same binding and consume equivalent Integration-owned rows/outcomes; browser selection remains staged. |
 
 The focused oracle includes
 `EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`,
@@ -292,9 +293,11 @@ non-normative end-to-end tracker. This scanner track has **six steps**:
    the pack owner's existing static selection contract. During migration,
    reuse the owner-side Aspire interpretation through a compatibility adapter
    rather than maintain two independently edited semantic policies.
-4. **CLI adoption:** wire explicit selection into the ordinary Integration
-   operation and existing section/Markout lowering. Preserve the old complete
-   library/presence path until its callers have an equivalent replacement.
+4. **CLI adoption (#5985):** `library --scanner <ecosystem-id>` uses the ordinary
+   selected Integration operation and section/Markout lowering. Its
+   [host contract](../cli-architecture.md#explicit-integration-scanner-selection)
+   keeps selected results separate from the unchanged complete library/presence
+   path until those callers have an equivalent replacement.
 5. **Browser adoption:** wire the same selection through
    `InspectWeb.Engine.CatalogExports`; browser infrastructure carries the
    Integration-owned value and results, not the application catalog. Its

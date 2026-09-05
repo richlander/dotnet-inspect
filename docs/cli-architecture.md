@@ -277,6 +277,47 @@ remain with `InspectionQueryCatalog<TContext>`. It does not derive section
 demand by inspecting rendered rows; those declarations remain with the
 section pipeline.
 
+### Explicit Integration scanner selection
+
+`library --scanner <ecosystem-id>` selects one canonical pack identity through
+the static application catalog. The CLI reports malformed, unknown, and
+known-but-unavailable selections before source acquisition; it never substitutes
+another binding or infers an identity from a title.
+
+The explicit mode adds an `Integration Scan` section to the command's catalog
+and selects that section when `-S` is omitted. An explicit `-S` must include it.
+The same file, platform, package, and TFM source paths remain available.
+An input that cannot form a readable managed participant fails before the
+selected operation; failures after admission remain per-participant outcomes.
+Structural discovery can describe this mode without invoking the binding.
+Resource extraction and IL-coordinate batch output are separate operations and
+cannot be combined with `--scanner`.
+The section supports row/column selection and counting, not payload printing
+or `--value`, `--urls`, and `--paths` extraction.
+
+The selected section demands its own typed operation over the realized group.
+It does not use the full-scan definition or cache. The Integration owner retains
+decoding, invocation, ordered evidence, and participant outcomes; the host
+retains acquisition and output policy. Repeating an operation executes again.
+
+The selected result stays separate from ordinary full-library presence,
+focused Integration sections, and Census results. Existing library presence
+work is unchanged. A successful empty scan means no currency from that selected
+scanner, not absence of all Integration support. Failed participants remain
+failures and cause nonzero exit status.
+
+Markdown document context and structured JSON retain the canonical scanner
+identity and completion status. Default table rows also carry scanner identity
+beside the ordinary Integration, kind, name, and shape. Explicit column,
+row, and count projections lower that scoped result through the existing
+section/Markout pipeline; they do not change its scope into a complete Census.
+
+This is CLI adoption #5985, step 4 of the six-step scanner path in #5728.
+The [scanner owner](design/integration-scanner-binding.md#adoption-and-retirement)
+tracks browser adoption and eventual compatibility retirement. The
+[pack owner](design/ecosystem-packs.md#integration-scanner-binding) owns the
+manifest and exact binding selection, not this command grammar.
+
 ## Lifetime and failure
 
 The command scope owns disposable and request-specific resources:

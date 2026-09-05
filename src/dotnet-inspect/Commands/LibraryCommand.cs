@@ -134,8 +134,29 @@ public class LibraryCommand
 
     private static async Task<int> ExecuteCoreAsync(LibraryOptions options, InspectionTrace? trace)
     {
+        if (LibraryScannerSelection.Resolve(options.Scanner, out var scanner) is { } scannerError)
+        {
+            CommandError.Write(scannerError);
+            return 1;
+        }
+        if (scanner is not null && options.Discover is null)
+        {
+            if (options.Select is null && options.IncludeSections is null)
+                options = options with { Select = [IntegrationSectionNames.Scan], SelectDefault = false };
+            if (options.ILOffsetsPath is not null || options.ExtractResources is not null)
+            {
+                CommandError.Write("--scanner cannot be combined with --il-offsets or --extract-resources.");
+                return 1;
+            }
+            if (options.Value || options.Urls || options.Paths)
+            {
+                CommandError.Write(
+                    "Integration Scan supports section rows, columns, and counts, not --value, --urls, or --paths.");
+                return 1;
+            }
+        }
         var assemblyPath = options.AssemblyName;
-        var catalog = LibrarySections.CreateCatalog();
+        var catalog = LibrarySections.CreateCatalog(scanner);
         var sections = catalog.Sections;
         var pipeline = catalog.Pipeline;
         var queryCatalog = catalog.QueryCatalog;
@@ -278,6 +299,13 @@ public class LibraryCommand
                 IncludeSections = selectResult.Sections,
                 ExactIncludeSectionsOverride = selectResult.ExactSections,
             };
+        }
+
+        if (scanner is not null && options.Discover is null
+            && options.IncludeSections?.Contains(IntegrationSectionNames.Scan) != true)
+        {
+            CommandError.Write("--scanner requires the Integration Scan section. Omit -S or include -S \"Integration Scan\".");
+            return 1;
         }
 
         if (options.Discover is null || fullEffectiveDiscovery)
@@ -530,6 +558,7 @@ public class LibraryCommand
         if (fullEffectiveDiscovery && discoveryExecutionScope is not { Count: > 0 })
             discoveryExecutionScope = [.. sections.BaseSectionNames];
         bool useEffectiveDiscoveryCache = fullEffectiveDiscovery
+            && scanner is null
             && options.Discover is { Length: 0 }
             && options.UserIncludeSections is not { Count: > 0 }
             && !HasILOffsetCoordinate(options)
@@ -724,6 +753,7 @@ public class LibraryCommand
                     queryPlan: queryPlan,
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(resolvedPath!),
+                    integrationScanEntry: integrations?.ScanEntryFor(resolvedPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(resolvedPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
@@ -1089,6 +1119,7 @@ public class LibraryCommand
                     queryPlan: queryPlan,
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry: integrations?.EntryFor(assemblyPath!),
+                    integrationScanEntry: integrations?.ScanEntryFor(assemblyPath!),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(assemblyPath!),
                     discoveryOnly: discoveryInspection && !fullEffectiveDiscovery, trace: trace);
@@ -1220,6 +1251,10 @@ public class LibraryCommand
 
         return inspections.Any(inspection =>
         {
+            if (options.IncludeSections.Contains(IntegrationSectionNames.Scan)
+                && inspection.IntegrationScan?.Error is not null)
+                return true;
+
             var empty = pipeline.GetEmptySections(
                 inspection,
                 options.Verbosity,
@@ -3094,6 +3129,8 @@ public class LibraryCommand
                     assemblyReference: subject.AssemblyReference,
                     integrationsEntry:
                         integrations?.EntryFor(targetPath),
+                    integrationScanEntry:
+                        integrations?.ScanEntryFor(targetPath),
                     integrationOpportunitiesEntry:
                         integrations?.OpportunitiesEntryFor(targetPath),
                     discoveryOnly: discoveryOnly,

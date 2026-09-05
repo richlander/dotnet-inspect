@@ -26,4 +26,6 @@ internal static class IntegrationSectionNames
     public const string Options = Prefix + EcosystemIntegrationNames.Options;
 
     public const string Opportunities = Prefix + "Opportunities";
+
+    public const string Scan = "Integration Scan";
 }

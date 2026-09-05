@@ -487,7 +487,7 @@ public class EcosystemIntegrationScannerTests
         Assert.Null(signal.GetApiEvidence());
     }
 
-    private static MemoryStream BuildDependencyInjectionExtensionAssembly(
+    internal static MemoryStream BuildDependencyInjectionExtensionAssembly(
         bool includeMalformedExtension = false,
         bool includeAdditionalOverload = false,
         bool includeConfigurationParameter = false,

@@ -80,6 +80,9 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     public string? Tfm { get; init; }
 
+    /// <summary>Canonical ecosystem ID for an explicit, separately scoped Integration scan.</summary>
+    public string? Scanner { get; init; }
+
     /// <summary>
     /// Optional type glob/name filter for Source Files rows.
     /// </summary>

@@ -21,8 +21,9 @@ named below are implemented. The assembly-friend tests, solution
 dependency-policy rule, and strengthened inspect-web facade boundary gate are
 active. The optional scanner slot and Aspire binding selection are implemented
 under [#5935](https://github.com/richlander/dotnet-inspect/issues/5935), using
-the Integration-owned compatibility binding. CLI/browser scanner selection
-remains staged. Prefix slots remain absent until their owner issues the
+the Integration-owned compatibility binding. CLI selection is adopted under
+[#5985](https://github.com/richlander/dotnet-inspect/issues/5985);
+browser scanner selection remains staged. Prefix slots remain absent until their owner issues the
 required currency; existing search and full Integration behavior is unchanged.
 
 [Approved lazy traversal](approved-lazy-traversal.md) records the approved
@@ -707,7 +708,8 @@ scanner contribution yet.
 
 Catalog adoption under #5935 is step 3 of the
 [six-step scanner path](integration-scanner-binding.md#adoption-and-retirement)
-in #5728. Explicit CLI and browser selection follow separately. Moving Aspire
+in #5728. [CLI selection](../cli-architecture.md#explicit-integration-scanner-selection)
+is adopted under #5985; browser selection follows separately. Moving Aspire
 interpretation fully into application source and retiring owner-side
 compatibility remain the final step, after existing full-scan/presence
 consumers retain their behavior. The catalog introduces neither a generic
@@ -747,9 +749,12 @@ only by the CLI and `InspectWeb.Engine.CatalogExports` front ends. Neither
 copies the pack list, package-set identity, prefix metadata, or scanner
 availability.
 
-The CLI may later expose ecosystem discovery or map existing source selectors
-to pack capabilities. It retains token grammar, command policy, diagnostics,
-Markout lowering, and progressive disclosure.
+The CLI's `library --scanner <ecosystem-id>` uses exact catalog selection and
+passes the binding into the existing Integration-owned selected operation.
+The [CLI host](../cli-architecture.md#explicit-integration-scanner-selection)
+owns its grammar, diagnostics, separately scoped section, Markout lowering,
+and progressive disclosure. Broader ecosystem discovery and source-selector
+composition remain staged.
 
 The existing `demo list` and `demo <scenario-id>` surfaces move to the
 application catalog without changing their output or execution semantics.
@@ -801,7 +806,7 @@ currencies and content:
 | `ecosystem.platform` | absent | `stj-serializer`, `stj-serialize-callgraph`, `stj-getdecimal-callgraph` | no prefix or scanner planned by this slice |
 | `ecosystem.microsoft-extensions` | `package-set.microsoft-extensions` | `extensions-callgraph`, `config-bind-callgraph`, `options-add-callgraph`, `di-tryadd-callgraph`, `http-addhttpclient-callgraph` | prefix waits for #5602; no scanner contributed yet |
 | `ecosystem.aspnetcore` | `package-set.aspnetcore` | none initially | prefix waits for #5602; no scanner contributed yet |
-| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog; host selection remains staged; prefixes wait for #5602 |
+| `ecosystem.aspire` | `package-set.aspire` | `aspire-postgres-callgraph`, `aspire-redis-callgraph` | scanner selectable through the catalog and CLI; browser selection remains staged; prefixes wait for #5602 |
 
 The eight existing demo IDs, metadata, global order, records, pins, and run
 plans remain unchanged. Their global orders are assigned in their current
