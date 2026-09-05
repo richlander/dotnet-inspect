@@ -15430,7 +15430,48 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_CallGraph_VersionSkewedCallerScopeIsCompleteAndEmpty()
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWarns()
+    {
+        string directory = Directory.CreateTempSubdirectory(
+            "dotnet-inspect-version-skew-").FullName;
+        try
+        {
+            string caller =
+                FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+            File.Copy(
+                caller,
+                Path.Combine(directory, Path.GetFileName(caller)));
+
+            var (exit, output, error) = await RunAppAsync(
+                "member",
+                "--library",
+                FixtureCatalog.AnalysisCallerGraphTargetV2.AssemblyPath(),
+                "-m",
+                "Api.Ping",
+                "--index",
+                "1",
+                "-S",
+                "Call Graph",
+                "--bin",
+                directory,
+                "--tips",
+                "q");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("## Call Graph", output);
+            Assert.DoesNotContain("Shared.Entry.Run", output);
+            Assert.Contains(
+                "Warning: Call graph results are incomplete because one or more assembly bindings could not be completely reconciled within the selected graph scope.",
+                error);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_CallGraph_VersionSkewedCallerScopeWithExactTargetBindingIsCompleteAndEmpty()
     {
         string directory = Directory.CreateTempSubdirectory(
             "dotnet-inspect-version-skew-").FullName;
