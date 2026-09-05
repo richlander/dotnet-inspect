@@ -686,8 +686,18 @@ public sealed class UnionSwitchExpressionPass : IIrPass
             (Constant a, Constant b) => a.Type.Equals(b.Type) && Equals(a.Value, b.Value),
             (LoadLocal a, LoadLocal b) => a.Index == b.Index && a.Type.Equals(b.Type),
             (LoadLocalAddress a, LoadLocalAddress b) => a.Index == b.Index && a.Type.Equals(b.Type),
-            (LoadArgument a, LoadArgument b) => a.Index == b.Index && a.Type.Equals(b.Type),
-            (LoadArgumentAddress a, LoadArgumentAddress b) => a.Index == b.Index && a.Type.Equals(b.Type),
+            (LoadArgument a, LoadArgument b) => PlaceIdentity.SameArgument(
+                    a.Index,
+                    a.Parameter,
+                    b.Index,
+                    b.Parameter)
+                && a.Type.Equals(b.Type),
+            (LoadArgumentAddress a, LoadArgumentAddress b) => PlaceIdentity.SameArgument(
+                    a.Index,
+                    a.Parameter,
+                    b.Index,
+                    b.Parameter)
+                && a.Type.Equals(b.Type),
             (LoadProperty a, LoadProperty b) => a.Accessor.Equals(b.Accessor)
                 && a.IsVirtual == b.IsVirtual
                 && SameTailExpression(a.Instance, b.Instance)

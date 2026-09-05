@@ -2980,6 +2980,7 @@ public static class ApiOutputFormatter
         {
             RequiresAsyncModifier = requiresAsyncBodyModifier,
             RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier,
+            ParameterNames = result.ParameterNames,
             // Only spell '~Type()' when the destructor pass recovered the
             // canonical try/finally { base.Finalize(); } scaffold (issue #3157).
             // A Finalize override whose body did not match keeps the literal

@@ -1358,7 +1358,9 @@ public class ApiCommand
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var service = SourceLinkService.Open(dllPath, logger.Log);
+            using var service = sourceAssembly is null
+                ? SourceLinkService.Open(dllPath, logger.Log)
+                : SourceLinkService.Open(sourceAssembly, logger.Log);
             var context = service.Context;
             if (context.NeedsPdb)
             {
@@ -1400,7 +1402,7 @@ public class ApiCommand
         {
             throw;
         }
-        catch
+        catch when (sourceAssembly is null)
         {
             return null;
         }
