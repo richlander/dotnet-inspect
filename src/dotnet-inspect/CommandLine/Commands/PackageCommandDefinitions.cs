@@ -16,7 +16,9 @@ public static class PackageCommandDefinitions
     /// <summary>
     /// Creates the package command for inspecting NuGet packages.
     /// </summary>
-    public static Command CreatePackageCommand(SharedOptions opts)
+    public static Command CreatePackageCommand(
+        SharedOptions opts,
+        out PackageOptionsParser.PackageCommandArgs structuralArgs)
     {
         var packageCommand = new Command(PackageCommand.Name, "Inspect a NuGet package");
 
@@ -118,6 +120,7 @@ public static class PackageCommandDefinitions
             libOption, toolsOption, libraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, typeFilterOption, versionOption, latestVersionOption, outOption, pathMatchOption, skipEmptyOption, opts.NoHeaders);
+        structuralArgs = commandArgs;
 
         packageCommand.SetAction(async (parseResult, ct) =>
         {

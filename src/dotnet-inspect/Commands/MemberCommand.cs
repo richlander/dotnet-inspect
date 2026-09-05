@@ -9,6 +9,7 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspector.Views;
 using ILInspector.SourceLink;
+using DotnetInspector.Planning;
 
 namespace DotnetInspector.Commands;
 
@@ -19,8 +20,22 @@ public static class MemberCommand
 {
     public const string Name = "member";
 
-    public static async Task<int> ExecuteAsync(MemberOptions options)
+    public static Task<int> ExecuteAsync(MemberOptions options)
+        => ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan
+                .FromCompatibilityOptions(options));
+
+    internal static async Task<int> ExecuteAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan)
     {
+        if (plan.Intent.Surface != InspectionSurface.Member)
+            throw new ArgumentException(
+                "A member command requires a member inspection plan.",
+                nameof(plan));
+        ResolvedMemberInspectionPlan executionPlan = plan;
+
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
         {
@@ -34,16 +49,47 @@ public static class MemberCommand
             return 1;
         }
 
+        bool mayResolveImpliedMember =
+            options.MemberFilter.Count == 0
+            && options.TypeName is { } unresolvedTarget
+            && HasPotentialImpliedMember(unresolvedTarget);
+        if (RejectExactMemberCardinality(
+                options,
+                executionPlan,
+                mayResolveImpliedMember))
+        {
+            return 1;
+        }
+        bool catalogIsSyntacticallyResolved =
+            options.MemberFilter.Count > 0
+            || options.TypeName is { } syntacticTypeName
+                && CSharpText.FqnParser.LastTopLevelDot(
+                    syntacticTypeName) < 0;
+        if (catalogIsSyntacticallyResolved
+            && RejectTotalEffectiveDiscoveryMiss(plan))
+        {
+            return 1;
+        }
         if (ApiCommand.RejectUniversallyInvalidMemberSelect(options))
             return 1;
         if (ApiCommand.RejectRouteIndependentOptionShape(options))
             return 1;
 
         var unresolvedOptions = options;
-        if (!options.RouterDeferredTypeOrMember)
+        bool memberGestureChanged = false;
+        bool catalogNeedsTargetResolution =
+            !options.RouterDeferredTypeOrMember
+            && options.IncludeSections is null
+            && options.MemberFilter.Count == 0
+            && options.TypeName is { } unresolvedTypeName
+            && CSharpText.FqnParser.LastTopLevelDot(
+                unresolvedTypeName) > 0;
+        if (!options.RouterDeferredTypeOrMember
+            && !catalogNeedsTargetResolution)
         {
             // Shared preamble: section validation, discovery, verbosity promotion
-            var (preamble, error) = ApiCommand.RunPreamble(options);
+            var (preamble, error) =
+                ApiCommand.RunPreamble(options, plan);
             if (error.HasValue) return error.Value;
             options = (MemberOptions)preamble.Options;
         }
@@ -180,6 +226,7 @@ public static class MemberCommand
                     unresolvedOptions = mergeOptions;
                 else
                     options = mergeOptions;
+                memberGestureChanged = true;
             }
 
             if (options.RouterDeferredTypeOrMember)
@@ -195,16 +242,49 @@ public static class MemberCommand
                     apiType.FullName);
             }
 
-            if (options.RouterDeferredTypeOrMember)
+            if (options.RouterDeferredTypeOrMember
+                || catalogNeedsTargetResolution
+                || memberGestureChanged)
             {
-                if (options.ShapeExplicitlySet)
+                if (options.RouterDeferredTypeOrMember
+                    && options.ShapeExplicitlySet)
                 {
                     CommandError.Write("--shape is only valid for type targets.");
                     return 1;
                 }
 
+                MemberOptions planningOptions =
+                    options.RouterDeferredTypeOrMember
+                        ? unresolvedOptions
+                        : options;
+                if (!planningOptions.MemberSectionsPreResolved)
+                {
+                    planningOptions = planningOptions with
+                    {
+                        IncludeSections = null,
+                        ExactIncludeSectionsOverride = null,
+                    };
+                }
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            planningOptions);
+                if (RejectExactMemberCardinality(
+                        planningOptions,
+                        executionPlan,
+                        mayResolveImpliedMember: false))
+                {
+                    return 1;
+                }
+                if (RejectTotalEffectiveDiscoveryMiss(
+                        executionPlan))
+                {
+                    return 1;
+                }
                 var (preamble, error) =
-                    ApiCommand.RunPreamble(unresolvedOptions);
+                    ApiCommand.RunPreamble(
+                        planningOptions,
+                        executionPlan);
                 if (error.HasValue) return error.Value;
                 options = (MemberOptions)preamble.Options with
                 {
@@ -241,8 +321,7 @@ public static class MemberCommand
                     || options.MemberFilter.Any(MemberFilterHasWildcard)))
             {
                 CommandError.Write(
-                    "--where Kind=... requires one exact member name or selector "
-                    + "(for example, Name:1 or Name~digest).");
+                    "--where Kind=... requires one exact member name or selector.");
                 return 1;
             }
             if (options.BodyKindQuery.HasFilter
@@ -296,9 +375,12 @@ public static class MemberCommand
             // overload when the user explicitly asks for a selected-overload detail section.
             // A Name~digest selector resolves its own overload below, so skip auto-select
             // here to avoid a spurious "digest cannot be combined with --index" conflict.
+            bool autoSelectedOverload = false;
             if (!effectiveOptions.OverloadIndex.HasValue
                 && string.IsNullOrWhiteSpace(effectiveOptions.MemberDigest)
-                && ShouldAutoSelectSingleOverload(effectiveOptions))
+                && ShouldAutoSelectSingleOverload(
+                    effectiveOptions,
+                    executionPlan))
             {
                 var autoMemberName = effectiveOptions.MemberFilter.First();
                 var autoOverloads = GetCandidateMembers(apiType, effectiveOptions, autoMemberName);
@@ -313,7 +395,59 @@ public static class MemberCommand
                         return 1;
                     }
                     effectiveOptions = effectiveOptions with { OverloadIndex = 1 };
+                    autoSelectedOverload = true;
+                    if (MemberFilterHasWildcard(autoMemberName))
+                    {
+                        effectiveOptions = effectiveOptions with
+                        {
+                            MemberFilter = new HashSet<string>(
+                                StringComparer.OrdinalIgnoreCase)
+                            {
+                                autoOverloads[0].Name,
+                            },
+                        };
+                    }
                 }
+            }
+
+            // Multi-section count maps intentionally span the listing and detail
+            // pipelines so unavailable sections can be retained as zero rows.
+            if (autoSelectedOverload && !effectiveOptions.Count)
+            {
+                MemberOptions detailPlanningOptions =
+                    effectiveOptions;
+                if (!detailPlanningOptions.MemberSectionsPreResolved)
+                {
+                    string[]? resolvedSelectors =
+                        detailPlanningOptions.IncludeSections is { Count: > 0 }
+                            ? [.. detailPlanningOptions.IncludeSections]
+                            : null;
+                    detailPlanningOptions = detailPlanningOptions with
+                    {
+                        IncludeSections = null,
+                        ExactIncludeSectionsOverride = null,
+                        Select = resolvedSelectors
+                            ?? detailPlanningOptions.Select,
+                        SelectDefault = resolvedSelectors is null
+                            && detailPlanningOptions.SelectDefault,
+                    };
+                }
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            detailPlanningOptions);
+                var (detailPreamble, detailError) =
+                    ApiCommand.RunPreamble(
+                        detailPlanningOptions,
+                        executionPlan);
+                if (detailError.HasValue)
+                    return detailError.Value;
+                effectiveOptions =
+                    (MemberOptions)detailPreamble.Options with
+                    {
+                        Select = effectiveOptions.Select,
+                        SelectDefault = effectiveOptions.SelectDefault,
+                    };
             }
 
             if (effectiveOptions.OverloadIndex.HasValue
@@ -365,7 +499,10 @@ public static class MemberCommand
             }
 
             if (effectiveOptions.OverloadIndex is null
-                && TryGetSelectedSingleOverloadSections(effectiveOptions, out var singleOverloadSections))
+                && TryGetSelectedSingleOverloadSections(
+                    effectiveOptions,
+                    executionPlan,
+                    out var singleOverloadSections))
             {
                 var memberName = effectiveOptions.MemberFilter.First();
                 var overloads = GetCandidateMembers(apiType, effectiveOptions, memberName);
@@ -375,7 +512,17 @@ public static class MemberCommand
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
                     CommandError.Write($"{sectionLabel} a single selected overload for member '{memberName}'.");
-                    CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    if (MemberFilterHasWildcard(memberName))
+                    {
+                        CommandError.WriteLine(
+                            $"Replace wildcard '{memberName}' with one exact member name, "
+                            + "then select an overload with Name~<digest> "
+                            + "(shown in the Digest column) or Name:1.");
+                    }
+                    else
+                    {
+                        CommandError.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
+                    }
                     return 1;
                 }
             }
@@ -662,8 +809,15 @@ public static class MemberCommand
                         + "\"Kind=<C# Body Kinds ID>\".");
                     return 1;
                 }
+                executionPlan =
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(
+                            effectiveOptions);
                 return ApiCommand.ExecuteEffectiveDiscovery(
-                    apiType, ApiMemberSectionPipelines.Create(effectiveOptions), effectiveOptions,
+                    apiType,
+                    ApiInspectionCatalogRegistry.CreateMemberPipeline(
+                        executionPlan.Selection.Catalog),
+                    effectiveOptions,
                     new ApiCommand.TypeAcquisitionContext(
                         foundIn, packageName, packageVersion, apiSource, selectedTfm));
             }
@@ -889,11 +1043,16 @@ public static class MemberCommand
         };
     }
 
-    private static bool ShouldAutoSelectSingleOverload(MemberOptions options)
+    private static bool ShouldAutoSelectSingleOverload(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan)
     {
         if (options.MemberFilter.Count != 1)
             return false;
-        if (!TryGetSelectedSingleOverloadSections(options, out _))
+        if (!TryGetSelectedSingleOverloadSections(
+                options,
+                plan,
+                out _))
             return false;
         return true;
     }
@@ -966,7 +1125,10 @@ public static class MemberCommand
                 + $"Select one with {stable}:1 through {stable}:{count}.");
     }
 
-    private static bool TryGetSelectedSingleOverloadSections(MemberOptions options, out List<string> sections)
+    private static bool TryGetSelectedSingleOverloadSections(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        out List<string> sections)
     {
         sections = [];
         if (options.MemberFilter.Count != 1)
@@ -975,6 +1137,15 @@ public static class MemberCommand
         {
             sections = [SectionNames.BodyShapes];
             return true;
+        }
+        if (options.EffectiveDiscovery
+            && plan.Selection.RequiredTarget
+                == InspectionTargetRequirement.ExactMember)
+        {
+            sections = SingleOverloadSectionNames
+                .Where(plan.Selection.ResolvedSections.Contains)
+                .ToList();
+            return sections.Count > 0;
         }
         if (options.IncludeSections is not { Count: > 0 } includeSections)
             return false;
@@ -988,6 +1159,21 @@ public static class MemberCommand
             .Where(includeSections.Contains)
             .ToList();
         return sections.Count > 0;
+    }
+
+    private static bool RejectTotalEffectiveDiscoveryMiss(
+        ResolvedMemberInspectionPlan plan)
+    {
+        if (plan.Intent.Sections.DiscoveryMode
+                != InspectionDiscoveryMode.Effective
+            || plan.Selection.UnresolvedSelectors.IsEmpty
+            || !plan.Selection.ResolvedSections.IsEmpty)
+        {
+            return false;
+        }
+
+        return SelectOutput.WriteUnresolved(
+            plan.Selection.ToSelectResult());
     }
 
     private static MemberOptions IncludeCallersSection(MemberOptions options)
@@ -1008,6 +1194,8 @@ public static class MemberCommand
         SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.AnnotatedSourceDocument,
+        SectionNames.CostOverlay,
+        SectionNames.SemanticsOverlay,
         SectionNames.PdbSource,
         SectionNames.SourceDiff,
         SectionNames.Calls,
@@ -1022,7 +1210,7 @@ public static class MemberCommand
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
         SectionNames.Facts,
-        SectionNames.IL
+        SectionNames.IL,
     ];
 
     private static readonly string[] MemberSourceResolutionSectionNames =
@@ -1050,10 +1238,80 @@ public static class MemberCommand
         IReadOnlySet<string> sections)
         => sections.Overlaps(MemberPipelinePdbPathSectionNames);
 
-    private static List<ApiMember> GetCandidateMembers(ApiType apiType, MemberOptions options, string memberName)
-        => GetTargetCandidates(apiType, options, memberName)
-            .Select(candidate => candidate.Member)
+    private static List<ApiMember> GetCandidateMembers(
+        ApiType apiType,
+        MemberOptions options,
+        string memberName)
+    {
+        if (!MemberFilterHasWildcard(memberName))
+        {
+            return GetTargetCandidates(
+                    apiType,
+                    options,
+                    memberName)
+                .Select(candidate => candidate.Member)
+                .ToList();
+        }
+
+        var filter = new HashSet<string>(
+            StringComparer.OrdinalIgnoreCase)
+        {
+            memberName,
+        };
+        IEnumerable<ApiMember> candidates =
+            apiType.Members.Where(member =>
+                TypeMatcher.MatchesMemberFilter(
+                    member.Name,
+                    filter));
+        if (options.KindFilter.Count > 0)
+        {
+            candidates = candidates.Where(member =>
+                options.KindFilter.Contains(member.Kind));
+        }
+        if (options.MemberGenericArity is { } arity)
+        {
+            candidates = candidates.Where(member =>
+                (member.SignatureModel?.TypeParameters.Count ?? 0)
+                == arity);
+        }
+
+        return candidates
+            .OrderBy(member => member.Name, StringComparer.Ordinal)
+            .ThenBy(
+                ApiMemberIdentity.GetMemberSignatureSortKey,
+                StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool RejectExactMemberCardinality(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        bool mayResolveImpliedMember)
+    {
+        if (plan.Selection.RequiredTarget
+                != InspectionTargetRequirement.ExactMember
+            || options.MemberFilter.Count == 1
+            || (options.MemberFilter.Count == 0
+                && mayResolveImpliedMember))
+        {
+            return false;
+        }
+
+        CommandError.Write(
+            options.BodyKindQuery.HasFilter
+                ? "--where Kind=... requires one exact member name or selector."
+                : "Exact-member section selection requires exactly one member name.");
+        return true;
+    }
+
+    private static bool HasPotentialImpliedMember(string target)
+    {
+        var (_, memberName) =
+            SharedParsers.SplitTrailingMember(target);
+        return memberName is not null
+            || CSharpText.FqnParser.LastTopLevelDot(
+                target) > 0;
+    }
 
     private static IReadOnlyList<MemberTargetCandidate> GetTargetCandidates(ApiType apiType, MemberOptions options, string memberName)
         => MemberTargetResolver.GetCandidates(
