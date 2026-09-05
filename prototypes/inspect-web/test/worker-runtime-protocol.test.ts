@@ -160,6 +160,7 @@ const mainToWorkerFixtures: readonly {
       kind: "initialize",
       bootstrap: "bootstrap",
       idleHeartbeatIntervalMilliseconds: 1_000,
+      idleAllowanceMilliseconds: 1_100,
     },
   },
   {
@@ -376,6 +377,7 @@ test("unbound initialization accepts only Initialize", () => {
     kind: "initialize",
     bootstrap: "bootstrap",
     idleHeartbeatIntervalMilliseconds: 1_000,
+    idleAllowanceMilliseconds: 1_100,
   }, bootstrapDecoder));
   assert.equal(initialized.bootstrap, "bootstrap");
 
@@ -395,6 +397,16 @@ test("bound main decoding checks the expected epoch for every variant", () => {
   for (const fixture of mainToWorkerFixtures) {
     assertDecodeFailure(
       decodeBoundMain(fixture.envelope, EPOCH_TOKEN + 1),
+      "wrong-epoch",
+      "$.epochToken",
+    );
+  }
+});
+
+test("worker decoding checks the expected epoch for every variant", () => {
+  for (const fixture of workerToMainFixtures) {
+    assertDecodeFailure(
+      decodeWorker(fixture.envelope, EPOCH_TOKEN + 1),
       "wrong-epoch",
       "$.epochToken",
     );
@@ -553,6 +565,7 @@ test("payload codecs are not invoked for malformed structural envelopes", () => 
         return "bootstrap";
       },
       idleHeartbeatIntervalMilliseconds: 1_000,
+      idleAllowanceMilliseconds: 1_100,
     }, observingDecoder),
     "accessor-property",
     "$.bootstrap",
@@ -823,8 +836,19 @@ test("validates every sequence and millisecond field as a positive safe integer"
         kind: "initialize",
         bootstrap: "bootstrap",
         idleHeartbeatIntervalMilliseconds: 0,
+        idleAllowanceMilliseconds: 1_100,
       }, boundedStringDecoder()),
       path: "$.idleHeartbeatIntervalMilliseconds",
+    },
+    {
+      decode: () => decodeUnboundInitializationEnvelope({
+        ...header,
+        kind: "initialize",
+        bootstrap: "bootstrap",
+        idleHeartbeatIntervalMilliseconds: 1_000,
+        idleAllowanceMilliseconds: 0,
+      }, boundedStringDecoder()),
+      path: "$.idleAllowanceMilliseconds",
     },
     {
       decode: () => decodeWorker({
@@ -889,6 +913,7 @@ test("requires the exact protocol version and worker expected epoch", () => {
       kind: "initialize",
       bootstrap: "bootstrap",
       idleHeartbeatIntervalMilliseconds: 1_000,
+      idleAllowanceMilliseconds: 1_100,
     }, boundedStringDecoder()),
     "wrong-version",
     "$.protocolVersion",
@@ -1313,6 +1338,7 @@ test("payload helpers preserve validated envelope identity", () => {
     kind: "initialize",
     bootstrap: "bootstrap",
     idleHeartbeatIntervalMilliseconds: 1_000,
+    idleAllowanceMilliseconds: 1_100,
   })), "initialize");
   const typedInitialize = decoded(decodeInitializePayload(
     rawInitialize,
@@ -1367,6 +1393,7 @@ test("maps codec-owned oversized failures to exact protocol paths", () => {
     kind: "initialize",
     bootstrap: oversized,
     idleHeartbeatIntervalMilliseconds: 1_000,
+    idleAllowanceMilliseconds: 1_100,
   }, boundedStringDecoder());
   assertDecodeFailure(mainFailure, "payload-oversized", "$.bootstrap");
   if (mainFailure.kind === "failure")
@@ -1407,6 +1434,7 @@ test("wraps owner codec rejection with exact field context and cause", () => {
         kind: "initialize",
         bootstrap: "bootstrap",
         idleHeartbeatIntervalMilliseconds: 1_000,
+        idleAllowanceMilliseconds: 1_100,
       }, rejectingDecoder),
       path: "$.bootstrap",
     },
@@ -1507,6 +1535,7 @@ test("does not reinterpret a throwing owner decoder as wire failure", () => {
       kind: "initialize",
       bootstrap: "bootstrap",
       idleHeartbeatIntervalMilliseconds: 1_000,
+      idleAllowanceMilliseconds: 1_100,
     }, throwingDecoder),
     error => error === codecError,
   );
@@ -1597,6 +1626,7 @@ function compileTimeEnvelopeContracts(): void {
     kind: "initialize",
     bootstrap: "bootstrap",
     idleHeartbeatIntervalMilliseconds: 1_000,
+    idleAllowanceMilliseconds: 1_100,
   };
   const heartbeat: WorkerToMainEnvelope<string, string, string, string> = {
     ...header,

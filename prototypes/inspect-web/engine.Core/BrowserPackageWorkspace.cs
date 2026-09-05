@@ -1058,9 +1058,12 @@ internal static class BrowserPackageWorkspace
         BrowserPackageOperationDeadline deadline)
         : IPackagePayloadTransferPolicy
     {
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer) =>
-            ApplyDeadline(inner.Reserve(transfer));
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default) =>
+            ApplyDeadline(
+                await inner.ReserveAsync(transfer, cancellationToken)
+                    .ConfigureAwait(false));
 
         internal IPackagePayloadReservation ApplyDeadline(
             IPackagePayloadReservation reservation) =>
@@ -1087,12 +1090,14 @@ internal static class BrowserPackageWorkspace
         IPackagePayloadTransferPolicy inner)
         : IPackagePayloadTransferPolicy
     {
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public async ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
             try
             {
-                return inner.Reserve(transfer);
+                return await inner.ReserveAsync(transfer, cancellationToken)
+                    .ConfigureAwait(false);
             }
             catch (InvalidOperationException exception)
             {
@@ -1430,20 +1435,23 @@ internal static class BrowserPackageWorkspace
             return content;
         }
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer)
+        public ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(transfer);
+            cancellationToken.ThrowIfCancellationRequested();
             long declaredLength = transfer.AdvertisedLength
                 ?? throw new InvalidOperationException(
                     $"Package '{transfer.Coordinate.PackageId}' "
                     + $"{transfer.Coordinate.Version} did not declare its byte length, "
                     + "so the Browser cannot reserve its package-cache budget before download.");
-            return ReservePackageDownload(
-                PackageKey(
-                    transfer.Coordinate.PackageId,
-                    transfer.Coordinate.Version),
-                declaredLength);
+            return ValueTask.FromResult<IPackagePayloadReservation>(
+                ReservePackageDownload(
+                    PackageKey(
+                        transfer.Coordinate.PackageId,
+                        transfer.Coordinate.Version),
+                    declaredLength));
         }
     }
 
