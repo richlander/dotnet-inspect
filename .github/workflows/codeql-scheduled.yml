@@ -1,0 +1,48 @@
+name: CodeQL scheduled
+
+# The per-language CodeQL lanes in ci.yml are gated on the CI change plan, so
+# they analyze what a candidate changed. This workflow keeps the other half of
+# what default setup provided: a periodic full analysis that re-runs current
+# queries against code nobody touched, so a newly published query reaches this
+# repository without waiting for someone to edit a matching file.
+#
+# It is separate from ci.yml rather than another trigger on it because the
+# change planner accepts only the pull_request, merge_group, and push events;
+# a schedule event has no base commit to plan against and would fail the
+# `changes` job, taking the whole aggregate red.
+on:
+  schedule:
+    # Weekly, matching the cadence the CodeQL default setup used here.
+    - cron: '38 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: csharp
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
