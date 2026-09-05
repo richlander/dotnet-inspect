@@ -367,21 +367,45 @@ Leaving the originating member, overload, package, framework, or inspector
 closes the viewer. Opening another dialog also closes it, without reopening it
 when that dialog is dismissed.
 
+Package Dependencies uses the same viewer and action-row placement. Explore is
+available once dependency groups have been read, including a selected group with
+no connected packages. The viewer contains the manifest-group selector, exact-group
+notice, graph, and workspace/diagram diagnostics. Package coordinate controls,
+dependency lists, assembly references, and the coordinate footer remain on the
+underlying page. The viewer identifies the inspected package; group buttons
+identify the selected manifest framework independently of the active coordinate.
+Selecting a group stays in Explore and updates the existing list and graph.
+Closing retains that selection. Pending graph rendering can complete in either
+placement; opening or closing does not restart it.
+
+Dependency nodes use the same keyboard activation and drag suppression as Call
+graph nodes. Selecting a loaded or unloaded package closes Explore and uses the
+existing dependency-navigation path. Success focuses the destination heading;
+failure exposes the existing inline notice and restores Explore focus. A package,
+version, active framework, assembly, or inspector change closes the viewer rather
+than moving an unrelated graph into it. Empty, query-failed, render-failed,
+partial-workspace, and truncated results remain visible; graph controls do not
+cover truncation diagnostics.
+
 The browser-only presentation scope was explicitly approved for
 [the two-step adoption tracker](https://github.com/richlander/dotnet-inspect/issues/5867).
 Step 1 is [Member Call graph](https://github.com/richlander/dotnet-inspect/issues/5868);
-step 2 is Package Dependencies using the same placement component. Dependencies
-does not advertise Explore until that separate slice lands. Inline presentation
-is not retired. Existing typed `BrowserCallGraph`/`InspectedCallGraph` results,
-target bindings, and Mermaid lowering continue to supply graph data and node
-identity. This host-only placement change bypasses Markout for the interactive
-browser canvas, adds no graph-analysis substrate, and does not change CLI output,
-query scope, traversal, acquisition, or layout algorithms.
+step 2 is [Package Dependencies](https://github.com/richlander/dotnet-inspect/issues/5904)
+using the same placement component. Inline presentation is not retired.
+Existing typed `BrowserCallGraph`/`InspectedCallGraph` and
+`DependencyGraphModel`/`DependencyGraphResult` results, target bindings, and
+Mermaid lowering continue to supply graph data and node identity. This host-only
+placement change bypasses Markout for the interactive browser canvas, adds no
+graph-analysis substrate, and does not change CLI output, query scope, traversal,
+acquisition, or layout algorithms.
 
 The browser gate covers live DOM and interaction retention across placement
 changes, result replacement, pending completion, no-body/failure visibility,
 dialog focus and dismissal, and narrow geometry. Published Wasm evidence covers
-the production action row, platform drill/back, and member navigation.
+the production action row and destination navigation. Dependency coverage also
+exercises group changes, empty groups, pending completion, truncation geometry,
+and package navigation/failure. Live platform drill/back evidence is reported
+separately from component coverage when acquisition is unavailable.
 
 Member Source and Annotated Source remain the heading-free full-area exceptions
 defined below. Loading and failure states stay visible and do not become
@@ -449,6 +473,10 @@ target-framework selector, dependency graph, package dependency list, assembly
 references, and partial workspace warning. Selecting another manifest group
 patches its list and graph in place without changing the surface frame or
 resetting the package coordinate.
+
+The action row also exposes [Graph Explore](#graph-explore), retaining inline
+presentation as the default and the same dependency-group selection in both
+placements.
 
 The fixed bottom context row preserves the exact package coordinate and active
 framework. Loading, query failure, no-dependency, no-exact-group, graph

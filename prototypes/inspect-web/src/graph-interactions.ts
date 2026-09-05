@@ -5,7 +5,7 @@ export interface GraphBackBindingActions {
   onBack: () => void;
 }
 
-export interface CallGraphNodeBinding {
+export interface GraphNodeBinding {
   onSelect: () => void;
   label: string;
   platform?: boolean;
@@ -16,16 +16,15 @@ export interface GraphPanZoomBindingOptions {
   keybindings: KeybindingRegistry;
   resolveCallGraphNode?: (
     nodeId: string,
-  ) => CallGraphNodeBinding | null;
+  ) => GraphNodeBinding | null;
+  resolveDependencyGraphNode?: (
+    nodeId: string,
+  ) => GraphNodeBinding | null;
 }
 
 export interface TypeGraphNodeBinding {
   onSelect?: () => void;
   unavailableLabel?: string;
-}
-
-export interface DependencyGraphNodeBinding {
-  onSelect: () => void;
 }
 
 export function bindGraphBack(
@@ -63,21 +62,6 @@ export function bindTypeGraphNodes(
       node.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "title");
     title.textContent = binding.unavailableLabel;
     node.insertBefore(title, node.firstChild);
-  });
-}
-
-export function bindDependencyGraphNodes(
-  root: ParentNode,
-  resolveNode: (
-    nodeId: string,
-  ) => DependencyGraphNodeBinding | null,
-) {
-  root.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-    const binding = resolveNode(mermaidNodeId(node, "d"));
-    if (!binding) return;
-    node.classList.add("nav-node");
-    node.style.cursor = "pointer";
-    node.addEventListener("click", binding.onSelect);
   });
 }
 
@@ -246,10 +230,11 @@ export function bindGraphPanZoom(
     run: handlePanZoomKey,
   }, viewport);
 
-  if (options.resolveCallGraphNode) {
+  const resolveNode = options.resolveCallGraphNode ?? options.resolveDependencyGraphNode;
+  if (resolveNode) {
     svg.querySelectorAll<SVGGElement>("g.node").forEach(node => {
-      const binding =
-        options.resolveCallGraphNode?.(mermaidNodeId(node, "n"));
+      const binding = resolveNode(
+        mermaidNodeId(node, options.resolveCallGraphNode ? "n" : "d"));
       if (!binding) return;
       node.classList.add("nav-node");
       if (binding.platform) node.classList.add("platform-node");
@@ -261,7 +246,9 @@ export function bindGraphPanZoom(
         if (!moved) binding.onSelect();
       });
       options.keybindings.register({
-        id: "call-graph-node.activate",
+        id: options.resolveCallGraphNode
+          ? "call-graph-node.activate"
+          : "dependency-graph-node.activate",
         key: ["Enter", " "],
         allowExtraModifiers: true,
         priority: WORKBENCH_KEYBINDING_PRIORITY.element,
