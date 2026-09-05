@@ -35,7 +35,11 @@ public sealed class ConstructorChainPass : IIrPass
             if (ResolveThisSpill(function, receiver) is not { } spill)
                 continue;
 
-            var thisArgument = new LoadArgument(0, "this", function.DeclaringType);
+            var thisArgument = new LoadArgument(
+                0,
+                function.ReceiverParameter
+                    ?? throw new InvalidOperationException(
+                        "An instance constructor must own an implicit receiver binder."));
             context.Stepper.StepOver($"canonicalize {call.Callee.DeclaringType.Name}..ctor receiver to this", call);
             receiver.ReplaceWith(thisArgument);
             // The spill's sole load is gone; drop the store(s) so they do not
