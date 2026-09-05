@@ -1,5 +1,14 @@
 # Release Notes
 
+## Unreleased
+
+- **Breaking:** Renames `match --implementation` to `match --body`, with
+  a `Method Body Diff` view. Body comparison now consumes the shared Queries
+  designated-pair path and retains native endpoint and failure outcomes.
+  `--body --json` uses a `match`/`body` envelope with typed native results
+  instead of the former `match`/`implementation` presentation envelope.
+  Plain `match --json` is unchanged (#5925).
+
 ## v0.22.0
 
 ### Inspection and matching
