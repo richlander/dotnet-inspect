@@ -104,7 +104,7 @@ public sealed class MetadataFormatAdmissionTests
     static PEReader Open(byte[] image)
         => new(ImmutableArray.Create(image));
 
-    static byte[] BuildImage(string metadataVersion)
+    internal static byte[] BuildImage(string metadataVersion)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -163,7 +163,7 @@ public sealed class MetadataFormatAdmissionTests
         image.AsSpan(directoryBase + (14 * 8), 8).Clear();
     }
 
-    static void TruncateMetadataAfterVersionField(byte[] image)
+    internal static void TruncateMetadataAfterVersionField(byte[] image)
     {
         int metadataStart = MetadataStart(image);
         int versionLength = BinaryPrimitives.ReadInt32LittleEndian(

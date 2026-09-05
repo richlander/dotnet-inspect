@@ -5388,7 +5388,7 @@ public sealed class BrowserEngineBoundaryTests
                     Encoding.UTF8.GetBytes(
                         Nuspec(packageId, version)),
                     PackageSourceCoordinate.Create(packageId, version))).Value;
-        var package = new PackageProfileMatch(
+        var package = new PackageQueryPackage(
             packageId,
             version,
             [],
@@ -5436,7 +5436,7 @@ public sealed class BrowserEngineBoundaryTests
                     Encoding.UTF8.GetBytes(
                         Nuspec(packageId, version)),
                     PackageSourceCoordinate.Create(packageId, version))).Value;
-        var package = new PackageProfileMatch(
+        var package = new PackageQueryPackage(
             packageId,
             version,
             [],
