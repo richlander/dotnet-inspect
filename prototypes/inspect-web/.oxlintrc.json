@@ -78,6 +78,14 @@
   ],
   "rules": {
     "eslint/no-underscore-dangle": "off",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": [
+          "prismjs/components/*"
+        ]
+      }
+    ],
     "typescript/no-floating-promises": [
       "error",
       {
