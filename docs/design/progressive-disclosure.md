@@ -192,7 +192,8 @@ Its typed descriptor retains the owning section independently of that display
 name. Companions live outside the ordinary evidence catalog: normal verbosity,
 bare `-S`, data wildcards, categories, and ordinary `-D --schema` do not acquire
 them. Explicit companion selection may use `Query:` wildcards but cannot mix
-metadata and evidence sections in one request.
+metadata and evidence sections in one request. Companion schema discovery
+(`-D "Query: Section"`) requires one resolved section.
 
 Performance descriptors consume the same filterable/sortable field catalogs
 and value-domain rules as argument binding. Body Shapes consumes the exact
@@ -207,8 +208,10 @@ Markout lowers the typed metadata into ordinary section tables. Markdown,
 plain text, table, TSV, and JSONL use the existing projection path.
 Unprojected JSON retains structured operator/comparison/value arrays through
 source-generated serialization, following the existing typed-versus-lowered
-JSON convention. Projected JSON uses Markout lowering. Named tabular output
-requires one section; Markdown and JSON can carry multiple sections. `--rows`
+JSON convention. Projected JSON uses Markout lowering. For these table-only
+metadata rows, `--fields` and `--columns` select the same columns through the
+existing lens-projection rules. Named tabular query descriptions require one
+section; Markdown and JSON descriptions can carry multiple sections. `--rows`
 windows metadata rows, and `--count` counts sections for bare `-Q` or facets
 for named discovery. Detailed output adds copyable examples; ordinary output
 keeps the compact facet/operator/value table.

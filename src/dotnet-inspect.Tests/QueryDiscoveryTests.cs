@@ -124,6 +124,23 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
+    [InlineData("-Q", "--where", "Kind=ObjectCreationExpression")]
+    [InlineData("-Q", "--order-by", "RootReach desc")]
+    [InlineData("-Q", "--top", "10")]
+    [InlineData("-Q", "--unknown-query-option", "value")]
+    [InlineData("-S", "--where", "Kind=ObjectCreationExpression")]
+    [InlineData("-D", "--where", "Kind=ObjectCreationExpression")]
+    public async Task PackageQueryDiscovery_PreservesUnrecognizedOptionDiagnostics(
+        string mode, string option, string value)
+    {
+        string section = mode == "-Q" ? "Package Info" : "Query: Package Info";
+        var result = await Run("package", mode, section, option, value, "--json");
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains($"Unrecognized option '{option}'", result.Error);
+    }
+
+    [Theory]
     [InlineData("package", "Package Info")]
     [InlineData("find", "Packages")]
     [InlineData("library", "Top Leverage")]
@@ -169,6 +186,19 @@ public class QueryDiscoveryTests
         Assert.Contains("Comparisons", schema.Output);
     }
 
+    [Theory]
+    [InlineData("--json")]
+    [InlineData("--jsonl")]
+    [InlineData("--tsv")]
+    [InlineData("--markdown")]
+    public async Task CompanionSchemaDiscovery_RequiresOneSection(string format)
+    {
+        var result = await Run("type", "-D", "Query:*", format);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires one section", result.Error);
+    }
+
     [Fact]
     public async Task CompanionSelection_CannotRunAlongsideData()
     {
@@ -187,19 +217,47 @@ public class QueryDiscoveryTests
     }
 
     [Theory]
-    [InlineData("--tsv")]
-    [InlineData("--jsonl")]
-    [InlineData("--json")]
-    [InlineData("--plaintext")]
-    public async Task QueryRows_UseSharedProjectionAndWindow(string format)
+    [InlineData("--tsv", "--columns")]
+    [InlineData("--jsonl", "--columns")]
+    [InlineData("--json", "--columns")]
+    [InlineData("--plaintext", "--columns")]
+    [InlineData("--tsv", "--fields")]
+    [InlineData("--jsonl", "--fields")]
+    [InlineData("--json", "--fields")]
+    [InlineData("--plaintext", "--fields")]
+    public async Task QueryRows_UseSharedProjectionAndWindow(string format, string projection)
     {
         var result = await Run("type", "-Q", "Performance Triage",
-            "--columns", "Facet", "--rows", "2", format);
+            projection, "Facet", "--rows", "2", format);
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Member", result.Output);
         Assert.Contains("Candidate", result.Output);
         Assert.DoesNotContain("RootReach", result.Output);
         Assert.DoesNotContain("--where \"Member", result.Output);
+    }
+
+    [Fact]
+    public async Task QueryProjection_CombinesFieldAndColumnAliases()
+    {
+        var result = await Run("type", "-Q", "Body Shapes",
+            "--fields", "facet", "--columns", "val*", "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement row = Assert.Single(json.RootElement.EnumerateObject()).Value[0];
+        Assert.Equal(["facet", "values"], row.EnumerateObject().Select(property => property.Name));
+    }
+
+    [Fact]
+    public async Task BareQueryProjection_UsesFieldAlias()
+    {
+        var result = await Run("library", "-Q", "--fields", "section", "--rows", "1", "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement rows = Assert.Single(json.RootElement.EnumerateObject()).Value;
+        JsonElement row = Assert.Single(rows.EnumerateArray());
+        Assert.Equal("section", Assert.Single(row.EnumerateObject()).Name);
     }
 
     [Fact]

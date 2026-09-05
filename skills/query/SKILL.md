@@ -141,7 +141,9 @@ rows, not inspected data.
 Do not combine `-Q` with `-S`, `-D`, `--where`, `--order-by`, or `--top`.
 Each named description is a companion section called `Query: <Section>`;
 `-S "Query: Body Shapes"` selects it directly, but normal output and data
-wildcards omit companions. A known section with no implemented query bindings
+wildcards omit companions. `-D "Query: Body Shapes"` describes one companion's
+columns; companion schema discovery requires one resolved section.
+A known section with no implemented query bindings
 says so; this currently includes package-query facets not yet wired to the CLI.
 
 ## Query rendered body shapes

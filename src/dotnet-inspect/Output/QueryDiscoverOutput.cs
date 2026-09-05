@@ -39,6 +39,11 @@ internal static class QueryDiscoverOutput
         IProjectionOptions projection = ProjectionAudit.Requested(result, options);
         if (discoverSchema)
         {
+            if (selected.Length != 1)
+            {
+                CommandError.Write("Query companion schema discovery requires one section; use -D \"Query: <section>\".");
+                return 1;
+            }
             var companionSchema = new DocumentSchema();
             foreach (SectionQueryDescriptor section in selected)
                 companionSchema.Add(section.QuerySection, "column", FacetColumns);
@@ -54,10 +59,11 @@ internal static class QueryDiscoverOutput
         }
 
         string[] headers = bare ? CatalogColumns : FacetColumns;
-        var schema = new DocumentSchema().Add("Query", "column", headers);
-        if (!ProjectionDiagnostics.ValidateProjection(
-                schema, "Query", projection.Fields, projection.Columns))
+        if (!LensProjection.TryResolveColumns(
+                projection, "-Q/--query-help", headers, out string[] resolvedColumns))
             return 1;
+        string[]? projectedColumns = projection.Fields is { Length: > 0 }
+            || projection.Columns is { Length: > 0 } ? resolvedColumns : null;
 
         RowWindow? window = options.ParseRows(result);
         if (bare)
@@ -95,10 +101,10 @@ internal static class QueryDiscoverOutput
             : null;
         if (format == OutputFormat.Json)
         {
-            if (projection.Columns is { Length: > 0 } || projection.Fields is { Length: > 0 })
+            if (projectedColumns is not null)
             {
                 OutputFormatter.WriteProjectedJson(
-                    Console.Out, projection.Columns, projection.Fields,
+                    Console.Out, projectedColumns, null,
                     (output, formatter, writerOptions) =>
                         Write(new MarkoutWriter(output, formatter, writerOptions), selected, bare, true, message));
             }
@@ -129,7 +135,7 @@ internal static class QueryDiscoverOutput
             OutputFormatter.WriteProjectedTable(
                 Console.Out, !result.GetValue(options.NoHeaders),
                 format == OutputFormat.Tsv, format == OutputFormat.Jsonl,
-                DisplayColumns(), projection.Fields,
+                DisplayColumns(), null,
                 (output, formatter, writerOptions) =>
                     Write(new MarkoutWriter(output, formatter, writerOptions), selected, bare, false, null));
             return 0;
@@ -138,12 +144,12 @@ internal static class QueryDiscoverOutput
         var writer = new MarkoutWriter(
             Console.Out,
             format == OutputFormat.PlainText ? new PlainTextFormatter() : new MarkdownFormatter(),
-            OutputFormatter.CreateProjectedWriterOptions(DisplayColumns(), projection.Fields));
+            OutputFormatter.CreateProjectedWriterOptions(DisplayColumns(), null));
         Write(writer, selected, bare, true, message);
         return 0;
 
-        string[]? DisplayColumns() => projection.Columns
-            ?? (projection.Fields is not { Length: > 0 } && !bare
+        string[]? DisplayColumns() => projectedColumns
+            ?? (!bare
                 && options.ParseVerbosity(result) < Verbosity.Detailed
                     ? ["Facet", "Operators", "Comparisons", "Values"]
                     : null);

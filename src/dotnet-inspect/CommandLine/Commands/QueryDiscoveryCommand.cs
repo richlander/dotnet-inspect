@@ -68,6 +68,12 @@ internal static class QueryDiscoveryCommand
             exitCode = 1;
             return true;
         }
+        if (SharedParsers.GetStructuralParseError(result) is { } parseError)
+        {
+            CommandError.Write(parseError);
+            exitCode = 1;
+            return true;
+        }
         if (companionDiscover && result.GetValue(options.Count))
         {
             CommandError.Write("Use -Q <section> --count to count query facets, rather than -D.");

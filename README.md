@@ -237,7 +237,7 @@ Use `-T q` to suppress tips in script-oriented commands.
 | Goal | Flags |
 | ---- | ----- |
 | Discover available sections and fields | `-D`, `-D --schema` |
-| Discover query facets and operators | `-Q`, `-Q "Body Shapes"`, `-Q @Performance` on library/type/member/package/find |
+| Discover query facets and operators | `-Q` on library/type/member/package/find; e.g. `library -Q @Performance` or `type -Q "Body Shapes"` |
 | Select sections or categories | `-S`, wildcards such as `-S "Async*"`, authored categories such as `-S @Source` or `-S @Audit` |
 | Project columns/fields | `--columns`, `--fields` |
 | Limit rows | `--rows`, `-n`, `--head`, `--tail` |
