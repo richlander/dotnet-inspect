@@ -256,7 +256,7 @@ test("current package failures are visible and the same query can be retried", a
   await harness.scheduled[0]?.callback();
 
   assert.deepEqual(state.spotlightPkgHits, []);
-  assert.equal(state.spotlightPkgQuery, "Example");
+  assert.equal(state.spotlightPkgQuery, "");
   assert.equal(state.spotlightPkgLoading, false);
   assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
   assert.match(state.spotlightPkgError ?? "", /try again/);
@@ -265,6 +265,76 @@ test("current package failures are visible and the same query can be retried", a
   assert.equal(harness.scheduled.length, 2);
   assert.equal(state.spotlightPkgError, "");
   assert.equal(state.spotlightPkgLoading, true);
+});
+
+for (const transition of ["edit-and-undo", "scope change"] as const) {
+  test(`failed queries retry after ${transition} clears the displayed error`, async () => {
+    const state = searchState({
+      spotlightQuery: "Example",
+      spotlightScope: "packages",
+    });
+    const queries: string[] = [];
+    const hits = [{ id: "Example.Package", version: "1.0.0" }];
+    const harness = searchDependencies(state, {
+      queryPackages: async query => {
+        queries.push(query);
+        if (queries.length === 1) throw new Error("NuGet unavailable");
+        return hits;
+      },
+    });
+    const search = createSpotlightPackageSearch(harness.dependencies);
+
+    search.schedule();
+    await harness.scheduled[0]?.callback();
+    assert.match(state.spotlightPkgError ?? "", /NuGet unavailable/);
+    if (transition === "edit-and-undo") {
+      state.spotlightQuery = "Example.more";
+      search.schedule();
+      state.spotlightQuery = "Example";
+    } else {
+      state.spotlightScope = "types";
+      search.schedule();
+      state.spotlightScope = "packages";
+    }
+    assert.equal(state.spotlightPkgError, "");
+    search.schedule();
+
+    assert.equal(state.spotlightPkgLoading, true);
+    assert.equal(harness.scheduled.length, transition === "edit-and-undo" ? 3 : 2);
+    assert.deepEqual(harness.cancelled, transition === "edit-and-undo" ? [2] : []);
+    await harness.scheduled.at(-1)?.callback();
+    assert.deepEqual(queries, ["Example", "Example"]);
+    assert.deepEqual(state.spotlightPkgHits, hits);
+    assert.equal(state.spotlightPkgError, "");
+    assert.equal(state.spotlightPkgLoading, false);
+  });
+}
+
+test("successful empty results remain cached after edit-and-undo", async () => {
+  const state = searchState({ spotlightQuery: "Example" });
+  const queries: string[] = [];
+  const harness = searchDependencies(state, {
+    queryPackages: async query => {
+      queries.push(query);
+      return [];
+    },
+  });
+  const search = createSpotlightPackageSearch(harness.dependencies);
+
+  search.schedule();
+  await harness.scheduled[0]?.callback();
+  state.spotlightQuery = "Example.more";
+  search.schedule();
+  state.spotlightQuery = "Example";
+  search.schedule();
+
+  assert.deepEqual(queries, ["Example"]);
+  assert.equal(harness.scheduled.length, 2);
+  assert.deepEqual(harness.cancelled, [2]);
+  assert.deepEqual(state.spotlightPkgHits, []);
+  assert.equal(state.spotlightPkgQuery, "Example");
+  assert.equal(state.spotlightPkgError, "");
+  assert.equal(state.spotlightPkgLoading, false);
 });
 
 test("input changes independently suppress stale package results", async () => {

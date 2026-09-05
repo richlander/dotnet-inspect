@@ -7,6 +7,7 @@ export interface SpotlightPackageSearchState {
   spotlightQuery: string;
   spotlightScope: SpotlightScope;
   spotlightPkgHits: SpotlightPackageHit[];
+  /** The query whose successful results are cached in spotlightPkgHits. */
   spotlightPkgQuery: string;
   spotlightPkgLoading: boolean;
   spotlightPkgError?: string;
@@ -39,7 +40,7 @@ export function createSpotlightPackageSearch<TSchedule>(
       if (requestGeneration !== generation
         || state.spotlightQuery.trim() !== query) return;
       state.spotlightPkgHits = [];
-      state.spotlightPkgQuery = query;
+      state.spotlightPkgQuery = "";
       const message = error instanceof Error ? error.message : String(error);
       state.spotlightPkgError =
         `Package search failed: ${message}. Edit the search to try again.`;
@@ -84,7 +85,7 @@ export function createSpotlightPackageSearch<TSchedule>(
         state.spotlightPkgError = "";
         return;
       }
-      if (query === state.spotlightPkgQuery && !state.spotlightPkgError) {
+      if (query === state.spotlightPkgQuery) {
         generation++;
         state.spotlightPkgLoading = false;
         return;

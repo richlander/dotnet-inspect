@@ -59,7 +59,15 @@ test("source failure is visible and editing the query recovers", async ({ page }
   await input.fill("fail");
   await expect(dialog.getByRole("status")).toContainText("NuGet unavailable");
   await expect(dialog).not.toContainText("Nothing matches");
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-01-01T00:01:00Z"));
+  await input.fill("failx");
+  await input.press("Backspace");
+  await page.clock.runFor(250);
+  await expect(dialog.getByRole("status")).toContainText("NuGet unavailable");
+  await expect(dialog).not.toContainText("Nothing matches");
   await input.fill("Beta");
+  await page.clock.runFor(250);
   await expect(dialog.getByRole("option", { name: /Beta/ })).toBeVisible();
   await expect(dialog.getByRole("status")).toHaveCount(0);
 });
