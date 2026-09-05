@@ -11,6 +11,7 @@ import type {
   SpotlightResult,
   SpotlightScope,
   SpotlightState,
+  RemovableSpotlightResult,
 } from "../src/spotlight.ts";
 import type { CommandContext } from "../src/command-bar.ts";
 import { KeybindingRegistry } from "../src/keybinding-registry.ts";
@@ -34,6 +35,7 @@ interface HarnessOptions {
   executeCommand?: () => Promise<unknown> | undefined;
   searchResults?: () => SpotlightResult[];
   lenses?: () => readonly (readonly [string, string])[];
+  removeResult?: (result: RemovableSpotlightResult) => boolean;
 }
 
 // The library owns the real DOM event/element contract; this harness models only the
@@ -76,6 +78,7 @@ function createHarness({
   executeCommand = () => undefined,
   searchResults = () => [],
   lenses = () => [["api", "API"], ["metadata", "Metadata"]],
+  removeResult,
 }: HarnessOptions = {}) {
   const state: SpotlightState = {
     spotlightOpen: false,
@@ -95,6 +98,7 @@ function createHarness({
     kindIcon: () => "C",
     searchResults,
     pickResult: () => {},
+    ...(removeResult ? { removeResult } : {}),
     executeCommand,
     reportCommandError: () => {},
     commandContext: () => commandContext,
@@ -158,6 +162,23 @@ test("Spotlight selection clamps without wrapping and scope cycling wraps", () =
   assert.equal(nextSpotlightSelection(0, 1, 0), null);
   assert.equal(nextSpotlightScope(4, 5, false), 0);
   assert.equal(nextSpotlightScope(0, 5, true), 4);
+});
+
+test("Spotlight gives open and recent package rows separate named removal buttons", () => {
+  const { spotlight } = createHarness({
+    removeResult: () => true,
+    searchResults: () => [
+      { kind: "pkg-loaded", pkg: { id: "Alpha", version: "1.0.0", activeFramework: "net10.0" }, ranges: [] },
+      { kind: "pkg-recent", entry: { id: "Beta" }, ranges: [] },
+      { kind: "pkg-loaded", pkg: { id: "Platform", version: "10.0.0", isRuntimePack: true }, ranges: [] },
+      { kind: "pkg-nuget", hit: { id: "Gamma" }, ranges: [] },
+    ],
+  });
+  const html = spotlight.inlineHtml(false);
+  assert.match(html, /aria-label="Remove Alpha 1\.0\.0 net10\.0 from Workspace"/);
+  assert.match(html, /aria-label="Forget Beta from recent packages"/);
+  assert.equal(html.match(/data-sl-remove=/g)?.length, 2);
+  assert.match(html, /<\/button><button[^>]*class="package-row-remove"/);
 });
 
 test("NuGet hits are visible only for their resolved query and survive a query round trip", () => {
