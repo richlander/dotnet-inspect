@@ -17,6 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="../../fixtures/services/signatures/*.nupkg"
+          Link="Fixtures/Signatures/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="ILInspector.SourceLink" />
   </ItemGroup>
