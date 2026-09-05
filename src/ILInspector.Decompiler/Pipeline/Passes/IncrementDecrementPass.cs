@@ -313,7 +313,11 @@ public sealed class IncrementDecrementPass : IIrPass
     static bool WritesSamePlaceAsRead(IrNode store, IrExpression load) => (store, load) switch
     {
         (StoreLocal s, LoadLocal l) => s.Index == l.Index,
-        (StoreArgument s, LoadArgument l) => s.Index == l.Index,
+        (StoreArgument s, LoadArgument l) => PlaceIdentity.SameArgument(
+            s.Index,
+            s.Parameter,
+            l.Index,
+            l.Parameter),
         (StoreStackSlot s, LoadStackSlot l) => s.Slot == l.Slot,
         (StoreField s, LoadField l) => SameField(s.Field, l.Field) && SamePlaceExpr(s.Instance, l.Instance),
         (StoreIndirect s, LoadIndirect l) => SamePlaceExpr(s.Address, l.Address),
@@ -346,7 +350,12 @@ public sealed class IncrementDecrementPass : IIrPass
         return false;
     }
 
-    readonly record struct PlaceRef(bool IsLocal, int Index, string Name, TypeRef Type);
+    readonly record struct PlaceRef(
+        bool IsLocal,
+        int Index,
+        string Name,
+        TypeRef Type,
+        Parameter? Parameter = null);
 
     static bool TryFold(IrFunction function, Block block, int i, Stepper stepper)
     {
@@ -562,7 +571,14 @@ public sealed class IncrementDecrementPass : IIrPass
 
         // The captured place and the updated place must be the same local or
         // argument, and must not be the temporary itself.
-        if (readPlace.IsLocal != writePlace.IsLocal || readPlace.Index != writePlace.Index)
+        if (readPlace.IsLocal != writePlace.IsLocal
+            || (readPlace.IsLocal
+                ? readPlace.Index != writePlace.Index
+                : !PlaceIdentity.SameArgument(
+                    readPlace.Index,
+                    readPlace.Parameter,
+                    writePlace.Index,
+                    writePlace.Parameter)))
             return false;
         if (writePlace.IsLocal && writePlace.Index == tempStore.Index)
             return false;
@@ -681,14 +697,16 @@ public sealed class IncrementDecrementPass : IIrPass
     static PlaceRef? PlaceLoad(IrExpression expression) => expression switch
     {
         LoadLocal { ResultType: { } t } l => new PlaceRef(true, l.Index, "", t),
-        LoadArgument { ResultType: { } t } a => new PlaceRef(false, a.Index, a.Name, t),
+        LoadArgument { ResultType: { } t } a =>
+            new PlaceRef(false, a.Index, a.Name, t, a.Parameter),
         _ => null,
     };
 
     static PlaceRef? PlaceOf(IrNode store) => store switch
     {
         StoreLocal s => new PlaceRef(true, s.Index, "", s.Type),
-        StoreArgument s => new PlaceRef(false, s.Index, s.Name, s.Type),
+        StoreArgument s =>
+            new PlaceRef(false, s.Index, s.Name, s.Type, s.Parameter),
         _ => null,
     };
 
@@ -701,7 +719,12 @@ public sealed class IncrementDecrementPass : IIrPass
 
     static bool IsPlaceLoad(IrExpression expression, PlaceRef place) => place.IsLocal
         ? expression is LoadLocal local && local.Index == place.Index
-        : expression is LoadArgument argument && argument.Index == place.Index;
+        : expression is LoadArgument argument
+            && PlaceIdentity.SameArgument(
+                argument.Index,
+                argument.Parameter,
+                place.Index,
+                place.Parameter);
 
     readonly record struct IncrementOp(bool IsIncrement, bool IsChecked, IrExpression Operand, MethodRef Operator);
 
@@ -722,7 +745,11 @@ public sealed class IncrementDecrementPass : IIrPass
 
     static IrExpression ClonePlace(PlaceRef place) => place.IsLocal
         ? new LoadLocal(place.Index, place.Type)
-        : new LoadArgument(place.Index, place.Name, place.Type);
+        : new LoadArgument(
+            place.Index,
+            place.Name,
+            place.Type,
+            place.Parameter);
 
     static bool IsIncrementable(TypeRef type, IrFunction function)
         => TypeFamilies.IsNumericPrimitive(type)
@@ -777,9 +804,24 @@ public sealed class IncrementDecrementPass : IIrPass
                 ? current is LoadLocal { } l && l.Index == place.Index
                     || current is StoreLocal { } s && s.Index == place.Index
                     || current is LoadLocalAddress { } a && a.Index == place.Index
-                : current is LoadArgument { } la && la.Index == place.Index
-                    || current is StoreArgument { } sa && sa.Index == place.Index
-                    || current is LoadArgumentAddress { } aa && aa.Index == place.Index;
+                : current is LoadArgument { } la
+                    && PlaceIdentity.SameArgument(
+                        la.Index,
+                        la.Parameter,
+                        place.Index,
+                        place.Parameter)
+                    || current is StoreArgument { } sa
+                        && PlaceIdentity.SameArgument(
+                            sa.Index,
+                            sa.Parameter,
+                            place.Index,
+                            place.Parameter)
+                    || current is LoadArgumentAddress { } aa
+                        && PlaceIdentity.SameArgument(
+                            aa.Index,
+                            aa.Parameter,
+                            place.Index,
+                            place.Parameter);
             if (hit)
                 return true;
         }

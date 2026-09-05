@@ -168,7 +168,11 @@ public sealed class IteratorReconstructionPass : IIrPass
         context.Stepper.StepOver(description, handoff);
 
         function.MergeTypeFactsFrom(work);
-        function.ResetLocals(work.Locals, work.LocalNames, work.EliminatedLocalSlots);
+        function.ResetLocals(
+            work.Locals,
+            work.LocalNames,
+            work.EliminatedLocalSlots,
+            work.SynthesizedLocalNames);
         function.Body.DetachChildren();
         foreach (var block in reconstructed.Blocks.ToList())
         {

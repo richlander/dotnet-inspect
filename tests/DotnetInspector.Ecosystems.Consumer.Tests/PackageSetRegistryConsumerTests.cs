@@ -1,4 +1,5 @@
 using DotnetInspector.Ecosystems;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems.Consumer.Tests;
 
@@ -41,5 +42,25 @@ public sealed class PackageSetRegistryConsumerTests
         Assert.Equal(
             ProductDemoIds.StjSerializer,
             selected.Selection.Scenario.ScenarioId);
+    }
+
+    [Fact]
+    public void PublicSurfaceHandsSelectedScannerToIntegrationOwner()
+    {
+        EcosystemPackDescriptor aspire = Assert.Single(
+            EcosystemPackCatalog.Discover().Where(pack => pack.HasScanner));
+        Assert.Equal(EcosystemPackIds.Aspire, aspire.Id);
+        var selected = Assert.IsType<EcosystemScannerSelectionResult.Known>(
+            EcosystemPackCatalog.SelectScanner(aspire.Id));
+
+        using var session = AssemblyInspectionSession.Open(
+            typeof(EcosystemPackCatalog).Assembly.Location);
+        Assert.Empty(session.EcosystemIntegrations(selected.Binding));
+        Assert.IsType<EcosystemScannerSelectionResult.Unavailable>(
+            EcosystemPackCatalog.SelectScanner(EcosystemPackIds.MicrosoftExtensions));
+        Assert.True(EcosystemPackId.TryCreate(
+            "ecosystem.not-shipped", out EcosystemPackId? unknownId));
+        Assert.IsType<EcosystemScannerSelectionResult.Unknown>(
+            EcosystemPackCatalog.SelectScanner(unknownId));
     }
 }
