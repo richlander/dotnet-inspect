@@ -1,11 +1,15 @@
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using DotnetInspector.Commands;
+using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Xunit;
 
 namespace DotnetInspector.Tests;
 
+[Collection("Console")]
 public sealed class ApiMemorySafetyJsonTests
 {
     static readonly Lazy<ApiType> ExtractedType = new(() =>
@@ -63,6 +67,37 @@ public sealed class ApiMemorySafetyJsonTests
                 accessor.MemorySafety);
             Assert.NotSame(property.MemorySafety, accessor.MemorySafety);
         });
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task MemberCommandPreservesFactsThroughJsonProjection(
+        bool selectSections, bool compact)
+    {
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(
+            new MemberOptions
+            {
+                AssemblyPath = typeof(ApiMember).Assembly.Location,
+                TypeName = typeof(ApiMember).FullName!,
+                KindFilter = selectSections ? [] : ["property"],
+                IncludeSections = selectSections ? [SectionNames.Properties] : null,
+                JsonOutput = true,
+                CompactJson = compact,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        var context = compact
+            ? ApiTypeCompactJsonContext.Default.ApiType
+            : ApiTypeJsonContext.Default.ApiType;
+        ApiType restored = JsonSerializer.Deserialize(result.Output, context)!;
+        Assert.NotEmpty(restored.Members);
+        Assert.All(restored.Members, member => Assert.Equal("property", member.Kind));
+        AssertFacts(ExtractedType.Value, restored);
     }
 
     static void AssertFacts(ApiType original, ApiType restored)

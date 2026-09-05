@@ -172,7 +172,8 @@ policies do not silently switch to the new caller contract.
 `ApiMemorySafetyFactsTests` gates the version-aware split, all member kinds,
 accessor and extension projection, conventional storage evidence, ambiguity,
 unknown/degraded cases, layout, persistence, and compatibility.
-`ApiMemorySafetyJsonTests` gates the production source-generated JSON contexts.
+`ApiMemorySafetyJsonTests` gates the production source-generated JSON contexts
+and command-level filtered and section-selected projections.
 The existing `ApiSurfaceUnsafeTests`, `ArrayKindIdentityTests`, and
 `ApiSurfaceExtractorBoundsTests` remain compatibility and extraction-budget
 gates. `MemorySafetyMetadataIndex` still owns contract derivation, under
