@@ -824,8 +824,21 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 return !ConsumedContains(consumed, node => node is StoreLocal store && store.Index == local.Index)
                     && !function.Descendants.Any(node => node is LoadLocalAddress address && address.Index == local.Index);
             case LoadArgument argument:
-                return !ConsumedContains(consumed, node => node is StoreArgument store && store.Index == argument.Index)
-                    && !function.Descendants.Any(node => node is LoadArgumentAddress address && address.Index == argument.Index);
+                return !ConsumedContains(
+                        consumed,
+                        node => node is StoreArgument store
+                            && PlaceIdentity.SameArgument(
+                                store.Index,
+                                store.Parameter,
+                                argument.Index,
+                                argument.Parameter))
+                    && !function.Descendants.Any(
+                        node => node is LoadArgumentAddress address
+                            && PlaceIdentity.SameArgument(
+                                address.Index,
+                                address.Parameter,
+                                argument.Index,
+                                argument.Parameter));
             default:
                 return false;
         }

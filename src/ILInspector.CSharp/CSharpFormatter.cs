@@ -205,6 +205,10 @@ public sealed class CSharpFormatter
         ArgumentNullException.ThrowIfNull(type);
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(body);
+        IReadOnlyList<string>? parameterNames =
+            (body as CSharpBlockBody)?.ParameterNames;
+        if (parameterNames is { Count: 0 })
+            parameterNames = null;
         return CSharpDeclarationWriter.RenderMemberDeclaration(
             type,
             member,
@@ -214,7 +218,8 @@ public sealed class CSharpFormatter
                 ForceUnsafe = _declarationOptions.ForceUnsafe || body.RequiresUnsafeModifier,
                 SuppressFinalizerSpelling = body.SuppressDestructorSyntax
             },
-            methodParameters);
+            methodParameters,
+            parameterNames);
     }
 
     public CSharpFormattedDeclaration FormatMemberUnit(
