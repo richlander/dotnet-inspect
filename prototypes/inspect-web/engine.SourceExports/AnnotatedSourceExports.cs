@@ -36,8 +36,38 @@ public static partial class SourceExports
         int metadataToken,
         string styleOptionsJson)
     {
+        BrowserAnnotatedSource annotated = await MemberAnnotatedSourceAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            typeQueryId,
+            memberName,
+            memberSignature,
+            selectorKey,
+            metadataToken,
+            styleOptionsJson);
+        return JsonSerializer.Serialize(
+            annotated,
+            BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
+    }
+
+    static async Task<BrowserAnnotatedSource> MemberAnnotatedSourceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string typeQueryId,
+        string memberName,
+        string memberSignature,
+        string selectorKey,
+        int metadataToken,
+        string styleOptionsJson)
+    {
         _ = memberSignature;
-        BrowserMemberResolution.ScopedResolution resolved =
+        await using BrowserMemberResolution.ScopedResolution resolved =
             await BrowserMemberResolution.ImplementationMemberAsync(
                 packageId,
                 version,
@@ -93,18 +123,16 @@ public static partial class SourceExports
                 ]
                 : null;
 
-        return JsonSerializer.Serialize(
-            BrowserAnnotatedSource.Create(
-                document,
-                $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
-                    + $"{participant.Coordinate.Version} {participant.Asset.Path}",
-                projection.ContextLimitation is { } limitation
-                    ? $"{limitation.Kind}: {limitation.Detail}"
-                    : null,
-                destinations,
-                destinations is null
-                    ? BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
-                    : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected),
-            BrowserSourceJsonContext.Default.BrowserAnnotatedSource);
+        return BrowserAnnotatedSource.Create(
+            document,
+            $"Annotated by dotnet-inspect from {participant.Coordinate.PackageId} "
+                + $"{participant.Coordinate.Version} {participant.Asset.Path}",
+            projection.ContextLimitation is { } limitation
+                ? $"{limitation.Kind}: {limitation.Detail}"
+                : null,
+            destinations,
+            destinations is null
+                ? BrowserAnnotatedSourceCapabilityUnavailableReason.ContextUnavailable
+                : BrowserAnnotatedSourceCapabilityUnavailableReason.NotProjected);
     }
 }

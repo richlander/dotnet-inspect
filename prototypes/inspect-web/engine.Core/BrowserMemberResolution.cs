@@ -24,33 +24,52 @@ internal static class BrowserMemberResolution
         BrowserWorkspaceParticipant ImplementationParticipant,
         Analysis.CallGraphMemberResolution Member);
 
+    /// <summary>
+    /// One resolved member and the protected use of the workspace it was resolved in. The lease
+    /// holds that workspace for the whole of the caller's query, including its asynchronous
+    /// return, so the caller disposes the resolution rather than the scope.
+    /// </summary>
     internal sealed record ScopedResolution(
-        BrowserInspectionScope Scope,
+        BrowserScopeLease<BrowserInspectionScope> Lease,
         BrowserWorkspaceParticipant SurfaceParticipant,
         BrowserWorkspaceParticipant ImplementationParticipant,
-        Analysis.CallGraphMemberResolution Member);
+        Analysis.CallGraphMemberResolution Member) : IAsyncDisposable
+    {
+        internal BrowserInspectionScope Scope => Lease.Scope;
+
+        public ValueTask DisposeAsync() => Lease.DisposeAsync();
+    }
 
     /// <summary>
     /// Resolves one exact package/version/framework coordinate, reuses its workspace, and returns
     /// the reference-preferred participant for one product-selected compile asset.
     /// </summary>
     internal static async Task<(
-        BrowserInspectionScope Scope,
+        BrowserScopeLease<BrowserInspectionScope> Lease,
         BrowserWorkspaceParticipant Participant)> SurfaceParticipantAsync(
             string packageId,
             string version,
             string targetFramework,
             string assemblyName)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework);
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-
-        return (scope, scope.SurfaceParticipant(
-            coordinate,
-            coordinate.CompileAsset(assemblyName)));
+        BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework);
+        try
+        {
+            BrowserInspectionScope scope = lease.Scope;
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            return (lease, scope.SurfaceParticipant(
+                coordinate,
+                coordinate.CompileAsset(assemblyName)));
+        }
+        catch
+        {
+            await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     internal static async Task<ScopedResolution> ImplementationMemberAsync(
@@ -64,26 +83,36 @@ internal static class BrowserMemberResolution
         int metadataToken,
         CancellationToken cancellationToken = default)
     {
-        BrowserInspectionScope scope = await BrowserPackageWorkspace.OpenScopeAsync(
-            packageId,
-            version,
-            targetFramework,
-            cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
-        Resolved resolved = ResolveImplementationMember(
-            scope,
-            coordinate,
-            assemblyName,
-            typeId,
-            memberName,
-            selectorKey,
-            metadataToken);
-        return new ScopedResolution(
-            scope,
-            resolved.SurfaceParticipant,
-            resolved.ImplementationParticipant,
-            resolved.Member);
+        BrowserScopeLease<BrowserInspectionScope> lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                packageId,
+                version,
+                targetFramework,
+                cancellationToken);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            BrowserInspectionScope scope = lease.Scope;
+            BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+            Resolved resolved = ResolveImplementationMember(
+                scope,
+                coordinate,
+                assemblyName,
+                typeId,
+                memberName,
+                selectorKey,
+                metadataToken);
+            return new ScopedResolution(
+                lease,
+                resolved.SurfaceParticipant,
+                resolved.ImplementationParticipant,
+                resolved.Member);
+        }
+        catch
+        {
+            await lease.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     internal static Resolved ResolveImplementationMember(
