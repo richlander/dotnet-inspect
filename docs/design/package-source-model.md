@@ -543,10 +543,11 @@ filesystem registration or claim that offline local discovery is supported.
 
 ### Caller-pinned payload acquisition
 
-The production consumer is ordinary online `package <id>@<version>`
-inspection, through `PackageExtractor.ExtractPinnedPackageAsync`. Its exact-pin
-path uses the same configuration, mapping, client
-ownership, and association lookup as version queries. An eligible cache hit
+The production consumer is ordinary online single-package
+`package <id>@<version>` inspection, through
+`PackageExtractor.ExtractPinnedPackageAsync`. Its exact-pin path uses the same
+configuration, mapping, client ownership, and association lookup as version
+queries. An eligible cache hit
 precedes cold acquisition; cold local sources precede HTTP sources regardless
 of declaration order. A pin needs one usable authority, not readable peers.
 Failures encountered before success remain available as typed diagnostics and
@@ -563,10 +564,12 @@ HTTP authorities currently have no durable cache identity. Their admitted
 payloads use authority-scoped temporary filesystem materialization, retained
 until the extraction consumer calls the existing cleanup API. They do not
 read or write persistent payload or derived package-index entries, including
-HTTP global-packages entries. This deliberately trades cross-invocation cache
-reuse for correct authority; it does not invent a durable HTTP key from a
-credential-bearing endpoint or producer digest. Local derived package indexes
-use the persistent authority key.
+HTTP global-packages entries. Temporary ownership is independent of the final
+payload's cache origin: a cached redirect target does not release the consumer
+from cleaning up earlier HTTP wrapper materialization. This deliberately trades
+cross-invocation cache reuse for correct authority; it does not invent a durable
+HTTP key from a credential-bearing endpoint or producer digest. Local derived
+package indexes use the persistent authority key.
 
 One operation context spans exact acquisition, stream consumption, publication,
 and exact tool-wrapper redirects. Each redirect recomputes package-ID
@@ -577,9 +580,10 @@ inspection uses archive metadata instead. All-library Integration inspection
 uses its existing materialized-input path rather than reacquiring the root
 through the legacy producer-authorized artifact path.
 
-This slice does not migrate offline extraction, automatic payload selection,
-range-addressed payloads, package-scoped API/dependency commands, symbols,
-manifest-only requests, platform projection, or workspace artifact acquisition.
+This slice does not migrate multi-package inspection, offline extraction,
+automatic payload selection, range-addressed payloads, package-scoped
+API/dependency commands, symbols, manifest-only requests, platform projection,
+or workspace artifact acquisition.
 Those callers retain `ExtractPackageAsync` and its producer-keyed single-flight
 registry until their own handoffs migrate. The new path does not join those
 legacy flights or share caller-owned temporary directories across extractions.

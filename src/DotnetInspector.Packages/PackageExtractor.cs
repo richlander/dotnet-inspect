@@ -22,7 +22,7 @@ namespace DotnetInspector.Packages;
 /// Result of a package extraction operation.
 /// </summary>
 /// <param name="ExtractPath">Path to the extracted package contents</param>
-/// <param name="TempDir">Temporary directory to clean up (null if using cache)</param>
+/// <param name="TempDir">Owned temporary directory to clean up, including wrapper storage when the final payload is cached; null if none</param>
 /// <param name="PackageName">Package name</param>
 /// <param name="Version">Package version (may be null for local files)</param>
 /// <param name="NupkgPath">Path to the .nupkg file for signature verification (null if not available)</param>

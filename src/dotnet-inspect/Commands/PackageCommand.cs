@@ -1222,18 +1222,7 @@ public class PackageCommand
         }
         finally
         {
-            // Only clean up temp directory if we created one (not using cache)
-            if (resolution is { FromCache: false, TempDir: not null } && Directory.Exists(resolution.TempDir))
-            {
-                try
-                {
-                    Directory.Delete(resolution.TempDir, recursive: true);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
+            PackageExtractor.Cleanup(resolution?.TempDir);
         }
     }
 

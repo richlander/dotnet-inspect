@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Xml.Linq;
 
 using DotnetInspector.CommandLine;
@@ -429,6 +432,77 @@ public sealed class ConfiguredPayloadAcquisitionTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageCommand_HttpWrapperCleansTemporaryStorageAndKeepsLocalTarget(bool warmTarget)
+    {
+        const string WrapperId = "Pinned.Cleanup.Wrapper";
+        const string PayloadId = "Pinned.Cleanup.Payload";
+        const string Readme = "The retained local target.";
+        string localFeed = Path.Combine(_root, "local-feed");
+        string temporaryRoot = Directory.CreateDirectory(Path.Combine(_root, "command-temp")).FullName;
+        WriteLocalPackage(localFeed, PayloadId, Readme);
+        using var client = new HttpClient();
+        if (warmTarget)
+        {
+            PackageExtractionOutcome warm = await AcquireTargetAsync();
+            Assert.True(warm.IsSuccess, warm.ErrorMessage);
+            Assert.False(warm.Result!.FromCache);
+        }
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        string origin = $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}/";
+        string source = $"{origin}v3/index.json";
+        var requests = new ConcurrentQueue<string>();
+        using var shutdown = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        Task server = ServeFeedAsync(listener,
+            new PayloadFeedHandler(source, WrapperId,
+                () => new ByteArrayContent(CreatePackage(WrapperId, "wrapper README", PayloadId)),
+                requests),
+            origin, shutdown.Token);
+        try
+        {
+            for (int iteration = 1; iteration <= 2; iteration++)
+            {
+                var (exit, output, error) = await RunIsolatedCommandAsync(temporaryRoot,
+                    ["package", $"{WrapperId}@{Version}", "--source", localFeed,
+                        "--source", source, "--path", "@readme", "--content", "--bare",
+                        "--no-nuget-cache"]);
+                Assert.True(exit == 0, $"Exit {exit}: {error}");
+                Assert.Equal(Readme, output.Trim());
+                Assert.Equal(iteration, requests.Count(request =>
+                    request.EndsWith(".nupkg", StringComparison.Ordinal)));
+                Assert.Empty(Directory.EnumerateDirectories(temporaryRoot, "inspect-pkg*"));
+
+                PackageExtractionOutcome retained = await AcquireTargetAsync();
+                Assert.True(retained.IsSuccess, retained.ErrorMessage);
+                Assert.True(retained.Result!.FromCache);
+                Assert.Null(retained.Result.TempDir);
+                Assert.Equal(Readme, File.ReadAllText(
+                    Path.Combine(retained.Result.ExtractPath, "README.md")));
+            }
+        }
+        finally
+        {
+            shutdown.Cancel();
+            try
+            {
+                await server;
+            }
+            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+            {
+            }
+        }
+
+        Task<PackageExtractionOutcome> AcquireTargetAsync() =>
+            DesktopPackageExtractor.ExtractPinnedPackageAsync(client, PayloadId, Version,
+                sourceOptions: new NuGetSourceOptions { Sources = [localFeed] },
+                createComposition: LocalComposition);
+    }
+
     private static DesktopPackageSourceComposition CreateComposition(
         DesktopPackageSourceComposition.SourceTransportFactory transport,
         TimeSpan? requestTimeout = null) =>
@@ -527,6 +601,67 @@ public sealed class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(parsed.Errors);
             return await CommandLineBuilder.InvokeAsync(parsed);
         });
+
+    private async Task<(int Exit, string Output, string Error)> RunIsolatedCommandAsync(
+        string temporaryRoot, string[] args)
+    {
+        string executable = Path.Combine(AppContext.BaseDirectory,
+            OperatingSystem.IsWindows() ? "dotnet-inspect.exe" : "dotnet-inspect");
+        var start = new ProcessStartInfo(executable)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (string argument in args)
+            start.ArgumentList.Add(argument);
+        start.Environment["DOTNET_INSPECT_CACHE_DIR"] = Path.Combine(_root, "cache");
+        start.Environment["DOTNET_INSPECT_OFFLINE"] = "";
+        foreach (string variable in new[] { "TMPDIR", "TMP", "TEMP" })
+            start.Environment[variable] = temporaryRoot;
+
+        using Process process = Process.Start(start)
+            ?? throw new InvalidOperationException($"Could not start {executable}.");
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        Task<string> output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        Task<string> error = process.StandardError.ReadToEndAsync(cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(60), cancellationToken);
+            return (process.ExitCode, await output, await error);
+        }
+        finally
+        {
+            if (!process.HasExited)
+                OutOfProcessCliProcess.KillAndWaitForExit(process, TimeSpan.FromSeconds(10));
+        }
+    }
+
+    private static async Task ServeFeedAsync(
+        TcpListener listener, HttpMessageHandler handler, string origin, CancellationToken cancellationToken)
+    {
+        using var client = new HttpClient(handler);
+        while (true)
+        {
+            using TcpClient connection = await listener.AcceptTcpClientAsync(cancellationToken);
+            using NetworkStream stream = connection.GetStream();
+            using var reader = new StreamReader(stream, Encoding.ASCII, false, 1024, leaveOpen: true);
+            string request = await reader.ReadLineAsync(cancellationToken)
+                ?? throw new IOException("The fixture received no HTTP request line.");
+            while (await reader.ReadLineAsync(cancellationToken) is { Length: > 0 })
+            {
+            }
+            using HttpResponseMessage response = await client.GetAsync(
+                new Uri(new Uri(origin), request.Split(' ')[1]), cancellationToken);
+            byte[] content = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+            byte[] headers = Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 {(int)response.StatusCode} {response.ReasonPhrase}\r\n"
+                + $"Content-Length: {content.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(headers, cancellationToken);
+            await stream.WriteAsync(content, cancellationToken);
+        }
+    }
 
     private sealed class UnavailableCredentials : ICredentialSource
     {

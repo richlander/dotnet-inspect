@@ -73,7 +73,7 @@ These version queries are metadata-only and do not use `--offline`.
 
 ### Inspect an exact package from a folder feed
 
-Pin a coordinate to inspect its payload through the configured folder source:
+Pin one coordinate to inspect its payload through the configured folder source:
 
 ```bash
 dnx dotnet-inspect -y -- package MyCompany.Widget@1.2.3 --source ./feed
@@ -89,9 +89,9 @@ those diagnostics. Tool-wrapper redirects independently reapply mapping.
 Local payload caches are scoped to the canonical configured folder, not just
 package ID/version or producer identity. HTTP pins currently use temporary
 authority-scoped materialization and do not reuse persistent payload caches.
-Local-feed latest/wildcard/range payload selection, package-scoped API and
-dependency commands, offline extraction, symbols, and manifest-only requests
-have not migrated yet.
+Multi-package inspection, local-feed latest/wildcard/range payload selection,
+package-scoped API and dependency commands, offline extraction, symbols, and
+manifest-only requests have not migrated yet.
 
 ### Restrict package ids to feeds
 
