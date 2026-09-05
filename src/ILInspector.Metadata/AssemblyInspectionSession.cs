@@ -524,8 +524,9 @@ public sealed class AssemblyInspectionSession : IDisposable
     }
 
     /// <summary>
-    /// Every distinct metadata-root extent in deterministic CLI-then-R2R order.
-    /// Exact CLI/R2R aliases are one entry with both provenance values.
+    /// Every CLI-header or R2R-manifest metadata-root extent in deterministic
+    /// CLI-then-R2R order. Exact aliases are one entry with both provenance
+    /// values.
     /// </summary>
     public System.Collections.Immutable.ImmutableArray<MetadataRootInfo> MetadataRoots()
         => _metadataRoots.Value.Roots;

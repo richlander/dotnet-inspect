@@ -151,10 +151,13 @@ internal sealed class MetadataRootCatalog : IDisposable
     MetadataRootReader? CreateCliReader()
     {
         _ensureAlive();
-        if (!_peReader.HasMetadata)
+        if (!_peReader.HasMetadata
+            || _peReader.PEHeaders.CorHeader is not { } corHeader)
+        {
             return null;
+        }
 
-        DirectoryEntry directory = _peReader.PEHeaders.CorHeader!.MetadataDirectory;
+        DirectoryEntry directory = corHeader.MetadataDirectory;
         var info = new MetadataRootInfo(
             directory.RelativeVirtualAddress,
             directory.Size,
@@ -353,9 +356,19 @@ internal sealed class MetadataRootReader : IDisposable
             Info.Size,
             MetadataRootSource.ReadyToRunManifest);
 
-        ImmutableArray<byte> image = block.GetContent(0, Info.Size);
-        _provider = MetadataReaderProvider.FromMetadataImage(image);
-        return _provider.GetMetadataReader(MetadataReaderOptions.None);
+        try
+        {
+            ImmutableArray<byte> image = block.GetContent(0, Info.Size);
+            _provider = MetadataReaderProvider.FromMetadataImage(image);
+            return _provider.GetMetadataReader(MetadataReaderOptions.None);
+        }
+        catch (BadImageFormatException ex)
+        {
+            throw new MalformedMetadataRootException(
+                MetadataRootMalformedReason.UnreadableMetadataStructure,
+                MetadataRootSource.ReadyToRunManifest,
+                ex);
+        }
     }
 
     public void Dispose() => _provider?.Dispose();

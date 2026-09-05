@@ -20,16 +20,31 @@ public sealed class UnsupportedMetadataFormatException(
 /// <summary>
 /// The image has a malformed ECMA-335 metadata root.
 /// </summary>
-public sealed class MalformedMetadataRootException(
-    MetadataRootMalformedReason reason,
-    MetadataRootSource? source = null)
-    : BadImageFormatException(
-        source is null
-            ? $"The assembly metadata root is malformed ({reason})."
-            : $"The {source} metadata root is malformed ({reason}).")
+public sealed class MalformedMetadataRootException : BadImageFormatException
 {
-    public MetadataRootMalformedReason Reason { get; } = reason;
-    public MetadataRootSource? RootSource { get; } = source;
+    public MalformedMetadataRootException(
+        MetadataRootMalformedReason reason,
+        MetadataRootSource? source = null)
+        : this(reason, source, innerException: null)
+    {
+    }
+
+    public MalformedMetadataRootException(
+        MetadataRootMalformedReason reason,
+        MetadataRootSource? source,
+        Exception? innerException)
+        : base(
+            source is null
+                ? $"The assembly metadata root is malformed ({reason})."
+                : $"The {source} metadata root is malformed ({reason}).",
+            innerException)
+    {
+        Reason = reason;
+        RootSource = source;
+    }
+
+    public MetadataRootMalformedReason Reason { get; }
+    public MetadataRootSource? RootSource { get; }
 }
 
 /// <summary>

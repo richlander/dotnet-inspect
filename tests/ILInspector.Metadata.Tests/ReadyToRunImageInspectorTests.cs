@@ -450,6 +450,24 @@ public sealed class ReadyToRunImageInspectorTests
     }
 
     [Fact]
+    public void MetadataRoots_CoffMetadataRetainsLegacyProjectionWithoutInventedSource()
+    {
+        byte[] image = BuildCoffMetadataImage(ReadSelfMetadataRoot());
+        using var session = OpenSession(image);
+
+        MetadataImageOverview overview = Assert.IsType<MetadataImageOverview>(
+            session.MetadataImage());
+
+        Assert.Equal(60, overview.MetadataOffset);
+        Assert.NotEmpty(session.MetadataTables().Tables);
+        Assert.Empty(session.MetadataRoots());
+        Assert.Null(session.MetadataImage(MetadataRootSource.Cli));
+        Assert.Null(session.MetadataTables(MetadataRootSource.Cli));
+        Assert.Null(session.MetadataImage(MetadataRootSource.ReadyToRunManifest));
+        Assert.Null(session.MetadataTables(MetadataRootSource.ReadyToRunManifest));
+    }
+
+    [Fact]
     public void MetadataRoots_AbsentReferenceSourceStillValidatesArguments()
     {
         using var session = AssemblyInspectionSession.Open(SelfPath);
@@ -749,9 +767,17 @@ public sealed class ReadyToRunImageInspectorTests
             ]);
         var session = OpenSession(image.Bytes);
 
-        Assert.Throws<BadImageFormatException>(
+        MalformedMetadataRootException error = Assert.Throws<
+            MalformedMetadataRootException>(
             () => session.MetadataImage(
                 MetadataRootSource.ReadyToRunManifest));
+        Assert.Equal(
+            MetadataRootMalformedReason.UnreadableMetadataStructure,
+            error.Reason);
+        Assert.Equal(
+            MetadataRootSource.ReadyToRunManifest,
+            error.RootSource);
+        Assert.IsType<BadImageFormatException>(error.InnerException);
         MetadataReaderProvider provider = GetOwnedManifestProvider(session);
         session.Dispose();
 
@@ -774,6 +800,24 @@ public sealed class ReadyToRunImageInspectorTests
         using var peReader = Open(
             MetadataImageOverviewTests.SelfWithCorruptTableStream());
         return peReader.GetMetadata().GetContent().ToArray();
+    }
+
+    static byte[] BuildCoffMetadataImage(byte[] metadata)
+    {
+        const int CoffHeaderSize = 20;
+        const int SectionHeaderSize = 40;
+        int metadataOffset = CoffHeaderSize + SectionHeaderSize;
+        byte[] image = new byte[metadataOffset + metadata.Length];
+
+        WriteUInt16(image, 0, 0x8664);
+        WriteUInt16(image, 2, 1);
+        ".cormeta"u8.CopyTo(image.AsSpan(CoffHeaderSize, 8));
+        WriteUInt32(image, CoffHeaderSize + 16, (uint)metadata.Length);
+        WriteUInt32(image, CoffHeaderSize + 20, (uint)metadataOffset);
+        WriteUInt32(image, CoffHeaderSize + 36, 0x40000040);
+        metadata.CopyTo(image, metadataOffset);
+
+        return image;
     }
 
     static MetadataReaderProvider GetOwnedManifestProvider(

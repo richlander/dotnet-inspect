@@ -1315,11 +1315,19 @@ machine formats.
 
 ## Implemented: ReadyToRun manifest metadata roots
 
-The raw projection accepts either metadata identity exposed by a PE image:
+The root-aware raw projection accepts two RVA-addressable provenance sources:
 
 - `Cli` names the CLI header's metadata directory.
 - `ReadyToRunManifest` names the validated section-112 extent issued by the
   sibling [ReadyToRun image projection](readytorun-image-projection.md).
+
+A COFF-only `.cormeta` section has neither a CLI header nor an RVA, so it is
+not assigned either provenance or represented by `MetadataRootInfo`. Existing
+source-less raw-metadata projection continues to inspect that SRM-supported
+input; root enumeration is empty and explicit `Cli` or
+`ReadyToRunManifest` selection returns null. Adding a file-offset-based COFF
+root identity would be a separate contract rather than overloading `Cli` or
+manufacturing an RVA.
 
 `MetadataRootInfo` is the join currency between those owners. Its RVA and size
 identify one declared physical extent, while its ordered `Sources` identify
@@ -1361,6 +1369,9 @@ root throws `MalformedMetadataRootException` carrying
 `ReadyToRunManifest` provenance; it never becomes an absent root. Conversely,
 an R2R discovery failure is retained for the manifest-root surface while the
 existing CLI-only methods continue to inspect valid CLI metadata.
+That typed manifest failure also covers malformed stream or table structure
+that SRM rejects after bounded root-prefix admission; the original SRM
+exception remains the cause.
 
 This contract does not recover a manifest root when the PE envelope itself is
 unconstructable. In particular, a malformed CLI data directory can make SRM's
@@ -1370,8 +1381,9 @@ directory, not recovery after the shared PE owner rejects its headers.
 
 `ReadyToRunImageInspectorTests` gates distinct and aliased roots, the
 compiler-produced CoreLib manifest, every root-aware metadata facet, root
-offset and size, malformed and SRM-section-boundary failures, CLI/R2R failure
-isolation, manifest-only images, and session lifetime.
+offset and size, malformed prefix/stream/table and SRM-section-boundary
+failures, CLI/R2R failure isolation, COFF source non-invention, manifest-only
+images, and session lifetime.
 `MetadataFormatAdmissionTests` gates the shared admission policy across every
 raw metadata entry point.
 

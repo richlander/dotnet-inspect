@@ -3,7 +3,7 @@ using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
-/// <summary>Why an assembly metadata root could not be classified.</summary>
+/// <summary>Why an assembly metadata root could not be inspected.</summary>
 public enum MetadataRootMalformedReason
 {
     /// <summary>The metadata directory could not be mapped from the PE image.</summary>
@@ -26,6 +26,12 @@ public enum MetadataRootMalformedReason
 
     /// <summary>The declared version field contains no null terminator.</summary>
     MissingVersionTerminator,
+
+    /// <summary>
+    /// The root prefix was admitted, but SRM rejected its metadata stream or
+    /// table structure while constructing the reader.
+    /// </summary>
+    UnreadableMetadataStructure,
 }
 
 /// <summary>

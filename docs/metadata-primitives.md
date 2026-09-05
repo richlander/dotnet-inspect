@@ -191,13 +191,15 @@ Acquisition or direct projection APIs whose established return shape has no
 failure arm throw `UnsupportedMetadataFormatException` carrying no artifact
 text for unsupported Windows Metadata and
 `MalformedMetadataRootException : BadImageFormatException`, which carries the
-classifier's exact `MetadataRootMalformedReason` under the same text
-constraint, for a malformed-root result. Typed query owners that have adopted
-the contract catch and preserve those distinct mechanisms as unsupported-input
-and malformed-input results. Within an adopted owner they must not translate
-either to `null`, an empty projection, or partial rows. The prohibition binds
-adopted owners; it is not a repository-wide guarantee, because adoption is
-staged and enforcement is deliberately partial.
+exact `MetadataRootMalformedReason` under the same text constraint. Most
+reasons are emitted by this classifier before SRM reader construction;
+Metadata-owned root readers additionally use `UnreadableMetadataStructure`
+when SRM rejects stream or table structure after that bounded admission. Typed
+query owners that have adopted the contract catch and preserve those distinct
+mechanisms as unsupported-input and malformed-input results. Within an adopted
+owner they must not translate either to `null`, an empty projection, or partial
+rows. The prohibition binds adopted owners; it is not a repository-wide
+guarantee, because adoption is staged and enforcement is deliberately partial.
 
 Descriptor selection is the one acquisition surface that carries the mechanism
 instead of throwing it. `ResolvedAssemblyReference.SelectFromPath` and
