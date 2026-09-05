@@ -418,6 +418,11 @@ use the task map in `AGENTS.md` to find the focused guidance for a change.
   timeout identity, and source-safe post-return stream failures. It consumes
   source-result identity; source eligibility, failover policy, cache behavior,
   and presentation remain with their focused owners.
+- [NuGet Gallery discovery](design/nuget-gallery-discovery.md): proposed
+  NuGetFetch-owned termless/type-filtered discovery, source ordering,
+  search-selector catalog, typed metadata observations, and Gallery-specific
+  row-delegation evidence. Row meaning, generic source contracts, and host
+  adoption remain with their focused owners.
 - [Version resolution](design/version-resolution.md): package/platform version and cache behavior.
 - [Cache concurrency and publication](design/cache-concurrency.md): process-local single-flight, atomic publication, dependency overlap, and filesystem guarantees.
 - [Skill guidance taste](../taste/skill-guidance.md): how to maintain the embedded agent skill.
