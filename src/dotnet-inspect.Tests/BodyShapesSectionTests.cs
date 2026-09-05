@@ -5,6 +5,7 @@ using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -23,6 +24,11 @@ namespace DotnetInspector.Tests;
 public sealed class BodyShapesSectionTests
 {
     static string FixturePath => typeof(BodyShapeFixture).Assembly.Location;
+
+    public BodyShapesSectionTests()
+    {
+        NuGetCache.Initialize("dotnet-inspect");
+    }
 
     [Fact]
     public async Task LibraryKindPredicate_AutoSelectsBodyShapesSection()

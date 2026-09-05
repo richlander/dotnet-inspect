@@ -72,6 +72,9 @@ The associated PropertyDef supplies the complete qualified property identity;
 the renderer does not parse accessor markers from the MethodDef name. An
 ordinary explicit method whose source name begins with `get_` or `set_` remains
 a method.
+Indexer status comes from the associated property's index parameters, not its
+name. Ordinary explicit properties named `Item` or `Chars` retain property
+syntax; actual indexer accessors retain their existing method form.
 Property return types come from structured signature evidence, not a prefix of
 the rendered method signature. A selected setter preserves the physical
 `IsExternalInit` return modifier as `init`, rather than widening it to `set`.
@@ -404,6 +407,8 @@ Release CLI tests prove:
 - an explicit property's qualified interface identity comes from its
   MethodSemantics-associated PropertyDef, including interface or namespace
   segments that themselves begin with `get_` or `set_`;
+- ordinary explicit `Item` and `Chars` getters/setters retain property syntax,
+  while actual indexers with custom accessor names retain method form;
 - projected accessors retain physical MethodDef modifiers such as `readonly`,
   including explicit-interface getter and setter property declarations;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB

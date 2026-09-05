@@ -11312,6 +11312,53 @@ public partial class CommandExecutionTests
             output);
     }
 
+    [Theory]
+    [InlineData("Item", 1)]
+    [InlineData("Item", 2)]
+    [InlineData("Chars", 1)]
+    [InlineData("Chars", 2)]
+    public async Task Member_SourceDiff_ExplicitItemAndCharsRemainProperties(
+        string propertyName,
+        int accessorOrdinal)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffPropertyShapeFixture).FullName!,
+            $"{typeof(ISourceDiffPropertyShapeFixture).FullName}.{propertyName}:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        string declaration = $"int ISourceDiffPropertyShapeFixture.{propertyName}";
+        Assert.Contains(
+            accessorOrdinal == 1
+                ? $"+{declaration} => _value;"
+                : $" {declaration}\n",
+            output.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain($".get_{propertyName}(", output);
+        Assert.DoesNotContain($".set_{propertyName}(", output);
+    }
+
+    [Theory]
+    [InlineData(1, "int ISourceDiffIndexerFixture.get_Lookup(int index)")]
+    [InlineData(2, "void ISourceDiffIndexerFixture.set_Lookup(int index, int value)")]
+    public async Task Member_SourceDiff_ExplicitIndexerRetainsMethodForm(
+        int accessorOrdinal,
+        string expectedDeclaration)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(SourceDiffIndexerFixture).FullName!,
+            $"{typeof(ISourceDiffIndexerFixture).FullName}.Item:{accessorOrdinal}",
+            "--library", TestAssemblyPath,
+            "--all", "-S", "Source Diff", "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("+++ Decompiled comparison", output);
+        Assert.Contains($"+{expectedDeclaration}", output);
+    }
+
     [Fact]
     public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
     {
@@ -35296,6 +35343,8 @@ public interface ISourceDiffPropertyShapeFixture
     (int Count, string Name) Pair { get; }
     ref readonly int Reference { get; }
     int Initial { get; init; }
+    int Item { get; set; }
+    int Chars { get; set; }
 }
 
 public sealed class SourceDiffPropertyShapeFixture : ISourceDiffPropertyShapeFixture
@@ -35316,6 +35365,35 @@ public sealed class SourceDiffPropertyShapeFixture : ISourceDiffPropertyShapeFix
     {
         get => _value;
         init => _value = value;
+    }
+
+    int ISourceDiffPropertyShapeFixture.Item
+    {
+        get => _value;
+        set => _value = value;
+    }
+
+    int ISourceDiffPropertyShapeFixture.Chars
+    {
+        get => _value;
+        set => _value = value;
+    }
+}
+
+public interface ISourceDiffIndexerFixture
+{
+    [System.Runtime.CompilerServices.IndexerName("Lookup")]
+    int this[int index] { get; set; }
+}
+
+public sealed class SourceDiffIndexerFixture : ISourceDiffIndexerFixture
+{
+    int _value;
+
+    int ISourceDiffIndexerFixture.this[int index]
+    {
+        get => _value + index;
+        set => _value = value - index;
     }
 }
 

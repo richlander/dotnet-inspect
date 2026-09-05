@@ -1529,7 +1529,13 @@ public static class MemberBodyProducer
             if (separator <= 0)
                 return null;
             string propName = name[(separator + 1)..];
-            if (propName.Length == 0 || propName is "Item" or "Chars")
+            if (propName.Length == 0)
+                return null;
+            var signature = GuardedSignatureText.PropertyText(
+                reader,
+                property,
+                GenericContext.ForType(reader, type));
+            if (!signature.ParameterTypes.IsEmpty)
                 return null;
             return $"{EscapeQualifiedName(name[..separator])}.{ContainedIdentifier(propName)}";
         }
