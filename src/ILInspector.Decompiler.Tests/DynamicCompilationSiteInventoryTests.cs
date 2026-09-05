@@ -65,7 +65,7 @@ public sealed class DynamicCompilationSiteInventoryTests
 
             // Cross-assembly reference seam.
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
-            ["AuthoredRebuildFidelityTests.cs"] = (1, "Cross-assembly snapshot seam: replaces a same-identity dependency after RTS acquisition and proves authored replay uses the frozen closure."),
+            ["AuthoredRebuildFidelityTests.cs"] = (2, "Cross-assembly snapshot + portable-PDB seams: replaces a same-identity dependency after RTS acquisition, and emits checksum-bearing PDB fixtures for live source-acquisition outcomes."),
             ["ReferenceEqualityMetadataFactsTests.cs"] = (1, "Cross-assembly version-pair seam: builds same-name hierarchy assemblies with distinct versions to gate exact visited identity."),
 
             // Product-output validity under varying compilation options.
@@ -135,6 +135,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #5495 adds a second CompilerFeatureOptionsTests.cs site (1 -> 2):
     //     directly obtains rejecting diagnostics to prove legacy and updated
     //     memory-safety replay remain observably distinct under Roslyn 5.9.
+    //   #5473 adds a second site to AuthoredRebuildFidelityTests.cs (1 -> 2):
+    //     emits checksum-bearing portable-PDB fixtures for live source
+    //     acquisition, absence, and failure gates.
     //   Combined: 44 files, 55 sites.
     const int ExpectedDynamicFiles = 44;
     const int ExpectedDynamicSites = 55;

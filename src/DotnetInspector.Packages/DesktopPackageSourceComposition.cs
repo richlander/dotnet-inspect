@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
 using DotnetInspector.Core;
 using InertText;
@@ -63,8 +62,8 @@ public sealed class PackageVersionDiscoveryResult
 }
 
 /// <summary>
-/// Owns source associations, plugin-authentication contexts, and V3 routes for
-/// one desktop package-composition lifetime.
+/// Owns source associations, HTTP and local routes, and HTTP authentication
+/// contexts for one desktop package-composition lifetime.
 /// </summary>
 public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 {
@@ -240,19 +239,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 break;
             }
 
-            if (!Uri.TryCreate(
-                    source.Url,
-                    UriKind.Absolute,
-                    out Uri? endpoint)
-                || endpoint.Scheme is not ("http" or "https"))
-            {
-                failures.Add(new PackageAuthorityFailure(
-                    PackageSourceDisplay.ForDiagnostics(source),
-                    PackageAuthorityFailureKind.Unsupported,
-                    $"Package source {PackageSourceDisplay.ForDiagnostics(source)} does not support version enumeration in this host."));
-                continue;
-            }
-
             if (!ConfiguredPackageAuthorityKey.TryCreate(
                     source,
                     out ConfiguredPackageAuthorityKey? authorityKey,
@@ -269,7 +255,8 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
 
             bool isGallery =
                 authorityKey.IsNuGetOrg && source.Credential is null;
-            if (!isGallery
+            if (authorityKey.HttpEndpoint is { } endpoint
+                && !isGallery
                 && source.Credential is null
                 && !PluginAuthenticationContext.CanScopeProviderQuery(
                     endpoint))
@@ -286,7 +273,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
             AuthorityEntry authority = GetOrCreateAuthority(
                 source,
                 authorityKey,
-                endpoint,
                 isGallery);
             log?.Invoke(
                 $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(source)}.");
@@ -406,7 +392,6 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
     private AuthorityEntry GetOrCreateAuthority(
         PackageSource source,
         ConfiguredPackageAuthorityKey key,
-        Uri endpoint,
         bool isGallery)
     {
         if (_authorities.TryGetValue(key, out AuthorityEntry? existing))
@@ -426,29 +411,36 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
         IPackageSourceClient? client = null;
         try
         {
-            transport = _createTransport(source, isGallery);
-            if (isGallery)
+            if (key.LocalIdentity is { } local)
             {
-                client = PackageSourceClientFactory.CreateGallery(
-                    association,
-                    transport,
-                    _options);
+                client = PackageSourceClientFactory.Create(local, association);
             }
             else
             {
-                if (source.Credential is null)
+                transport = _createTransport(source, isGallery);
+                if (isGallery)
                 {
-                    owner = PluginAuthenticationContextOwner.Create(
+                    client = PackageSourceClientFactory.CreateGallery(
                         association,
-                        endpoint,
-                        _credentialSource);
+                        transport,
+                        _options);
                 }
-                client = PackageSourceClientFactory.Create(
-                    source,
-                    association,
-                    transport,
-                    _options,
-                    owner?.Context);
+                else
+                {
+                    if (source.Credential is null)
+                    {
+                        owner = PluginAuthenticationContextOwner.Create(
+                            association,
+                            key.HttpEndpoint!,
+                            _credentialSource);
+                    }
+                    client = PackageSourceClientFactory.Create(
+                        source,
+                        association,
+                        transport,
+                        _options,
+                        owner?.Context);
+                }
             }
 
             var authority =
@@ -661,123 +653,4 @@ public sealed class DesktopPackageSourceComposition : IAsyncDisposable
                 ExceptionDispatchInfo.Capture(clientFailure).Throw();
         }
     }
-}
-
-internal sealed class ConfiguredPackageAuthorityKey :
-    IEquatable<ConfiguredPackageAuthorityKey>
-{
-    private static readonly ConfiguredPackageAuthorityKey NuGetOrg =
-        Create(PackageSource.NuGetOrg);
-
-    private readonly string _value;
-
-    private ConfiguredPackageAuthorityKey(string value) => _value = value;
-
-    public static ConfiguredPackageAuthorityKey Create(PackageSource source)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        if (TryCreate(source, out ConfiguredPackageAuthorityKey? key, out _))
-            return key;
-
-        throw new ArgumentException(
-            "The package source endpoint is unusable.",
-            nameof(source));
-    }
-
-    public static bool TryCreate(
-        PackageSource source,
-        [NotNullWhen(true)] out ConfiguredPackageAuthorityKey? key,
-        [NotNullWhen(false)] out string? problem)
-    {
-        ArgumentNullException.ThrowIfNull(source);
-        key = null;
-        problem = null;
-        if (LocalPackageSourceIdentity.IsLocalSource(source.Url))
-        {
-            try
-            {
-                key = new ConfiguredPackageAuthorityKey(
-                    $"local\n{LocalPackageSourceIdentity.CreateAbsolute(source.Url).PersistentValue}");
-                return true;
-            }
-            catch (Exception exception) when (exception is
-                ArgumentException
-                or IOException
-                or NotSupportedException)
-            {
-                problem = "The local package source path is unusable.";
-                return false;
-            }
-        }
-
-        int schemeEnd = source.Url.IndexOf(
-            "://",
-            StringComparison.Ordinal);
-        if (schemeEnd <= 0
-            || !Uri.TryCreate(
-                source.Url,
-                UriKind.Absolute,
-                out Uri? endpoint)
-            || endpoint.Scheme is not ("http" or "https")
-            || !NuGetHttpRequest.HasValidRawText(
-                source.Url,
-                allowNonAscii: true)
-            || !NuGetSourceRequest.TryEndpointUrl(source.Url, out _)
-            || !NuGetSourceRequest.CanProjectEndpoint(endpoint))
-        {
-            problem =
-                "The package source service-index endpoint is unusable.";
-            return false;
-        }
-
-        string host;
-        try
-        {
-            host = endpoint.HostNameType == UriHostNameType.IPv6
-                ? $"[{endpoint.IdnHost}]"
-                : endpoint.IdnHost.ToLowerInvariant();
-        }
-        catch (UriFormatException)
-        {
-            problem =
-                "The package source service-index endpoint has an unusable host.";
-            return false;
-        }
-
-        int suffixStart = source.Url.IndexOfAny(
-            ['/', '?', '#'],
-            schemeEnd + 3);
-        string suffix = suffixStart < 0
-            ? string.Empty
-            : source.Url[suffixStart..];
-        int pathEnd = suffix.IndexOfAny(['?', '#']);
-        if (pathEnd < 0)
-            pathEnd = suffix.Length;
-        string path = suffix[..pathEnd];
-        if (path.EndsWith("/", StringComparison.Ordinal))
-            path = path[..^1];
-        string remainder = suffix[pathEnd..];
-        string origin =
-            $"{endpoint.Scheme.ToLowerInvariant()}://{host}:{endpoint.Port}";
-        key = new ConfiguredPackageAuthorityKey(
-            $"{origin}{NuGetCredentialScope.NormalizeEscapes(path)}"
-            + NuGetCredentialScope.NormalizeEscapes(remainder));
-        return true;
-    }
-
-    public bool IsNuGetOrg => Equals(NuGetOrg);
-
-    public bool Equals(ConfiguredPackageAuthorityKey? other) =>
-        other is not null
-        && string.Equals(_value, other._value, StringComparison.Ordinal);
-
-    public override bool Equals(object? obj) =>
-        obj is ConfiguredPackageAuthorityKey other && Equals(other);
-
-    public override int GetHashCode() =>
-        StringComparer.Ordinal.GetHashCode(_value);
-
-    public override string ToString() =>
-        nameof(ConfiguredPackageAuthorityKey);
-
 }

@@ -247,6 +247,25 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_ClassifiesSemanticOperandDiff()
+    {
+        var result = new ReturnToSenderSourceProbeResult(
+            new ReturnToSender.RequestedTarget("Sample.Widget", "M", 0),
+            ReturnToSenderSourceOutcome.ValidDifferent,
+            FidelityCheck.CompileBackStatus.OperandDiff,
+            "valid_different.semantic_operand_diff.syntax",
+            Detail: null,
+            SourcePath: "Widget.cs",
+            ExpectedBody: "return 1;",
+            ActualBody: "return 2;");
+
+        SourceCorrespondenceFinding finding =
+            Assert.Single(ReturnToSenderSourceProbe.BuildFindings([result]));
+
+        Assert.Equal("semantic-operand-diff", finding.Category);
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_DoesNotHideResidualInsideCheckedContext()
     {
         var reason = ReturnToSenderSourceProbe.ClassifyValidDifference(

@@ -598,9 +598,8 @@ fi
 # That matches every model directory's actual layout today, but a file placed
 # directly in the root itself (mindepth 1, no model subdirectory) or nested
 # any deeper (mindepth 3+) would be silently invisible to that loop, while
-# still matching eng/ci-detect-changes.sh's classification (its `case`
-# patterns span `/`, so they are deliberately broader than this script's
-# layout assumption). Fail loudly rather than silently skip such a file.
+# still matching the planner's deliberately broader TLA+ routing patterns.
+# Fail loudly rather than silently skip such a file.
 if [ "$SCOPE_MODE" = all ]; then
   for root in "${MODEL_ROOTS[@]}"; do
     [ -d "$root" ] || continue

@@ -4,13 +4,11 @@ namespace CiChangeDetection.Planning;
 
 /// <summary>
 /// The planner's path and event routing policy. Every repository path rule
-/// that decides whether a CI validation applies lives here, ported from
-/// <c>eng/ci-detect-changes.sh</c> including its first-match <c>case</c>
-/// semantics, in which <c>*</c> crosses <c>/</c>.
+/// that decides whether a CI validation applies lives here. Patterns retain
+/// the repository routing convention in which <c>*</c> crosses <c>/</c>.
 /// </summary>
 internal sealed class ChangeRoutingPolicy
 {
-    private const string DetectionScript = "eng/ci-detect-changes.sh";
     private const string TlaExpectedExitCodes =
         "eng/tla-expected-exit-codes.txt";
 
@@ -88,11 +86,6 @@ internal sealed class ChangeRoutingPolicy
         RoutingState state = default;
         foreach (ChangeRecord record in evidence.Records)
         {
-            if (BytePattern.Matches(record.Path, DetectionScript))
-            {
-                return RoutingSelections.All;
-            }
-
             RoutePath(record.Path, ref state);
         }
 
@@ -153,7 +146,6 @@ internal sealed class ChangeRoutingPolicy
         BytePattern.MatchesAny(
             path,
             ".github/workflows/ci.yml",
-            DetectionScript,
             "eng/run-tla-checks.sh",
             "eng/test-tla-checks.sh",
             "eng/tla-module-overrides.txt",
@@ -200,19 +192,19 @@ internal sealed class ChangeRoutingPolicy
         {
             state.Code = true;
         }
-        else if (BytePattern.Matches(path, "fixtures/*"))
-        {
-            state.Code = true;
-        }
         else if (BytePattern.MatchesAny(
             path,
             "tests/ILInspector.MetadataPrimitives.PlatformProbe/*",
             "tests/DotnetInspector.Artifacts.Local.PlatformProbe/*",
-            "tests/ILInspector.JsExportSurface.TypeScriptFixtures/*",
+            "fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/*",
             "tests/ILInspector.JsExportSurface.Tests/Fixtures/ts-jsexport-runtime/*"))
         {
             state.Code = true;
             state.Web = true;
+        }
+        else if (BytePattern.Matches(path, "fixtures/*"))
+        {
+            state.Code = true;
         }
         else if (BytePattern.Matches(path, "tests/*"))
         {
@@ -284,6 +276,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-ts-jsexport-typescript.sh",
             "eng/generate-inspect-web-multi-facade-canary.sh",
             "eng/test-inspect-web-multi-facade-canary.sh",
+            "eng/generate-inspect-web-managed-operation-bridge-canary.sh",
+            "eng/test-inspect-web-managed-operation-bridge-canary.sh",
             "eng/validate-inspect-web-promotion.cs",
             "eng/validate-inspect-web-promotion.sh",
             "eng/generate-inspect-web-engine-facade.sh",

@@ -3070,8 +3070,9 @@ public sealed class BrowserEngineBoundaryTests
             "Identity.Mismatch",
             PackagePair(surfaceImage, differentImage, "Identity.Pair.dll"));
 
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
-            () => BrowserPackageWorkspace.OpenScope([mismatched]));
+        PackageAssemblyRoleCorrespondenceException failure =
+            Assert.Throws<PackageAssemblyRoleCorrespondenceException>(
+                () => BrowserPackageWorkspace.OpenScope([mismatched]));
 
         Assert.Contains(
             "different assembly identities",
@@ -6819,9 +6820,10 @@ public sealed class BrowserEngineBoundaryTests
     {
         internal RecordingReservation Reservation { get; } = new();
 
-        public IPackagePayloadReservation Reserve(
-            PackagePayloadTransfer transfer) =>
-            Reservation;
+        public ValueTask<IPackagePayloadReservation> ReserveAsync(
+            PackagePayloadTransfer transfer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult<IPackagePayloadReservation>(Reservation);
     }
 
     sealed class RecordingReservation : IPackagePayloadReservation

@@ -116,6 +116,7 @@ static class Program
         bool returnToSenderCatalog = false;
         bool returnToSenderMarkout = false;
         bool returnToSenderSourceProbe = false;
+        bool sourceCorrespondenceCensus = false;
         bool authoredRebuildFidelity = false;
         string? returnToSenderFixtureGroup = null;
         bool fidelityTimings = false;
@@ -274,7 +275,10 @@ static class Program
                     case "--return-to-sender-ab": returnToSenderAb = true; break;
                     case "--return-to-sender-markout": returnToSenderMarkout = true; break;
                     case "--return-to-sender-source-probe": returnToSenderSourceProbe = true; break;
-                    case "--source-correspondence-census": returnToSenderSourceProbe = true; break;
+                    case "--source-correspondence-census":
+                        returnToSenderSourceProbe = true;
+                        sourceCorrespondenceCensus = true;
+                        break;
                     case "--authored-rebuild-fidelity": authoredRebuildFidelity = true; break;
                     case "--return-to-sender-fixtures": returnToSenderFixtureGroup = NextArg(args, ref i, flag); break;
                     case "--return-to-sender-catalog":
@@ -678,7 +682,23 @@ static class Program
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
-            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json, emitHarnessReport);
+        {
+            return sourceCorrespondenceCensus
+                ? ReturnToSenderSourceProbe.RunSourceCorrespondenceCensus(
+                    assemblies,
+                    cap,
+                    maxExamples,
+                    json,
+                    sourceRepositories,
+                    packageInputs.PackageCoordinates,
+                    emitHarnessReport)
+                : ReturnToSenderSourceProbe.Run(
+                    assemblies,
+                    cap,
+                    maxExamples,
+                    json,
+                    emitHarnessReport);
+        }
 
         if (authoredRebuildFidelity)
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
@@ -1905,9 +1925,14 @@ static class Program
         return result;
     }
 
-    sealed class PackageAssemblyInputs(List<string> assemblies, List<string> tempDirs) : IDisposable
+    sealed class PackageAssemblyInputs(
+        List<string> assemblies,
+        Dictionary<string, ReturnToSenderSourceProbe.NuGetPackageCoordinate> packageCoordinates,
+        List<string> tempDirs) : IDisposable
     {
         public IReadOnlyList<string> Assemblies => assemblies;
+        public IReadOnlyDictionary<string, ReturnToSenderSourceProbe.NuGetPackageCoordinate>
+            PackageCoordinates => packageCoordinates;
 
         public void Dispose()
         {
@@ -1922,6 +1947,9 @@ static class Program
         NuGetCache.Initialize("dotnet-inspect");
 
         var assemblies = new List<string>();
+        var packageCoordinates =
+            new Dictionary<string, ReturnToSenderSourceProbe.NuGetPackageCoordinate>(
+                StringComparer.OrdinalIgnoreCase);
         var tempDirs = new List<string>();
         using var httpClient = HttpClientFactory.CreateClient();
         foreach (var package in packages)
@@ -1971,9 +1999,16 @@ static class Program
 
             Console.Error.WriteLine($"Package input: {extracted.PackageName}@{extracted.Version} ({selectedTfm ?? "unknown TFM"}) -> {selectedPath}");
             assemblies.Add(selectedPath);
+            if (extracted.PackageName is { Length: > 0 } resolvedPackageName
+                && extracted.Version is { Length: > 0 } resolvedPackageVersion)
+            {
+                packageCoordinates[selectedPath] = new(
+                    resolvedPackageName,
+                    resolvedPackageVersion);
+            }
         }
 
-        return new PackageAssemblyInputs(assemblies, tempDirs);
+        return new PackageAssemblyInputs(assemblies, packageCoordinates, tempDirs);
     }
 
     static bool IsManaged(string path) => ManagedReferenceFilter.IsManagedAssembly(path);
@@ -2245,9 +2280,12 @@ static class Program
                                 source_unavailable, and unsupported_target buckets.
                                 Use --json for machine-readable row output.
           --source-correspondence-census
-                                alias for --return-to-sender-source-probe that
-                                emphasizes the Finding-style source-correspondence
-                                projection emitted in --json output.
+                                acquire checksum-verified PDB/SourceLink source for
+                                each selected target and feed it to the comparison-only
+                                source-correspondence classifier. Reports acquisition
+                                as complete, absent, or failed beside the independent
+                                RTS outcome; acquisition failure exits non-zero,
+                                while RTS-invalid rows remain census data.
           --authored-rebuild-fidelity
                                 checksum-verify authored SourceLink bodies, rebuild
                                 each in the same RTS shell, and compare authored
@@ -2278,7 +2316,8 @@ static class Program
           --package-assembly <dll>
                                 select a specific assembly inside --package.
           --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus,
-                                --verify-authored-corpus, or
+                                --verify-authored-corpus,
+                                --source-correspondence-census, or
                                 --source-oracle-candidates: read authored source
                                 from a local git clone (checksum-arbitrated)
                                 instead of the network; repeatable. Point at this

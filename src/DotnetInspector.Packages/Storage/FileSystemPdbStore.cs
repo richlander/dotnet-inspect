@@ -31,18 +31,15 @@ public sealed class FileSystemPdbStore : IPdbStore
     public ValueTask<Stream?> TryOpenAsync(string key, CancellationToken cancellationToken = default)
     {
         var path = ResolvePath(key);
-        if (!File.Exists(path))
-            return ValueTask.FromResult<Stream?>(null);
-
         try
         {
             return ValueTask.FromResult<Stream?>(File.OpenRead(path));
         }
-        catch (IOException)
+        catch (FileNotFoundException)
         {
             return ValueTask.FromResult<Stream?>(null);
         }
-        catch (UnauthorizedAccessException)
+        catch (DirectoryNotFoundException)
         {
             return ValueTask.FromResult<Stream?>(null);
         }

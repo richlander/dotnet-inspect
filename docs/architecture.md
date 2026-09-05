@@ -23,6 +23,8 @@ Authority is intentionally distributed:
   contracts.
 - [CLI host architecture](cli-architecture.md) describes command-host
   composition without treating the CLI as the whole product.
+- [Decompiler architecture](decompiler-architecture.md) maps the decompiler
+  implementation, host integration, and testing infrastructure.
 
 ## Essential shape
 
@@ -121,6 +123,11 @@ alphabetically.
 | `DotnetInspector.Packages` | Package adapter | Package archives, package/source caches, extraction, and version acquisition. | [Version resolution](design/version-resolution.md) |
 | `DotnetInspector.Services` | Shared services | Reusable acquisition and resolution services over explicit host policy. | The focused acquisition, package, platform, PDB, and source designs |
 
+Within Services, `LocalRepoSourceAcquisition` owns [local repository source
+acquisition](design/local-repository-source-acquisition.md): checksum-backed
+substitution of Git blob bytes for one PDB source request. PDB acquisition
+retains the surrounding source-selection and fallback policy.
+
 The artifact floor is intentionally package- and Metadata-free. Its contracts,
 local adapter, and workspace session are implemented migration foundations, not
 the universal CLI acquisition path. The current package-free fixture consumes
@@ -190,7 +197,7 @@ referencing the CLI assembly.
 
 | Host | Place in flow | Role | Primary guide |
 | ---- | ------------- | ---- | ------------- |
-| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity, audited membership, discovery, and lookup shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md) |
+| `src/DotnetInspector.Ecosystems` | Application catalog | Static package-set identity and membership, ecosystem-pack metadata, and lazy product-demo sources shared by the product front ends without entering reusable infrastructure. | [Package Set Registry](design/package-set-registry.md), [Static Ecosystem Packs](design/ecosystem-packs.md), [Workspace Definitions](design/workspace-definitions.md#product-demos-are-closed-section-presets) |
 | `src/dotnet-inspect` | Product host | Complete command-line host, including source resolution, command orchestration, section selection, output models, and rendering. | [CLI host architecture](cli-architecture.md) |
 | `prototypes/inspect-web` | Product host | Browser/Wasm host and product UI over reusable engine and focused UI-control contracts. | [Inspect Web UI](design/inspect-web-ui.md) composition map, [SlideStrip](design/inspect-web-slide-strip.md) reusable control, [operation authority](design/inspect-web-operation-authority.md) |
 | `tools/DecompilerHarness` | Correctness harness | Decompiler correctness, compile-back, corpus, and independent-oracle orchestration. | [Decompiler correctness pipeline](decompiler-correctness-pipeline.md) |
@@ -198,6 +205,20 @@ referencing the CLI assembly.
 
 Harnesses and fixtures may prove product behavior, but they do not manufacture
 or repair the product evidence they measure.
+
+Within `tools/DecompilerHarness`, `AuthoredCorpusHistoryStore` is the focused
+owner for admitting complete EVIL benchmark artifacts as durable observations
+and validating the ordered committed sequence. Its
+[committed authored-corpus history](design/authored-corpus-history.md) contract
+separates persistence evidence from benchmark production, methodology,
+ratchet comparison, and history-card rendering.
+
+`SourceOracleCandidateLedger` is the focused harness owner for complete
+candidate-file accounting and deterministic next-enrollment ranking over one
+accepted source-oracle baseline. Its
+[candidate-ledger contract](design/source-oracle-candidate-ledger.md) consumes
+PDB mapping, acquisition, evaluation, syntax-inventory, and provenance evidence
+without taking ownership of those producers or of manifest enrollment.
 
 Within the CLI host, `PackageIndexCache` is a focused derived-result owner. Its
 [package index cache](design/package-index-cache.md) contract defines when a
@@ -307,7 +328,7 @@ faithfulness claims. This map does not duplicate those evolving gate lists.
 | Portable identities or interchange formats | [Inspection space currencies](inspection-space.md#core-currencies), [workspace definitions](design/workspace-definitions.md), [nuspec compatibility](design/nuspec-structural-compatibility.md) | `CSharpText.XmlDocumentationNotation`, `DotnetInspector.Queries.Definitions.WorkspaceSharePacket*`, `DotnetInspector.Services.NuspecParser` |
 | Source and PDB behavior | [PDB acquisition](pdb-acquisition.md) | `ILInspector.Metadata`, `ILInspector.SourceLink`, `SourceLinkFetch`, Services |
 | IL analysis, graphs, or Findings | [Finding adoption](design/finding-adoption.md), relevant focused Analysis or graph design | `ILInspector.Instructions`, `ILInspector.ControlFlow`, `ILInspector.Analysis`, `ILInspector.CallGraph`, `ILInspector.Findings` |
-| Decompilation or implementation comparison | [Decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
+| Decompilation or implementation comparison | [Decompiler architecture](decompiler-architecture.md), [decompiler correctness](decompiler-correctness-pipeline.md), [implementation diff](design/implementation-diff.md) | `ILInspector.Decompiler`, `ILInspector.ILDiff`, `ILInspector.Research` |
 | CLI command or output behavior | [CLI host architecture](cli-architecture.md), [progressive disclosure](design/progressive-disclosure.md), [output shapes](design/output-shapes.md) | `src/dotnet-inspect` |
 | Browser interaction | [Inspect Web UI](design/inspect-web-ui.md) composition map; see [navigation presentation](design/inspect-web-navigation-presentation.md), [navigation consumer](design/inspect-web-navigation-consumer.md), [shell interaction](design/inspect-web-shell-interaction.md), and [surface composition](design/inspect-web-surface-composition.md) | `prototypes/inspect-web` |
 

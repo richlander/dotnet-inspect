@@ -213,22 +213,22 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
-    public async Task ThrowingProgressCallback_RejectsAfterRelease()
+    public async Task ThrowingEventCallback_RejectsAfterRelease()
     {
         var bridge = new BrowserManagedOperationBridge();
         BrowserManagedCancellationRequestResult? internalCancellation = null;
-        IBrowserManagedProgress<int>? retainedReporter = null;
+        IBrowserManagedOperationEvents<int>? retainedReporter = null;
         int callbackCalls = 0;
 
         Task<Result> operation = Run(
             bridge,
-            "progress-failure",
-            (token, progress) =>
+            "event-failure",
+            (token, events) =>
             {
-                retainedReporter = progress;
-                progress.Report(1);
+                retainedReporter = events;
+                events.Report(1);
                 internalCancellation = bridge.RequestCancellation(
-                    Id("progress-failure"),
+                    Id("event-failure"),
                     BrowserManagedOperationCancelReason.User);
                 Assert.True(token.IsCancellationRequested);
                 return Task.FromResult(Success(1));
@@ -236,15 +236,15 @@ public sealed class BrowserManagedOperationBridgeTests
             _ =>
             {
                 callbackCalls++;
-                throw new CallbackFailure("progress");
+                throw new CallbackFailure("event");
             });
 
         BrowserManagedOperationBoundaryException failure =
             await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
                 () => operation);
 
-        Assert.Equal("progress-callback", failure.FailureKind);
-        Assert.Equal("progress", Assert.IsType<CallbackFailure>(failure.InnerException).Message);
+        Assert.Equal("event-callback", failure.FailureKind);
+        Assert.Equal("event", Assert.IsType<CallbackFailure>(failure.InnerException).Message);
         Assert.Equal(
             BrowserManagedOperationCancelReason.FeatureObserverFailed,
             Assert.IsType<
@@ -257,12 +257,12 @@ public sealed class BrowserManagedOperationBridgeTests
         Assert.Equal(0, bridge.ActiveCount);
         Assert.IsType<BrowserManagedCancellationRequestResult.NotActive>(
             bridge.RequestCancellation(
-                Id("progress-failure"),
+                Id("event-failure"),
                 BrowserManagedOperationCancelReason.User));
     }
 
     [Fact]
-    public async Task Settlement_WaitsForInFlightProgressCallout()
+    public async Task Settlement_WaitsForInFlightEventCallout()
     {
         var bridge = new BrowserManagedOperationBridge();
         var bodyRelease = NewSignal();
@@ -270,14 +270,14 @@ public sealed class BrowserManagedOperationBridgeTests
         var callbackRelease = new ManualResetEventSlim();
         CancellationToken testCancellation =
             TestContext.Current.CancellationToken;
-        IBrowserManagedProgress<int>? reporter = null;
+        IBrowserManagedOperationEvents<int>? reporter = null;
 
         Task<Result> operation = Run(
             bridge,
             "drain",
-            async (_, progress) =>
+            async (_, events) =>
             {
-                reporter = progress;
+                reporter = events;
                 await bodyRelease.Task;
                 return Success(1);
             },
@@ -305,7 +305,7 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
-    public async Task InFlightProgressFailure_SignalsTokenAfterSettlementStarts()
+    public async Task InFlightEventFailure_SignalsTokenAfterSettlementStarts()
     {
         var settlementWaiting = new ManualResetEventSlim();
         var bodyResult = new TaskCompletionSource<BodyResult>();
@@ -318,17 +318,17 @@ public sealed class BrowserManagedOperationBridgeTests
             });
         CancellationToken operationToken = default;
         CancellationTokenRegistration tokenRegistration = default;
-        IBrowserManagedProgress<int>? reporter = null;
+        IBrowserManagedOperationEvents<int>? reporter = null;
         int tokenCallbacks = 0;
 
         Task<Result> operation = Run(
             bridge,
-            "settling-progress-failure",
-            (token, progress) =>
+            "settling-event-failure",
+            (token, events) =>
             {
                 operationToken = token;
                 tokenRegistration = token.Register(() => tokenCallbacks++);
-                reporter = progress;
+                reporter = events;
                 return bodyResult.Task;
             },
             _ =>
@@ -338,7 +338,7 @@ public sealed class BrowserManagedOperationBridgeTests
                     settlementWaiting.Wait(
                         TimeSpan.FromSeconds(5),
                         testCancellation));
-                throw new CallbackFailure("settling-progress");
+                throw new CallbackFailure("settling-event");
             });
         Assert.NotNull(reporter);
 
@@ -348,9 +348,9 @@ public sealed class BrowserManagedOperationBridgeTests
             await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
                 () => operation);
         tokenRegistration.Dispose();
-        Assert.Equal("progress-callback", failure.FailureKind);
+        Assert.Equal("event-callback", failure.FailureKind);
         Assert.Equal(
-            "settling-progress",
+            "settling-event",
             Assert.IsType<CallbackFailure>(failure.InnerException).Message);
         Assert.True(operationToken.IsCancellationRequested);
         Assert.Equal(1, tokenCallbacks);
@@ -368,7 +368,7 @@ public sealed class BrowserManagedOperationBridgeTests
                 var settlementWaiting = new ManualResetEventSlim();
                 CancellationToken testCancellation =
                     TestContext.Current.CancellationToken;
-                IBrowserManagedProgress<int>? reporter = null;
+                IBrowserManagedOperationEvents<int>? reporter = null;
                 bool drainSignaled = false;
                 bool cleanupRanOnCalloutStack = false;
                 var bridge = new BrowserManagedOperationBridge(
@@ -384,9 +384,9 @@ public sealed class BrowserManagedOperationBridgeTests
                 operation = Run(
                     bridge,
                     "single-thread-drain",
-                    (_, progress) =>
+                    (_, events) =>
                     {
-                        reporter = progress;
+                        reporter = events;
                         return bodyResult.Task;
                     },
                     _ =>
@@ -520,7 +520,7 @@ public sealed class BrowserManagedOperationBridgeTests
                 CleanupCompleted = stage =>
                 {
                     if (stage is not BrowserManagedOperationCleanupStage
-                        .ProgressCallback)
+                        .EventCallback)
                     {
                         return;
                     }
@@ -615,7 +615,7 @@ public sealed class BrowserManagedOperationBridgeTests
                     },
                     static _ => throw new CallbackFailure("primary")));
 
-        Assert.Equal("progress-callback", failure.FailureKind);
+        Assert.Equal("event-callback", failure.FailureKind);
         Assert.Equal("primary", Assert.IsType<CallbackFailure>(failure.InnerException).Message);
         Assert.Equal(4, failure.SecondaryFailures.Count);
         Assert.All(
@@ -625,23 +625,23 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
-    public async Task HealthyTerminalPaths_CloseRetainedProgressCallback()
+    public async Task HealthyTerminalPaths_CloseRetainedEventCallback()
     {
         foreach (string terminal in new[] { "succeeded", "failed", "canceled" })
         {
             var bridge = new BrowserManagedOperationBridge();
             var started = NewSignal();
             var release = NewSignal();
-            IBrowserManagedProgress<int>? reporter = null;
+            IBrowserManagedOperationEvents<int>? reporter = null;
             int callbackCalls = 0;
             string operationId = $"callback-{terminal}";
             Task<Result> operation = Run(
                 bridge,
                 operationId,
-                async (_, progress) =>
+                async (_, events) =>
                 {
-                    reporter = progress;
-                    progress.Report(1);
+                    reporter = events;
+                    events.Report(1);
                     started.SetResult();
                     await release.Task;
                     return terminal == "failed"
@@ -667,7 +667,7 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
-    public async Task ProgressFailure_StillClassifiesBodyObservationOnce()
+    public async Task EventFailure_StillClassifiesBodyObservationOnce()
     {
         var bridge = new BrowserManagedOperationBridge();
         int classificationCalls = 0;
@@ -675,10 +675,10 @@ public sealed class BrowserManagedOperationBridgeTests
         Task<Result> operation =
             bridge.RunAsync<int, string, string, int>(
                 Id("inert-classification"),
-                static _ => throw new CallbackFailure("progress"),
-                static (_, progress) =>
+                static _ => throw new CallbackFailure("event"),
+                static (_, events) =>
                 {
-                    progress.Report(1);
+                    events.Report(1);
                     return Task.FromException<BodyResult>(
                         new InvalidOperationException("body"));
                 },
@@ -694,8 +694,8 @@ public sealed class BrowserManagedOperationBridgeTests
             await Assert.ThrowsAsync<BrowserManagedOperationBoundaryException>(
                 () => operation);
 
-        Assert.Equal("progress-callback", failure.FailureKind);
-        Assert.Equal("progress", Assert.IsType<CallbackFailure>(failure.InnerException).Message);
+        Assert.Equal("event-callback", failure.FailureKind);
+        Assert.Equal("event", Assert.IsType<CallbackFailure>(failure.InnerException).Message);
         Assert.Equal(1, classificationCalls);
         Assert.Equal(0, bridge.ActiveCount);
     }
@@ -714,14 +714,14 @@ public sealed class BrowserManagedOperationBridgeTests
                 Task<Result> operation = Run(
                     bridge,
                     "single-thread",
-                    async (token, progress) =>
+                    async (token, events) =>
                     {
                         using CancellationTokenRegistration registration =
                             token.Register(
                                 () =>
                                 {
                                     callbacks++;
-                                    progress.Report(1);
+                                    events.Report(1);
                                     _ = bridge.RequestCancellation(
                                         Id("single-thread"),
                                         BrowserManagedOperationCancelReason.Timeout);
@@ -744,7 +744,7 @@ public sealed class BrowserManagedOperationBridgeTests
     }
 
     [Fact]
-    public async Task CompletedOperation_HasNoTombstoneOrOptionalProgressRequirement()
+    public async Task CompletedOperation_HasNoTombstoneOrOptionalEventRequirement()
     {
         var bridge = new BrowserManagedOperationBridge();
 
@@ -754,13 +754,13 @@ public sealed class BrowserManagedOperationBridgeTests
                 await Run(
                     bridge,
                     "neighbor",
-                    static (_, progress) =>
+                    static (_, events) =>
                     {
-                        Assert.True(progress.IsClosed);
-                        progress.Report(1);
+                        Assert.True(events.IsClosed);
+                        events.Report(1);
                         return Task.FromResult(Success(1));
                     },
-                    progressCallback: null)).Value);
+                    eventCallback: null)).Value);
         Assert.IsType<BrowserManagedCancellationRequestResult.NotActive>(
             bridge.RequestCancellation(
                 Id("neighbor"),
@@ -774,17 +774,73 @@ public sealed class BrowserManagedOperationBridgeTests
                     static (_, _) => Task.FromResult(Success(2)))).Value);
     }
 
+    [Fact]
+    public async Task NonterminalEvents_PreserveProgressAndDurableOrderBeforeTerminal()
+    {
+        var bridge = new BrowserManagedOperationBridge();
+        var observed = new List<TestOperationEvent>();
+        IBrowserManagedOperationEvents<TestOperationEvent>? retainedEvents = null;
+
+        BrowserManagedOperationResult<int, string, string> result =
+            await bridge.RunAsync<int, string, string, TestOperationEvent>(
+                Id("ordered-events"),
+                observed.Add,
+                (_, events) =>
+                {
+                    retainedEvents = events;
+                    events.Report(
+                        new TestOperationEvent(
+                            TestOperationEventKind.Progress,
+                            "search:1/3"));
+                    events.Report(
+                        new TestOperationEvent(
+                            TestOperationEventKind.Item,
+                            "Package.One"));
+                    events.Report(
+                        new TestOperationEvent(
+                            TestOperationEventKind.ItemFailure,
+                            "Package.Two"));
+                    return Task.FromResult(Success(3));
+                },
+                static exception =>
+                    new BrowserManagedOperationFailure<string, string>(
+                        exception.GetType().Name,
+                        exception.Message));
+
+        Assert.Equal(
+            [
+                new TestOperationEvent(
+                    TestOperationEventKind.Progress,
+                    "search:1/3"),
+                new TestOperationEvent(
+                    TestOperationEventKind.Item,
+                    "Package.One"),
+                new TestOperationEvent(
+                    TestOperationEventKind.ItemFailure,
+                    "Package.Two"),
+            ],
+            observed);
+        Assert.Equal(3, Assert.IsType<Result.Succeeded>(result).Value);
+        Assert.NotNull(retainedEvents);
+        Assert.True(retainedEvents.IsClosed);
+        retainedEvents.Report(
+            new TestOperationEvent(
+                TestOperationEventKind.Item,
+                "Package.Late"));
+        Assert.Equal(3, observed.Count);
+    }
+
     static Task<Result> Run(
         BrowserManagedOperationBridge bridge,
         string operationId,
         Func<
             CancellationToken,
-            IBrowserManagedProgress<int>,
+            IBrowserManagedOperationEvents<int>,
             Task<BodyResult>> body,
-        Action<int>? progressCallback = null) =>
+        Action<int>? eventCallback = null) =>
         bridge.RunAsync<int, string, string, int>(
             Id(operationId),
-            progressCallback,
+            eventCallback,
             body,
             static exception => new BrowserManagedOperationFailure<string, string>(
                 exception.GetType().Name,
@@ -861,4 +917,15 @@ public sealed class BrowserManagedOperationBridgeTests
     sealed class CallbackFailure(string message) : Exception(message);
 
     sealed class CleanupFailure(string message) : Exception(message);
+
+    enum TestOperationEventKind
+    {
+        Progress,
+        Item,
+        ItemFailure,
+    }
+
+    readonly record struct TestOperationEvent(
+        TestOperationEventKind Kind,
+        string Value);
 }

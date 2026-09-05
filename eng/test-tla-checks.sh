@@ -329,7 +329,7 @@ assert_manifest_rejected_without_java \
   'docs/design/models/example/Example.cfg=99'
 assert_manifest_rejected_without_java \
   "An unsupported expected-outcome path" \
-  'eng/ci-detect-changes.sh=0'
+  'README.md=0'
 
 rm -f "$fixture/eng/tla-expected-exit-codes.txt"
 : > "$temporary/java.log"

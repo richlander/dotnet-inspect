@@ -13,8 +13,10 @@ Browser callback adapter, but its feature-owned generation guard remains a
 transitional path rather than an operation-authority integration. Its
 adopter-specific Release gates remain separate from the shared authority gate.
 [Issue #5570](https://github.com/richlander/dotnet-inspect/issues/5570) adds
-the operation authority's reusable typed durable-event handoff. Managed bridge,
-worker runtime, and adopter integration remain separately owned.
+the operation authority's reusable typed durable-event handoff. The managed
+bridge now supplies one authenticated scoped callback for the complete
+nonterminal union. Worker runtime transport and adopter integration remain
+separately owned.
 
 ## Decision
 
@@ -200,7 +202,7 @@ feature IAsyncEnumerable<TEvent>
         -> current-operation durable publication authority
            -> feature reducer and renderer
 
-future worker path, after all adjacent durable-event handoffs:
+future worker path, after the remaining worker durable-event handoff:
 feature IAsyncEnumerable<TEvent>
   -> managed nonterminal event/batch handoff
      -> validated worker event/batch message
@@ -253,17 +255,19 @@ Operation authority now exposes typed durable nonterminal publication through
 reports without publication. This provides the authority-governed callback
 path in the diagram without defining feature event meaning or batching.
 
-The managed bridge still exposes only a progress callback, and the worker
-runtime's closed worker-to-main inventory contains `Progress` and `Settled`.
-Durable `Item` and `ItemFailure` events must not be tunneled through those
-progress shapes or buffered into settlement. Moving an adopter behind the
-worker depends on the two remaining separately owned residuals:
+The managed bridge now exposes one scoped callback for the complete
+feature-owned nonterminal union, preserving producer order without
+reclassifying durable Item or ItemFailure events as progress. The worker
+runtime's closed worker-to-main inventory still contains only `Progress` and
+`Settled`. Durable events must not be tunneled through those progress shapes
+or buffered into settlement. Moving an adopter behind the worker depends on
+the remaining separately owned transport and adoption residuals:
 
 - [#5570](https://github.com/richlander/dotnet-inspect/issues/5570) provides
   the implemented operation-authority durable publication boundary.
-- [#5419](https://github.com/richlander/dotnet-inspect/issues/5419) extends the
-  managed bridge with an authenticated nonterminal union or batch handoff and
-  owns its callback lifetime and release.
+- [#5419](https://github.com/richlander/dotnet-inspect/issues/5419) provides
+  the implemented authenticated nonterminal union callback, callback lifetime,
+  and release; concrete export migration remains in that owner's sequence.
 - [#5418](https://github.com/richlander/dotnet-inspect/issues/5418) extends the
   worker runtime's closed protocol with validated event or batch messages,
   payload budgets, ordering before settlement, and epoch behavior.

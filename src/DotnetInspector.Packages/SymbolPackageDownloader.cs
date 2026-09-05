@@ -8,8 +8,22 @@ namespace DotnetInspector.Packages;
 public record PdbDownloadResult(
     string? PdbFilePath,
     bool WindowsPdbDetected = false,
-    string? SymbolServer = null
+    string? SymbolServer = null,
+    PortablePdbStoreFailureKind? StoreFailure = null
 );
+
+/// <summary>Why the PDB store could not provide verified content.</summary>
+public enum PortablePdbStoreFailureKind
+{
+    /// <summary>The store could not read a cached or newly published entry.</summary>
+    ReadFailed,
+
+    /// <summary>A cached entry was malformed or did not match the requested identity.</summary>
+    InvalidCachedContent,
+
+    /// <summary>The store did not retain content after accepting a write.</summary>
+    PublicationNotRetained,
+}
 
 /// <summary>
 /// Repeatable access to one acquired Portable PDB payload.
@@ -70,17 +84,22 @@ public sealed class AcquiredPortablePdb
 public abstract record PortablePdbAcquisitionResult
 {
     private protected PortablePdbAcquisitionResult(
-        bool windowsPdbDetected)
-        => WindowsPdbDetected = windowsPdbDetected;
+        bool windowsPdbDetected,
+        PortablePdbStoreFailureKind? storeFailure)
+    {
+        WindowsPdbDetected = windowsPdbDetected;
+        StoreFailure = storeFailure;
+    }
 
     public bool WindowsPdbDetected { get; }
+    public PortablePdbStoreFailureKind? StoreFailure { get; }
 
     public sealed record Acquired : PortablePdbAcquisitionResult
     {
         internal Acquired(
             AcquiredPortablePdb pdb,
             bool windowsPdbDetected)
-            : base(windowsPdbDetected)
+            : base(windowsPdbDetected, storeFailure: null)
             => Pdb = pdb;
 
         public AcquiredPortablePdb Pdb { get; }
@@ -88,8 +107,10 @@ public abstract record PortablePdbAcquisitionResult
 
     public sealed record Unavailable : PortablePdbAcquisitionResult
     {
-        internal Unavailable(bool windowsPdbDetected)
-            : base(windowsPdbDetected)
+        internal Unavailable(
+            bool windowsPdbDetected,
+            PortablePdbStoreFailureKind? storeFailure = null)
+            : base(windowsPdbDetected, storeFailure)
         {
         }
     }
@@ -226,6 +247,7 @@ public partial class SymbolPackageDownloader
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
+        PortablePdbStoreFailureKind? storeFailure = null;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
         // The PDB file name comes from untrusted PE debug metadata. Only the
@@ -269,6 +291,7 @@ public partial class SymbolPackageDownloader
             }
             if (msdlResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
+            storeFailure ??= msdlResult.StoreFailure;
         }
 
         // Try downloading symbol package (.snupkg)
@@ -290,6 +313,7 @@ public partial class SymbolPackageDownloader
             }
             if (snupkgResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
+            storeFailure ??= snupkgResult.StoreFailure;
         }
 
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
@@ -306,11 +330,13 @@ public partial class SymbolPackageDownloader
             }
             if (symbolResult.WindowsPdbDetected)
                 windowsPdbDetected = true;
+            storeFailure ??= symbolResult.StoreFailure;
         }
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");
         return new PortablePdbAcquisitionResult.Unavailable(
-            windowsPdbDetected);
+            windowsPdbDetected,
+            storeFailure);
     }
 
     /// <summary>
@@ -349,7 +375,8 @@ public partial class SymbolPackageDownloader
         {
             return new PdbDownloadResult(
                 null,
-                result.WindowsPdbDetected);
+                result.WindowsPdbDetected,
+                StoreFailure: result.StoreFailure);
         }
 
         string? localPath = acquired.Pdb.LocalPath;

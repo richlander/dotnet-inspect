@@ -40,6 +40,7 @@ import {
   renderSourcePageActions,
   renderSourceResult,
 } from "../src/type-panel.ts";
+import { renderMemberContractSections } from "../src/member-overview.ts";
 import {
   bindWorkspaceSubject,
   focusWorkspace,
@@ -95,8 +96,10 @@ let workbenchShellBinding: WorkbenchShellBinding | null = null;
 let applicationDialog: "settings" | "keyboard-help" | null = null;
 const params = new URL(location.href).searchParams;
 const workspaceMode = params.has("workspace");
+const packageDependenciesMode = params.has("package-dependencies");
 const packageMetadataMode = params.has("package-metadata");
-const packageMode = params.has("package") || packageMetadataMode;
+const packageMode =
+  params.has("package") || packageDependenciesMode || packageMetadataMode;
 const memberMode = params.has("member");
 const memberDocumentationMode = params.get("member-docs") ?? "missing";
 const longSignatureMode = params.has("long-signature");
@@ -210,7 +213,11 @@ let activeScope: WorkspaceScope = workspaceMode
     : memberMode
       ? "member"
       : "type";
-let activePackageLens: PackageLens = packageMetadataMode ? "metadata" : "overview";
+let activePackageLens: PackageLens = packageDependenciesMode
+  ? "dependencies"
+  : packageMetadataMode
+    ? "metadata"
+    : "overview";
 let activeTypeLens: TypeLens = sourceMode
   ? "source"
   : metadataMode
@@ -333,6 +340,20 @@ function detailHtml() {
     });
   }
   if (workspaceMode) return workspaceDetailHtml();
+  if (packageDependenciesMode) {
+    return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
+      <header class="api-surface-head package-dependencies-surface-head">
+        <h1 id="package-dependencies-surface-title">Dependencies</h1>
+        <p>3 packages · 8 references</p>
+      </header>
+      <section class="package-dependencies-controls" aria-label="Dependency coordinate"></section>
+      <div class="package-dependencies-scroll"></div>
+      <footer class="api-surface-footer package-dependencies-surface-footer">
+        <span>System.Text.Json@10.0.0</span>
+        <span>net10.0</span>
+      </footer>
+    </section>`;
+  }
   if (packageMetadataMode) {
     return `<section class="package-metadata-surface" aria-labelledby="package-metadata-surface-title">
       <header class="metadata-surface-head package-metadata-surface-head">
@@ -365,9 +386,12 @@ function detailHtml() {
     </section>`;
   }
   if (memberMode) {
+    const returnType = longSignatureMode
+      ? "System.Collections.Generic.IReadOnlyDictionary<string, TValue?>"
+      : "TValue?";
     const signature = longSignatureMode
-      ? "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)"
-      : "public static object? DeserializeSync(string json)";
+      ? `public static ${returnType} DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> jsonTypeInfo, string propertyNamingPolicy = "camelCasePropertyNamingAndCaseInsensitive")`
+      : "public static TValue? DeserializeSync<TValue>(ReadOnlySpan<byte> utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, string propertyNamingPolicy = \"camelCasePropertyNamingAndCaseInsensitive\")";
     const documentation = memberDocumentationMode === "summary"
       ? '<p class="api-summary">Deserializes the JSON to the requested return type.</p>'
       : memberDocumentationMode === "loading"
@@ -375,6 +399,70 @@ function detailHtml() {
         : memberDocumentationMode === "error"
           ? '<p class="docs-unavailable">Documentation query failed: The package documentation could not be read.</p>'
           : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>';
+    const documentationStatus = memberDocumentationMode === "loading"
+      ? "loading"
+      : memberDocumentationMode === "error"
+        ? "error"
+        : "loaded";
+    const documentationAvailable = memberDocumentationMode === "summary";
+    const memberContract = renderMemberContractSections({
+      parameters: [
+        {
+          name: longSignatureMode
+            ? "utf8JsonPayloadParameterNameWithAnIntentionallyLongUnbrokenIdentifierForContainmentEvidence"
+            : "utf8Json",
+          type: "ReadOnlySpan<byte>",
+          modifier: null,
+          hasDefault: false,
+          defaultValue: null,
+          description: documentationAvailable
+            ? "The JSON payload to deserialize into the requested return type."
+            : null,
+        },
+        {
+          name: "jsonTypeInfo",
+          type:
+            "System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue>",
+          modifier: null,
+          hasDefault: false,
+          defaultValue: null,
+          description: documentationAvailable
+            ? "Metadata describing the requested return type."
+            : null,
+        },
+        {
+          name: "propertyNamingPolicy",
+          type: "string",
+          modifier: null,
+          hasDefault: true,
+          defaultValue: "\"camelCasePropertyNamingAndCaseInsensitive\"",
+          description: documentationAvailable
+            ? "The property naming policy used while reading the payload."
+            : null,
+        },
+      ],
+      returnType,
+      returns: documentationAvailable
+        ? "The value produced by deserializing the supplied JSON payload."
+        : null,
+      exceptions: documentationAvailable
+        ? [
+            {
+              type:
+                "System.Text.Json.Serialization.Metadata.JsonTypeInfoResolverException",
+              description:
+                "The requested type cannot be resolved by the supplied metadata.",
+            },
+            {
+              type: "System.NotSupportedException",
+              description:
+                "No compatible converter is available for the requested return type.",
+            },
+          ]
+        : [],
+      activeFramework: "net10.0",
+      documentationStatus,
+    });
     return `<section class="member-surface" aria-labelledby="member-surface-title">
       <header class="api-surface-head member-surface-head">
         <h1 id="member-surface-title">DeserializeSync</h1>
@@ -406,19 +494,7 @@ function detailHtml() {
               <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
             </section>
           </section>
-          <section class="learn-section member-parameters">
-            <h2>Parameters</h2>
-            <dl class="parameter-docs">
-              <div>
-                <dt><code>json</code></dt>
-                <dd><a>string</a><p>The JSON payload to deserialize into the requested return type.</p></dd>
-              </div>
-            </dl>
-          </section>
-          <section class="learn-section member-returns">
-            <h2>Returns</h2>
-            <p class="api-summary">The value produced by deserializing the supplied JSON payload.</p>
-          </section>
+          ${memberContract}
         </article>
       </div>
     </section>`;
@@ -591,11 +667,14 @@ app.innerHTML = `
       ${navigationHtml}
       <section class="detail-pane${workspaceMode
         ? ""
-        : sourceMode || (packageMode && !packageMetadataMode)
+        : sourceMode
+          || (packageMode
+            && !packageDependenciesMode
+            && !packageMetadataMode)
           ? " content-navigation-separated"
           : " content-navigation-integrated"}">
         ${workspaceMode ? "" : renderContentNavigationBar(contentNavigationLabel)}
-        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
+        <article id="inspector-panel" class="detail-scroll${annotatedMode ? " annotated-working-surface" : ""}${sourceMode ? " source-working-surface" : ""}${metadataMode ? " metadata-working-surface" : ""}${packageDependenciesMode ? " package-dependencies-working-surface" : ""}${packageMetadataMode ? " package-metadata-working-surface" : ""}${memberMode && !sourceMode ? " member-working-surface" : ""}${!workspaceMode && !packageMode && !memberMode && !sourceMode && !metadataMode ? " api-working-surface" : ""}"${workspaceMode ? "" : ' role="tabpanel" aria-labelledby="active-inspector-tab"'}>
           ${detailHtml()}
         </article>
       </section>
