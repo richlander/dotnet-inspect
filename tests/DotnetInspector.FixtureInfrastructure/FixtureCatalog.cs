@@ -111,6 +111,7 @@ public static class FixtureIds
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string HostileLiterals = "hostile.literals";
+    public const string InspectWebMethodBodies = "inspect-web.method-bodies";
     public const string SourceLinkMalformed = "sourcelink.malformed";
     public const string SourceLinkPartiallyMalformed = "sourcelink.partially-malformed";
     public const string SourceLinkNormalized = "sourcelink.normalized";
@@ -145,6 +146,15 @@ public static class FixtureCatalog
         "ILInspector.Metadata.AttributeEnumFixtures.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "metadata", "custom-attributes", "producer-truth");
+
+    public static readonly FixtureDefinition InspectWebMethodBodies = Fixture(
+        FixtureIds.InspectWebMethodBodies,
+        "InspectWeb.MethodBodyFixtures",
+        "InspectWeb.MethodBodyFixtures.dll",
+        ["inspect-web", "method-body", "reference-implementation"],
+        Boundaries(FixtureBoundary.SidecarAsset, FixtureBoundary.PostBuildTransformation),
+        Asset("reference", "InspectWeb.MethodBodyFixtures", "ref/InspectWeb.MethodBodyFixtures.dll"),
+        Asset("package", "InspectWeb.MethodBodyFixtures", "InspectWeb.MethodBodyFixtures.1.0.0.nupkg"));
 
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
@@ -658,6 +668,7 @@ public static class FixtureCatalog
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
         MetadataAttributeEnums,
+        InspectWebMethodBodies,
         DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
@@ -1008,6 +1019,7 @@ public static class FixtureCatalog
         {
             "ILInspector.Metadata.AttributeEnumFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
+            "InspectWeb.MethodBodyFixtures" => "fixtures/inspect-web/InspectWeb.MethodBodyFixtures",
             "DiffAsmFixtures.Caller" => "fixtures/diff/DiffAsmFixtures.Caller",
             "DiffAsmFixtures.LibA" => "fixtures/diff/DiffAsmFixtures.LibA",
             "DiffAsmFixtures.LibB" => "fixtures/diff/DiffAsmFixtures.LibB",

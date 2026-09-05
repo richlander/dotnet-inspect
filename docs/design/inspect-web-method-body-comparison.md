@@ -49,11 +49,11 @@ comparison; existing Browser owners supply execution and presentation lifetime.
 
 | Owner | Consumed contract |
 | --- | --- |
-| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; the Browser-usable exact-target projection remains a step-6 prerequisite in #5925 |
+| [Direct-member query](direct-member-comparison.md#adapter-contract) | Two exact physical designations, same-method support, and designated rather than strict correspondence; Queries issues physical addresses through `AssemblyContextMethodAddressQuery` for this Browser consumer |
 | [Local comparison publication](local-comparison-publication.md#result-contract) | Original query-origin or Research-terminal evidence associated with one invocation |
 | Existing Browser implementation-member resolution and inspection scope | Reference/surface-to-implementation selection, retained participant access, and validated implementation body selection |
 | [Operation authority](inspect-web-operation-authority.md) | Current-view publication, cancellation, supersession, disposal, and quiescence |
-| [Managed operation bridge](inspect-web-managed-operation-bridge.md) and [Worker runtime](inspect-web-worker-runtime.md) | Generated feature transport, physical execution, cancellation forwarding, and managed release |
+| [Managed operation bridge](inspect-web-managed-operation-bridge.md) | Generated feature transport, keyed cancellation forwarding, and managed release |
 | [Shell interaction](inspect-web-shell-interaction.md) | Shared modal accessibility, Escape, and ordinary focus return |
 | [Surface composition](inspect-web-surface-composition.md#contextual-working-surface-actions) | Contextual-action placement and responsive continuity |
 | [Navigation consumer](inspect-web-navigation-consumer.md) | Ordinary member navigation, canonical location, and history |
@@ -109,9 +109,11 @@ input, not an asserted token in the implementation image.
 Existing Browser resolution returns a validated implementation body token,
 not a `MetadataMethodAddress`. The Browser cannot construct the missing
 module association by opening a metadata reader below Queries.
-The Queries-owned exact-target projection needed to consume that selection
-is an explicit prerequisite within #5925's step-6 adapter delivery. Its public
-API shape stays Queries-owned; this design does not claim it already exists.
+`AssemblyContextMethodAddressQuery` supplies that Queries-owned projection
+with this actual Browser consumer, as part of the existing adapter/host
+delivery rather than another standalone substrate milestone. It returns the
+existing typed assembly-context entry; its construction and failure semantics
+remain Queries-owned.
 
 The comparison consumes the resulting exact implementation participant and
 owner-issued physical method association through that public Queries boundary.
@@ -133,6 +135,16 @@ reinspect each endpoint, or construct a synthetic `ResearchComparison`.
 The context owner retains acquired input lifetime. Queries and Research retain
 their own access and stage cleanup responsibilities.
 
+This feature's transport uses an empty `PackageId` to distinguish a retained
+platform selection from a NuGet package. The version, framework, and assembly
+remain the exact selected coordinates. Unlike existing Source calls that pass
+a runtime pseudo-package ID, this request addresses a resident assembly
+directly; it does not ask package acquisition to interpret that ID.
+The retained lookup supports runtime and ASP.NET Core families only when those
+coordinates identify one scope and one assembly coordinate. Ambiguity is
+visible `ContextUnavailable`, not an arbitrary family choice or reacquisition.
+This is a feature-specific convention, not a change to other Source exports.
+
 ### Operation and result association
 
 Each submitted pair is the immutable input of one feature operation. The
@@ -148,6 +160,13 @@ query-origin versus Research-terminal category, and each requested mechanism's
 endpoint states, comparison verdict, applicable aligned evidence, and failure
 causes. The managed projection consumes original query evidence, not a
 recreated operation identified by display text.
+
+This first adopter follows the existing Source consumer's physical execution
+placement. The current Worker binding is a diagnostic canary, not the host of
+production Source operations. This feature does not migrate acquisition or
+retained workspaces to another realm. Future placement changes consume the
+[Worker runtime](inspect-web-worker-runtime.md) owner without changing pair
+meaning or adding feature-owned lifetime machinery.
 
 Managed/transport failure or cancellation remains distinct from a query
 result. Successfully transporting a query outcome does not mean the comparison
