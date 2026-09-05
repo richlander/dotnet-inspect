@@ -2400,28 +2400,161 @@ public sealed class DependencyEvidenceCommandTests
     }
 
     /// <summary>
-    /// The same claim at the construction seam, for both authority families: an HTTP authority
-    /// and a local-folder one each produce a client bound to their own owner-issued
-    /// association, and neither is reconstructed from source text.
+    /// Exact remote manifest acquisition uses the package-owned credential-provider runtime,
+    /// replays the challenged request, and keeps the authorization-issued association on the
+    /// admitted root.
     /// </summary>
     [Fact]
-    public void ManifestClientCreation_BindsEachAuthorityToItsOwnAssociation()
+    public async Task ExactManifest_UsesProviderAuthenticationAndKeepsAuthorityAssociation()
     {
+        var credentialSource = new RecordingCredentialSource();
+        var handler = new AuthenticatedManifestHandler();
         var authorized = PackageSourceAuthorization.Authorize(
-            [new PackageSource("local", CreateTemporaryDirectory()), StubFeed]);
-        NuGetFetchOptions fetchOptions =
-            NuGetFetchOptions.FromRequestTimeout(TimeSpan.FromSeconds(5));
+            [new PackageSource("private", AuthenticatedManifestHandler.ServiceIndexUrl)]);
+        ConfiguredPackageAuthority authority = Assert.Single(authorized.Authorities);
 
-        Assert.Equal(2, authorized.Authorities.Count);
-        foreach (ConfiguredPackageAuthority authority in authorized.Authorities)
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [
+                    $"{AuthenticatedManifestHandler.PackageId}@{AuthenticatedManifestHandler.Version}",
+                ],
+            },
+            new RecordingPackageSourceAuthorization(authorized),
+            createComposition: timeout => new DesktopPackageSourceComposition(
+                timeout,
+                credentialSource,
+                (_, isGallery) =>
+                {
+                    Assert.False(isGallery);
+                    return handler;
+                }));
+
+        Assert.Empty(projection.Failures);
+        DependencyEvidenceRootRow root = Assert.Single(projection.Roots);
+        PackageSourceResultIdentity source =
+            Assert.IsType<PackageSourceResultIdentity>(root.Source);
+        Assert.Same(authority.Association, source.Association);
+        Assert.Equal(
+            AuthenticatedManifestHandler.ServiceIndexUrl,
+            Assert.Single(credentialSource.Queries).OriginalString);
+        Assert.True(handler.SawChallenge);
+        Assert.True(handler.SawAuthorization);
+    }
+
+    /// <summary>
+    /// Configured source credentials remain preemptive for exact manifests and therefore never
+    /// query the plugin credential source.
+    /// </summary>
+    [Fact]
+    public async Task ExactManifest_ConfiguredCredentialsBypassProviderQuery()
+    {
+        var handler = new AuthenticatedManifestHandler();
+        var authorized = PackageSourceAuthorization.Authorize(
+            [
+                new PackageSource(
+                    "private",
+                    AuthenticatedManifestHandler.ServiceIndexUrl,
+                    new PackageSourceCredential("reader", "secret")),
+            ]);
+
+        DependencyEvidenceProjection projection = await ProjectAsync(
+            new DependencyEvidenceOptions
+            {
+                Packages = [
+                    $"{AuthenticatedManifestHandler.PackageId}@{AuthenticatedManifestHandler.Version}",
+                ],
+            },
+            new RecordingPackageSourceAuthorization(authorized),
+            createComposition: timeout => new DesktopPackageSourceComposition(
+                timeout,
+                new UnavailableCredentialSource(),
+                (_, _) => handler));
+
+        Assert.Empty(projection.Failures);
+        Assert.Single(projection.Roots);
+        Assert.False(handler.SawChallenge);
+        Assert.True(handler.SawAuthorization);
+    }
+
+    /// <summary>
+    /// The exact-coordinate path inherits the global offline transport instead of constructing
+    /// a socket-owning client. The loopback feed would return a valid manifest if reached, so
+    /// accepting no connection proves the remote root stayed offline while its local sibling
+    /// still completed.
+    /// </summary>
+    [Fact]
+    public async Task ExactManifest_OfflineDoesNotContactSourceOrSuppressSibling()
+    {
+        using var listener =
+            new System.Net.Sockets.TcpListener(
+                System.Net.IPAddress.Loopback,
+                0);
+        listener.Start();
+        int port =
+            ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        string serviceIndex = $"http://127.0.0.1:{port}/v3/index.json";
+        int requests = 0;
+        using var serverCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+        serverCancellation.CancelAfter(TimeSpan.FromSeconds(15));
+        Task server = ServeManifestFeedAsync(
+            listener,
+            port,
+            () => Interlocked.Increment(ref requests),
+            serverCancellation.Token);
+        bool wasOffline = DotnetInspector.Core.HttpClientFactory.IsOffline;
+        DotnetInspector.Core.HttpClientFactory.Initialize(
+            new DotnetInspector.Core.HttpClientFactoryOptions
+            {
+                Offline = true,
+            });
+        DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+
+        DependencyEvidenceProjection projection;
+        try
         {
-            using IPackageSourceClient? client =
-                DependencyEvidenceAcquisition.CreateSourceClient(
-                    authority,
-                    fetchOptions);
-            Assert.NotNull(client);
-            Assert.Same(authority.Association, client.Source.Association);
+            projection = await ProjectAsync(
+                new DependencyEvidenceOptions
+                {
+                    Packages = [
+                        $"{AuthenticatedManifestHandler.PackageId}@{AuthenticatedManifestHandler.Version}",
+                    ],
+                    Nuspecs = [NuspecFixture],
+                    SourceOptions = new NuGetSourceOptions
+                    {
+                        Sources = [serviceIndex],
+                    },
+                });
         }
+        finally
+        {
+            serverCancellation.Cancel();
+            listener.Stop();
+            try
+            {
+                await server;
+            }
+            catch (Exception exception) when (exception is
+                OperationCanceledException
+                or System.Net.Sockets.SocketException
+                or ObjectDisposedException)
+            {
+            }
+
+            DotnetInspector.Core.HttpClientFactory.Initialize(
+                new DotnetInspector.Core.HttpClientFactoryOptions
+                {
+                    Offline = wasOffline,
+                });
+            DotnetInspector.Core.HttpClientFactory.ResetSharedForTesting();
+        }
+
+        Assert.Equal(0, requests);
+        Assert.Single(projection.Roots);
+        DependencyEvidenceFailureRow failure = Assert.Single(projection.Failures);
+        Assert.Equal("AcquisitionFailed", failure.Reason);
     }
 
     /// <summary>
@@ -2481,7 +2614,9 @@ public sealed class DependencyEvidenceCommandTests
         string? version) =>
         new(
             state,
-            version is null ? [] : [version],
+            version is null
+                ? []
+                : [new PackageVersionSourceInfo(version, "authority", Listed: true)],
             state == PackageVersionDiscoveryState.Authoritative
                 ? []
                 : [
@@ -2504,6 +2639,171 @@ public sealed class DependencyEvidenceCommandTests
             throw new InvalidOperationException(
                 "An unavailable credential source must not be queried.");
     }
+
+    private sealed class RecordingCredentialSource : ICredentialSource
+    {
+        internal List<Uri> Queries { get; } = [];
+        public bool HasCredentialSources => true;
+
+        public Task<PackageSourceCredential?> GetCredentialsAsync(
+            Uri uri,
+            bool isRetry,
+            CancellationToken cancellationToken)
+        {
+            Queries.Add(uri);
+            return Task.FromResult<PackageSourceCredential?>(
+                new("reader", "token"));
+        }
+    }
+
+    private sealed class AuthenticatedManifestHandler : HttpMessageHandler
+    {
+        internal const string PackageId = "Contoso.Authenticated";
+        internal const string Version = "1.2.3";
+        internal const string ServiceIndexUrl =
+            "https://authenticated.test/v3/index.json";
+        private const string FlatContainer =
+            "https://authenticated.test/flat/";
+
+        internal bool SawChallenge { get; private set; }
+        internal bool SawAuthorization { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            bool hasAuthorization =
+                request.Headers.Authorization?.Scheme == "Basic";
+            SawAuthorization |= hasAuthorization;
+            string url = request.RequestUri!.AbsoluteUri;
+            string manifestUrl =
+                $"{FlatContainer}{PackageId.ToLowerInvariant()}/{Version}/{PackageId.ToLowerInvariant()}.nuspec";
+            HttpResponseMessage response;
+            if (url.Equals(ServiceIndexUrl, StringComparison.Ordinal))
+            {
+                response = Json($$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "{{FlatContainer}}", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """);
+            }
+            else if (url.Equals(
+                         manifestUrl,
+                         StringComparison.OrdinalIgnoreCase)
+                     && !hasAuthorization)
+            {
+                SawChallenge = true;
+                response = new HttpResponseMessage(
+                    System.Net.HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+            else if (url.Equals(
+                         manifestUrl,
+                         StringComparison.OrdinalIgnoreCase))
+            {
+                response = Xml(ManifestXml(PackageId, Version));
+            }
+            else
+            {
+                response = new HttpResponseMessage(
+                    System.Net.HttpStatusCode.NotFound)
+                {
+                    Content = new StringContent(""),
+                };
+            }
+
+            response.RequestMessage = request;
+            return Task.FromResult(response);
+        }
+
+        private static HttpResponseMessage Json(string body) =>
+            new(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    body,
+                    Encoding.UTF8,
+                    "application/json"),
+            };
+
+        private static HttpResponseMessage Xml(string body) =>
+            new(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    body,
+                    Encoding.UTF8,
+                    "application/xml"),
+            };
+    }
+
+    private static async Task ServeManifestFeedAsync(
+        System.Net.Sockets.TcpListener listener,
+        int port,
+        Action recordRequest,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            using System.Net.Sockets.TcpClient connection =
+                await listener.AcceptTcpClientAsync(cancellationToken);
+            recordRequest();
+            await using System.Net.Sockets.NetworkStream stream =
+                connection.GetStream();
+            var buffer = new byte[4096];
+            int length = await stream.ReadAsync(
+                buffer,
+                cancellationToken);
+            string request = Encoding.ASCII.GetString(buffer, 0, length);
+            string path = request.Split(' ', StringSplitOptions.None)[1];
+            string flat = $"http://127.0.0.1:{port}/flat/";
+            string manifestPath =
+                $"/flat/{AuthenticatedManifestHandler.PackageId.ToLowerInvariant()}/{AuthenticatedManifestHandler.Version}/{AuthenticatedManifestHandler.PackageId.ToLowerInvariant()}.nuspec";
+            string? body = path switch
+            {
+                "/v3/index.json" => $$"""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "{{flat}}", "@type": "PackageBaseAddress/3.0.0" }
+                      ]
+                    }
+                    """,
+                _ when path.Equals(
+                    manifestPath,
+                    StringComparison.OrdinalIgnoreCase) =>
+                    ManifestXml(
+                        AuthenticatedManifestHandler.PackageId,
+                        AuthenticatedManifestHandler.Version),
+                _ => null,
+            };
+            byte[] content = Encoding.UTF8.GetBytes(body ?? "");
+            string status = body is null
+                ? "404 Not Found"
+                : "200 OK";
+            byte[] headers = Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 {status}\r\nContent-Length: {content.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(headers, cancellationToken);
+            await stream.WriteAsync(content, cancellationToken);
+        }
+    }
+
+    private static string ManifestXml(string packageId, string version) =>
+        $$"""
+        <?xml version="1.0"?>
+        <package>
+          <metadata>
+            <id>{{packageId}}</id>
+            <version>{{version}}</version>
+            <dependencies>
+              <dependency id="Contoso.Dependency" version="[2.0.0]" />
+            </dependencies>
+          </metadata>
+        </package>
+        """;
 
     /// <summary>
     /// One V3 HTTP authority publishing an explicit version list, used as the remote half of a
@@ -2696,7 +2996,8 @@ public sealed class DependencyEvidenceCommandTests
         IPackageSourceAuthorization? authorization,
         DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
         HttpClient? httpClient = null,
-        DependencyEvidenceVersionDiscovery? discoverVersions = null)
+        DependencyEvidenceVersionDiscovery? discoverVersions = null,
+        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
     {
         HttpClient client = httpClient ?? new HttpClient();
         try
@@ -2709,7 +3010,8 @@ public sealed class DependencyEvidenceCommandTests
                     TestContext.Current.CancellationToken,
                     authorization,
                     resolveCoordinate,
-                    discoverVersions);
+                    discoverVersions,
+                    createComposition);
             return DependencyEvidenceProjection.Create(
                 PackageDependencyEvidenceQuery.Execute(request));
         }

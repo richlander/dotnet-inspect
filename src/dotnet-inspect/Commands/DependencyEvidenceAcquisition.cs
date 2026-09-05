@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DotnetInspector.Core;
 using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -62,8 +63,8 @@ internal static class DependencyEvidenceAcquisition
     /// One package-owned source composition serves the whole request. It is the same lifetime
     /// <see cref="CommandContext.CreatePackageSourceComposition"/> gives other commands — one
     /// composition over this request's deadline, owned and disposed exactly once — and it is
-    /// created only when a root actually asks a version question, so a nuspec-only or
-    /// archive-only request builds no source runtime at all.
+    /// created only when a remote package root asks a version or manifest question, so a
+    /// nuspec-only or archive-only request builds no source runtime at all.
     /// </para>
     /// </remarks>
     public static async Task<PackageDependencyEvidenceRequest> AcquireExplicitRootsAsync(
@@ -73,7 +74,8 @@ internal static class DependencyEvidenceAcquisition
         CancellationToken cancellationToken,
         IPackageSourceAuthorization? authorization = null,
         DependencyEvidenceCoordinateResolver? resolveCoordinate = null,
-        DependencyEvidenceVersionDiscovery? discoverVersions = null)
+        DependencyEvidenceVersionDiscovery? discoverVersions = null,
+        Func<TimeSpan, DesktopPackageSourceComposition>? createComposition = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -81,12 +83,13 @@ internal static class DependencyEvidenceAcquisition
         IPackageSourceAuthorization sourceAuthorization = authorization
             ?? new SourcePolicyPackageSourceAuthorization(options.SourceOptions);
         DesktopPackageSourceComposition? composition = null;
+        DesktopPackageSourceComposition GetComposition() =>
+            composition ??= createComposition?.Invoke(httpClient.Timeout)
+                ?? new DesktopPackageSourceComposition(httpClient.Timeout);
         DependencyEvidenceVersionDiscovery discovery = discoverVersions
             ?? ((packageId, includePrerelease, token) =>
             {
-                composition ??=
-                    new DesktopPackageSourceComposition(httpClient.Timeout);
-                return composition.GetVersionsAsync(
+                return GetComposition().GetVersionsAsync(
                     packageId,
                     includePrerelease,
                     // The composition sorts every authority's evidence together before it
@@ -121,6 +124,7 @@ internal static class DependencyEvidenceAcquisition
                     options,
                     sourceAuthorization,
                     resolver,
+                    GetComposition,
                     httpClient,
                     roots,
                     failures,
@@ -347,6 +351,7 @@ internal static class DependencyEvidenceAcquisition
         DependencyEvidenceOptions options,
         IPackageSourceAuthorization authorization,
         DependencyEvidenceCoordinateResolver resolveCoordinate,
+        Func<DesktopPackageSourceComposition> getComposition,
         HttpClient httpClient,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
@@ -414,7 +419,8 @@ internal static class DependencyEvidenceAcquisition
         catch (Exception exception) when (exception is HttpRequestException
             or IOException
             or NuGetRequestTimeoutException
-            or NuGetOperationTimeoutException)
+            or NuGetOperationTimeoutException
+            or OfflineException)
         {
             failures.Add(
                 Acquisition(
@@ -474,6 +480,7 @@ internal static class DependencyEvidenceAcquisition
             authorized.Authorities,
             options,
             label,
+            getComposition(),
             httpClient,
             roots,
             failures,
@@ -485,6 +492,7 @@ internal static class DependencyEvidenceAcquisition
         IReadOnlyList<ConfiguredPackageAuthority> authorities,
         DependencyEvidenceOptions options,
         InertString label,
+        DesktopPackageSourceComposition composition,
         HttpClient httpClient,
         ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
@@ -499,63 +507,18 @@ internal static class DependencyEvidenceAcquisition
         await AcquireSourceManifestAsync(
             coordinate,
             authorities,
-            authority => CreateSourceClient(authority, fetchOptions),
+            (authority, requested, context, token) =>
+                composition.GetManifestAsync(
+                    authority,
+                    requested,
+                    token,
+                    context),
             options.Tfm,
             label,
             operationContext,
             roots,
             failures,
             cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Creates one client for an owner-issued configured authority, or null when this build has
-    /// no client for it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The authority is the identity. Its association is the token the package-source owner
-    /// minted for it, so the client is constructed with that exact association rather than a
-    /// freshly created one: minting a new association here would make the client's results
-    /// claim a scope no configured authority owns, and no consumer could recover which
-    /// configured authority served the bytes.
-    /// </para>
-    /// <para>
-    /// The route is likewise the authority's own classification, not a re-reading of its
-    /// source text. A local-folder authority carries the canonical
-    /// <see cref="ConfiguredPackageAuthority.LocalIdentity"/> its owner formed and is served by
-    /// the local client; every other authority is an HTTP one and keeps
-    /// <see cref="ConfiguredPackageAuthority.Source"/>, which the HTTP overload accepts.
-    /// </para>
-    /// </remarks>
-    internal static IPackageSourceClient? CreateSourceClient(
-        ConfiguredPackageAuthority authority,
-        NuGetFetchOptions fetchOptions)
-    {
-        ArgumentNullException.ThrowIfNull(authority);
-        try
-        {
-            return authority.LocalIdentity is { } local
-                ? PackageSourceClientFactory.Create(
-                    local,
-                    authority.Association,
-                    options: null)
-                : PackageSourceClientFactory.Create(
-                    authority.Source,
-                    authority.Association,
-                    fetchOptions);
-        }
-        catch (PackageSourceClientUnavailableException)
-        {
-            return null;
-        }
-        catch (ArgumentException)
-        {
-            // The only construction failure this classification covers: an authority this
-            // build has no client for is the same "unavailable" outcome the typed exception
-            // above reports. Nothing else is caught here.
-            return null;
-        }
     }
 
     /// <summary>
@@ -585,13 +548,12 @@ internal static class DependencyEvidenceAcquisition
     /// <c>SourceUnavailable</c>.
     /// </para>
     /// <para>
-    /// The loop is generic over what names one authorized producer, and the client factory is a
-    /// parameter, so production hands it the owner-issued
-    /// <see cref="ConfiguredPackageAuthority"/> list while a test hands it fake sources —
-    /// neither duplicating source semantics here nor letting this loop reconstruct an authority
-    /// from source text. The loop itself reads nothing off <typeparamref name="TAuthorized"/>:
-    /// it only asks the factory for that entry's client, so identity stays entirely with the
-    /// caller that owns it.
+    /// The loop is generic over what names one authorized producer and how its manifest
+    /// operation is invoked. Production hands it owner-issued
+    /// <see cref="ConfiguredPackageAuthority"/> values and the package-owned desktop
+    /// composition; tests may hand it fake source clients. Neither path reconstructs an
+    /// authority from source text, and the loop itself reads nothing off
+    /// <typeparamref name="TAuthorized"/>.
     /// </para>
     /// </remarks>
     internal static async Task AcquireSourceManifestAsync<TAuthorized>(
@@ -605,16 +567,99 @@ internal static class DependencyEvidenceAcquisition
         ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
         CancellationToken cancellationToken)
     {
+        await AcquireSourceManifestCoreAsync(
+            coordinate,
+            sources,
+            async (source, requested, context, token) =>
+            {
+                IPackageSourceClient? client = createClient(source);
+                if (client is null)
+                    return null;
+
+                using (client)
+                {
+                    return await client.GetManifestAsync(
+                        requested.PackageId,
+                        requested.Version,
+                        token,
+                        context).ConfigureAwait(false);
+                }
+            },
+            targetFramework,
+            label,
+            operationContext,
+            roots,
+            failures,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task AcquireSourceManifestAsync<TAuthorized>(
+        PackageSourceCoordinate coordinate,
+        IReadOnlyList<TAuthorized> sources,
+        Func<
+            TAuthorized,
+            PackageSourceCoordinate,
+            NuGetOperationContext?,
+            CancellationToken,
+            Task<PackageSourceOperationResult<PackageSourceManifest>>> acquireManifest,
+        string? targetFramework,
+        InertString label,
+        NuGetOperationContext? operationContext,
+        ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
+        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
+        CancellationToken cancellationToken)
+    {
+        await AcquireSourceManifestCoreAsync(
+            coordinate,
+            sources,
+            async (source, requested, context, token) =>
+                await acquireManifest(
+                    source,
+                    requested,
+                    context,
+                    token).ConfigureAwait(false),
+            targetFramework,
+            label,
+            operationContext,
+            roots,
+            failures,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task AcquireSourceManifestCoreAsync<TAuthorized>(
+        PackageSourceCoordinate coordinate,
+        IReadOnlyList<TAuthorized> sources,
+        Func<
+            TAuthorized,
+            PackageSourceCoordinate,
+            NuGetOperationContext?,
+            CancellationToken,
+            Task<PackageSourceOperationResult<PackageSourceManifest>?>> acquireManifest,
+        string? targetFramework,
+        InertString label,
+        NuGetOperationContext? operationContext,
+        ImmutableArray<PackageDependencyEvidenceInput>.Builder roots,
+        ImmutableArray<PackageDependencyEvidenceRootFailure>.Builder failures,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(sources);
-        ArgumentNullException.ThrowIfNull(createClient);
+        ArgumentNullException.ThrowIfNull(acquireManifest);
 
         bool attempted = false;
         bool everyAttemptReportedAbsence = true;
         PackageManifestFailure? manifestFailure = null;
         foreach (TAuthorized source in sources)
         {
-            IPackageSourceClient? client = createClient(source);
-            if (client is null)
+            PackageSourceOperationResult<PackageSourceManifest>? manifest;
+            try
+            {
+                manifest = await acquireManifest(
+                    source,
+                    coordinate,
+                    operationContext,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (PackageSourceClientUnavailableException)
             {
                 // A source with no client in this build was never heard from, so the set
                 // cannot claim all-source absence. `attempted` stays false so a set with no
@@ -623,62 +668,57 @@ internal static class DependencyEvidenceAcquisition
                 everyAttemptReportedAbsence = false;
                 continue;
             }
-
-            using (client)
+            catch (Exception exception) when (exception is HttpRequestException
+                or IOException
+                or NuGetRequestTimeoutException
+                or NuGetOperationTimeoutException
+                or OfflineException)
             {
                 attempted = true;
-                PackageSourceOperationResult<PackageSourceManifest> manifest;
-                try
-                {
-                    manifest = await client.GetManifestAsync(
-                        coordinate.PackageId,
-                        coordinate.Version,
-                        cancellationToken,
-                        operationContext).ConfigureAwait(false);
-                }
-                catch (Exception exception) when (exception is HttpRequestException
-                    or IOException
-                    or NuGetRequestTimeoutException
-                    or NuGetOperationTimeoutException)
-                {
-                    everyAttemptReportedAbsence = false;
-                    continue;
-                }
-
-                if (manifest.Value is not { } value)
-                {
-                    if (manifest.Failure?.Kind
-                        is not PackageSourceFailureKind.NotFound)
-                    {
-                        everyAttemptReportedAbsence = false;
-                    }
-
-                    continue;
-                }
-
-                PackageManifestFactsResult facts =
-                    PackageManifestFactsQuery.Execute(
-                        value.Content.ToArray(),
-                        coordinate);
-                if (facts is PackageManifestFactsResult.Failed failed)
-                {
-                    // A manifest that arrived is not an absence claim, whatever the facts
-                    // query then decides about it.
-                    everyAttemptReportedAbsence = false;
-                    manifestFailure = failed.Failure;
-                    continue;
-                }
-
-                roots.Add(
-                    PackageDependencyEvidenceQuery.CreatePackageInput(
-                        ((PackageManifestFactsResult.Available)facts).Value,
-                        PackageDependencyEvidenceSourceKind
-                            .PackageSourceManifest,
-                        targetFramework,
-                        label,
-                        value.Source));
-                return;
+                everyAttemptReportedAbsence = false;
+                continue;
             }
+
+            if (manifest is null)
+            {
+                everyAttemptReportedAbsence = false;
+                continue;
+            }
+
+            attempted = true;
+            if (manifest.Value is not { } value)
+            {
+                if (manifest.Failure?.Kind
+                    is not PackageSourceFailureKind.NotFound)
+                {
+                    everyAttemptReportedAbsence = false;
+                }
+
+                continue;
+            }
+
+            PackageManifestFactsResult facts =
+                PackageManifestFactsQuery.Execute(
+                    value.Content.ToArray(),
+                    coordinate);
+            if (facts is PackageManifestFactsResult.Failed failed)
+            {
+                // A manifest that arrived is not an absence claim, whatever the facts
+                // query then decides about it.
+                everyAttemptReportedAbsence = false;
+                manifestFailure = failed.Failure;
+                continue;
+            }
+
+            roots.Add(
+                PackageDependencyEvidenceQuery.CreatePackageInput(
+                    ((PackageManifestFactsResult.Available)facts).Value,
+                    PackageDependencyEvidenceSourceKind
+                        .PackageSourceManifest,
+                    targetFramework,
+                    label,
+                    value.Source));
+            return;
         }
 
         failures.Add(

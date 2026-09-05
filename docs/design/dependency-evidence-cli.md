@@ -172,14 +172,23 @@ root is acquired.
 Exact manifest acquisition preserves owner-issued identity. The seam answers
 with `ConfiguredPackageAuthority` values, and the CLI carries those authorities
 into the source loop rather than the source display text resolution echoed back.
-Each client is constructed with that authority's own
-`PackageSourceAssociation` and with the route the authority already classified —
-its canonical `LocalIdentity` for a local folder, its `Source` for an HTTP
-endpoint. The CLI mints no association and reconstructs no authority from a URL,
-so every result stays attributable to the configured authority that produced it.
-Resolution does not narrow that set: version discovery is an aggregate over
-every eligible authority rather than a per-source attribution, so every
-authorized authority is still tried in order.
+The package-owned desktop composition constructs the manifest client with that
+authority's own `PackageSourceAssociation` and with the route the authority
+already classified — its canonical `LocalIdentity` for a local folder, its
+`Source` for an HTTP endpoint. The CLI mints no association and reconstructs no
+authority from a URL, so every result stays attributable to the configured
+authority that produced it. Resolution does not narrow that set: version
+discovery is an aggregate over every eligible authority rather than a per-source
+attribution, so every authorized authority is still tried in order.
+
+The same package-owned composition also owns remote manifest transport and
+authentication. Its production transport consumes the global offline policy,
+so an exact pin bypasses version discovery but never bypasses `--offline`.
+Configured source credentials remain preemptive; otherwise a 401 challenge may
+query the request-lifetime NuGet credential provider and replay the request
+inside that authority's source-scoped authentication context. The composition
+is created lazily once per request and disposed once after every explicit root
+has completed.
 
 An unavailable resolution is inconclusive, not absence. It is reported for a
 coordinate no source is authorized for, a version aggregate that was `Partial`
@@ -508,9 +517,17 @@ The adoption requires Release gates for:
   than absence, while a valid sibling root still renders;
 - inconclusive coordinate resolution classified as `AcquisitionFailed` rather
   than absence;
-- owner-issued authority identity in manifest acquisition, where each production
-  client is constructed with the exact `PackageSourceAssociation` its
-  `PackageSourceAuthorization.Authorities` entry carries rather than a fresh one;
+- owner-issued authority identity in manifest acquisition, where the
+  package-owned composition constructs each production client with the exact
+  `PackageSourceAssociation` its `PackageSourceAuthorization.Authorities` entry
+  carries rather than a fresh one;
+- exact remote manifest acquisition under global offline policy, where no
+  connection reaches an otherwise valid source and a valid local sibling still
+  completes;
+- exact remote manifest authentication, where a 401 challenge queries the
+  request-lifetime credential provider and replays successfully while retaining
+  the exact configured-authority association, and configured credentials remain
+  preemptive without querying that provider;
 - remote source fallback, where an invalid manifest from one authorized source
   does not prevent a later source from being admitted;
 - terminal source classification: every attempted source reporting typed
