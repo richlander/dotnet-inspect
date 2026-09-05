@@ -396,7 +396,11 @@ internal sealed class BrowserManagedOperationBridge
 
         if (bodyFailure is not null)
         {
-            if (bodyFailure is OperationCanceledException
+            if (bodyFailure is BrowserManagedProducerCancellationException producerCancellation)
+            {
+                bodyFailure = producerCancellation.Cancellation;
+            }
+            else if (bodyFailure is OperationCanceledException
                 && snapshot.CancellationReason is { } canceledReason
                 && snapshot.OperationToken.IsCancellationRequested)
             {

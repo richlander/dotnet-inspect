@@ -13,6 +13,18 @@ internal interface IBrowserManagedSharedSubscription
     ValueTask<BrowserManagedProducerDisposition> DetachAsync();
 }
 
+internal sealed class BrowserManagedProducerCancellationException : Exception
+{
+    internal BrowserManagedProducerCancellationException(
+        OperationCanceledException cancellation)
+        : base("Shared producer cancellation is not waiter cancellation.", cancellation)
+    {
+        Cancellation = cancellation;
+    }
+
+    internal OperationCanceledException Cancellation { get; }
+}
+
 /// <summary>
 /// Owns scoped waiters over a feature-owned producer. The final detach waits
 /// for producer completion; it cannot transfer work to an epoch-work lease.
@@ -236,6 +248,8 @@ internal sealed class BrowserManagedSharedProducer<
             Completion completion =
                 await _owner._completion.Task.WaitAsync(operationToken).ConfigureAwait(false);
             ObservedCompletion = true;
+            if (completion.Failure?.SourceException is OperationCanceledException cancellation)
+                throw new BrowserManagedProducerCancellationException(cancellation);
             completion.Failure?.Throw();
             return completion.Result
                 ?? throw new InvalidOperationException(

@@ -387,6 +387,39 @@ public sealed class BrowserManagedSharedProducerTests(ITestOutputHelper output)
         Assert.Equal(0, bridge.ActiveCount);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProducerCancellation_RemainsUnexpectedAfterReentrantWaiterCancellation(
+        bool canceledTask)
+    {
+        var bridge = new BrowserManagedOperationBridge();
+        using var producerCancellation = new CancellationTokenSource();
+        producerCancellation.Cancel();
+        var producer = new Producer(
+            events =>
+            {
+                events.Report(1);
+                if (canceledTask)
+                    return Task.FromCanceled<BodyResult>(producerCancellation.Token);
+                throw new OperationCanceledException("unexplained producer cancellation");
+            });
+
+        Result result = await Run(
+            bridge, "first", producer, _ => Cancel(bridge, "first"));
+        output.WriteLine($"Producer cancellation (canceledTask={canceledTask}): {result}");
+        Result.Failed failure = Assert.IsType<Result.Failed>(result);
+
+        Assert.Equal(BrowserManagedOperationFailureKind.Unexpected, failure.FailureKind);
+        Assert.Equal(
+            canceledTask ? nameof(TaskCanceledException) : nameof(OperationCanceledException),
+            failure.Error);
+        if (!canceledTask)
+            Assert.Equal("unexplained producer cancellation", failure.Diagnostic);
+        Assert.Equal(0, producer.WaiterCount);
+        Assert.Equal(0, bridge.ActiveCount);
+    }
+
     static BrowserManagedOperationBridge BridgeSignalingClosedCallback(
         TaskCompletionSource<bool> signal) =>
         new(

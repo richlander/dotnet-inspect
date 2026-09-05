@@ -579,6 +579,10 @@ never become producer tokens. An unexplained producer cancellation or late fault
 missed by a canceled waiter remains a visible release failure; stop-policy failure
 cannot skip physical drain or later operation cleanup. A failure already observed
 by the operation remains its feature outcome rather than a duplicate cleanup error.
+A producer-originated cancellation is not a canceled subscription wait: if the
+operation observes it, it remains an unexpected feature failure even when the
+operation also received cancellation. Classification preserves the original
+producer exception for feature diagnostics.
 
 Final detach seals this producer's waiter admission before invoking feature code.
 A feature broker must choose a new producer instance for later requests; key
