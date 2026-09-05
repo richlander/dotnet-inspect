@@ -24,8 +24,8 @@ if [[ ! -x "$tsc" ]]; then
   exit 1
 fi
 
-fixture_project="$repo_root/tests/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
-fixture_dll="$repo_root/tests/ILInspector.JsExportSurface.TypeScriptFixtures/bin/Release/net11.0/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
+fixture_project="$repo_root/fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj"
+fixture_dll="$repo_root/artifacts/bin/ILInspector.JsExportSurface.TypeScriptFixtures/release/ILInspector.JsExportSurface.TypeScriptFixtures.dll"
 
 dotnet build "$fixture_project" -c Release --nologo >/dev/null
 dotnet run \
