@@ -246,9 +246,9 @@ under the new headings.
 | --- | --- |
 | Release `AssemblyContextMethodAddressQueryTests` | Owner-issued module association, MethodDef validation, and typed context failures. |
 | Release `BrowserMethodBodyOperationTests` | Different/same pairs, reference-token drift, explicit accessors, missing/wrong context, original query failures, native body failure, platform retention, and coexistence with Source acquisition. |
-| `method-body-comparison.test.ts`, `method-body-diff-view.test.ts` | Explicit submission, immutable pair association, replacement/dismissal, independent native outcomes, text rendering, and native line-operation lowering. |
+| `method-body-comparison.test.ts`, `method-body-diff-view.test.ts` | Explicit submission, immutable pair association, routed-history disposal and late-result suppression, independent native outcomes, text rendering, and native line-operation lowering. |
 | `generate-inspect-web-engine-facade.sh --check`, Release `ProductionFacadeContextTests` | Compiler-derived typed transport in the existing seven-root facade set. |
-| `browser/method-body-production.spec.ts` against published Wasm | Actual shared-query results for the public package and compiled reference/implementation fixture; bodyless/accessor neighbors; dialog selection, keyboard focus, IL disclosure, narrow layout, unchanged navigation, and completed underlying Source. |
+| `browser/method-body-production.spec.ts` against published Wasm | Actual shared-query results for the public package and compiled reference/implementation fixture; bodyless/accessor neighbors; dialog selection, keyboard focus, IL disclosure, narrow layout, unchanged navigation, same-document Back/Forward dismissal, and completed underlying Source. |
 
 The compiled input is `FixtureCatalog.InspectWebMethodBodies`, including its
 `reference` and `package` assets. Browser acceptance substitutes only the

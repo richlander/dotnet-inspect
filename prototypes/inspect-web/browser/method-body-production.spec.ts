@@ -287,5 +287,25 @@ test.describe("published Method Body Diff", () => {
       return { url: location.href, build: host.buildIdentity() };
     });
     await writeFile(testInfo.outputPath("browser-demo.json"), JSON.stringify(demo, null, 2));
+
+    // Seed a route predecessor: member selections replace the canonical URL.
+    await page.evaluate(() => {
+      const currentUrl = location.href;
+      const currentState: unknown = history.state;
+      history.replaceState(null, "", "/demos");
+      history.pushState(currentState, "", currentUrl);
+    });
+    const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+    await action.click();
+    await expect(dialog).toBeVisible();
+    await page.goBack();
+    expect(page.url()).not.toBe(beforeUrl);
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+    await expect(dialog).toHaveCount(0);
+    await page.goForward();
+    await expect(page).toHaveURL(beforeUrl);
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+    await expect(dialog).toHaveCount(0);
+    await expect(action).toBeEnabled();
   });
 });

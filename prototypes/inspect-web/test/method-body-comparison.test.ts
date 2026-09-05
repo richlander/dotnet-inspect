@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 import {
   createMethodBodyComparisonCoordinator,
@@ -383,6 +386,69 @@ test("navigation replacement releases a running inventory query", async () => {
   assert.equal(fixture.state.open, false);
   assert.equal(fixture.state.targets, null);
   assert.equal(coordinator.dispose(), false);
+});
+
+test("routed history to demos closes the dialog and rejects late inventory", async () => {
+  const fixture = harness();
+  const coordinator = createMethodBodyComparisonCoordinator(fixture.dependencies);
+  const opening = coordinator.open(context, "#compare-method-bodies");
+  const running = fixture.targetQueries[0]!;
+  const appSource = readFileSync(
+    new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
+  const dismissal = appSource.match(
+    /function dismissModalsForRoutedNavigation\(\) \{[\s\S]*?\n\}/)?.[0];
+  const popstate = appSource.match(
+    /window\.addEventListener\("popstate",[\s\S]*?\n\}\);/)?.[0];
+  assert.ok(dismissal);
+  assert.ok(popstate);
+  const callbacks: { popstate?: () => void } = {};
+  const state = {
+    methodBodyDiff: fixture.state,
+    package: { id: context.packageId },
+    packageQueryOpen: false,
+    engineReady: true,
+    loading: false,
+    workspaceSubjectOpen: false,
+    atPackageRoot: false,
+  };
+  runInNewContext(stripTypeScriptTypes(`${dismissal}\n${popstate}`), {
+    state,
+    methodBodyComparison: coordinator,
+    window: {
+      addEventListener: (_event: string, handler: () => void) => {
+        callbacks.popstate = handler;
+      },
+    },
+    currentPackageQueryHandoff: () => null,
+    navigationSequence: { begin: () => 1 },
+    closeGraphExplorerForNavigation: () => {},
+    dismissAnnotatedSourceModal: () => false,
+    spotlight: { reset: () => {} },
+    sourceInspection: { clearGraphSource: () => {} },
+    documentInspection: { clear: () => {} },
+    invalidateMemberDestinationWork: () => {},
+    isPackageQueryPath: () => false,
+    isCreditsPath: () => false,
+    isProductHomeDemosPath: (path: string) => path === "/demos",
+    location: { pathname: "/demos" },
+    clearNavigationError: () => {},
+    clearWorkspaceRouteFailure: () => true,
+    render: () => {},
+    afterCurrentNavigationFrame: () => {},
+  });
+  assert.ok(callbacks.popstate);
+  callbacks.popstate();
+
+  assert.equal(state.workspaceSubjectOpen, true);
+  assert.equal(state.atPackageRoot, true);
+  assert.equal(fixture.state.open, false);
+  assert.deepEqual(
+    fixture.cancellations,
+    [{ operationId: running.operationId, reason: "disposed" }]);
+  running.resolve(targetsResult(targets()));
+  await opening;
+  assert.equal(fixture.state.targets, null);
+  assert.equal(fixture.state.targetsLoading, false);
 });
 
 test("an expected managed failure stays visible for its own lane", async () => {

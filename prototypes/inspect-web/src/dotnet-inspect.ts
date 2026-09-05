@@ -13208,6 +13208,7 @@ function clearNavigationError() {
 
 function dismissModalsForRoutedNavigation() {
   closeGraphExplorerForNavigation();
+  methodBodyComparison.dispose();
   const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal(false);
   state.settings = false;
   state.keyboardHelp = false;

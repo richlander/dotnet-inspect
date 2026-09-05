@@ -3252,7 +3252,7 @@ test("Package query is a routed Spotlight action with typed workspace handoff", 
     /const navigationSeq = navigationSequence\.begin\(\);\s*let leftPackageQueryForWorkspaceSuccessor = false;\s*const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\)/);
   assert.match(
     appSource,
-    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
+    /function dismissModalsForRoutedNavigation\(\) \{\s*closeGraphExplorerForNavigation\(\);\s*methodBodyComparison\.dispose\(\);\s*const dismissedAnnotatedSourceModal = dismissAnnotatedSourceModal\(false\);\s*state\.settings = false;\s*state\.keyboardHelp = false;\s*state\.explorer = null;\s*spotlight\.reset\(\);\s*sourceInspection\.clearGraphSource\(\);\s*documentInspection\.clear\(\);\s*return dismissedAnnotatedSourceModal/);
   assert.match(
     route,
     /dismissModalsForRoutedNavigation\(\);\s*navigationSequence\.begin\(\)/);
