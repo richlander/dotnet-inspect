@@ -118,7 +118,8 @@ It does not own:
 - demo record shape, scenario identity, validation, resolution, section or
   facet admission, run-plan lowering, execution, or failure semantics;
 - source-selection defaults or cross-source deduplication;
-- CLI or browser actions, rendering, or recommendations; or
+- CLI or browser actions, rendering, or host-level recommendation policy
+  beyond the catalog's declared pack-local core-package preference; or
 - runtime plugins, registration, discovery, unloading, or mutation.
 
 The exact claim is:
@@ -570,9 +571,10 @@ The sequence itself supplies preference order within the pack; there is no
 second numeric priority or catalog-wide ranking. It is not a query-result
 ordering, operation bound, selected population, or instruction to acquire the
 entries. Null entries, invalid coordinates, target/version overrides, and
-duplicate package IDs under ordinal, case-insensitive equality (as in the
-Package Set Registry) are invalid static declarations. Discovery preserves the
-complete authored sequence.
+duplicate package IDs within one pack under ordinal, case-insensitive equality
+(as in the Package Set Registry) are invalid static declarations. The same core
+package may appear in different packs. Discovery preserves the complete
+authored sequence.
 
 Core references and the curated `PackageSetId` have different purposes.
 Core entries need not belong to a curated set, and a pack need not contribute
@@ -971,7 +973,7 @@ also **unverified** here; curated membership authority does not change.
 
 | Gate scenario | Required outcome |
 | --- | --- |
-| Discover and look up unequal-length hint/core sequences on two packs with an overlapping root | Exact pack association, literal spelling, authored order, and complete independent immutable sequences survive; no positional root-to-package mapping is introduced. |
+| Discover and look up unequal-length hint/core sequences on two packs sharing a root and a core package | Exact pack association, literal spelling, authored order, and complete independent immutable sequences survive; cross-pack overlap remains valid and no positional root-to-package mapping is introduced. |
 | Publish malformed roots or invalid, duplicate, versioned, or target-specific core coordinates | Complete registry construction fails visibly before any descriptor is published; overlapping but distinct roots remain valid. |
 | Discover empty knowledge on a demo-capable pack and attempt a knowledge-only registration | Empty contributions remain empty without changing the existing capability requirement or manufacturing traversal availability. |
 | Read metadata, then select one existing demo, scanner, or curated-set action | Knowledge discovery invokes no capability; explicit selection preserves the selected owner's existing input and outcome without activating neighbors. |
