@@ -2987,13 +2987,13 @@ test("workspace package selection resets type-specific member filters", () => {
     /state\.selectedTypeId = defaultVisibleTypeId\(packageModel\);[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
 });
 
-test("loaded-package Spotlight selection resets type-specific member filters", () => {
+test("loaded-package Spotlight selection reuses the complete package transition", () => {
   const selection =
     appSource.match(/function pickSpotlightLoadedPackage\([\s\S]*?\n}\n\nasync function pickSpotlightMember/)?.[0]
     ?? "";
   assert.match(
     selection,
-    /state\.selectedTypeId = "";[\s\S]*resetMemberFilters\(\);[\s\S]*resetMemberSectionState\(\)/);
+    /spotlight\.reset\(\);\s*selectWorkspacePackage\(target\);\s*focusTypeList\(focusGeneration\)/);
 });
 
 test("foreground package reload resets filters before selecting its first type", () => {

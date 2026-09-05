@@ -1671,8 +1671,10 @@ Package owns coordinate-wide inventory, documents, and NuGet dependencies.
 Library owns assembly identity, references, integrations, opportunities,
 analysis, metadata, and the exact Type inventory for one admitted assembly.
 Type and Member navigation retain that exact Library ancestry.
-Opening a package from Query, Search, or Commands starts at Package Overview,
+Acquiring a new package from Query, Search, or Commands starts at Package Overview,
 rather than retaining the previous coordinate's Library or Type subject.
+Selecting an already retained package in Search uses the same complete Package
+transition as Workspace navigation, including its Library and Type selection.
 The `type` command enters the selected Type and its exact Library, including
 when invoked from Package, Library, or Member.
 Library selection and package-backed requests use the product-issued assembly
@@ -1684,7 +1686,8 @@ transport is available; the existing platform Analysis limitation stays visible.
 `browser/library-hierarchy.spec.ts` exercises the built application and its real
 navigation bindings with deterministic facade responses: the four-level
 hierarchy, exact-library requests, empty-library refresh/history, and a
-single-library neighboring case. It also covers opening another package and
+single-library neighboring case. It also covers opening another package,
+Search switches between retained packages with distinct Library IDs, and
 cross-Library Type commands, including history and refresh.
 Run `npm run build` before this browser test.
 The engine boundary tests separately exercise product queries and the share

@@ -777,7 +777,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
     ],
     activeTabId: "t1", selectedContextId: "g1",
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
-      section: null, libraries: ["Source.Core"] },
+      section: null, libraries: [] },
   });
   assert.equal(h.location.pathname, "/");
   assert.equal(h.location.hash, "#workspace");

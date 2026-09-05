@@ -7504,18 +7504,8 @@ function pickSpotlightLoadedPackage(pkg: {
       || item.activeFramework === pkg.activeFramework));
   if (!target) { closeSpotlight(); return; }
   const focusGeneration = beginSpotlightNavigation();
-  state.home = false;
-  activatePackage(target, { resetAccessibility: true });
-  state.atPackageRoot = true;
-  state.atLibraryRoot = false;
-  state.selectedTypeId = "";
-  state.selectedMemberKey = "";
-  state.memberBrowseTypeId = "";
-  state.selectedOverloadIndex = null;
-  resetMemberFilters();
-  resetMemberSectionState();
   spotlight.reset();
-  render();
+  selectWorkspacePackage(target);
   focusTypeList(focusGeneration);
 }
 

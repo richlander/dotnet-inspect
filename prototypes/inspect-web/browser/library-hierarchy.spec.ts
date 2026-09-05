@@ -95,8 +95,17 @@ const surface: BrowserPackageSurface = {
 
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
-async function installFacades(page: Page, model = surface) {
+async function installFacades(
+  page: Page,
+  model = surface,
+  additionalSurfaces: readonly BrowserPackageSurface[] = [],
+) {
   const common = "export async function initializeRuntime() {}";
+  const surfaceLookup = `
+    const surfaces = ${JSON.stringify([model, ...additionalSurfaces])};
+    function surfaceFor(id) {
+      return surfaces.find(item => item.package === id) ?? surfaces[0];
+    }`;
   const modules: Record<string, string> = {
     host: `
       export async function createRuntime() { return {}; }
@@ -106,8 +115,9 @@ async function installFacades(page: Page, model = surface) {
         return { version: "fixture", commit: null, builtAtUtc: null, commitUrl: null };
       }`,
     package: `
-      const surface = ${JSON.stringify(model)};
+      ${surfaceLookup}
       export async function queryPackage(id, version, framework) {
+        const surface = surfaceFor(id);
         return {
           ...surface,
           package: id,
@@ -126,6 +136,7 @@ async function installFacades(page: Page, model = surface) {
       }
       export async function queryPackageDependencies(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
+        const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return {
@@ -136,9 +147,10 @@ async function installFacades(page: Page, model = surface) {
         };
       }`,
     metadata: `
-      const surface = ${JSON.stringify(model)};
+      ${surfaceLookup}
       export async function queryPackageMetadata(id, version, framework, asset) {
         document.documentElement.dataset.metadataRequest = asset;
+        const surface = surfaceFor(id);
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return {
@@ -348,6 +360,56 @@ test("opening another package from Library enters Package and preserves history"
   await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
   await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
   await expect(page.locator("#type-list")).toContainText("Neighbor");
+});
+
+test("Search between retained packages restores the incoming Library ancestry", async ({ page }) => {
+  const secondLibrary = library("asset:second", "Second.Core", 1);
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page, surface, [{
+    ...surface,
+    package: "Second.Package",
+    defaultAssemblyId: secondLibrary.id,
+    assemblies: [secondLibrary],
+    types: [type("Example.SecondWidget", secondLibrary)],
+    totalMembers: 1,
+  }]);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await page.locator('.library-list [data-lib-scope="asset:second"]').click();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-open="Example.Package"]').click();
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-subject-tab][data-scope="library"]')).toHaveCount(1);
+  await expect(page.locator('[data-subject-tab][data-scope="type"]')).toHaveCount(1);
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Widget");
+
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-open="Second.Package"]').click();
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-subject-tab]:not([hidden])').first().press("Home");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("SecondWidget");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Second.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("SecondWidget");
 });
 
 for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
