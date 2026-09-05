@@ -1471,6 +1471,9 @@ public class LibraryViewShapeDerivedContainmentTests
     /// behavior. A fixture that synthesized one would be a second
     /// implementation of the analyzers, which is the harness boundary this
     /// repository draws. Tracked in #3463.
+    /// <c>LibraryInspection.IntegrationScan</c> likewise requires a selected
+    /// producer outcome; its rendering boundary is exercised by
+    /// <see cref="LibraryScannerSelectionTests.SelectedRowsWithControlCharactersStayContained"/>.
     /// </description></item>
     /// <item><description>
     /// <c>TypeRef</c>, <c>ApiTypeShape</c>, and
@@ -1514,6 +1517,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Hosting (List`1): computed projection still null after the walk",
         "LibraryInspection.HttpClient (List`1): computed projection still null after the walk",
         "LibraryInspection.InspectionFailures (List`1): computed projection still null after the walk",
+        "LibraryInspection.IntegrationScan (LibraryIntegrationScan): requires a selected Integration producer outcome",
         "LibraryInspection.Integrations (List`1): computed projection still null after the walk",
         "LibraryInspection.Logging (List`1): computed projection still null after the walk",
         "LibraryInspection.MetadataOverview (MetadataImageOverview): computed projection still null after the walk",
@@ -1885,6 +1889,12 @@ public class LibraryViewShapeDerivedContainmentTests
         {
             instance = null;
             why = string.Empty;
+
+            if (type == typeof(LibraryIntegrationScan))
+            {
+                why = "requires a selected Integration producer outcome";
+                return false;
+            }
 
             var parameterless = type.GetConstructor(Type.EmptyTypes);
             if (parameterless is not null && !type.IsValueType)

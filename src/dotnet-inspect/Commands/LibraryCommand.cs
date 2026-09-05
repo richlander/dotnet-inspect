@@ -2624,8 +2624,7 @@ public class LibraryCommand
             allEffective = pipeline.GetDiscoverableSections(inspection);
         }
 
-        var schemaMap = MetadataSectionNames.AugmentSchema(
-            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
+        var schemaMap = CreateDiscoverySchema(pipeline);
 
         // Cheap discovery never content-probes fields. Full discovery may narrow dynamic field
         // schemas after the selected producers have run.
@@ -2694,6 +2693,18 @@ public class LibraryCommand
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
+    }
+
+    private static DocumentSchema CreateDiscoverySchema(
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var schema = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
+        return pipeline.SelectableSectionNames.Contains(IntegrationSectionNames.Scan)
+            ? schema
+            : DiscoverOutput.RestrictSchemaToSections(
+                schema,
+                schema.SectionNames.Where(name => name != IntegrationSectionNames.Scan).ToArray());
     }
 
     private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, string contentHash, bool hasSourceLink)

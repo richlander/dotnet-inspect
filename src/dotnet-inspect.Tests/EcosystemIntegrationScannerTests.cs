@@ -491,7 +491,8 @@ public class EcosystemIntegrationScannerTests
         bool includeMalformedExtension = false,
         bool includeAdditionalOverload = false,
         bool includeConfigurationParameter = false,
-        bool includeAspire = false)
+        bool includeAspire = false,
+        string aspireMethodName = "AddSample")
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("IntegrationVisibilityFixture"),
@@ -569,7 +570,7 @@ public class EcosystemIntegrationScannerTests
                 TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
             aspireExtensions.SetCustomAttribute(extensionAttribute);
             MethodBuilder add = aspireExtensions.DefineMethod(
-                "AddSample",
+                aspireMethodName,
                 MethodAttributes.Public | MethodAttributes.Static,
                 builder,
                 [applicationBuilder]);

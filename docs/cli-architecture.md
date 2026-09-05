@@ -286,6 +286,8 @@ another binding or infers an identity from a title.
 
 The explicit mode adds an `Integration Scan` section to the command's catalog
 and selects that section when `-S` is omitted. An explicit `-S` must include it.
+Ordinary discovery, including `--schema`, does not expose that optional section
+without scanner selection.
 The same file, platform, package, and TFM source paths remain available.
 An input that cannot form a readable managed participant fails before the
 selected operation; failures after admission remain per-participant outcomes.

@@ -142,6 +142,37 @@ public class LibraryScannerSelectionTests
         Assert.DoesNotContain("SelectedIntegrationScan", result.Error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OrdinaryDiscoveryDoesNotExposeScannerOnlySections(bool tree)
+    {
+        string[] args = tree
+            ? ["library", "-D", "--schema", "--tree"]
+            : ["library", "-D", "--schema"];
+        var result = await RunAsync(args);
+        Assert.True(result.ExitCode == 0, result.Error);
+        Assert.DoesNotContain(IntegrationSectionNames.Scan, result.Output);
+        Assert.Contains("Integration: Aspire", result.Output);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task SelectedRowsWithControlCharactersStayContained(string format)
+    {
+        await WithFixtureAsync(true, async path =>
+        {
+            var result = await RunAsync(
+                "library", path, "--scanner", "ecosystem.aspire", format);
+            Assert.True(result.ExitCode == 0, result.Error);
+            Assert.Contains("INJECTED", result.Output);
+            HostileOutputAssert.NoRenderingHazard(result.Output, "selected-integration-scan");
+            HostileOutputAssert.NoLineSplit(result.Output, "INJECTED");
+        }, aspireMethodName: "AddSample\u000BINJECTED");
+    }
+
     [Fact]
     public async Task PlatformInputUsesTheSelectedOperation()
     {
@@ -332,14 +363,15 @@ public class LibraryScannerSelectionTests
             return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
         });
 
-    static async Task WithFixtureAsync(bool includeAspire, Func<string, Task> action)
+    static async Task WithFixtureAsync(
+        bool includeAspire, Func<string, Task> action, string aspireMethodName = "AddSample")
     {
         var directory = Directory.CreateTempSubdirectory("cli-scanner-");
         try
         {
             string path = Path.Combine(directory.FullName, "ScannerFixture.dll");
             using var image = EcosystemIntegrationScannerTests.BuildDependencyInjectionExtensionAssembly(
-                includeAspire: includeAspire);
+                includeAspire: includeAspire, aspireMethodName: aspireMethodName);
             await File.WriteAllBytesAsync(path, image.ToArray());
             await action(path);
         }

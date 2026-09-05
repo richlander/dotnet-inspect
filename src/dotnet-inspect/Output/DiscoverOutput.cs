@@ -395,6 +395,26 @@ public static class DiscoverOutput
             return !tabular || rendered.HasTable(name);
         }).ToList();
 
+    internal static DocumentSchema RestrictSchemaToSections(
+        DocumentSchema schema, IReadOnlyCollection<string> sectionNames)
+    {
+        var filtered = new DocumentSchema();
+        foreach (var name in sectionNames)
+        {
+            var section = schema.GetSection(name);
+            if (section == null)
+                continue;
+
+            var items = section.Items.Select(i => i.Name).ToArray();
+            if (items.Length > 0)
+                filtered.Add(name, section.ItemKind, items);
+            else
+                filtered.AddSection(name);
+        }
+
+        return filtered;
+    }
+
     /// <summary>
     /// Returns a copy of the schema with the named column removed from every section.
     /// Used to hide deprecated or option-internal columns from plain discovery.
