@@ -1486,15 +1486,23 @@ public static class ApiOutputFormatter
                 // A getter returns the property type and takes only the index parameters; a
                 // setter (and both event accessors) returns void and takes a trailing `value`.
                 if (member.GetterToken is { } getter)
-                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, "get", valueReturning: true);
+                    yield return Accessor(
+                        member, declaringType, $"get_{member.Name}", getter,
+                        member.GetterHasMethodBody, "get", valueReturning: true);
                 if (member.SetterToken is { } setter)
-                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, "set", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"set_{member.Name}", setter,
+                        member.SetterHasMethodBody, "set", valueReturning: false);
                 break;
             case "event":
                 if (member.AdderToken is { } adder)
-                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, "add", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"add_{member.Name}", adder,
+                        member.AdderHasMethodBody, "add", valueReturning: false);
                 if (member.RemoverToken is { } remover)
-                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, "remove", valueReturning: false);
+                    yield return Accessor(
+                        member, declaringType, $"remove_{member.Name}", remover,
+                        member.RemoverHasMethodBody, "remove", valueReturning: false);
                 break;
         }
     }
@@ -1506,13 +1514,20 @@ public static class ApiOutputFormatter
     /// the owner's bare return type. The value type is the property/event type; a value-
     /// returning accessor (a getter) returns it and carries only the index parameters, while a
     /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
-    /// Modifiers mirror the accessor: virtual/override/sealed/abstract/static come from the
-    /// owner (both accessors share the property/event slot), while accessibility uses the
-    /// per-accessor entry (a <c>private set</c> stays private) and only falls back to the
-    /// owner's when the accessor declares none — events carry no per-accessor entry and so
-    /// inherit the event's accessibility.
+    /// Modifiers mirror the owner aggregate, except that an accessor's managed body is
+    /// accessor-specific proof that it is concrete even when a sibling makes the owner
+    /// abstract. Accessibility uses the per-accessor entry (a <c>private set</c> stays
+    /// private) and only falls back to the owner's when the accessor declares none —
+    /// events carry no per-accessor entry and so inherit the event's accessibility.
     /// </summary>
-    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
+    static ApiMember Accessor(
+        ApiMember owner,
+        string declaringType,
+        string name,
+        int token,
+        bool? hasMethodBody,
+        string accessorKind,
+        bool valueReturning)
     {
         var ownerModel = owner.SignatureModel;
         var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
@@ -1554,10 +1569,11 @@ public static class ApiOutputFormatter
             },
             IsStatic = owner.IsStatic,
             IsVirtual = owner.IsVirtual,
-            IsAbstract = owner.IsAbstract,
+            IsAbstract = owner.IsAbstract && hasMethodBody != true,
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
+            HasMethodBody = hasMethodBody,
             MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
                 facts => facts.CallerContract.Evidence.MemberToken == token),
             MethodImplementation = implementation,
@@ -1595,6 +1611,7 @@ public static class ApiOutputFormatter
                 || requestedSections.Contains(SectionNames.SourceDiff),
             AnnotatedSource: requestedSections.Contains(SectionNames.AnnotatedSource),
             SourceDocument: requestedSections.Contains(SectionNames.AnnotatedSourceDocument),
+            FindingCensus: requestedSections.Contains(SectionNames.FindingCensus),
             CostOverlay: requestedSections.Contains(SectionNames.CostOverlay),
             SemanticsOverlay: requestedSections.Contains(SectionNames.SemanticsOverlay),
             IL: requestedSections.Contains(SectionNames.IL),
@@ -1621,12 +1638,12 @@ public static class ApiOutputFormatter
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
         var singleMethod = overloadIndex.HasValue
-            ? methods.Count == 1
-                ? methods[0]
-                : overloadIndex.Value < methods.Count
-                    ? methods[overloadIndex.Value]
-                    : null
+            ? SelectBodyMethod(type, methods, overloadIndex.Value)
             : null;
+        if (singleMethod?.IsAbstract == true && !request.UnsafeOperations)
+            singleMethod = null;
+        if (request.FindingCensus && singleMethod?.HasMethodBody != true)
+            singleMethod = null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
         // Code and caller sections address a single selected member. When an overload
         // (or property/event accessor, issue #3265) is selected, restrict them to that
@@ -1867,7 +1884,10 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste || request.SourceDocument)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay
+            || request.SemanticsOverlay || request.IL || request.Attributes
+            || request.Facts || request.FidelityCauses || request.AppliedTaste
+            || request.SourceDocument || request.FindingCensus)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1912,10 +1932,16 @@ public static class ApiOutputFormatter
                 hasCode = true;
             }
 
-            hasCode |= PopulateAnnotatedSourceDocument(
-                memberCode,
-                code.SourceDocument,
-                code.SourceDocumentFailure);
+            if (request.SourceDocument)
+            {
+                hasCode |= PopulateAnnotatedSourceDocument(
+                    memberCode,
+                    code.SourceDocument,
+                    code.SourceDocumentFailure);
+            }
+
+            if (request.FindingCensus)
+                hasCode |= PopulateFindingCensus(memberCode, code);
 
             if (request.Facts && code.Facts is { } facts)
             {
@@ -1928,7 +1954,9 @@ public static class ApiOutputFormatter
                         fact.Category,
                         fact.Id,
                         fact.Detail is { } detail ? MarkoutInline.Code(detail) : null,
-                        fact.Conditionality))
+                        fact.Conditionality,
+                        fact.CensusReceipt?.ToString(),
+                        fact.InstanceKey?.Value))
                     .ToList();
                 if (rows.Count > 0 || ExplicitlySelected(SectionNames.Facts))
                 {
@@ -1940,6 +1968,24 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    private static ApiMember? SelectBodyMethod(
+        ApiType type,
+        List<ApiMember> methods,
+        int overloadIndex)
+    {
+        if (type.Members is [{ } owner]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(owner))
+        {
+            return AccessorMethods(owner, type).ElementAtOrDefault(overloadIndex);
+        }
+
+        return methods.Count == 1
+            ? methods[0]
+            : overloadIndex < methods.Count
+                ? methods[overloadIndex]
+                : null;
     }
 
     internal static bool PopulateCSharpSections(
@@ -2032,6 +2078,44 @@ public static class ApiOutputFormatter
             return true;
         }
         return false;
+    }
+
+    internal static bool PopulateFindingCensus(
+        MemberCodeView memberCode,
+        MemberCodeProvider.Item code)
+    {
+        ArgumentNullException.ThrowIfNull(memberCode);
+        if (code.SourceDocument is null)
+        {
+            memberCode.FindingCensusFailure =
+                code.SourceDocumentFailure is { } failure
+                    ? string.Join(
+                        "; ",
+                        failure.Diagnostics.Select(static diagnostic =>
+                            diagnostic.ToString()))
+                    : $"section '{SectionNames.FindingCensus}' produced no Annotated Source document.";
+            return true;
+        }
+
+        try
+        {
+            MemberFindingCensusEnvelope envelope = MemberFindingCensus.Create(
+                code.FactCensusReceipt,
+                code.Facts,
+                code.SourceDocument,
+                code.SourceDocumentFactIdentities);
+            memberCode.FindingCensus = envelope;
+            memberCode.FindingCensusCode = new CodeSection(
+                "json",
+                JsonSerializer.Serialize(
+                    envelope,
+                    MemberFindingCensusJsonContext.Default.MemberFindingCensusEnvelope));
+        }
+        catch (InvalidOperationException ex)
+        {
+            memberCode.FindingCensusFailure = ex.Message;
+        }
+        return true;
     }
 
     internal static List<FidelityCauseRow> BuildFidelityCauseRows(

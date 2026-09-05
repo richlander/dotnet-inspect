@@ -7516,7 +7516,7 @@ public class SectionPipelineTests
         {
             Name = "Sample",
             Kind = "class",
-            Members = [new ApiMember { Name = "Method", Kind = "method" }]
+            Members = [new ApiMember { Name = "Method", Kind = "method", HasMethodBody = true }]
         };
         var memberPipeline = ApiMemberSectionDescriptors.CreatePipeline();
         yield return DiscoverableCase("member", memberPipeline, apiType, detailType);

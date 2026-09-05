@@ -1409,6 +1409,12 @@ public static class ApiSurfaceExtractor
                         observeAttributeMaterialize),
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
+                    GetterHasMethodBody = accessors.Getter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Getter).RelativeVirtualAddress != 0,
+                    SetterHasMethodBody = accessors.Setter.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Setter).RelativeVirtualAddress != 0,
                     HasGetter = !accessors.Getter.IsNil,
                     GetterAccessibility = accessors.Getter.IsNil
                         ? null
@@ -1834,7 +1840,11 @@ public static class ApiSurfaceExtractor
                         : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
-                        : MetadataTokens.GetToken(accessors.Remover)
+                        : MetadataTokens.GetToken(accessors.Remover),
+                    AdderHasMethodBody = adder.RelativeVirtualAddress != 0,
+                    RemoverHasMethodBody = accessors.Remover.IsNil
+                        ? null
+                        : reader.GetMethodDefinition(accessors.Remover).RelativeVirtualAddress != 0
                 };
 
                 budget?.RetainMember(member);
@@ -2981,6 +2991,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = extension.IsAbstract,
                     IsOverride = extension.IsOverride,
                     IsSealed = extension.IsSealed,
+                    HasMethodBody = extension.HasMethodBody,
                     IsUnsafe = extension.IsUnsafe,
                     MemorySafety = extension.MemorySafety,
                     MethodImplementation = extension.MethodImplementation,
