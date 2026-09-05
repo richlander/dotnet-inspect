@@ -149,6 +149,12 @@ Metadata owns metadata facts. SourceLink owns SourceLink interpretation.
 CSharpText owns textual grammar, while ILInspector.CSharp owns spelling that
 depends on typed models.
 
+[C# memory-safety declaration spelling](design/csharp-memory-safety-spelling.md)
+owns the proposed CSharp policy for consuming independent caller-contract,
+pointer, and declaration-shape facts. Its adoption and production-host gates
+remain pending; Metadata interpretation and Decompiler reconstruction stay
+with their respective owners.
+
 ### Evidence and comparison engines
 
 | Region | Place in flow | Responsibility | Primary authority |
