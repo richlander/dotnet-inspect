@@ -1,5 +1,7 @@
 using ILInspector.JsExportSurface.Fixtures;
 using ILInspector.JsExportSurface.MemberConverterFixtures;
+using ILInspector.JsExportSurface.NestedContextFixtures;
+using ILInspector.JsExportSurface.NestedContextUnsupportedFixtures;
 using ILInspector.JsExportSurface.PublishabilityFixtures;
 using ILInspector.JsExportSurface.TypeScriptFixtures;
 using TsJsExport;
@@ -175,6 +177,103 @@ public sealed class TsJsExportCommandTests
             Assert.Empty(output.ToString());
             Assert.Contains(
                 "ConverterControlledDto.Value: unsupported custom JsonConverter has no TypeScript mapping.",
+                error.ToString(),
+                StringComparison.Ordinal);
+            Assert.Equal(existing, File.ReadAllText(outputPath));
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_IgnoresUnserializedNestedContextMembersAndUnreachedContexts()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-nested-context-safe-{Guid.NewGuid():N}.ts");
+        try
+        {
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(NestedContextFixtureExports).Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(0, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Empty(error.ToString());
+
+            string source = File.ReadAllText(outputPath);
+            Assert.Contains(
+                """
+                export interface NestedContextSafeDto {
+                  readonly Public: string;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                """
+                export interface SimpleDto {
+                  readonly Value: string;
+                }
+                """,
+                source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "UnreachedNestedContextDto",
+                source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("Ignored", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Shared", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Item", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("HiddenValue", source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(outputPath);
+        }
+    }
+
+    [Fact]
+    public void Invoke_RejectsReachedNestedContextProtectedValueTypes()
+    {
+        string outputPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"ts-jsexport-nested-context-unsupported-{Guid.NewGuid():N}.ts");
+        const string existing = "// existing output\n";
+        try
+        {
+            File.WriteAllText(outputPath, existing);
+            var output = new StringWriter();
+            var error = new StringWriter();
+
+            int exitCode = TsJsExportCommand.Invoke(
+                [
+                    typeof(NestedContextProtectedValueDto)
+                        .Assembly.Location,
+                    "--runtime-module",
+                    "./dotnet.js",
+                    "--output",
+                    outputPath,
+                ],
+                output,
+                error);
+
+            Assert.Equal(1, exitCode);
+            Assert.Empty(output.ToString());
+            Assert.Contains(
+                "same-assembly value types depend on nested JsonSerializerContext accessibility are unsupported",
                 error.ToString(),
                 StringComparison.Ordinal);
             Assert.Equal(existing, File.ReadAllText(outputPath));

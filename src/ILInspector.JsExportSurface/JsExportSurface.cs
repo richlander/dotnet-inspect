@@ -137,6 +137,15 @@ public sealed class JsExportFunction
         { get; init; } = [];
 
     /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ReturnWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ReturnWireContextScopeKeys
+        { get; init; } = [];
+
+    /// <summary>
     /// Exact structural shape of <see cref="ReturnWireType"/>. This keeps
     /// primitive nodes distinct from producer-defined types whose C# display
     /// spelling is identical.
@@ -157,6 +166,15 @@ public sealed class JsExportFunction
 
     [JsonIgnore]
     public IReadOnlyList<ApiTypeReferenceIdentity> ParameterWireTypeReferences
+        { get; init; } = [];
+
+    /// <summary>
+    /// Authenticated source-generated serializer-context scopes that produced
+    /// <see cref="ParameterWireTypeReferences"/>. Present only on body-backed
+    /// surfaces.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<string> ParameterWireContextScopeKeys
         { get; init; } = [];
 }
 

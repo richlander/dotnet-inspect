@@ -253,6 +253,127 @@ public sealed class JsonWireMemberRulesTests
     }
 
     [Fact]
+    public void ContextRelativeAccessibilityIgnoresMembersOutsideTheWireContract()
+    {
+        ApiAssemblyIdentity assembly = new(
+            "Fixture",
+            new Version(1, 0, 0, 0),
+            culture: null,
+            publicKeyToken: null);
+        MetadataTypeDefinitionName dtoDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto"]))
+                .Name;
+        MetadataTypeDefinitionName hiddenDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "HiddenValue"]))
+                .Name;
+        MetadataTypeDefinitionName contextDefinition =
+            Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Fixture",
+                    ["Dto", "NestedContextJsonContext"]))
+                .Name;
+        ApiTypeReferenceIdentity dtoReference = new(
+            assembly,
+            "Fixture.Dto",
+            dtoDefinition);
+        ApiTypeReferenceIdentity hiddenReference = new(
+            assembly,
+            "Fixture.Dto.HiddenValue",
+            hiddenDefinition);
+        var typesByScopedIdentity =
+            new Dictionary<ApiTypeReferenceIdentity, ApiType>
+            {
+                [dtoReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Dto",
+                    DefinitionName = dtoDefinition,
+                    Kind = "class",
+                },
+                [hiddenReference] = new ApiType
+                {
+                    Namespace = "Fixture",
+                    Name = "Dto.HiddenValue",
+                    DefinitionName = hiddenDefinition,
+                    Accessibility = "private",
+                    Kind = "enum",
+                },
+            };
+
+        ApiMember ignored = new()
+        {
+            Name = "Ignored",
+            Kind = "field",
+            HasJsonInclude = true,
+            JsonIgnoreConditions = [JsonWireIgnoreCondition.Always],
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+        ApiMember @static = new()
+        {
+            Name = "Static",
+            Kind = "field",
+            HasJsonInclude = true,
+            IsStatic = true,
+            SignatureModel = new ApiSignature
+            {
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+        ApiMember indexer = new()
+        {
+            Name = "Item",
+            Kind = "property",
+            HasGetter = true,
+            HasSetter = true,
+            HasJsonInclude = true,
+            IndexParameterCount = 1,
+            SignatureModel = new ApiSignature
+            {
+                Parameters =
+                [
+                    new ApiParameter
+                    {
+                        Name = "index",
+                        Type = "int",
+                    },
+                ],
+                ReturnTypeReferences = [hiddenReference],
+            },
+        };
+
+        Assert.False(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    ignored,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+        Assert.False(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    @static,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+        Assert.False(
+            JsonWireMemberRules
+                .RequiresContextRelativeValueTypeAccessibilityEvidence(
+                    indexer,
+                    assembly,
+                    typesByScopedIdentity,
+                    contextDefinition));
+    }
+
+    [Fact]
     public void GetterOnlyDeserializePropertyRequiresConstructorEvidence()
     {
         ApiMember getterOnly = Property();

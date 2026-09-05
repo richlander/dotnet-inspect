@@ -182,6 +182,7 @@ public static class JsonWireMemberRules
     /// </summary>
     public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
         ApiMember member,
+        JsonWireDirection directions,
         ApiAssemblyIdentity? assemblyIdentity,
         IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
             typesByScopedIdentity,
@@ -189,7 +190,8 @@ public static class JsonWireMemberRules
     {
         if (assemblyIdentity is null
             || contextDefinitionName is null
-            || !member.HasJsonInclude)
+            || !member.HasJsonInclude
+            || !IsSerialized(member, directions))
         {
             return false;
         }
@@ -215,6 +217,19 @@ public static class JsonWireMemberRules
                 typesByScopedIdentity,
                 contextDefinitionName));
     }
+
+    public static bool RequiresContextRelativeValueTypeAccessibilityEvidence(
+        ApiMember member,
+        ApiAssemblyIdentity? assemblyIdentity,
+        IReadOnlyDictionary<ApiTypeReferenceIdentity, ApiType>
+            typesByScopedIdentity,
+        MetadataTypeDefinitionName? contextDefinitionName) =>
+        RequiresContextRelativeValueTypeAccessibilityEvidence(
+            member,
+            JsonWireDirection.Both,
+            assemblyIdentity,
+            typesByScopedIdentity,
+            contextDefinitionName);
 
     /// <summary>
     /// True when the member carries authentic <c>[JsonIgnore]</c> metadata that
@@ -410,7 +425,9 @@ public static class JsonWireMemberRules
         if (type.Accessibility is null or "internal" or "protected internal")
             return true;
 
-        return type.Accessibility == "private"
+        return type.Accessibility is "private"
+            or "protected"
+            or "private protected"
             && contextDefinitionName is not null
             && type.DefinitionName is { Segments.Length: > 1 } definitionName
             && contextDefinitionName.Namespace == definitionName.Namespace

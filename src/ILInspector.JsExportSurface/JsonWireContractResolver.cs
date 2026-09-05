@@ -96,6 +96,8 @@ public static class JsonWireContractResolver
         int metadataToken,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            registeredJsonTypeInfoContextScopeKeys,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, ApiTypeShape>
@@ -104,6 +106,8 @@ public static class JsonWireContractResolver
             unsupportedJsonTypeInfoGetterReasons)
     {
         var parameterTypes = new List<TypeRef>();
+        var parameterContextScopeKeys = new HashSet<string>(
+            StringComparer.Ordinal);
 
         foreach (DirectCall call in bodyIndex.DirectCalls)
         {
@@ -125,13 +129,16 @@ public static class JsonWireContractResolver
                     call,
                     dto,
                     registeredJsonTypeInfoGetterModes,
+                    registeredJsonTypeInfoContextScopeKeys,
                     registeredJsonTypeInfoDefaultGetterTokens,
                     registeredJsonTypeInfoShapes,
                     unsupportedJsonTypeInfoGetterReasons,
                     JsonWireDirection.Deserialize,
-                    out _))
+                    out _,
+                    out ImmutableArray<string> contextScopeKeys))
             {
                 parameterTypes.Add(dto);
+                parameterContextScopeKeys.UnionWith(contextScopeKeys);
             }
         }
 
@@ -139,6 +146,7 @@ public static class JsonWireContractResolver
             bodyIndex,
             metadataToken,
             registeredJsonTypeInfoGetterModes,
+            registeredJsonTypeInfoContextScopeKeys,
             registeredJsonTypeInfoDefaultGetterTokens,
             registeredJsonTypeInfoShapes,
             unsupportedJsonTypeInfoGetterReasons);
@@ -158,6 +166,9 @@ public static class JsonWireContractResolver
             ReturnWireTypeReferences = returnType is not null
                 ? [.. ReferencedTypes(returnType.Value.Type).Distinct()]
                 : [],
+            ReturnWireContextScopeKeys = returnType is not null
+                ? returnType.Value.ContextScopeKeys
+                : [],
             ReturnWireTypeShape = returnType?.Shape,
             ParameterWireTypes =
                 [.. parameterTypes.Select(
@@ -166,6 +177,8 @@ public static class JsonWireContractResolver
                 [.. parameterTypes
                     .SelectMany(ReferencedTypes)
                     .Distinct()],
+            ParameterWireContextScopeKeys =
+                [.. parameterContextScopeKeys],
         };
     }
 
@@ -174,6 +187,8 @@ public static class JsonWireContractResolver
         int metadataToken,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            registeredJsonTypeInfoContextScopeKeys,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, ApiTypeShape>
@@ -226,6 +241,8 @@ public static class JsonWireContractResolver
 
         TypeRef? dto = null;
         ApiTypeShape? dtoShape = null;
+        var contextScopeKeys = new HashSet<string>(
+            StringComparer.Ordinal);
         foreach (MethodResultSink sink in sinks)
         {
             if (!TryGetCompleteSourceCallOffsets(
@@ -251,13 +268,16 @@ public static class JsonWireContractResolver
                         source,
                         sourceDto,
                         registeredJsonTypeInfoGetterModes,
+                        registeredJsonTypeInfoContextScopeKeys,
                         registeredJsonTypeInfoDefaultGetterTokens,
                         registeredJsonTypeInfoShapes,
                         unsupportedJsonTypeInfoGetterReasons,
                         JsonWireDirection.Serialize,
-                        out ApiTypeShape? sourceShape)
+                        out ApiTypeShape? sourceShape,
+                        out ImmutableArray<string> sourceContextScopeKeys)
                     || sourceShape is null)
                     return null;
+                contextScopeKeys.UnionWith(sourceContextScopeKeys);
                 if (dto is null)
                 {
                     dto = sourceDto;
@@ -272,7 +292,7 @@ public static class JsonWireContractResolver
         }
 
         return dto is not null && dtoShape is not null
-            ? new(dto, dtoShape)
+            ? new(dto, dtoShape, [.. contextScopeKeys])
             : null;
     }
 
@@ -349,6 +369,8 @@ public static class JsonWireContractResolver
         TypeRef dto,
         IReadOnlyDictionary<int, JsonSourceGenerationMode>
             registeredJsonTypeInfoGetterModes,
+        IReadOnlyDictionary<int, string>
+            registeredJsonTypeInfoContextScopeKeys,
         IReadOnlyDictionary<int, int>
             registeredJsonTypeInfoDefaultGetterTokens,
         IReadOnlyDictionary<int, ApiTypeShape>
@@ -356,15 +378,19 @@ public static class JsonWireContractResolver
         IReadOnlyDictionary<int, string>
             unsupportedJsonTypeInfoGetterReasons,
         JsonWireDirection direction,
-        out ApiTypeShape? authenticatedShape)
+        out ApiTypeShape? authenticatedShape,
+        out ImmutableArray<string> authenticatedContextScopeKeys)
     {
         authenticatedShape = null;
+        var authenticatedContexts = new HashSet<string>(
+            StringComparer.Ordinal);
         CallArgumentSource? argument =
             serializerCall.ArgumentSources.FirstOrDefault(
                 source => source.ArgumentIndex == 1);
         if (argument is not { IsComplete: true }
             || argument.SourceCallOffsets.IsDefaultOrEmpty)
         {
+            authenticatedContextScopeKeys = [];
             return false;
         }
 
@@ -376,6 +402,7 @@ public static class JsonWireContractResolver
                 sourceOffset);
             if (source is null)
             {
+                authenticatedContextScopeKeys = [];
                 return false;
             }
             if (unsupportedJsonTypeInfoGetterReasons.TryGetValue(
@@ -397,7 +424,14 @@ public static class JsonWireContractResolver
                     source.Callee.ReturnType,
                     dto))
             {
+                authenticatedContextScopeKeys = [];
                 return false;
+            }
+            if (registeredJsonTypeInfoContextScopeKeys.TryGetValue(
+                    source.CalleeDefinitionToken,
+                    out string? contextScopeKey))
+            {
+                authenticatedContexts.Add(contextScopeKey);
             }
             if (registeredJsonTypeInfoDefaultGetterTokens.TryGetValue(
                     source.CalleeDefinitionToken,
@@ -417,10 +451,12 @@ public static class JsonWireContractResolver
             }
             else if (!authenticatedShape.Equals(sourceShape))
             {
+                authenticatedContextScopeKeys = [];
                 return false;
             }
         }
 
+        authenticatedContextScopeKeys = [.. authenticatedContexts];
         return authenticatedShape is not null;
     }
 
@@ -748,5 +784,6 @@ public static class JsonWireContractResolver
 
     readonly record struct AuthenticatedWireType(
         TypeRef Type,
-        ApiTypeShape Shape);
+        ApiTypeShape Shape,
+        IReadOnlyList<string> ContextScopeKeys);
 }

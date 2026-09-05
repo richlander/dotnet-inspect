@@ -39,7 +39,7 @@ public sealed class JsExportSurfaceBuilderTests
         using var peReader = new PEReader(stream);
         ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
             peReader,
-            includeAll: false);
+            includeAll: true);
         return JsExportSurfaceBuilder.Build(
             apiSurface,
             OpenWireContractBodyIndex(path));
@@ -3617,27 +3617,6 @@ public sealed class JsExportSurfaceBuilderTests
         Assert.True(included.HasJsonIgnoreNever);
         Assert.True(excluded.HasJsonIgnore);
         Assert.False(excluded.HasJsonIgnoreNever);
-    }
-
-    [Fact]
-    public void Build_RejectsContextRelativeJsonIncludeValueTypeAccessibility()
-    {
-        using FileStream stream = File.OpenRead(
-            typeof(NestedContextJsonIncludeHiddenTypeFixture)
-                .Assembly.Location);
-        using var peReader = new PEReader(stream);
-        ApiSurface apiSurface = ApiSurfaceExtractor.Extract(
-            peReader,
-            includeAll: true);
-
-        UnsupportedJsExportSurfaceException ex =
-            Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => JsExportSurfaceBuilder.Build(apiSurface));
-
-        Assert.Contains(
-            "[JsonInclude] members whose same-assembly value types depend on nested JsonSerializerContext accessibility are unsupported",
-            ex.Message,
-            StringComparison.Ordinal);
     }
 
     [Fact]
