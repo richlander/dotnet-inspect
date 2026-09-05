@@ -2,11 +2,13 @@
 
 ## Status and exact claim
 
-Design-only contract for [#5719](https://github.com/richlander/dotnet-inspect/issues/5719),
-owned by [Integrations](integrations.md). The binding and decoded context are
-not implemented. Current library inspection and Census behavior is unchanged.
-The enforcement described below is planned, not evidence of implemented
-behavior.
+Contract locked under [#5719](https://github.com/richlander/dotnet-inspect/issues/5719),
+owned by [Integrations](integrations.md). The observation, binding, and selected
+operation substrate is implemented under
+[#5902](https://github.com/richlander/dotnet-inspect/issues/5902).
+Existing full-library inspection and Census behavior is unchanged.
+Application-catalog registration and CLI/browser selection remain later
+adoption steps; their gates remain planned and unverified.
 
 **Claim:** Integration orchestration supplies an immutable, decoded observation
 context to one selected static semantic scanner and projects its classifications
@@ -39,19 +41,21 @@ producer-policy obligation.
 
 ## Basis in the current product
 
-The present scanner already separates three concerns:
+The scanner separates four concerns:
 
-- `EcosystemIntegrationProjection` traverses public type definitions, admits
+- `EcosystemIntegrationObservationReader` traverses public type definitions, admits
   public static extension methods, performs guarded decoding, and retains
-  structured evidence behind compact rows.
+  structured evidence on immutable observations.
 - `EcosystemIntegrationClassifier` interprets metadata names and decoded
-  signatures without owning traversal or accumulation.
+  signatures without owning traversal or evidence projection.
+- `EcosystemIntegrationProjection` attaches the original evidence to compact
+  rows and owns ordering and deduplication.
 - `EcosystemIntegrationPresenceBuilder` combines projected signals with broader
   public-type evidence and the separate OpenTelemetry predicate.
 
-The missing seam is between decoded observations and interpretation. Moving the
-existing `PEReader` facade into the application catalog would move the wrong
-responsibility.
+The observation context is the seam between decoding and interpretation.
+Moving the existing `PEReader` facade into the application catalog would move
+the wrong responsibility.
 
 The current Aspire predicates are the initial behavior oracle: public
 `Aspire.Hosting.*Resource` types, and `Add*` extension methods on
@@ -69,7 +73,7 @@ invocation belongs inside Integration orchestration.
 
 ## Static binding
 
-The proposed owner-issued currency is `EcosystemIntegrationScannerBinding`.
+The owner-issued currency is `EcosystemIntegrationScannerBinding`.
 Its authoring form is a single target-free static method group:
 
 ```text
@@ -86,6 +90,10 @@ A binding is immutable application-lifetime metadata, not an operation,
 scanner instance, or cache. One scanner may compose ordinary classification
 helpers internally. No registration graph, dynamic loading, or scanner
 collection protocol is introduced.
+
+`EcosystemIntegrationScanner.AspireBinding` exposes the existing owner-side
+Aspire rules for staged catalog adoption. It shares the same predicates as
+the broad classifier rather than maintaining a second semantic policy.
 
 ## Decoded observation context
 
@@ -134,6 +142,10 @@ The callback returns a finite immutable sequence of classifications. Each
 classification pairs an observation from this context with an existing
 Integration-owned concept descriptor and a kind under that concept's policy.
 The type/API shape follows the observation, not an application-supplied label.
+
+`EcosystemIntegrationObservation.Classify` pairs the original observation with
+its concept and kind. Kind remains the existing string currency, interpreted by
+the projection's ranking policy; this does not add a kind-descriptor catalog.
 
 Integrations admits classifications under its existing producer policy and
 projects the original evidence into ordinary `EcosystemIntegrationSignalInfo`
@@ -192,6 +204,26 @@ information beside the projected rows. It preserves these distinctions:
 This reuses the Integration owner's result semantics rather than giving the
 application a second success/failure or completion algebra.
 
+### Public operation surface
+
+`AssemblyInspectionSession.EcosystemIntegrationObservations` produces the
+decoded context. `EcosystemIntegrationScanner.Scan(context, binding)` invokes
+the binding and projects its classifications; the session's
+`EcosystemIntegrations(binding)` overload combines those operations.
+
+`AssemblyContextIntegrationScanQuery` executes over an existing group or
+package-role projection, or one participant of a reusable group. It retains
+the binding in `AssemblyContextIntegrationScanResult`. Successful participants
+use `AssemblyIntegrationsEntry.Selected`, without full-presence fields;
+rejected and failed participants reuse the existing entry variants. Only
+selected successes satisfy this result's `IsComplete`. The full query's
+definition, result, and completeness test remain unchanged.
+
+The query handles decoding failure before invoking the scanner. Callback and
+projection faults occur outside that mapping, even when their exception types
+could otherwise resemble a metadata error. No selected streaming/release API
+is introduced by this slice.
+
 ## Trust and evidence posture
 
 The scanner is trusted, source-authored application code. The supported
@@ -212,25 +244,28 @@ code execution is introduced by this design.
 
 ## Gates
 
-All new gates below are **planned Release gates** for implementation. Their
-behavior is currently unverified. Existing tests identify the oracle to
-preserve; this design-only PR does not claim to have implemented the handoff.
+The implemented substrate has the following focused Release gates. Catalog
+discovery and host adoption are separate from binding construction and the
+public operation exercised here.
 
 | Gate | Observable obligation |
 | --- | --- |
-| Focused binding tests | Construction/discovery invoke no callback; one selected binding runs once per admitted participant, including empty input; repetition runs again and neighboring bindings stay untouched. |
-| Non-friend consumer test | Application-authored interpretation constructs and carries the binding through the ordinary public Integration operation and consumes the projected result. |
-| Observation/projection parity tests | Product-owned observation construction preserves classifications, parameter order, structured type/member associations, overload evidence, row equality/order, and existing full-presence behavior on the same compiled inputs. |
-| Failure parity tests | Rejected participants remain beside later results; unclassifiable signatures and unavailable anchors retain their distinct existing treatment; callback faults are not success-shaped output. |
-| Aspire and neighboring host cases | CLI and CatalogExports use the selected binding with the same realized inputs and consume equivalent Integration-owned rows/outcomes without changing existing full-scan behavior. |
+| `Binding_ConstructionIsInertAndRejectsInstanceOrCombinedCallbacks` | Construction invokes nothing and admits exactly one target-free method group. |
+| `SelectedScan_PublicConsumerRunsOncePerParticipantWithoutCaching` | A non-friend Metadata consumer constructs the binding and executes through the public query; selected-only invocation covers admitted empty input and repetition. |
+| `SelectedScan_PreservesOrderedRowsAndPresence`, `Observations_PreserveParametersAndOutliveTheReader`, `SelectedScan_CoalescesRowsWithoutLosingOverloadEvidence` | Product-owned observations preserve parameter order, structured associations, retained overload evidence, row equality/order, and existing presence. |
+| `Observations_ExcludeReceiverlessAndUndecodableMethods`, `SelectedScan_PreservesClassifiedApiWithoutStructuredAnchor` | Unclassifiable signatures and unavailable anchors retain their distinct treatment. |
+| `SelectedScan_CarriesRejectionAndDecodeFailureBesideLaterResults`, `SelectedScan_BudgetRejectionDoesNotInvokeScanner`, `SelectedScan_PropagatesCallbackFaultsWithoutMisclassifyingThem` | Participant failures remain visible beside later results; callback faults do not become metadata failure or empty success. |
+| `SelectedScan_DifferentBindingsAndFullScanKeepTheirOwnScope`, `PackageRealizationProjection_SelectedScanKeepsTheSharedRoleReusable` | Selections do not share the full-query cache or completeness scope, and role execution preserves the reusable group. |
+| `AspireBinding_PreservesExistingCurrencyWithoutIncludingNeighboringConcepts`, `AspireBinding_DoesNotClassifyNonAspireDependencyInjection` | The compatibility binding shares the current Aspire policy and excludes neighboring DI currency. |
+| Aspire and neighboring host cases (**planned, unverified**) | CLI and CatalogExports select the same binding and consume equivalent Integration-owned rows/outcomes; no host selection has been enabled yet. |
 
 The focused oracle includes
 `EcosystemIntegrationScannerTests.Scan_ProjectsExactOrderedPublicCurrencyAndPresence`,
 `Scan_SkipsExtensionMethodWithoutReceiver`, and
 `Scan_PreservesClassifiedApiWhenStructuredAnchorIsOverBudget`, plus
 `AssemblyContextIntegrationsQueryTests` for participant ordering, snapshot
-reuse, acquisition rejection, and budget exhaustion. Add an overload case that
-compares the retained evidence set, not just the compact display row.
+reuse, acquisition rejection, and budget exhaustion. The overload gate compares
+the retained evidence set, not just the compact display row.
 
 Tests exercise product-owned decoding and projection. They do not manufacture
 the observation/evidence pair they later claim the product preserved.
@@ -246,8 +281,8 @@ pack owner; successful publication is not proof of API absence.
 [#5728](https://github.com/richlander/dotnet-inspect/issues/5728) is the
 non-normative end-to-end tracker. This scanner track has **six steps**:
 
-1. **Integration contract (#5719):** lock this design. No product code changes.
-2. **Integration implementation:** extract observations behind the existing
+1. **Integration contract (#5719), complete:** lock this design.
+2. **Integration implementation (#5902):** extract observations behind the existing
    scanner facade, add the opaque binding and selected operation, and prove
    parity with the current classifier/projection/presence paths. Existing
    library inspection is the production consumer of the extraction.
@@ -275,7 +310,15 @@ feature is presented as depending on unfinished later steps.
 
 ## Demo
 
-Design mockup, not a new CLI command:
+Shared-library API, not a new CLI command:
+
+```csharp
+using var session = AssemblyInspectionSession.Open(path);
+var rows = session.EcosystemIntegrations(
+    EcosystemIntegrationScanner.AspireBinding);
+```
+
+Catalog selection remains a later adoption step. The scenario is:
 
 ```text
 Select: ecosystem.aspire / Integration
