@@ -106,18 +106,20 @@ end-to-end dependency-evidence tracker. Browser/Wasm adoption remains owned by
 [#5535](https://github.com/richlander/dotnet-inspect/issues/5535); this
 CLI-focused design neither changes nor blocks that host.
 
-The delivery plan has five steps:
+The delivery plan has six steps:
 
 1. Lock this command contract in #5993.
 2. Define typed package dependency traversal under
    [#5996](https://github.com/richlander/dotnet-inspect/issues/5996).
-3. Replace the lossy tree-owned `depends` model with one typed Markout graph
+3. Define typed restored-project root and project-reference traversal under
+   [#5998](https://github.com/richlander/dotnet-inspect/issues/5998).
+4. Replace the lossy tree-owned `depends` model with one typed Markout graph
    and edge-row projection under
    [#3320](https://github.com/richlander/dotnet-inspect/issues/3320).
-4. Adopt asset-driven project, assets, nuspec, and normalized package evidence
+5. Adopt asset-driven project, assets, nuspec, and normalized package evidence
    plus depth-controlled traversal under
    [#5994](https://github.com/richlander/dotnet-inspect/issues/5994).
-5. Remove `dependency-evidence`, reserve its token against implicit routing,
+6. Remove `dependency-evidence`, reserve its token against implicit routing,
    and update current README, help, product skills, demos, and machine
    contracts under
    [#5995](https://github.com/richlander/dotnet-inspect/issues/5995).
@@ -374,6 +376,15 @@ nuspec and package-prefix roots, the available graph ends at their declared
 dependency edges because those gestures do not authorize recursive
 acquisition.
 
+The current restored-project facts are not by themselves sufficient for that
+root-relative traversal: they retain restored package edges but may omit the
+incoming explicit-project and project-reference relationships that connect an
+ordinary graph such as `App -> ProjectB -> PackageC`. The focused
+restored-project traversal owner tracked by
+[#5998](https://github.com/richlander/dotnet-inspect/issues/5998) must issue
+those typed relationships and completion before #5994 can implement this
+contract. The CLI does not reconstruct them from raw assets or display text.
+
 A node at the requested depth may still be rendered as an endpoint. Its
 outgoing edges are not acquired or admitted. The graph carries a typed depth
 limit so a leaf caused by the bound cannot be confused with a subject proven
@@ -538,9 +549,18 @@ additional rows.
 
 Multi-root output is a graph with several explicit roots, not a synthetic
 semantic super-root. Tree lowering renders a spanning forest in root occurrence
-order and emits every selected logical edge exactly once. When a later explicit
-root or branch reaches a node whose selected outgoing edges were already
-rendered, it shows the node as a revisit rather than repeating those edges.
+order and emits every selected logical edge exactly once. The renderer tracks
+emitted edges, not globally expanded nodes. When it reaches an already-emitted
+edge whose target still leads, for the current root occurrence, to an
+unrendered selected edge, it inserts a non-row revisit connector and continues
+until that edge can be rendered. A revisit connector must lead to at least one
+unrendered selected edge, so connector traversal is finite. When no such edge
+remains, the revisit marker terminates that branch.
+
+A later explicit root whose selected outgoing edges were all emitted below an
+earlier root remains visible as a top-level root/revisit marker without
+duplicating those edge rows. Root order may choose the branch under which an
+edge is first rendered, but it does not change edge cardinality or identity.
 Mermaid and edge-table lowering retain all disconnected components.
 
 `--rows` windows the ordered edge sequence before every graph renderer.
@@ -648,13 +668,14 @@ sources, unresolved declarations, and exhausted producer budgets are not empty
 graphs.
 
 Usable partial output is written to stdout. Exit status derives from the
-complete retained outcome of the selected request plan: any incomplete
-requested phase or retained failure returns nonzero. Selecting a graph may
-therefore expose traversal failure and return nonzero where a declaration-only
-request succeeds; that is an observable consequence of requesting additional
-work, not a presentation-dependent reinterpretation of one completed result.
-Diagnostics on stderr add safe command context; they do not replace typed
-failures in machine-readable output.
+complete retained outcome of the selected request plan: any `Partial` or
+`Failed` requested phase or retained failure returns nonzero. `DepthBounded`,
+`SourceBounded`, and `NotRequested` are successful states. Selecting a graph
+may therefore expose traversal failure and return nonzero where a
+declaration-only request succeeds; that is an observable consequence of
+requesting additional work, not a presentation-dependent reinterpretation of
+one completed result. Diagnostics on stderr add safe command context; they do
+not replace typed failures in machine-readable output.
 
 Standalone tree, Mermaid, table, TSV, and JSONL shapes cannot add a second
 completion schema. They preserve the selected rows on stdout, emit a bounded
@@ -842,11 +863,12 @@ The implementation slices must provide focused Release gates for:
 | Type-present options remain source scopes; type-absent options become roots; mode-invalid options fail. | Product-entry parser and execution matrix covering both meanings of `--package`, `--library`, and `--project`, plus rejected cross-mode gestures. |
 | One positional type gesture resolves to one owner-issued root or a typed ambiguity/failure. | Multi-source type fixture with equal display names and distinct typed identities. |
 | `.csproj` and direct assets with identical bytes produce equivalent graph and evidence identities except locator provenance. | CLI tests over the same checked-in restored assets fixture through both locators. |
+| Restored-project depth is measured from the explicit project through project-reference and package edges. | #5998 fixture containing `App -> ProjectB -> PackageC`, asserted at depths 1, 2, and unbounded without opening package manifests. |
 | Missing restored assets fail visibly without changing valid sibling results. | Multi-root CLI test with one unrestored project and one valid root. |
 | `--depth 1` performs no deeper package-manifest acquisition. | Instrumented package-source test that fails if a child manifest is requested. |
 | Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting direct evidence sections without `Dependency Graph`. |
 | Multi-root depth is preserved per root occurrence rather than by one global distance. | Cyclic DAG fixture in which one shared node is reached at different depths from two roots. |
-| A semantic node that is both a transitive child and a later explicit root does not duplicate edge rows in tree output. | Two-root graph fixture asserting one rendering per selected logical edge and equal tree/table/JSON/count cardinality. |
+| A semantic node that is both a transitive child and a later explicit root does not duplicate or suppress edge rows in tree output. | Depth-asymmetric two-root graph fixture run in both root orders, asserting one rendering per selected logical edge and equal tree/table/JSON/count cardinality. |
 | Shared DAG nodes retain every edge and roots survive Mermaid lowering. | #3320 graph fixture across Markdown tree, Mermaid, edge table, JSON, count, and row selection. |
 | Declaration constraints remain when child resolution is unavailable. | Package or nuspec test with a valid declaration and unavailable child expansion. |
 | Restored-edge identity survives independently of command graph-edge projection. | Direct-assets typed JSON and `Restored Edges` section assertions over the same owner-issued edge. |
