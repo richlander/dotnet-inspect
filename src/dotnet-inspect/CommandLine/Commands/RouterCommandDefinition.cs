@@ -65,22 +65,6 @@ public static class RouterCommandDefinition
             // with the shared option instances to obtain the caller's NuGet scope without
             // maintaining a second command-line parser here.
             var sourceParseResult = rootCommand.Parse([PackageCommand.Name, .. tokens]);
-            if (opts.IsQueryHelpMode(sourceParseResult)
-                || opts.ParseSelect(sourceParseResult)?.Any(value =>
-                    value.StartsWith("Query:", StringComparison.OrdinalIgnoreCase)) == true
-                || opts.ParseDiscover(sourceParseResult)?.Any(value =>
-                    value.StartsWith("Query:", StringComparison.OrdinalIgnoreCase)) == true)
-            {
-                if (RouterTokenRewriter.TryRewriteAcquisitionFree(
-                        tokens, rootCommand, structuralSchema: true, out string[] queryRewrite))
-                {
-                    queryRewrite = CommandLineBuilder.PreprocessArgs(queryRewrite, rootCommand);
-                    return await CommandLineBuilder.InvokeWithLineWindowAsync(
-                        rootCommand.Parse(queryRewrite), queryRewrite);
-                }
-                CommandError.Write("Query discovery requires an explicit command; use 'library -Q', 'type -Q', 'member -Q', 'package -Q', or 'find -Q'.");
-                return 1;
-            }
             var sourceErrors = GetSourceOptionErrors(sourceParseResult, opts);
             if (sourceErrors.Count > 0)
             {
@@ -103,7 +87,8 @@ public static class RouterCommandDefinition
                 sourceParseResult.GetResult(opts.Discover)
                     is { Implicit: false }
                 || sourceParseResult.GetResult(opts.Select)
-                    is { Implicit: false };
+                    is { Implicit: false }
+                || opts.IsQueryHelpMode(sourceParseResult);
             if (hasSectionRequest)
             {
                 List<ParseError> requestErrors =
@@ -116,6 +101,23 @@ public static class RouterCommandDefinition
                         CommandError.Write(error.Message);
                     return 1;
                 }
+            }
+
+            if (opts.IsQueryHelpMode(sourceParseResult)
+                || opts.ParseSelect(sourceParseResult)?.Any(value =>
+                    value.StartsWith("Query:", StringComparison.OrdinalIgnoreCase)) == true
+                || opts.ParseDiscover(sourceParseResult)?.Any(value =>
+                    value.StartsWith("Query:", StringComparison.OrdinalIgnoreCase)) == true)
+            {
+                if (RouterTokenRewriter.TryRewriteAcquisitionFree(
+                        tokens, rootCommand, structuralSchema: true, out string[] queryRewrite))
+                {
+                    queryRewrite = CommandLineBuilder.PreprocessArgs(queryRewrite, rootCommand);
+                    return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                        rootCommand.Parse(queryRewrite), queryRewrite);
+                }
+                CommandError.Write("Query discovery requires an explicit command; use 'library -Q', 'type -Q', 'member -Q', 'package -Q', or 'find -Q'.");
+                return 1;
             }
 
             if (ContainsHelpOption(tokens) && !tokens[0].StartsWith('-'))
@@ -339,6 +341,7 @@ public static class RouterCommandDefinition
         [
             opts.Discover,
             opts.Select,
+            opts.QueryHelp,
             opts.Tree,
             opts.Json,
             opts.Tsv,

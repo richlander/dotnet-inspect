@@ -249,6 +249,31 @@ public class QueryDiscoveryTests
         Assert.Contains("explicit command", result.Error);
     }
 
+    [Theory]
+    [InlineData("-Q", "Body Shapes", "Performance Triage")]
+    [InlineData("-D", "Query: Body Shapes", "Query: Performance Triage")]
+    [InlineData("-D", "Signature", "IL")]
+    public async Task CommandlessRepeatedSelectors_UseParserDiagnostic(
+        string option, string first, string second)
+    {
+        var result = await Run("Missing.Helpers", option, first, option, second);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("expects a single argument", result.Error);
+        Assert.DoesNotContain("InvalidOperationException", result.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessRepeatedCompanionSelection_RetainsListMerging()
+    {
+        var result = await Run("/missing/query-discovery.dll",
+            "-S", "Query: Body Shapes", "-S", "Query: Performance: Arrays", "--json");
+        var query = await Run("library", "-Q", "Body Shapes,Performance: Arrays", "--json");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(query.Output, result.Output);
+    }
+
     [Fact]
     public async Task ExplicitCompanionWildcard_DoesNotChangeOrdinaryDataWildcards()
     {
