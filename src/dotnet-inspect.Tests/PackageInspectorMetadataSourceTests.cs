@@ -911,16 +911,28 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("""
+                "/registration/private.package/index.json" => Json("""
                     {
-                      "catalogEntry": {
-                        "deprecation": {
-                          "reasons": [ "Legacy" ],
-                          "alternatePackage": {
-                            "id": "Δelta.Tools"
-                          }
+                      "items": [
+                        {
+                          "lower": "1.0.0",
+                          "upper": "1.0.0",
+                          "items": [
+                            {
+                              "catalogEntry": {
+                                "id": "Private.Package",
+                                "version": "1.0.0",
+                                "deprecation": {
+                                  "reasons": [ "Legacy" ],
+                                  "alternatePackage": {
+                                    "id": "Δelta.Tools"
+                                  }
+                                }
+                              }
+                            }
+                          ]
                         }
-                      }
+                      ]
                     }
                     """),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
@@ -983,8 +995,11 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
     public async Task InspectAsync_IdentifierAuditMetadataFailureRemainsVisible()
     {
         const string source = "https://audit-failure.example/v3/index.json";
+        var requests = new List<Uri>();
         using var client = new HttpClient(new RoutingHandler(request =>
-            request.RequestUri!.AbsolutePath switch
+        {
+            requests.Add(request.RequestUri!);
+            return request.RequestUri!.AbsolutePath switch
             {
                 "/v3/index.json" => Json("""
                     {
@@ -997,12 +1012,22 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json(
-                    """{ "catalogEntry": "/catalog/private.package.json" }"""),
-                "/catalog/private.package.json" =>
+                "/registration/private.package/index.json" => Json("""
+                    {
+                      "items": [
+                        {
+                          "@id": "/metadata/unavailable-page",
+                          "lower": "1.0.0",
+                          "upper": "1.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/metadata/unavailable-page" =>
                     new HttpResponseMessage(HttpStatusCode.BadGateway),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
-            }));
+            };
+        }));
 
         var resolution = new PackageExtractionResult(
             _root,
@@ -1045,6 +1070,9 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.Equal(
             "package registry metadata unavailable",
             signal.Evidence);
+        Assert.Contains(
+            requests,
+            request => request.AbsolutePath == "/metadata/unavailable-page");
     }
 
     [Fact]
@@ -1056,9 +1084,12 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         const string source =
             "https://command-audit.example/v3/index.json";
         byte[] package = CreatePackage(packageId);
+        var requests = new List<Uri>();
         using var client = new HttpClient(
             new RoutingHandler(request =>
-                request.RequestUri!.AbsolutePath switch
+            {
+                requests.Add(request.RequestUri!);
+                return request.RequestUri!.AbsolutePath switch
                 {
                     "/v3/index.json" => Json($$"""
                         {
@@ -1083,22 +1114,28 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                             + $"{normalizedId}.1.0.0.nupkg" =>
                         Bytes(package),
                     var path when path
-                        == $"/registration/{normalizedId}/1.0.0.json" =>
+                        == $"/registration/{normalizedId}/index.json" =>
                         Json(
                             $$"""
                             {
-                              "catalogEntry":
-                                "/catalog/{{normalizedId}}.json"
+                              "items": [
+                                {
+                                  "@id": "/metadata/{{normalizedId}}/unavailable-page",
+                                  "lower": "1.0.0",
+                                  "upper": "1.0.0"
+                                }
+                              ]
                             }
                             """),
                     var path when path
-                        == $"/catalog/{normalizedId}.json" =>
+                        == $"/metadata/{normalizedId}/unavailable-page" =>
                         new HttpResponseMessage(
                             HttpStatusCode.BadGateway),
                     _ => throw new InvalidOperationException(
                         $"Unexpected command request: "
                         + $"{request.Method} {request.RequestUri}"),
-                }));
+                };
+            }));
         var sourceOptions = new NuGetSourceOptions
         {
             Sources = [source],
@@ -1189,6 +1226,10 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
         Assert.DoesNotContain(packageId, discovered.Error);
         Assert.DoesNotContain(packageId, auditDiscovered.Error);
         Assert.DoesNotContain(packageId, statistics.Error);
+        Assert.Contains(
+            requests,
+            request => request.AbsolutePath
+                == $"/metadata/{normalizedId}/unavailable-page");
     }
 
     [Fact]
@@ -1403,7 +1444,7 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                             + $"{normalizedId}.1.0.0.nupkg" =>
                         Bytes(package),
                     var path when path
-                        == $"/registration/{normalizedId}/1.0.0.json" =>
+                        == $"/registration/{normalizedId}/index.json" =>
                         new HttpResponseMessage(
                             HttpStatusCode.BadGateway),
                     _ => new HttpResponseMessage(
@@ -1439,9 +1480,8 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                 StringComparison.OrdinalIgnoreCase));
         Assert.Contains(
             requests,
-            request => request.AbsolutePath.StartsWith(
-                "/registration/",
-                StringComparison.Ordinal));
+            request => request.AbsolutePath
+                == $"/registration/{normalizedId}/index.json");
     }
 
     [Fact]
