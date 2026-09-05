@@ -794,6 +794,7 @@ public class PackageCommand
                     return 1;
                 }
 
+                WritePartialVersionFeedWarning(normalizedName);
                 if (!TrySelectVersionRows(
                         listings,
                         options,

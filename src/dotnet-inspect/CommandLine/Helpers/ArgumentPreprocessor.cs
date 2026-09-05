@@ -39,6 +39,12 @@ public static class ArgumentPreprocessor
     /// cannot be what the user meant and reporting it would be a false positive.
     /// </summary>
     public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+        => TryGetStaleDirectionFlagError(args, usesSemanticCount: false, out error);
+
+    private static bool TryGetStaleDirectionFlagError(
+        string[] args,
+        bool usesSemanticCount,
+        out string? error)
     {
         error = null;
         var end = Array.IndexOf(args, "--");
@@ -54,10 +60,14 @@ public static class ArgumentPreprocessor
 
             var flag = args[i];
             var count = args[i + 1];
-            var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+            var rowMode = !usesSemanticCount
+                && args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
             var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+            var countOptions = usesSemanticCount
+                ? "-n"
+                : "-n (the active command's unit) or --rows (data rows)";
             error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
-                + $"the count comes from -n (the active command's unit) or --rows (data rows). Use '{replacement}'.";
+                + $"the count comes from {countOptions}. Use '{replacement}'.";
             return true;
         }
 
@@ -76,7 +86,9 @@ public static class ArgumentPreprocessor
         bool requireOwnedVersionSelector,
         out string? error)
     {
-        if (TryGetStaleDirectionFlagError(args, out error))
+        bool usesSemanticCount = supportsValuedVersionSelectorGuidance
+            && CliRowSelectionCommandRegistry.OwnsShortLimit(rawParse, args);
+        if (TryGetStaleDirectionFlagError(args, usesSemanticCount, out error))
             return true;
 
         return supportsValuedVersionSelectorGuidance

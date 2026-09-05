@@ -826,6 +826,86 @@ public sealed class SourceScopedRoutingTests : IDisposable
         Assert.DoesNotContain("HTTP 401", error);
     }
 
+    [Theory]
+    [InlineData("--versions", "--head", "false")]
+    [InlineData("--versions", "--tail", "false")]
+    [InlineData("--versions", "--head", "true")]
+    [InlineData("--versions", "--tail", "true")]
+    [InlineData("--versions-with-feed", "--head", "false")]
+    [InlineData("--versions-with-feed", "--tail", "false")]
+    [InlineData("--versions-with-feed", "--head", "true")]
+    [InlineData("--versions-with-feed", "--tail", "true")]
+    public async Task PackageVersionListing_DirectionPreservesBooleanPackageInput(
+        string selector,
+        string modifier,
+        string packageName)
+    {
+        var (exit, output, error, requests) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                "package",
+                selector,
+                modifier,
+                packageName,
+                "-n",
+                "1",
+                "--json",
+                "--source",
+                SecondSource
+            ]);
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.NotEmpty(requests);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+        Assert.Equal(
+            modifier == "--head" ? "2.0.0" : "1.0.0",
+            document.RootElement[0].GetProperty("version").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageVersionListing_IncludeUnlistedLimitOneStillReportsPartialEvidence(
+        bool countProjection)
+    {
+        string packageName = $"PartialListingAware{Guid.NewGuid():N}";
+        var (exit, output, error, _) = await RunOnlineVersionFeedCommandAsync(
+            packageName,
+            ["1.0.0", "2.0.0"],
+            [
+                "package",
+                packageName,
+                "--versions",
+                "--include-unlisted",
+                "-n",
+                "1",
+                countProjection ? "--count" : "--json",
+                "--source",
+                RefusedSource,
+                "--source",
+                SecondSource
+            ],
+            refusedStatus: HttpStatusCode.Forbidden);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("partial", error, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(RefusedSource, error, StringComparison.Ordinal);
+        if (countProjection)
+        {
+            Assert.Equal("1", output.Trim());
+        }
+        else
+        {
+            using JsonDocument document = JsonDocument.Parse(output);
+            Assert.Equal(1, document.RootElement.GetArrayLength());
+            Assert.Equal("2.0.0", document.RootElement[0].GetProperty("version").GetString());
+            Assert.Equal("listed", document.RootElement[0].GetProperty("listing").GetString());
+        }
+    }
+
     [Fact]
     public async Task PackageVersionListing_LimitOneStillReportsPartialEvidence()
     {

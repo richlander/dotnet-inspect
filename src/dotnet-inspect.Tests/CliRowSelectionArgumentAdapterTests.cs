@@ -900,6 +900,27 @@ public sealed class CliRowSelectionArgumentAdapterTests
                 .Operations.Select(operation => operation.Kind));
     }
 
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    public void CliRowSelectionExplicitPresenceArityPreservesLegacyBinding(
+        string modifierName)
+    {
+        Fixture fixture = new();
+        Option<bool> modifier = modifierName == "--head" ? fixture.Head : fixture.Tail;
+        modifier.Arity = ArgumentArity.ZeroOrOne;
+        Assert.False(fixture.Parse(["demo", modifierName, "false"]).GetValue(modifier));
+
+        CliRowSelectionArgumentResult result = fixture.Success(
+            ["demo", modifierName, "false", "-n", "1"]);
+
+        Assert.Equal(
+            ["false"],
+            Assert.IsType<string[]>(result.ParseResult.GetValue(fixture.Positionals)));
+        Assert.True(result.ParseResult.GetValue(modifier));
+        Assert.False(fixture.Parse(["demo", modifierName, "false"]).GetValue(modifier));
+    }
+
     private sealed class Fixture
     {
         private readonly RootCommand _root;
@@ -1091,6 +1112,8 @@ public sealed class CliRowSelectionArgumentAdapterTests
                     arguments,
                     _bindings,
                     _capabilities);
+
+        public ParseResult Parse(string[] arguments) => _root.Parse(arguments);
 
         public CliRowSelectionArgumentResult Success(
             string[] arguments)

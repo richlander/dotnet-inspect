@@ -378,6 +378,55 @@ public class PackageVersionTests
         Assert.Single(correctedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
+    [Theory]
+    [InlineData("--versions", "--head", false)]
+    [InlineData("--versions", "--tail", false)]
+    [InlineData("--versions-with-feed", "--head", false)]
+    [InlineData("--versions-with-feed", "--tail", false)]
+    [InlineData("--versions", "--head", true)]
+    [InlineData("--versions", "--tail", true)]
+    [InlineData("--versions-with-feed", "--head", true)]
+    [InlineData("--versions-with-feed", "--tail", true)]
+    public async Task Versions_ValuedDirectionWithRangeReportsAdoptedCountRemedy(
+        string selector,
+        string modifier,
+        bool implicitCommand)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            [
+                .. implicitCommand ? Array.Empty<string>() : ["package"],
+                "ThisQueryMustNotReachTheNetwork",
+                selector,
+                "--rows",
+                "1..2",
+                modifier,
+                "1"
+            ]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"Use '-n 1 {modifier}'", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Use '--rows", error, StringComparison.Ordinal);
+
+        var (correctedExit, correctedOutput, correctedError) = await RunAppAsync(
+            [
+                .. implicitCommand ? Array.Empty<string>() : ["package"],
+                "System.CommandLine",
+                selector,
+                "--rows",
+                "1..2",
+                "-n",
+                "1",
+                modifier,
+                "--json"
+            ]);
+
+        Assert.Equal(0, correctedExit);
+        Assert.Empty(correctedError);
+        using JsonDocument document = JsonDocument.Parse(correctedOutput);
+        Assert.Equal(1, document.RootElement.GetArrayLength());
+    }
+
     [Fact]
     public async Task Versions_ValuedSelectorReportsReplacement()
     {

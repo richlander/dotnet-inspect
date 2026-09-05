@@ -145,9 +145,10 @@ internal static class CliRowSelectionArgumentAdapter
         ArgumentNullException.ThrowIfNull(bindings);
 
         ParseResult ownershipParse =
-            command.Parse(
+            ParseExplicit(
+                command,
                 arguments,
-                ExplicitParserConfiguration);
+                bindings);
         ParsedArgument[] ownershipArguments =
             MapArguments(
                 ownershipParse,
@@ -161,9 +162,10 @@ internal static class CliRowSelectionArgumentAdapter
         ParseResult authoritativeParse =
             ReferenceEquals(normalized.Arguments, arguments)
                 ? ownershipParse
-                : command.Parse(
+                : ParseExplicit(
+                    command,
                     normalized.Arguments,
-                    ExplicitParserConfiguration);
+                    bindings);
         ParsedArgument[] authoritativeArguments =
             ReferenceEquals(normalized.Arguments, arguments)
                 ? ownershipArguments
@@ -206,6 +208,34 @@ internal static class CliRowSelectionArgumentAdapter
             CliRowSelectionLowerer.Lower(
                 occurrences,
                 capabilities));
+    }
+
+    private static ParseResult ParseExplicit(
+        Command command,
+        string[] arguments,
+        CliRowSelectionOptionBindings bindings)
+    {
+        (Option<bool> Option, ArgumentArity Arity)[] modifiers =
+        [
+            (bindings.Head, bindings.Head.Arity),
+            (bindings.Tail, bindings.Tail.Arity),
+            (bindings.Lines, bindings.Lines.Arity),
+            (bindings.TailLines, bindings.TailLines.Arity)
+        ];
+
+        // Shared legacy flags may accept values; the adopted parse uses presence arity.
+        try
+        {
+            foreach (var modifier in modifiers)
+                modifier.Option.Arity = ArgumentArity.Zero;
+
+            return command.Parse(arguments, ExplicitParserConfiguration);
+        }
+        finally
+        {
+            foreach (var modifier in modifiers)
+                modifier.Option.Arity = modifier.Arity;
+        }
     }
 
     internal static bool IsOwnedOptionToken(
