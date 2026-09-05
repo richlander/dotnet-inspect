@@ -1163,6 +1163,21 @@ public class ApiMember
     public bool? HasMethodBody { get; set; }
 
     /// <summary>
+    /// Raw implementation evidence for this MethodDef. Null means the member
+    /// has no retained MethodDef evidence, not that it is an ordinary IL method.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ApiMethodImplementationFacts? MethodImplementation { get; set; }
+
+    /// <summary>
+    /// Implementation evidence for each distinct accessor MethodDef, including
+    /// accessors not exposed as separate API members.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<ApiMethodImplementationFacts>? AccessorImplementations
+        { get; set; }
+
+    /// <summary>
     /// Whether metadata contains an exact-name runtime-wrapper MethodDef and a
     /// target-matched <c>DynamicDependency</c> row on the SDK-generated
     /// registration container for this JSExport MethodDef. This is not body

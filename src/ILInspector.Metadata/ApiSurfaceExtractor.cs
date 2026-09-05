@@ -1140,6 +1140,8 @@ public static class ApiSurfaceExtractor
                         method.GetGenericParameters().Count,
                     HasMethodBody =
                         method.RelativeVirtualAddress != 0,
+                    MethodImplementation = ApiMethodImplementationFacts.Read(
+                        reader, moduleVersionId, methodHandle),
                     IsUnsafe = HasUnsafeSignature(signature.Text)
                         || AttributeReader.HasRequiresUnsafeAttribute(
                             reader,
@@ -1371,6 +1373,9 @@ public static class ApiSurfaceExtractor
                         reader, GetMemorySafetyIndex(), moduleVersionId, propHandle),
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
+                        [accessors.Getter, accessors.Setter, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
                         [accessors.Getter, accessors.Setter, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(propHandle)],
                     Accessibility = GetAccessibility(bestAccess),
@@ -1795,6 +1800,9 @@ public static class ApiSurfaceExtractor
                         reader, GetMemorySafetyIndex(), moduleVersionId, eventHandle),
                     AccessorMemorySafety = ReadAccessorMemorySafety(
                         reader, GetMemorySafetyIndex(), moduleVersionId,
+                        [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
+                    AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                        reader, moduleVersionId,
                         [accessors.Adder, accessors.Remover, accessors.Raiser, .. accessors.Others]),
                     BackingStorage = backingStorage[MetadataTokens.GetToken(eventHandle)],
                     ReturnType = eventType,
@@ -2975,6 +2983,8 @@ public static class ApiSurfaceExtractor
                     IsSealed = extension.IsSealed,
                     IsUnsafe = extension.IsUnsafe,
                     MemorySafety = extension.MemorySafety,
+                    MethodImplementation = extension.MethodImplementation,
+                    HasMethodBody = extension.HasMethodBody,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,
