@@ -22,9 +22,9 @@ have landed through
 [#5003](https://github.com/richlander/dotnet-inspect/issues/5003) and
 [#5005](https://github.com/richlander/dotnet-inspect/issues/5005).
 The operation-authority product component and its first Type Source adoption
-are implemented. The managed bridge's dynamic lifecycle core is implemented;
-its browser boundary and the worker-runtime product component have not landed,
-so their composed behavior remains **unverified**.
+are implemented. The managed bridge's dynamic lifecycle core and generated
+Browser/Wasm boundary canary are implemented. The worker-runtime product
+component has not landed, so their composed behavior remains **unverified**.
 
 ## Composition responsibility
 
@@ -330,7 +330,7 @@ owner's evidence cannot stand in for another owner's behavior.
 | One logical outcome, current-view publication, ordered durable publication, cancellation, stale-event suppression, and quiescence | [Operation-authority model and `inspect-web-operation-authority` Release TypeScript gate](inspect-web-operation-authority.md#required-implementation-gate) | Abstract model checked; product component, durable-publication gate, and first Type Source adoption implemented |
 | Worker message validity, epoch containment, readiness, liveness, draining, and realm release | [Worker-runtime models and `inspect-web-worker-protocol` plus `inspect-web-worker-lifecycle` Release gates](inspect-web-worker-runtime.md#required-implementation-gates) | Abstract models checked; product components and gates **unverified** |
 | DOM responsiveness while representative managed CPU work runs | Worker-runtime owner and [`inspect-web-worker-responsiveness` real-browser gate](inspect-web-worker-runtime.md#required-implementation-gates) | **Unverified** |
-| Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; dynamic lifecycle core, managed Release sub-gate, and Browser/Wasm nonterminal event canary implemented; shared-producer attachment, epoch-work handoff, concrete export migration, and the remaining complete browser-host gate cases **unverified** |
+| Keyed managed cancellation, exact reason, callback release, managed quiescence, shared-waiter detachment, and epoch-work handoff | [Managed-bridge model and `inspect-web-managed-operation-bridge` Release browser-host gate](inspect-web-managed-operation-bridge.md#required-implementation-gate) | Abstract model checked; dynamic lifecycle core, managed Release sub-gate, generated Mono/CoreCLR Browser/Wasm lifecycle boundary sub-gate, and Browser/Wasm nonterminal event canary implemented; shared-producer attachment, epoch-work handoff, concrete export migration, and the remaining complete browser-host gate cases **unverified** |
 | Generated Task/Promise functions, authenticated callback types, initialization, and managed dispatch | [`ts-jsexport` acceptance gates](ts-jsexport.md#acceptance) and the implemented inspect-web consumer gates from #5003 and #5005 | Implemented for the current production facade |
 | Complete multi-facade module set over one runtime | [Facade-partition acceptance gates](inspect-web-jsexport-partitioning.md#acceptance) | Proposed under [#4497](https://github.com/richlander/dotnet-inspect/issues/4497); not a prerequisite for the current monolithic facade |
 | Feature result, progress meaning, cancellation checkpoints, structural yield bound, sharing, cache, retry, and rendering | The adopting feature's focused Release and browser gates | Unverified until each feature adopts the composed boundary |

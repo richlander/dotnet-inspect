@@ -648,6 +648,15 @@ Only canonical `mss1:` transport participates in candidate correspondence.
 Legacy signature text is accepted solely to validate an already selected
 exact-token record; it is not candidate-selection currency.
 
+`MemberSignatureShapeFlowTests` records literal shapes, canonical transport,
+and candidate outcomes across the source and Metadata adapters. Its same-name
+overload set distinguishes vector/non-SZ arrays, mixed array nesting, generic
+array ranks, and tuple element order. Generic-parameter and tuple-element names
+are erased deliberately; duplicate matches remain ambiguous and an unavailable
+source sibling prevents uniqueness. Rank-one non-SZ metadata has no ordinary
+C# declaration counterpart. These are correspondence gates, not member-identity
+or source-ownership proofs.
+
 Metadata projection fails closed when a generic signature header is
 noncanonical, when a MethodDef header and its owned contiguous GenericParam rows
 disagree, or when a declaring TypeDef chain's canonical name arities and
