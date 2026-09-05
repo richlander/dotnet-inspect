@@ -4,7 +4,7 @@ using DotnetInspector.Artifacts.Workspaces;
 
 namespace DotnetInspector.Artifacts.Tests;
 
-public sealed class ArtifactSetSessionTests
+public sealed partial class ArtifactSetSessionTests
 {
     [Fact]
     public async Task ArtifactSetSession_ComposesArtifactsFromMultipleSources()

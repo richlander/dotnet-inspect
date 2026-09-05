@@ -65,6 +65,7 @@
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationComposed/TsJsExport.ContextFixtures.NormalizationComposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
@@ -73,6 +74,8 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />

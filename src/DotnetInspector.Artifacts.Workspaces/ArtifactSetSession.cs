@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 
 namespace DotnetInspector.Artifacts.Workspaces;
 
@@ -1126,11 +1127,48 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(identity);
         ArgumentNullException.ThrowIfNull(callback);
         cancellationToken.ThrowIfCancellationRequested();
-        RetainedArtifactContent retained;
+        PublishedArtifact? artifact = FindQueryArtifact(identity, lease);
+        if (artifact is null)
+            return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+
+        return artifact.Content.WithQueryContent(lease, callback, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets a SHA-256 digest of retained content under current query authority.
+    /// </summary>
+    /// <param name="chargeWork">
+    /// Charges the requesting operation for the snapshot's byte length before
+    /// its first hash pass. Authorized cache hits do not invoke this callback.
+    /// A callback exception prevents computation and propagates unchanged.
+    /// </param>
+    public ArtifactContentAccessOutcome<ArtifactContentDigest> GetContentDigest(
+        ArtifactIdentity identity,
+        ArtifactQueryLease? lease,
+        Action<long> chargeWork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(chargeWork);
+        cancellationToken.ThrowIfCancellationRequested();
+        PublishedArtifact? artifact = FindQueryArtifact(identity, lease);
+        if (artifact is null)
+            return new ArtifactContentAccessOutcome<ArtifactContentDigest>.Unauthorized();
+
+        return artifact.Content.WithQueryContent(
+            lease,
+            (view, token) => artifact.GetDigest(view, chargeWork, token),
+            cancellationToken);
+    }
+
+    private PublishedArtifact? FindQueryArtifact(
+        ArtifactIdentity identity,
+        ArtifactQueryLease? lease)
+    {
         lock (_gate)
         {
             if (_state != SessionState.Published || lease is null)
-                return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+                return null;
             try
             {
                 _authority.ValidateQueryLease(lease);
@@ -1138,12 +1176,10 @@ public sealed class ArtifactSetSession : IAsyncDisposable
             catch (Exception ex) when (
                 ex is UnauthorizedAccessException or ObjectDisposedException)
             {
-                return new ArtifactContentAccessOutcome<TResult>.Unauthorized();
+                return null;
             }
-            retained = FindArtifact(identity).Content;
+            return FindArtifact(identity);
         }
-
-        return retained.WithQueryContent(lease, callback, cancellationToken);
     }
 
     /// <summary>
@@ -1818,7 +1854,30 @@ public sealed class ArtifactSetSession : IAsyncDisposable
         ArtifactAcquisitionRegistration Registration,
         RetainedArtifactContent Content,
         HashSet<ArtifactWorkspaceRole> Roles,
-        long RetainedBytes);
+        long RetainedBytes)
+    {
+        private readonly object _digestGate = new();
+        private ArtifactContentDigest? _digest;
+
+        public ArtifactContentDigest GetDigest(
+            scoped ArtifactQueryContentView view,
+            Action<long> chargeWork,
+            CancellationToken cancellationToken)
+        {
+            lock (_digestGate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_digest is not null)
+                    return _digest;
+
+                chargeWork(view.Content.Length);
+                string hexValue = Convert.ToHexStringLower(
+                    SHA256.HashData(view.Content));
+                _digest = new ArtifactContentDigest(view.Artifact, hexValue);
+                return _digest;
+            }
+        }
+    }
 
     private sealed record SessionDiagnostic(
         string Code,
