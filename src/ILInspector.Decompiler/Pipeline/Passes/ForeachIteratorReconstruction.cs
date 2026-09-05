@@ -107,6 +107,17 @@ internal static class ForeachIteratorReconstruction
         if (dispatchEnd >= blocks.Count)
             return false;
 
+        // A dispatch block may also initialize a captured receiver used by the
+        // iterator body. Do not discard that binding with the state machinery.
+        foreach (var statement in blocks.Take(dispatchEnd).SelectMany(block => block.Children))
+        {
+            if (ReferenceEquals(statement, stateStore)
+                || statement is ConditionalBranch or Branch or Leave
+                || statement is StoreLocal { Value: Constant } marker && marker.Index == returnLocal)
+                continue;
+            return false;
+        }
+
         // Rebuild the surviving blocks: strip the scaffolding, sew the yields, drop the
         // disposal idiom, and remap the state-machine fields to the fresh locals/arguments.
         var container = new BlockContainer();
@@ -163,8 +174,12 @@ internal static class ForeachIteratorReconstruction
         // forms the `while (e.MoveNext())` loop with the yields riding along.
         IrPasses.Run(work, IrPasses.Default, context);
 
-        // Fold the hidden-enumerator loop into a foreach.
-        if (!RaiseForeach(work, context))
+        // The normal pipeline may already have raised this enumerator when its
+        // exact-named Current local survived. Otherwise use the single-use matcher.
+        int enumeratorIndex = locals[enumeratorField.Name].Index;
+        if (work.DescendantsOutsideNestedFunctions.Any(
+                node => ReferenceOwnership.ReferencesOrBindsLocal(node, enumeratorIndex))
+            && !RaiseForeach(work, context, enumeratorIndex))
             return false;
 
         // Validate: fully structured, keeps a yield, recovers the foreach, and leaves no
@@ -190,7 +205,7 @@ internal static class ForeachIteratorReconstruction
     // — e a compiler-hidden enumerator local — into `foreach (item in collection) BODY`. The
     // copy-propagated single-use form (where `item = e.Current` folded into the body) is
     // recovered by introducing a fresh loop variable for the surviving `e.Current` reads.
-    static bool RaiseForeach(IrFunction work, PassContext context)
+    static bool RaiseForeach(IrFunction work, PassContext context, int enumeratorIndex)
     {
         foreach (var block in work.Body.Descendants.OfType<Block>().ToList())
         {
@@ -198,6 +213,7 @@ internal static class ForeachIteratorReconstruction
             for (var i = 0; i + 1 < children.Count; i++)
             {
                 if (children[i] is not StoreLocal enumeratorStore
+                    || enumeratorStore.Index != enumeratorIndex
                     || enumeratorStore.Value is not Call { Callee.Name: "GetEnumerator" } getEnumerator
                     || getEnumerator.Arguments.Count != 1
                     || children[i + 1] is not WhileLoop loop
@@ -208,7 +224,6 @@ internal static class ForeachIteratorReconstruction
                     continue;
                 }
 
-                var enumeratorIndex = enumeratorStore.Index;
                 var loopBody = loop.Body;
 
                 int loopVariable;
@@ -230,7 +245,7 @@ internal static class ForeachIteratorReconstruction
                     if (read is null)
                         return false;
                     elementType = read.ResultType!;
-                    loopVariable = work.AddLocal(elementType, "item");
+                    loopVariable = work.AddSynthesizedLocal(elementType, "item");
                     foreach (var current in loopBody.Descendants.OfType<LoadProperty>().ToList())
                         if (IsCurrentOf(current, enumeratorIndex))
                             current.ReplaceWith(new LoadLocal(loopVariable, elementType));
@@ -350,7 +365,7 @@ internal static class ForeachIteratorReconstruction
                     if (locals.TryGetValue(field.Name, out var slot))
                         swaps.Add((current, new LoadLocal(slot.Index, field.Type)));
                     else if (TryGetParameter(kickoff, field.Name, out var index, out var parameter))
-                        swaps.Add((current, new LoadArgument(index, parameter.Name, parameter.Type)));
+                        swaps.Add((current, new LoadArgument(index, parameter)));
                     else
                         ok = false;
                     return;  // never descend into a swapped field's `this` receiver

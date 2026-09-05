@@ -1,6 +1,14 @@
 import type { PackageControlPackage } from "./package-controls.ts";
 import { packageIdentityKey } from "./data.ts";
 import { packageRemoveButton } from "./package-removal.ts";
+import type { SavedWorkspaceFocus } from "./saved-workspaces.ts";
+import {
+  captureSavedWorkspaceFocus,
+  renderSavedWorkspaces,
+  renderWorkspaceSaveButton,
+  restoreSavedWorkspaceFocus,
+  type SavedWorkspacesView,
+} from "./saved-workspaces-view.ts";
 import type {
   BrowserWorkspacePackageOccurrence,
 } from "./facades/inspect-web-package.d.ts";
@@ -17,6 +25,7 @@ export interface WorkspaceSubjectRenderOptions {
 }
 
 export interface WorkspaceViewRenderOptions {
+  savedWorkspaces?: SavedWorkspacesView;
   occurrences: readonly BrowserWorkspacePackageOccurrence[];
   packages: readonly PackageControlPackage[];
   demos: readonly ProductHomeDemoCatalogEntry[];
@@ -47,6 +56,7 @@ export interface WorkspaceOccurrenceVisibility {
 }
 
 export type WorkspaceFocusTarget =
+  | SavedWorkspaceFocus
   | { kind: "workspace" }
   | { kind: "remove"; key: string; index: number }
   | { kind: "demo"; id: string };
@@ -154,8 +164,10 @@ export function renderWorkspaceView(
       <h1>Workspace</h1>
       <code class="type-signature">${packages.length} loaded coordinate${packages.length === 1 ? "" : "s"}</code>
     </div>
+    ${options.savedWorkspaces ? renderWorkspaceSaveButton(options.savedWorkspaces) : ""}
   </header>
   <div class="workspace-overview">
+    ${options.savedWorkspaces ? renderSavedWorkspaces(options.savedWorkspaces, escapeHtml) : ""}
     <section class="document-section workspace-section">
       <div class="section-title"><h2>Demos</h2><span>${demos.length} available</span></div>
       <p>Open a product demo to replace this Workspace with its packages and initial view.</p>
@@ -205,6 +217,8 @@ export function focusWorkspace(
 export function captureWorkspaceFocus(
   element: HTMLElement | null,
 ): WorkspaceFocusTarget | null {
+  const savedFocus = captureSavedWorkspaceFocus(element);
+  if (savedFocus) return savedFocus;
   const target = element?.closest<HTMLElement>(
     "[data-workspace-default], [data-workspace-demo], [data-workspace-remove]");
   if (!target) return null;
@@ -248,6 +262,8 @@ export function restoreWorkspaceFocus(
         .find(candidate => candidate.dataset.workspaceDemo === target.id)
         ?? null;
       break;
+    default:
+      return restoreSavedWorkspaceFocus(root, target);
   }
   element?.focus({ preventScroll: true });
   return element !== null;

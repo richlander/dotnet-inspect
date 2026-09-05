@@ -63,7 +63,12 @@ public static class MethodImporter
         var decoded = GuardedDecode.MethodSignature(reader, method, scope);
 
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
-        var namesByIndex = new Dictionary<int, string>();
+        MetadataParameterNames.ResolvedName[] parameterNames =
+            MetadataParameterNames.ResolveWithProvenance(
+            reader,
+            method.GetParameters(),
+            decoded.ParameterTypes.Length,
+            methodGenericParameterNames);
         var hasDefaultByIndex = new Dictionary<int, bool>();
         var dynamicByIndex = new Dictionary<int, bool>();
         var arrayElementDynamicByIndex = new Dictionary<int, MetadataFactState>();
@@ -73,7 +78,6 @@ public static class MethodImporter
             if (parameter.SequenceNumber > 0)
             {
                 int index = parameter.SequenceNumber - 1;
-                namesByIndex[index] = reader.GetString(parameter.Name);
                 hasDefaultByIndex[index] = HasDefault(reader, parameter);
                 // A by-ref parameter (`ref`/`in`/`out`) carries the ByRef modifier
                 // at DynamicAttribute flag index 0, so the element dynamic-ness sits
@@ -97,10 +101,11 @@ public static class MethodImporter
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
             parameters.Add(new Parameter(
-                namesByIndex.GetValueOrDefault(i, $"arg{i}"),
+                parameterNames[i].Name,
                 decoded.ParameterTypes[i],
                 hasDefaultByIndex.GetValueOrDefault(i),
-                dynamicByIndex.GetValueOrDefault(i))
+                dynamicByIndex.GetValueOrDefault(i),
+                parameterNames[i].IsSynthesized)
             {
                 ArrayElementIsDynamic = arrayElementDynamicByIndex.GetValueOrDefault(
                     i,
