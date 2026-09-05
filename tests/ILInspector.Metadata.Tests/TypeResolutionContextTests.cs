@@ -406,6 +406,62 @@ public class TypeResolutionContextTests
         Assert.Equal(MetadataTypeDefinitionKind.Class, Resolved(recovered, request).Definition.Kind);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Lineage_CachedParentHonorsCurrentDependencyBudgetFailure(
+        bool dependencyFirst)
+    {
+        ResolvedAssemblyReference root = Descriptor(BuildAssembly(
+            "Root", definesType: true, baseTarget: Identity("Terminal")));
+        ResolvedAssemblyReference terminal =
+            Descriptor(BuildAssembly("Terminal", definesType: true));
+        var policy = new LineagePolicy(root, (_, _) => terminal);
+        AssemblyBindingOccurrence occurrence = policy.Issue(root, 0);
+        TypeResolutionRequest rootRequest = TypeResolutionRequest.FromOccurrence(
+            occurrence, AssemblyResolutionScope.Any, TypeName());
+        TypeResolutionRequest dependencyRequest = TypeResolutionRequest.FromReference(
+            terminal.Identity,
+            AssemblyBindingOrigin.FromOccurrence(occurrence),
+            AssemblyResolutionScope.Any,
+            TypeName());
+        using var catalog = new TypeResolutionCatalog(new TypeResolutionContextOptions
+        {
+            MaxTypeResolutionRequests = 2,
+        });
+        using TypeResolutionContext initial = catalog.CreateContext(
+            policy, [], [rootRequest]);
+        Assert.Equal(
+            MetadataTypeDefinitionKind.Class,
+            Resolved(initial, rootRequest).Definition.Kind);
+
+        AssemblyBindingRequest[] bindings = new[] { 1, 2 }.Select(context =>
+            new AssemblyBindingRequest(
+                AssemblyBindingTarget.Reference(terminal.Identity),
+                AssemblyBindingOrigin.FromOccurrence(policy.Issue(root, context)),
+                AssemblyResolutionScope.Any)).ToArray();
+        TypeResolutionRequest[] requests = dependencyFirst
+            ? [dependencyRequest, rootRequest]
+            : [rootRequest, dependencyRequest];
+        using TypeResolutionContext crowded = catalog.CreateContext(
+            policy, [], bindings, requests);
+        foreach (TypeResolutionRequest request in requests)
+        {
+            Assert.IsType<TypeResolutionFailure.RequestBudgetExceeded>(
+                Assert.IsType<TypeResolutionOutcome.Rejected>(
+                    crowded.Resolve(request)).Failure);
+        }
+
+        using TypeResolutionContext recovered = catalog.CreateContext(
+            policy, [], requests);
+        foreach (TypeResolutionRequest request in requests)
+        {
+            ResolvedTypeDefinition definition = Resolved(recovered, request).Definition;
+            Assert.Equal(MetadataTypeDefinitionKind.Class, definition.Kind);
+            Assert.Null(definition.KindResolutionFailure);
+        }
+    }
+
     [Fact]
     public void Lineage_ForwarderCycleStillUsesPhysicalCandidateIdentity()
     {

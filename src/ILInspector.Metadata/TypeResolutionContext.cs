@@ -1757,8 +1757,16 @@ public sealed class TypeResolutionContext : IDisposable
                 {
                     return false;
                 }
-                if (_outcomes.ContainsKey(dependencyKey)
-                    || hydrated.ContainsKey(dependencyKey))
+                if (_outcomes.TryGetValue(dependencyKey, out var existing))
+                {
+                    if (existing is not TypeResolutionOutcome.Resolved
+                        { Definition.KindResolutionFailure: null })
+                    {
+                        return false;
+                    }
+                    continue;
+                }
+                if (hydrated.ContainsKey(dependencyKey))
                     continue;
                 if (!_catalog.TryGetResolution(
                         _policyVersion, dependencyKey, out var cached))
