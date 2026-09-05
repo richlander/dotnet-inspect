@@ -203,14 +203,14 @@ import {
 } from "./member-focus.ts";
 import {
   buildDependencyGraphMermaid,
-  buildTypeGraphMermaid
+  buildTypeGraphMermaid,
+  resolveMermaidCssVariables,
 } from "./graph-mermaid.ts";
 import {
-  bindDependencyGraphNodes,
   bindGraphBack,
   bindGraphPanZoom,
   bindTypeGraphNodes,
-  type CallGraphNodeBinding,
+  type GraphNodeBinding,
   type GraphBackBindingActions,
 } from "./graph-interactions.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
@@ -3171,7 +3171,7 @@ function typeDisplayName(
 function render(options: { synchronizeUrl?: boolean } = {}) {
   sourceInspection.cancelHiddenRequest();
   const graphExplorerWasOpen = graphExplorer.isOpen;
-  graphExplorer.beforeRender(callGraphExplorerKey());
+  graphExplorer.beforeRender(graphExplorerKey());
   if (graphExplorerWasOpen && !graphExplorer.isOpen) {
     graphExplorerNavigationFocusPending = !state.settings && !state.keyboardHelp
       && !state.explorer?.open && !workbenchModalOwnsFocus();
@@ -3394,8 +3394,11 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
           activeScope === "workspace" ? "workspace" : null,
           true,
           escapeHtml),
-        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext
-          ? `<div class="working-surface-actions" role="group" aria-label="${callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+        contextualActionsHtml: annotatedPageContext || sourcePageKind || callGraphPageContext || packageDependenciesWorkingSurface
+          ? `<div class="working-surface-actions" role="group" aria-label="${packageDependenciesWorkingSurface ? "Dependency graph actions" : callGraphPageContext ? "Call graph actions" : annotatedPageContext ? "Annotated Source actions" : "Source actions"}">
+              ${packageDependenciesWorkingSurface
+                ? `<button type="button" id="dependency-graph-explore" data-graph-explore${dependencyGraphAvailable() ? "" : " disabled"}>Explore</button>`
+                : ""}
               ${callGraphPageContext
                 ? `<button type="button" id="call-graph-explore" data-graph-explore${currentCallGraph() && !currentCallGraph()?.noBody ? "" : " disabled"}>Explore</button>`
                 : ""}
@@ -3514,7 +3517,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
   restorePackageQueryReturnFocus();
   restorePackageQueryWorkspaceFocus();
-  graphExplorer.afterRender(callGraphExplorerTarget());
+  graphExplorer.afterRender(graphExplorerTarget());
   recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
@@ -4048,18 +4051,18 @@ function renderPackageDependencies() {
   const fresh = state.packageDependenciesKey === current;
   if (state.packageDependenciesLoading && fresh) {
     return renderPackageDependenciesSurface(
-      `<section class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`,
+      `<section data-dependency-graph-surface class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`,
       "reading");
   }
   if (fresh && state.packageDependenciesError) {
     return renderPackageDependenciesSurface(
-      `<section class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
+      `<section data-dependency-graph-surface class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
       "query failed");
   }
   const data = fresh ? state.packageDependencies : null;
   if (!data) {
     return renderPackageDependenciesSurface(
-      `<section class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
+      `<section data-dependency-graph-surface class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
       "loading");
   }
 
@@ -4071,17 +4074,17 @@ function renderPackageDependencies() {
     : "";
   if (!groups.length) {
     return renderPackageDependenciesSurface(
-      `${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>${assemblyReferences}`,
+      `<div data-dependency-graph-surface>${dependencyGroupNotice}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section></div>${assemblyReferences}`,
       packageDependenciesStatus(data, null));
   }
 
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const orderedGroups = groups;
   const selectorChips = orderedGroups
-    .map(group => `<button class="type-chip ${group.index === selectedGroupIndex ? "active" : ""}" data-dep-group="${group.index}">${escapeHtml(group.framework)}</button>`)
+    .map(group => `<button class="type-chip ${group.index === selectedGroupIndex ? "active" : ""}" data-dep-group="${group.index}" aria-pressed="${group.index === selectedGroupIndex}">${escapeHtml(group.framework)}</button>`)
     .join("");
   const selector = `
-    <section class="document-section">
+    <section class="document-section dependency-group-selector">
       <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
       <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
@@ -4089,14 +4092,14 @@ function renderPackageDependencies() {
   const depList = dependencyListSectionHtml(groups, selectedGroupIndex);
 
   const graphSection = `
-    <section class="document-section">
+    <section class="document-section dependency-graph-section">
       <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
       ${workspaceDependencyErrorHtml()}
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
   return renderPackageDependenciesSurface(
-    `${dependencyGroupNotice}${selector}${graphSection}${depList}${assemblyReferences}`,
+    `<div data-dependency-graph-surface>${dependencyGroupNotice}${selector}${graphSection}</div>${depList}${assemblyReferences}`,
     packageDependenciesStatus(data, selectedGroupIndex));
 }
 
@@ -4174,10 +4177,11 @@ function patchDependenciesGroup() {
     document.querySelector<HTMLElement>("[data-package-dependencies-status]");
   if (!data || !groups.length || !listSection || !status) { render(); return; }
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button =>
-    button.classList.toggle(
-      "active",
-      Number(button.dataset.depGroup) === selectedGroupIndex));
+  document.querySelectorAll<HTMLElement>("#dep-tfm-chips [data-dep-group]").forEach(button => {
+    const selected = Number(button.dataset.depGroup) === selectedGroupIndex;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
   status.textContent = packageDependenciesStatus(data, selectedGroupIndex);
   listSection.outerHTML = dependencyListSectionHtml(groups, selectedGroupIndex);
   bindPackageDependencyListEvents();
@@ -6311,7 +6315,7 @@ function bindEvents() {
   workbenchShellBinding =
     bindWorkbenchShell(document, workbenchShellActions);
   bindGraphBack(document, graphBackActions);
-  bindGraphExplore(document, openCallGraphExplorer);
+  bindGraphExplore(document, openGraphExplorer);
   bindContentFrameEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.package?.isRuntimePack)
@@ -9280,11 +9284,8 @@ async function renderTypeGraph() {
     });
     const id = `type-graph-${Date.now().toString(36)}`;
     const rootStyle = getComputedStyle(document.documentElement);
-    const resolved = definition.replace(
-      /var\((--[\w-]+)\)/g,
-      (whole: string, name: string) =>
-        rootStyle.getPropertyValue(name).trim() || whole
-    );
+    const resolved = resolveMermaidCssVariables(
+      definition, name => rootStyle.getPropertyValue(name));
     const { svg } = await mermaid.render(id, resolved);
     if (document.querySelector("#type-graph-diagram") !== container) return;
     container.innerHTML =
@@ -9419,22 +9420,19 @@ async function renderDependencyGraph() {
     });
     const id = `dep-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
     const rootStyle = getComputedStyle(document.documentElement);
-    const resolved = built.definition.replace(
-      /var\((--[\w-]+)\)/g,
-      (whole: string, name: string) =>
-        rootStyle.getPropertyValue(name).trim() || whole
-    );
+    const resolved = resolveMermaidCssVariables(
+      built.definition, name => rootStyle.getPropertyValue(name));
     const { svg } = await mermaid.render(id, resolved);
     // A newer render superseded this one, or the container was swapped out — bail without touching the DOM.
     if (!depGraphRenderSequence.isCurrent(seq)) return;
     if (document.querySelector("#dependency-graph-diagram") !== container) return;
     container.innerHTML =
-      '<div class="graph-viewport"></div>'
+      '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
       + '<div class="graph-controls">'
       + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
       + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
       + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
-      + '</div>'
+      + '</div></div>'
       + (built.truncated
         ? `<div class="graph-drill-error graph-diagnostics" role="status">Dependency graph truncated at ${built.nodeLimit} nodes.</div>`
         : "");
@@ -9443,20 +9441,27 @@ async function renderDependencyGraph() {
     if (!viewport) return;
     viewport.innerHTML = svg;
     container.dataset.graphDef = signature;
-    bindGraphPanZoom(container, viewport, { keybindings });
-    bindDependencyGraphNodes(viewport, nodeId => {
-      const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
-      if (!info || info.kind === "self") return null;
-      return {
-        onSelect: () => {
-          if (info.kind === "open" && info.packageKey)
-            switchToPackageForDependencies(info.packageKey);
-          else if (info.id)
-            observeAsync(
-              openDependencyPackage(info.id, info.versionRange),
-              "Opening a dependency package");
-        },
-      };
+    bindGraphPanZoom(container, viewport, {
+      keybindings,
+      resolveDependencyGraphNode: nodeId => {
+        const info = nodeId ? built.nodeInfoById.get(nodeId) : null;
+        if (!info || info.kind === "self") return null;
+        const loaded = state.packages.find(candidate =>
+          packageIdentityKey(candidate) === info.packageKey);
+        return {
+          label: loaded
+            ? `Open ${packageDisplayName(loaded)}@${loaded.version} · ${loaded.activeFramework}`
+            : `Load ${info.id} ${info.versionRange || "latest stable"}`,
+          onSelect: () => {
+            if (info.kind === "open" && info.packageKey)
+              switchToPackageForDependencies(info.packageKey);
+            else if (info.id)
+              observeAsync(
+                openDependencyPackage(info.id, info.versionRange),
+                "Opening a dependency package");
+          },
+        };
+      },
     });
   } catch (error) {
     // Only surface the error if this is still the latest render and nothing else has drawn a graph.
@@ -9476,6 +9481,7 @@ function switchToPackageForDependencies(packageKey: string) {
   const target = state.packages.find(item =>
     packageIdentityKey(item) === packageKey);
   if (!target) return;
+  closeGraphExplorerForNavigation();
   state.loading = false;
   activatePackage(target, { resetAccessibility: true });
   state.atPackageRoot = true;
@@ -9504,6 +9510,7 @@ async function openDependencyPackage(
     switchToPackageForDependencies(packageIdentityKey(existing));
     return;
   }
+  closeGraphExplorerForNavigation();
   const navigationSeq = navigationSequence.begin();
   state.loading = true;
   state.error = "";
@@ -9692,11 +9699,8 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
       });
       const id = `call-graph-${Date.now().toString(36)}-${seq}`;
       const rootStyle = getComputedStyle(document.documentElement);
-      const renderDefinition = definition.replace(
-        /var\((--[\w-]+)\)/g,
-        (whole: string, name: string) =>
-          rootStyle.getPropertyValue(name).trim() || whole
-      );
+      const renderDefinition = resolveMermaidCssVariables(
+        definition, name => rootStyle.getPropertyValue(name));
       const { svg } = await mermaid.render(id, renderDefinition);
       if (seq !== callGraphRenderSeq) {
         return { status: "superseded" };
@@ -9758,7 +9762,7 @@ function renderMermaidCallGraph(): Promise<CallGraphRenderResult> {
 function callGraphNodeBinding(
   callGraph: InspectedCallGraph,
   nodeId: string,
-): CallGraphNodeBinding | null {
+): GraphNodeBinding | null {
   const target =
     callGraph.targets?.find(candidate => candidate.id === nodeId) ?? null;
   if (!target) return null;
@@ -9772,7 +9776,7 @@ function callGraphTargetBinding(
   target: InspectedCallGraphTarget,
   destination: CallGraphTargetDestination = "default",
   failureSurface: GraphNavigationFailureSurface = "call-graph",
-): CallGraphNodeBinding | null {
+): GraphNodeBinding | null {
   const typeId = callGraphTargetTypeId(target);
 
   // Inside a platform descent the whole graph lives in the runtime pack, not
@@ -9979,7 +9983,7 @@ function blockedCallGraphNodeBinding(
   target: InspectedCallGraphTarget,
   reason: string,
   failureSurface: GraphNavigationFailureSurface = "call-graph",
-): CallGraphNodeBinding {
+): GraphNodeBinding {
   return {
     label: `Cannot open ${target.typeFullName}.${target.memberName}: ${reason}`,
     blocked: true,
@@ -10022,12 +10026,22 @@ function currentCallGraph() {
   return top ? top.graph : state.memberCallGraph;
 }
 
-function callGraphExplorerKey(): string | null {
+function dependencyGraphAvailable() {
+  return state.packageDependenciesKey === packageDependenciesSignature()
+    && !state.packageDependenciesLoading
+    && !state.packageDependenciesError
+    && Boolean(state.packageDependencies?.dependencyGroups?.length);
+}
+
+function graphExplorerKey(): string | null {
   if (state.home || state.loading || state.error || state.packageQueryOpen
     || state.credits || state.settings || state.keyboardHelp || state.explorer?.open
     || state.spotlightOpen || state.docViewerOpen || state.graphSourceOpen
-    || state.memberAnnotatedModal || scope() !== "member"
-    || state.memberSection !== "call-graph") return null;
+    || state.memberAnnotatedModal) return null;
+  if (scope() === "package" && state.packageLens === "dependencies") {
+    return JSON.stringify(["dependencies", packageDependenciesSignature()]);
+  }
+  if (scope() !== "member" || state.memberSection !== "call-graph") return null;
   const type = selectedType();
   const member = selectedMember(type);
   const overload = member
@@ -10041,23 +10055,27 @@ function callGraphExplorerKey(): string | null {
     : null;
 }
 
-function callGraphExplorerTarget() {
-  const key = callGraphExplorerKey();
-  const content = document.querySelector<HTMLElement>("[data-call-graph-surface]");
-  const invoker = document.querySelector<HTMLElement>("#call-graph-explore");
+function graphExplorerTarget() {
+  const key = graphExplorerKey();
+  const dependencies = scope() === "package";
+  const content = document.querySelector<HTMLElement>(
+    dependencies ? "[data-dependency-graph-surface]" : "[data-call-graph-surface]");
+  const invoker = document.querySelector<HTMLElement>("[data-graph-explore]");
   return key && content && invoker
     ? {
         key,
-        title: "Call graph",
-        context: currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
+        title: dependencies ? "Dependency graph" : "Call graph",
+        context: dependencies
+          ? `${currentPackage().id}@${currentPackage().version} · ${currentPackage().activeFramework}`
+          : currentInspectedSubjectPath().map(segment => segment.label).join(" > "),
         content,
         invoker,
       }
     : null;
 }
 
-function openCallGraphExplorer() {
-  const target = callGraphExplorerTarget();
+function openGraphExplorer() {
+  const target = graphExplorerTarget();
   if (!target) return;
   graphExplorerOriginKey = target.key;
   graphExplorer.open(target);
@@ -10072,8 +10090,8 @@ function restoreGraphExplorerNavigationFocus() {
   }
   if (state.loading || state.graphMemberNavigationTitle || state.platformDrillLoading) return;
   graphExplorerNavigationFocusPending = false;
-  const explore = document.querySelector<HTMLButtonElement>("#call-graph-explore");
-  if (callGraphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {
+  const explore = document.querySelector<HTMLButtonElement>("[data-graph-explore]");
+  if (graphExplorerKey() === graphExplorerOriginKey && explore && !explore.disabled) {
     explore.focus({ preventScroll: true });
   } else {
     focusLevelOneHeading();

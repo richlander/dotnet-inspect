@@ -115,6 +115,16 @@ public sealed class AssemblyImageSnapshot
             AssemblyImageSnapshot snapshot;
             Stream stream = OpenSource(assembly);
             Exception? primaryFailure = null;
+            bool rejectionEstablished = false;
+            AssemblyImageSnapshotResult RejectOpenedImage(
+                CandidateOpenFailureKind kind,
+                string detail,
+                MetadataRootMalformedReason? metadataRootReason = null)
+            {
+                rejectionEstablished = true;
+                return Reject(kind, detail, metadataRootReason);
+            }
+
             try
             {
                 DateTime? lastWriteTimeUtc = stream is FileStream fileStream
@@ -125,7 +135,7 @@ public sealed class AssemblyImageSnapshot
                 if (length > int.MaxValue
                     || !tryReserveBytes(length))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.ResourceBudget,
                         "The retained-image budget was exhausted.");
                 }
@@ -138,21 +148,21 @@ public sealed class AssemblyImageSnapshot
                     ImmutableCollectionsMarshal.AsImmutableArray(bytes);
 
                 using var peReader = new PEReader(content);
-                if (!peReader.HasMetadata)
+                if (!MetadataFormatAdmission.AdmitImage(peReader))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.InvalidImage,
                         "The selected image has no managed metadata.");
                 }
 
-                MetadataReader reader = peReader.GetMetadataReader();
+                MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
                 assembly.ValidateArtifactContent(peReader);
                 AssemblyReferenceIdentity identity =
                     AssemblyReferenceIdentity.FromAssemblyDefinition(
                         reader);
                 if (!IdentityMatches(assembly.Identity, identity))
                 {
-                    return Reject(
+                    return RejectOpenedImage(
                         CandidateOpenFailureKind.InvalidImage,
                         "The opened image identity does not match its descriptor.");
                 }
@@ -172,15 +182,20 @@ public sealed class AssemblyImageSnapshot
             }
             finally
             {
-                if (primaryFailure is null)
-                {
-                    stream.Dispose();
-                }
-                else
+                if (primaryFailure is not null)
                 {
                     OwnedResourceCleanup.DisposeAfterFailure(
                         stream,
                         primaryFailure);
+                }
+                else if (rejectionEstablished)
+                {
+                    OwnedResourceCleanup.DisposeWithoutReplacingOutcome(
+                        stream);
+                }
+                else
+                {
+                    stream.Dispose();
                 }
             }
 
@@ -188,6 +203,19 @@ public sealed class AssemblyImageSnapshot
                 snapshot);
             reservedBytes = 0;
             return result;
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Reject(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The selected image uses an unsupported metadata format.");
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The selected image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -233,14 +261,14 @@ public sealed class AssemblyImageSnapshot
         try
         {
             using var peReader = new PEReader(content);
-            if (!peReader.HasMetadata)
+            if (!MetadataFormatAdmission.AdmitImage(peReader))
             {
                 return Reject(
                     CandidateOpenFailureKind.InvalidImage,
                     "The selected image has no managed metadata.");
             }
 
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             assembly.ValidateArtifactContent(peReader);
             AssemblyReferenceIdentity identity =
                 AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
@@ -258,6 +286,19 @@ public sealed class AssemblyImageSnapshot
                     reader.GetGuid(reader.GetModuleDefinition().Mvid),
                     assembly.Registration,
                     lastWriteTimeUtc ?? assembly.LastWriteTimeUtc));
+        }
+        catch (UnsupportedMetadataFormatException)
+        {
+            return Reject(
+                CandidateOpenFailureKind.UnsupportedMetadataFormat,
+                "The retained image uses an unsupported metadata format.");
+        }
+        catch (MalformedMetadataRootException ex)
+        {
+            return Reject(
+                CandidateOpenFailureKind.InvalidImage,
+                $"The retained image has a malformed metadata root ({ex.Reason}).",
+                ex.Reason);
         }
         catch (Exception ex) when (
             ex is BadImageFormatException
@@ -313,6 +354,10 @@ public sealed class AssemblyImageSnapshot
 
     static AssemblyImageSnapshotResult.Rejected Reject(
         CandidateOpenFailureKind kind,
-        string detail) =>
-        new(new CandidateOpenFailure(kind, detail));
+        string detail,
+        MetadataRootMalformedReason? metadataRootReason = null) =>
+        new(new CandidateOpenFailure(kind, detail)
+        {
+            MetadataRootReason = metadataRootReason,
+        });
 }
