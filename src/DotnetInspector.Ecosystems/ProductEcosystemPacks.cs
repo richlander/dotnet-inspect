@@ -1,4 +1,5 @@
 using DotnetInspector.Queries.Definitions;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -46,7 +47,8 @@ internal static class ProductEcosystemPacks
             [
                 Demo(ProductDemoIds.AspirePostgresCallGraph, "Aspire AddPostgres", "PostgreSQL resource registration graph", 900, CreateAspirePostgresCallGraphRecords),
                 Demo(ProductDemoIds.AspireRedisCallGraph, "Aspire AddRedis", "Redis resource registration graph", 1000, CreateAspireRedisCallGraphRecords),
-            ]),
+            ],
+            Scanner: EcosystemIntegrationScanner.AspireBinding),
     ]);
 
     private static EcosystemDemoRegistration Demo(
