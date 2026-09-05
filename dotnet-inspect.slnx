@@ -73,6 +73,9 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
+    <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
+    <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
+    <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Base/DotnetInspector.Services.RouteLearning.Base.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Consumer/DotnetInspector.Services.RouteLearning.Consumer.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Contract/DotnetInspector.Services.RouteLearning.Contract.csproj" />
@@ -128,9 +131,6 @@
     <Project Path="src/ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
     <Project Path="src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <Project Path="src/ILInspector.Research.Tests/ILInspector.Research.Tests.csproj" />
-    <Project Path="src/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
-    <Project Path="src/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
-    <Project Path="src/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />
     <Project Path="src/ILInspector.Research/ILInspector.Research.csproj" />
     <Project Path="src/ILInspector.Text.Tests/ILInspector.Text.Tests.csproj" />
     <Project Path="src/ILInspector.Text/ILInspector.Text.csproj" />

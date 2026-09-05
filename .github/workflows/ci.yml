@@ -1435,6 +1435,99 @@ jobs:
   # `skipped` and pass a PR on which no test ran at all. `changes` reporting
   # `failure` or `skipped` is what closes that path.
   #
+  # CodeQL code scanning. Each language is a separate lane so a change can
+  # pay only for the extractors its file types need: the C# lane alone costs
+  # roughly nine minutes and is a fixed cost, unrelated to how much C#
+  # changed. Lane selection is by file extension rather than by the project
+  # graph the build gates use, because CodeQL analyzes whole source trees.
+  #
+  # These lanes are not gated on the pre-merge event. Code scanning alerts are
+  # reported against the default branch, so skipping analysis on pushes to
+  # main would freeze that baseline at whatever last ran before a merge. A
+  # push applies this same routing rather than re-analyzing the whole tree, so
+  # it does not bound a mis-routed lane; the weekly full analysis in
+  # codeql-scheduled.yml is that bound.
+  #
+  # Push-time analysis is skipped for Dependabot-authored commits. This
+  # repository allows only squash merging, so merging a Dependabot pull
+  # request produces a Dependabot-authored commit on main, and GitHub gives
+  # workflows running on such a commit read-only permissions. The SARIF upload
+  # needs security-events: write, which a job cannot grant itself, so the job
+  # would fail with "403: Resource not accessible by integration" and turn
+  # ci-required red on main. Both identities are checked because they differ:
+  # on a squash merge the actor is the maintainer who merged, not Dependabot,
+  # so an actor-only guard would never fire. The pull-request run still
+  # analyzes the change: code scanning always accepts uploads from a
+  # pull_request event. Only the default-branch baseline refresh is deferred,
+  # to the weekly scan.
+  # https://docs.github.com/en/code-security/reference/code-scanning/troubleshoot-analysis-errors/resource-not-accessible
+  codeql-actions:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlActions
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: actions
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:actions
+
+  codeql-csharp:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlCSharp
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: csharp
+          # Buildless extraction, matching what default setup ran here. It
+          # needs no SDK and no restored solution, so this lane does not
+          # duplicate the build the test matrix already performs.
+          build-mode: none
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:csharp
+
+  codeql-javascript:
+    needs: changes
+    if: >-
+      fromJSON(needs.changes.outputs.plan).validations.codeqlJavaScript
+      && !(github.event_name == 'push'
+        && (github.actor == 'dependabot[bot]'
+          || github.event.head_commit.author.name == 'dependabot[bot]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:javascript-typescript
+
   # Like `changes`, this always-run terminal gate uses the GA image so preview
   # capacity cannot leave an otherwise-complete PR waiting for its required
   # status. Path-gated jobs retain ubuntu-26.04 coverage.
@@ -1456,6 +1549,9 @@ jobs:
       - csharp-diff-smoke
       - il-diff-smoke
       - pack
+      - codeql-actions
+      - codeql-csharp
+      - codeql-javascript
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
