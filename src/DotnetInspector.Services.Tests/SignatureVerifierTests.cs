@@ -1,44 +1,25 @@
-
 using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
 /// <summary>
 /// Integration tests for the in-process SignatureVerifier.
-/// Downloads real packages from nuget.org to verify signatures.
+/// Verifies committed signed packages without downloading test inputs.
 /// </summary>
-public class SignatureVerifierTests : IDisposable
+public class SignatureVerifierTests
 {
-    private readonly HttpClient _http = new();
-    private readonly NuGetClient _client;
-
-    public SignatureVerifierTests()
-    {
-        _client = new NuGetClient(_http);
-    }
-
-    public void Dispose() => _http.Dispose();
-
     [Fact]
-    public async Task Verify_AuthorSignedPackage_ExtractsPublisher()
+    public void Verify_AuthorSignedPackage_ExtractsPublisher()
     {
-        string nupkgPath = await DownloadPackageAsync("Newtonsoft.Json", "13.0.3");
-        try
-        {
-            var result = SignatureVerifier.Verify(nupkgPath);
+        var result = SignatureVerifier.Verify(PackageFixture("newtonsoft.json.13.0.3.nupkg"));
 
-            Assert.NotNull(result);
-            Assert.Equal("Json.NET (.NET Foundation)", result.Publisher);
-            Assert.True(result.AuthorVerified);
-            Assert.True(result.RepositoryVerified);
-            Assert.Contains("NuGet.org", result.Repository, StringComparison.OrdinalIgnoreCase);
-            Assert.False(result.IsUnsigned);
-            Assert.Null(result.StatusMessage);
-        }
-        finally
-        {
-            File.Delete(nupkgPath);
-        }
+        Assert.NotNull(result);
+        Assert.Equal("Json.NET (.NET Foundation)", result.Publisher);
+        Assert.True(result.AuthorVerified);
+        Assert.True(result.RepositoryVerified);
+        Assert.Contains("NuGet.org", result.Repository, StringComparison.OrdinalIgnoreCase);
+        Assert.False(result.IsUnsigned);
+        Assert.Null(result.StatusMessage);
     }
 
     [Fact]
@@ -128,23 +109,15 @@ public class SignatureVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task Verify_MicrosoftPackage_ExtractsPublisher()
+    public void Verify_MicrosoftPackage_ExtractsPublisher()
     {
-        string nupkgPath = await DownloadPackageAsync("System.Text.Json", "9.0.4");
-        try
-        {
-            var result = SignatureVerifier.Verify(nupkgPath);
+        var result = SignatureVerifier.Verify(PackageFixture("system.text.json.9.0.4.nupkg"));
 
-            Assert.NotNull(result);
-            Assert.NotNull(result.Publisher);
-            Assert.Contains("Microsoft", result.Publisher);
-            Assert.True(result.AuthorVerified);
-            Assert.True(result.RepositoryVerified);
-        }
-        finally
-        {
-            File.Delete(nupkgPath);
-        }
+        Assert.NotNull(result);
+        Assert.NotNull(result.Publisher);
+        Assert.Contains("Microsoft", result.Publisher);
+        Assert.True(result.AuthorVerified);
+        Assert.True(result.RepositoryVerified);
     }
 
     [Fact]
@@ -211,10 +184,41 @@ public class SignatureVerifierTests : IDisposable
         }
     }
 
-    private async Task<string> DownloadPackageAsync(string id, string version)
+    [Fact]
+    public void Verify_ModifiedSignedPackage_ReturnsFailure()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"{id}.{version}.nupkg");
-        await _client.DownloadToFileAsync(id, version, path);
+        string tempPath = Path.Combine(Path.GetTempPath(), $"modified-signed-{Guid.NewGuid():N}.nupkg");
+        try
+        {
+            File.Copy(PackageFixture("newtonsoft.json.13.0.3.nupkg"), tempPath);
+            using (var archive = System.IO.Compression.ZipFile.Open(tempPath, System.IO.Compression.ZipArchiveMode.Update))
+            {
+                var nuspec = archive.GetEntry("Newtonsoft.Json.nuspec");
+                Assert.NotNull(nuspec);
+                using var stream = nuspec.Open();
+                stream.SetLength(0);
+                using var writer = new StreamWriter(stream);
+                writer.Write("<package />");
+            }
+
+            var result = SignatureVerifier.Verify(tempPath);
+
+            Assert.NotNull(result);
+            Assert.False(result.IsUnsigned);
+            Assert.False(result.AuthorVerified);
+            Assert.False(result.RepositoryVerified);
+            Assert.Contains("content hash", result.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(tempPath);
+        }
+    }
+
+    private static string PackageFixture(string fileName)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Signatures", fileName);
+        Assert.True(File.Exists(path), $"Missing signed-package fixture '{path}'. Rebuild the test project.");
         return path;
     }
 }

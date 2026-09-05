@@ -794,6 +794,14 @@ public class ApiType
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];
 
+    /// <summary>
+    /// Whether the type declares the exact-name runtime UnionAttribute, including a
+    /// downlevel polyfill. This is marker presence, not a valid union or JSON contract.
+    /// Null means the marker was not inspected, including older or summary surfaces.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? HasUnionAttribute { get; set; }
+
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ApiTypeLayout? Layout { get; set; }
 
