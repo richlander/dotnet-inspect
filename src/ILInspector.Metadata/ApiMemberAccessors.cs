@@ -110,10 +110,13 @@ public static class ApiMemberAccessors
             parameters.Select(
                 parameter =>
                     $"{parameter.TypeWithModifier} {parameter.Name}"));
+        bool isExplicitImplementation =
+            accessorEntry?.IsExplicitInterfaceImplementation
+            ?? name.Contains('.', StringComparison.Ordinal);
         return new ApiMember
         {
             Name = name,
-            Kind = name.Contains('.', StringComparison.Ordinal)
+            Kind = isExplicitImplementation
                 ? "explicit-interface-implementation"
                 : "method",
             MetadataToken = token,

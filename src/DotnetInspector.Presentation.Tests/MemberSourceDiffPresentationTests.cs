@@ -186,6 +186,9 @@ public class MemberSourceDiffPresentationTests
         Assert.Equal(
             MemberSourceDiffProjectionFailureKind.DeclaringTypeNameNotRepresentable,
             failure.Failure.Kind);
+        Assert.Equal(
+            "Declaring type name cannot be represented exactly in a C# type declaration.",
+            failure.Failure.Detail);
     }
 
     [Fact]

@@ -72,6 +72,9 @@ The associated PropertyDef supplies the complete qualified property identity;
 the renderer does not parse accessor markers from the MethodDef name. An
 ordinary explicit method whose source name begins with `get_` or `set_` remains
 a method.
+Accessor-ordinal projection retains the private MethodImpl classification
+from metadata, including when the physical accessor name is unqualified.
+Its anchor therefore agrees with direct selection of the same raw MethodDef.
 Indexer status comes from the associated property's index parameters, not its
 name. Ordinary explicit properties named `Item` or `Chars` retain property
 syntax; actual indexer accessors retain their existing method form.
@@ -82,6 +85,10 @@ the rendered method signature. A selected setter preserves the physical
 This deliberately changes CLI Source Diff hunks and statistics where the old
 CLI projection chose different wrapping or expression-body layout. No
 compatibility switch preserves the old comparison-only projection.
+The retained method-level `IsReadOnly` fact is also consumed by existing API
+JSON and C# declaration views, so those views can disclose `readonly` outside
+Source Diff. Metadata owns that fact in
+[API declaration modifiers](type-member-api-representation.md#api-declaration-modifiers).
 
 The separate CLI `Decompiled Source` section remains a CLI presentation. The
 diff endpoints are labelled `PDB comparison` and `Decompiled comparison`, not
@@ -358,7 +365,11 @@ The fixture proves:
 
 `DotnetInspector.Presentation.Tests` runs in Release in the ordinary `ci.yml`
 test job covered by `ci-required`, Deep Inspect's `platform-test` lane, and
-the Windows PR `cli` suite. These presentation tests prove:
+the Windows PR `cli` suite. The existing
+`TextAnalysisDiffPresentation.CreateMappedTextDiff` construction enforces
+line-to-analysis index association and admits only stable unchanged one-to-one
+correspondences as anchors; this suite does not independently assert those
+shared lowering rules. These presentation tests prove:
 
 - the unchanged PDB endpoint remains available beside canonical Before text;
 - one and only one producer-guaranteed type-body placement prefix is replaced
@@ -369,6 +380,8 @@ the Windows PR `cli` suite. These presentation tests prove:
   dedenting;
 - the admitted leaf declaring-type identity supplies both synthetic wrapper
   names, while an unrepresentable identity fails visibly;
+- declaring-name rejection details describe the rule without repeating the
+  rejected metadata value;
 - wrapper naming comes only from the successful query result's exact type
   identity, not endpoint or host display text;
 - a constructor named `extension` produces one constructor boundary rather
@@ -383,7 +396,6 @@ the Windows PR `cli` suite. These presentation tests prove:
 - unequal changed and moved populations retain two-sided counts;
 - changed and moved overlap;
 - identical inputs remain an explicit complete result;
-- analysis and mapped endpoint sequences are index-identical;
 - both mapped sequences retain the producer-issued absent-terminator state; and
 - an N:M changed correspondence plus a moved relation proves statistics equal
   relation cardinalities even though Markout lowers them to removal/addition
@@ -409,6 +421,8 @@ Release CLI tests prove:
   segments that themselves begin with `get_` or `set_`;
 - ordinary explicit `Item` and `Chars` getters/setters retain property syntax,
   while actual indexers with custom accessor names retain method form;
+- property/event accessor-ordinal selection agrees with raw MethodDef
+  selection when a valid explicit accessor has an unqualified physical name;
 - projected accessors retain physical MethodDef modifiers such as `readonly`,
   including explicit-interface getter and setter property declarations;
 - the PDB Source and Source Diff co-selection performs one equivalent PDB

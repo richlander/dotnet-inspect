@@ -11359,6 +11359,66 @@ public partial class CommandExecutionTests
         Assert.Contains($"+{expectedDeclaration}", output);
     }
 
+    [Theory]
+    [InlineData("Value", "get_Value", 1)]
+    [InlineData("Value", "set_Value", 2)]
+    [InlineData("Changed", "add_Changed", 1)]
+    [InlineData("Changed", "remove_Changed", 2)]
+    public async Task Member_SourceDiff_RenamedAccessorOrdinalMatchesRawSelection(
+        string memberName,
+        string accessorName,
+        int accessorOrdinal)
+    {
+        string interfaceName = typeof(ISourceDiffAccessorNames).FullName!;
+        string originalName = $"{interfaceName}.{accessorName}";
+        string renamed = "renamedAccessor".PadRight(originalName.Length, '_');
+        byte[] image = File.ReadAllBytes(TestAssemblyPath);
+        byte[] originalBytes = Encoding.UTF8.GetBytes(originalName + '\0');
+        byte[] renamedBytes = Encoding.UTF8.GetBytes(renamed + '\0');
+        int offset = image.AsSpan().IndexOf(originalBytes);
+        Assert.True(offset >= 0);
+        Assert.Equal(
+            -1,
+            image.AsSpan(offset + originalBytes.Length).IndexOf(originalBytes));
+        renamedBytes.CopyTo(image.AsSpan(offset));
+
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"source-diff-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string library = Path.Combine(directory, "RenamedAccessor.dll");
+            File.WriteAllBytes(library, image);
+            File.Copy(
+                Path.ChangeExtension(TestAssemblyPath, ".pdb"),
+                Path.ChangeExtension(library, ".pdb"));
+            string typeName = typeof(SourceDiffAccessorNamesSample).FullName!;
+            var (ordinalExit, ordinalOutput, ordinalError) = await RunAppAsync(
+                "member", typeName, $"{interfaceName}.{memberName}:{accessorOrdinal}",
+                "--library", library, "--all",
+                "-S", "Source Diff", "-v:d", "--tips", "q");
+            var (rawExit, rawOutput, rawError) = await RunAppAsync(
+                "member", typeName, $"explicit:{renamed}",
+                "--library", library, "--all",
+                "-S", "Source Diff", "-v:d", "--tips", "q");
+
+            Assert.Equal(0, ordinalExit);
+            Assert.Equal(0, rawExit);
+            Assert.Empty(ordinalError);
+            Assert.Empty(rawError);
+            string ordinalDiff = Assert.IsType<string>(
+                TryExtractSectionBody(ordinalOutput, SectionNames.SourceDiff));
+            string rawDiff = Assert.IsType<string>(
+                TryExtractSectionBody(rawOutput, SectionNames.SourceDiff));
+            Assert.Equal(rawDiff, ordinalDiff);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_SourceDiff_ExplicitInterfacePropertyUsesPhysicalAccessor()
     {

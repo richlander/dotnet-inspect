@@ -677,6 +677,14 @@ public class ApiAccessor
     public bool IsReadOnly { get; set; }
 
     /// <summary>
+    /// Whether this accessor is a private MethodImpl body, matching the raw
+    /// explicit-implementation member classification. Null when that metadata
+    /// relationship was not retained.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsExplicitInterfaceImplementation { get; set; }
+
+    /// <summary>
     /// The accessor MethodDef name. Ordinary properties use <c>get_Value</c>;
     /// explicit-interface properties use <c>I.get_Value</c>, which is not
     /// <c>get_</c> prefixed onto the property display name. Null on older

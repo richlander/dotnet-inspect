@@ -129,6 +129,21 @@ item into one product-owned kind facet and accepts the returned opaque IDs for
 filtering. Unknown IDs and unclassified producer values fail visibly rather
 than becoming an empty inventory.
 
+### API declaration modifiers
+
+Full API extraction retains the physical MethodDef `IsReadOnly` attribute in
+`ApiMember.IsReadOnly` for all methods, not only projected accessors. Existing
+API JSON, C# declaration views, and Metadata Findings consume this fact, so
+ordinary member output can gain `is_read_only` or `readonly` independently of
+Source Diff.
+
+Rich accessor models also retain whether a method is a private MethodImpl
+body. Accessor projection uses that relationship-derived classification rather
+than inferring it from a qualified MethodDef name. An unknown value denotes
+older or declaration-only models that did not retain the relationship, rather
+than a negative metadata result. Only those unknown values retain the prior
+name-based projection fallback; a known negative classification is authoritative.
+
 ### API memory-safety facts
 
 `ApiMember.MemorySafety` retains two independent facts: the caller contract

@@ -1326,6 +1326,7 @@ public static class ApiSurfaceExtractor
                     prop,
                     accessors,
                     typeNullableContext,
+                    explicitImplementationBodies,
                     includeAll,
                     observeText,
                     observeDecodeWork,
@@ -1784,6 +1785,7 @@ public static class ApiSurfaceExtractor
                     },
                     eventTypeNodeProvider,
                     typeContext,
+                    explicitImplementationBodies,
                     observeText,
                     observeDecodeWork);
 
@@ -4582,6 +4584,7 @@ public static class ApiSurfaceExtractor
         PropertyDefinition prop,
         PropertyAccessors accessors,
         byte typeNullableContext,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         bool includeAll = false,
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
@@ -4772,6 +4775,7 @@ public static class ApiSurfaceExtractor
             },
             typeNodeProvider,
             context,
+            explicitImplementationBodies,
             beforeRetainText,
             beforeDecodeWork);
 
@@ -4937,6 +4941,7 @@ public static class ApiSurfaceExtractor
         Func<string, MethodDefinitionHandle> handleForKind,
         TypeNodeProvider provider,
         GenericContext context,
+        IReadOnlySet<MethodDefinitionHandle> explicitImplementationBodies,
         Action<string>? beforeRetainText,
         Action<int>? beforeDecodeWork)
     {
@@ -4954,9 +4959,14 @@ public static class ApiSurfaceExtractor
                 beforeRetainText);
             if (!handle.IsNil)
             {
+                MethodDefinition method = reader.GetMethodDefinition(handle);
+                accessor.IsExplicitInterfaceImplementation =
+                    explicitImplementationBodies.Contains(handle)
+                    && (method.Attributes & MethodAttributes.MemberAccessMask)
+                        == MethodAttributes.Private;
                 accessor.IsReadOnly = AttributeReader.HasAttribute(
                     reader,
-                    reader.GetMethodDefinition(handle).GetCustomAttributes(),
+                    method.GetCustomAttributes(),
                     KnownAttributeNames.IsReadOnlyAttribute,
                     beforeDecodeWork);
             }

@@ -148,7 +148,7 @@ public static class MemberSourceDiffPresentationAdapter
             return Failed(
                 available,
                 MemberSourceDiffProjectionFailureKind.DeclaringTypeNameNotRepresentable,
-                $"Declaring type name '{leafName}' cannot be represented exactly in a C# type declaration.");
+                "Declaring type name cannot be represented exactly in a C# type declaration.");
         }
 
         BoundaryResult beforeBoundary =

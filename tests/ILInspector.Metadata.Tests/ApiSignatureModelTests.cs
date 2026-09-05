@@ -109,6 +109,9 @@ public sealed class ApiSignatureModelTests
         Assert.Equal("this[]", member.SignatureModel.MemberName);
         Assert.Equal("(int)", member.SignatureModel.ParameterTypesSummary);
         Assert.Equal("get", member.SignatureModel.PublicAccessorsSummary);
+        Assert.All(
+            member.SignatureModel.Accessors,
+            accessor => Assert.False(accessor.IsExplicitInterfaceImplementation));
         Assert.Null(
             member.SignatureModel.Accessors.Single(accessor => accessor.Kind == "set")
                 .StructuralReturnType);
@@ -150,6 +153,7 @@ public sealed class ApiSignatureModelTests
             member.SignatureModel.Accessors,
             accessor => accessor.Kind == "get");
         Assert.False(string.IsNullOrEmpty(getter.Name));
+        Assert.True(getter.IsExplicitInterfaceImplementation);
         Assert.False(getter.Name.StartsWith("get_", StringComparison.Ordinal));
         Assert.EndsWith(
             $".get_{nameof(IExplicitAccessor.Value)}",
@@ -168,6 +172,42 @@ public sealed class ApiSignatureModelTests
         Assert.Equal(
             ApiMemberIdentity.GetMemberAnchor(type, physical),
             ApiMemberIdentity.GetMemberAnchor(type, accessor));
+    }
+
+    [Theory]
+    [InlineData("readValue", true, "explicit-interface-implementation")]
+    [InlineData("I.get_Value", false, "method")]
+    [InlineData("I.get_Value", null, "explicit-interface-implementation")]
+    [InlineData("get_Value", null, "method")]
+    public void AccessorProjection_UsesKnownClassificationBeforeName(
+        string name,
+        bool? isExplicitImplementation,
+        string expectedKind)
+    {
+        var type = new ApiType { Name = "C", Namespace = "Example" };
+        var property = new ApiMember
+        {
+            Name = "Value",
+            Kind = "property",
+            GetterToken = 0x06000001,
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "int",
+                Accessors =
+                [
+                    new ApiAccessor
+                    {
+                        Kind = "get",
+                        Name = name,
+                        IsExplicitInterfaceImplementation = isExplicitImplementation,
+                    },
+                ],
+            },
+        };
+
+        ApiMember projected = Assert.Single(ApiMemberAccessors.Create(property, type));
+        Assert.Equal(name, projected.Name);
+        Assert.Equal(expectedKind, projected.Kind);
     }
 
     [Fact]
