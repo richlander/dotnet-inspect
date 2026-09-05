@@ -120,7 +120,8 @@ internal static class CSharpDeclarationWriter
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions? options = null,
-        IReadOnlyList<string>? methodParameters = null)
+        IReadOnlyList<string>? methodParameters = null,
+        IReadOnlyList<string>? parameterNames = null)
     {
         options ??= new CSharpDeclarationOptions();
         ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
@@ -157,7 +158,12 @@ internal static class CSharpDeclarationWriter
             memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
             attributeValueReferences,
             synthesizedAttributeReferences);
-        var declaration = RenderMemberDeclarationCore(type, member, options, methodParameters);
+        var declaration = RenderMemberDeclarationCore(
+            type,
+            member,
+            options,
+            methodParameters,
+            parameterNames);
         declaration = plan.Apply(declaration);
         return options.TerminateMemberDeclaration && NeedsTerminator(declaration)
             ? declaration + ";"
@@ -1042,7 +1048,8 @@ internal static class CSharpDeclarationWriter
         ApiType type,
         ApiMember member,
         CSharpDeclarationOptions options,
-        IReadOnlyList<string>? methodParameters = null)
+        IReadOnlyList<string>? methodParameters = null,
+        IReadOnlyList<string>? parameterNames = null)
     {
         string signature;
         var renderedFromModel = false;
@@ -1050,13 +1057,24 @@ internal static class CSharpDeclarationWriter
         {
             signature = $"{member.ReturnType} {member.Name}";
         }
-        else if (TryRenderSignatureModel(type, member, options, methodParameters, out var modelSignature))
+        else if (TryRenderSignatureModel(
+            type,
+            member,
+            options,
+            methodParameters,
+            parameterNames,
+            out var modelSignature))
         {
             signature = modelSignature;
             renderedFromModel = true;
         }
         else
         {
+            if (parameterNames is { Count: > 0 })
+            {
+                throw new InvalidOperationException(
+                    $"Member '{member.Name}' cannot apply changed body-owned parameter names without a renderable structured signature.");
+            }
             if (!options.IncludeSignatureAttributes
                 && !CanSafelySuppressCompatibilitySignatureAttributes(member))
             {
@@ -1788,11 +1806,18 @@ internal static class CSharpDeclarationWriter
         ApiMember member,
         CSharpDeclarationOptions options,
         IReadOnlyList<string>? methodParameters,
+        IReadOnlyList<string>? parameterNames,
         out string signature)
     {
         signature = "";
         if (member.SignatureModel is not { } model)
             return false;
+        if (parameterNames is not null
+            && parameterNames.Count != model.Parameters.Count)
+        {
+            throw new InvalidOperationException(
+                $"Member '{member.Name}' has {model.Parameters.Count} signature parameter(s), but its body supplied {parameterNames.Count} final name(s).");
+        }
 
         // Compatibility text may still carry metadata-only default attributes
         // that have not been projected into the structured parameter shape.
@@ -1813,8 +1838,11 @@ internal static class CSharpDeclarationWriter
 
         var parameters = string.Join(
             ", ",
-            model.Parameters.Select(parameter =>
-                FormatParameter(parameter, options.IncludeSignatureAttributes)));
+            model.Parameters.Select((parameter, index) =>
+                FormatParameter(
+                    parameter,
+                    options.IncludeSignatureAttributes,
+                    parameterNames?[index])));
         if (member.Name == ".cctor")
         {
             signature = $"{FormatConstructorTypeName(type, options)}()";
@@ -1826,14 +1854,25 @@ internal static class CSharpDeclarationWriter
             signature = $"{FormatConstructorTypeName(type, options)}({parameters})";
             return true;
         }
-        if (member.Kind == "method"
-            && methodParameters is not { Count: > 0 }
+        if (((member.Kind == "method"
+                && methodParameters is not { Count: > 0 })
+            || (parameterNames is { Count: > 0 }
+                && member.Kind is "method" or "extension-method"))
             && model.MemberName is { Length: > 0 } memberName
             && model.ReturnType is { Length: > 0 } returnType)
         {
             if (memberName.Contains('<', StringComparison.Ordinal) && model.TypeParameters.Count == 0)
                 return false;
-            signature = AppendMemberTypeParameterConstraints($"{returnType} {memberName}({parameters})", member, model.TypeParameters);
+            if (methodParameters is { Count: > 0 }
+                && !memberName.Contains('<', StringComparison.Ordinal))
+            {
+                memberName +=
+                    $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>";
+            }
+            signature = AppendMemberTypeParameterConstraints(
+                $"{returnType} {memberName}({parameters})",
+                member,
+                model.TypeParameters);
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
@@ -1920,15 +1959,17 @@ internal static class CSharpDeclarationWriter
 
     internal static string FormatParameter(
         ApiParameter parameter,
-        bool includeAttributes = true)
+        bool includeAttributes = true,
+        string? name = null)
     {
         string type = EscapeTypeKeywords(parameter.Type);
         string head = string.IsNullOrEmpty(parameter.Modifier)
             ? type
             : $"{parameter.Modifier} {type}";
-        var declaration = string.IsNullOrWhiteSpace(parameter.Name)
+        name ??= parameter.Name;
+        var declaration = string.IsNullOrWhiteSpace(name)
             ? head
-            : $"{head} {SanitizeIdentifier(parameter.Name)}";
+            : $"{head} {SanitizeIdentifier(name)}";
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;

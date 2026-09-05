@@ -451,6 +451,10 @@ public static class IrPasses
         // elements are coerced at their sinks like any load (issue #3166).
         new SwapIdiomPass(),
         new CoercionInsertionPass(),
+        // Parameter metadata is imported before nested bodies are known. Allocate
+        // missing-name fallbacks only after every raise has exposed the final
+        // lexical binder tree, so exact nested names reserve before synthesis.
+        new ParameterNameAllocationPass(),
     ];
 
     /// <summary>
@@ -496,7 +500,11 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
+            {
                 function.CheckInvariant(IrInvariants.CheckSemantics);
+                if (IrInvariants.CheckSemantics && function.IsMetadataBacked)
+                    function.ValidateArgumentBindings();
+            }
         }
     }
 

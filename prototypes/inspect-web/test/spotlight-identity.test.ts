@@ -2983,10 +2983,10 @@ test("home demos restore the complete parsed location", () => {
     ?? "";
   assert.match(
     runHomeDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*message => failDemoWorkspaceOpen\(/);
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);[\s\S]*const navigationSeq = beginDemoNavigation\(destination\);[\s\S]*restoreWorkspaceCatalogEntry\(\s*loc,\s*navigationSeq,\s*snapshot,\s*message => failDemoWorkspaceOpen\(kind, message, snapshot, true\)/);
   assert.match(
     runHomeDemo,
-    /async function restoreHomeDemoWorkspace\([\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
+    /async function restoreWorkspaceCatalogEntry\([\s\S]*restoreWorkspaceFromLocation\(\s*loc,\s*loc,\s*navigationSeq,\s*snapshot,\s*true,\s*failureHandler\);[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
   assert.match(
     runHomeDemo,
     /try \{\s*destination = new URL\(link, location\.href\)\.toString\(\);\s*loc = parseWorkspaceHref\(destination\);\s*\} catch \(error\) \{[\s\S]*failDemoWorkspaceOpen\([\s\S]*\}\s*const navigationSeq = beginDemoNavigation\(destination\)/);

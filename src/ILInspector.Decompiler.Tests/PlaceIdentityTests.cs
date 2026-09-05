@@ -29,6 +29,20 @@ public class PlaceIdentityTests
     }
 
     [Fact]
+    public void SameVariable_UsesArgumentBinderIdentityWhenAvailable()
+    {
+        var outer = new Parameter("value", Int);
+        var nested = new Parameter("value", Int);
+
+        Assert.True(PlaceIdentity.SameVariable(
+            new LoadArgument(0, outer),
+            new LoadArgument(0, outer)));
+        Assert.False(PlaceIdentity.SameVariable(
+            new LoadArgument(0, outer),
+            new LoadArgument(0, nested)));
+    }
+
+    [Fact]
     public void SameStackSlot_MatchesOnlyMatchingSlots()
     {
         Assert.True(PlaceIdentity.SameStackSlot(new LoadStackSlot(256, Int), new LoadStackSlot(256, Int)));
