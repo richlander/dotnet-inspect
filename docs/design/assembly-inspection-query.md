@@ -488,6 +488,12 @@ metadata. Arithmetic failures from a query producer remain exceptional rather
 than becoming a Metadata rejection. An image that declares a CLR header but
 has no readable managed metadata is malformed, not a native image.
 
+Dedicated Release coverage of these two artifact rejection cases is
+`unverified`: structural arithmetic failures and a declared CLR header without
+readable managed metadata. Current evidence is source inspection. Descriptor
+gates cover legacy behavior and the shared predicate, not these artifact
+outcome mappings.
+
 `NotAssembly` is a positive classification, not successful assembly
 projection. Whether a non-assembly artifact is allowed to remain in a broader
 artifact catalog belongs to that catalog's owner. It cannot enter an
