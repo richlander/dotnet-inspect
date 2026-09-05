@@ -16838,6 +16838,46 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("MixedValue", "set_MixedValue")]
+    [InlineData("MixedChanged", "remove_MixedChanged")]
+    public async Task Member_BodySections_PreserveAccessorOrdinalWhenSiblingIsAbstract(
+        string memberName,
+        string concreteAccessor)
+    {
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-mixed-accessor-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "RuntimeAccessor.dll");
+            WriteRuntimeAccessorAssembly(dllPath);
+
+            var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
+                "member", "RuntimeAccessor.Target", "--library", dllPath,
+                $"{memberName}:1", "-S", "Decompiled Source", "--tips", "q");
+
+            Assert.Equal(0, abstractExit);
+            Assert.Empty(abstractError);
+            Assert.DoesNotContain("## Decompiled Source", abstractOutput);
+            Assert.DoesNotContain(concreteAccessor, abstractOutput);
+
+            var (concreteExit, concreteOutput, concreteError) = await RunAppAsync(
+                "member", "RuntimeAccessor.Target", "--library", dllPath,
+                $"{memberName}:2", "-S", "Decompiled Source", "--tips", "q");
+
+            Assert.Equal(0, concreteExit);
+            Assert.Empty(concreteError);
+            Assert.Contains("## Decompiled Source", concreteOutput);
+            Assert.Contains(concreteAccessor, concreteOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Member_ExtensionMethod_FindingCensusDiscoversAndRenders()
     {

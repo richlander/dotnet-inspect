@@ -1634,12 +1634,10 @@ public static class ApiOutputFormatter
         // For sections that require a single selected method (Calls, CallGraph, decompiled source, etc.),
         // filter to that specific overload. Callers can aggregate across all overloads.
         var singleMethod = overloadIndex.HasValue
-            ? methods.Count == 1
-                ? methods[0]
-                : overloadIndex.Value < methods.Count
-                    ? methods[overloadIndex.Value]
-                    : null
+            ? SelectBodyMethod(type, methods, overloadIndex.Value)
             : null;
+        if (singleMethod?.IsAbstract == true && !request.UnsafeOperations)
+            singleMethod = null;
         if (request.FindingCensus && singleMethod?.HasMethodBody != true)
             singleMethod = null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
@@ -1966,6 +1964,24 @@ public static class ApiOutputFormatter
 
         if (hasCode)
             view.MemberCode = memberCode;
+    }
+
+    private static ApiMember? SelectBodyMethod(
+        ApiType type,
+        List<ApiMember> methods,
+        int overloadIndex)
+    {
+        if (type.Members is [{ } owner]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(owner))
+        {
+            return AccessorMethods(owner, type).ElementAtOrDefault(overloadIndex);
+        }
+
+        return methods.Count == 1
+            ? methods[0]
+            : overloadIndex < methods.Count
+                ? methods[overloadIndex]
+                : null;
     }
 
     internal static bool PopulateCSharpSections(
