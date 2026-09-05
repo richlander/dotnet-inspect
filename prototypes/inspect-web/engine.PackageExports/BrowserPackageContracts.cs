@@ -231,6 +231,7 @@ public enum BrowserPackageQueryFacetTier
 {
     Nuspec,
     PackageContent,
+    SearchMetadata,
 }
 
 public sealed record BrowserPackageQueryFacetDescriptor(
@@ -247,6 +248,25 @@ public sealed record BrowserPackageQueryFacetDescriptor(
 public sealed record BrowserPackageQueryFacetCatalog(
     BrowserPackageQueryFacetDescriptor[] Facets);
 
+public sealed record BrowserGalleryPackageTypeSuggestion(
+    string Value,
+    string Label);
+
+public sealed record BrowserGalleryPackageTypeFacet(
+    string Id,
+    string Label,
+    string Summary,
+    BrowserGalleryPackageTypeSuggestion[] Suggestions);
+
+public sealed record BrowserGalleryDiscoveryOrder(
+    string Id,
+    string Label,
+    string Summary);
+
+public sealed record BrowserGalleryDiscoveryCatalog(
+    BrowserGalleryPackageTypeFacet PackageType,
+    BrowserGalleryDiscoveryOrder[] Orders);
+
 public sealed record BrowserPackageQueryEvidence(
     string Id,
     string Text);
@@ -256,9 +276,10 @@ public sealed record BrowserPackageQueryRow(
     string Version,
     BrowserPackageQueryFacetTier Tier,
     BrowserPackageQueryEvidence[] Evidence,
-    long TotalDownloads,
-    bool Verified,
-    string Producer);
+    long? TotalDownloads,
+    bool? Verified,
+    string Producer,
+    string? Description = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryFailureKind>))]
 public enum BrowserPackageQueryFailureKind
@@ -301,6 +322,7 @@ public enum BrowserPackageQueryCompletionKind
     SourcePageLimitReached,
     ClientPageLimitReached,
     Failed,
+    GalleryResponseComplete,
 }
 
 public sealed record BrowserPackageQueryCompletion(
@@ -311,7 +333,9 @@ public sealed record BrowserPackageQueryCompletion(
     int Candidates,
     int Matches,
     int Failures,
-    BrowserPackageQueryCompletionKind Kind);
+    BrowserPackageQueryCompletionKind Kind,
+    int? SourceCandidates = null,
+    long? EstimatedTotalHits = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryEventKind>))]
 public enum BrowserPackageQueryEventKind
@@ -393,6 +417,7 @@ public sealed record BrowserDependencyCoordinateMatch(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserPackageQueryFacetCatalog))]
+[JsonSerializable(typeof(BrowserGalleryDiscoveryCatalog))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

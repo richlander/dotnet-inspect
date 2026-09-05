@@ -52,8 +52,11 @@ public static class FixtureGroupExtensions
 
 public static class FixtureIds
 {
+    public const string MetadataAttributeEnums = "metadata.attribute-enums";
     public const string DiffV1 = "diff.v1";
     public const string DiffV2 = "diff.v2";
+    public const string SourceDiffV1 = "source-diff.v1";
+    public const string SourceDiffV2 = "source-diff.v2";
     public const string DiffAsmCaller = "diff-asm.caller";
     public const string DiffAsmLibA = "diff-asm.lib-a";
     public const string DiffAsmLibB = "diff-asm.lib-b";
@@ -136,6 +139,13 @@ public static class FixtureIds
 
 public static class FixtureCatalog
 {
+    public static readonly FixtureDefinition MetadataAttributeEnums = Fixture(
+        FixtureIds.MetadataAttributeEnums,
+        "ILInspector.Metadata.AttributeEnumFixtures",
+        "ILInspector.Metadata.AttributeEnumFixtures.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+        "metadata", "custom-attributes", "producer-truth");
+
     public static readonly FixtureDefinition DecompilerAuthoredRebuild = Fixture(
         FixtureIds.DecompilerAuthoredRebuild,
         "ILInspector.Decompiler.Fixtures.AuthoredRebuild",
@@ -201,6 +211,23 @@ public static class FixtureCatalog
         "DiffFixtureSample.dll",
         Boundaries(FixtureBoundary.VersionPair),
         "diff", "version-pair", "analysis", "decompiler", "rts-candidate");
+
+    // This pair needs distinct controlled SourceLink maps as well as versioned
+    // binaries; changing the existing analysis pair's PDB contract would leak
+    // that acquisition behavior into its other consumers.
+    public static readonly FixtureDefinition SourceDiffV1 = Fixture(
+        FixtureIds.SourceDiffV1,
+        "DotnetInspector.SourceDiff.V1",
+        "SourceDiffFixture.dll",
+        Boundaries(FixtureBoundary.VersionPair, FixtureBoundary.SourceLinkMap),
+        "queries", "source", "version-pair");
+
+    public static readonly FixtureDefinition SourceDiffV2 = Fixture(
+        FixtureIds.SourceDiffV2,
+        "DotnetInspector.SourceDiff.V2",
+        "SourceDiffFixture.dll",
+        Boundaries(FixtureBoundary.VersionPair, FixtureBoundary.SourceLinkMap),
+        "queries", "source", "version-pair");
 
     /// <summary>
     /// Purpose-built member shapes for Research target requests (#5049):
@@ -630,6 +657,7 @@ public static class FixtureCatalog
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        MetadataAttributeEnums,
         DecompilerAuthoredRebuild,
         HostileLiterals,
         SourceLinkMalformed,
@@ -637,6 +665,8 @@ public static class FixtureCatalog
         SourceLinkNormalized,
         DiffV1,
         DiffV2,
+        SourceDiffV1,
+        SourceDiffV2,
         DiffAsmCaller,
         DiffAsmLibA,
         DiffAsmLibB,
@@ -696,6 +726,7 @@ public static class FixtureCatalog
     ];
 
     public static readonly FixturePair DiffPair = new("diff", DiffV1, DiffV2);
+    public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
 
     public static readonly FixtureGroup DiffAssemblyFixtures = new(
         "diff-asm",
@@ -975,12 +1006,16 @@ public static class FixtureCatalog
     static string RepositoryProjectDirectory(string projectName)
         => projectName switch
         {
+            "ILInspector.Metadata.AttributeEnumFixtures" =>
+                "fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures",
             "DiffAsmFixtures.Caller" => "fixtures/diff/DiffAsmFixtures.Caller",
             "DiffAsmFixtures.LibA" => "fixtures/diff/DiffAsmFixtures.LibA",
             "DiffAsmFixtures.LibB" => "fixtures/diff/DiffAsmFixtures.LibB",
             "DiffAsmFixtures.Target" => "fixtures/diff/DiffAsmFixtures.Target",
             "DiffFixtures.V1" => "fixtures/diff/DiffFixtures.V1",
             "DiffFixtures.V2" => "fixtures/diff/DiffFixtures.V2",
+            "DotnetInspector.SourceDiff.V1" => "fixtures/queries/DotnetInspector.SourceDiff.V1",
+            "DotnetInspector.SourceDiff.V2" => "fixtures/queries/DotnetInspector.SourceDiff.V2",
             "DotnetInspector.HostileNameFixtures" => "fixtures/cli/DotnetInspector.HostileNameFixtures",
             "DotnetInspector.RestoredProjectFixtures" => "fixtures/queries/DotnetInspector.RestoredProjectFixtures",
             "DotnetInspector.SourceLinkMalformedFixtures" => "fixtures/sourcelink/DotnetInspector.SourceLinkMalformedFixtures",
@@ -1029,7 +1064,7 @@ public static class FixtureCatalog
             "ILInspector.Research.TargetFixtures" => "fixtures/research/ILInspector.Research.TargetFixtures",
             "ResearchTargetCorrespondenceFixtures.V1" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V1",
             "ResearchTargetCorrespondenceFixtures.V2" => "fixtures/research/ResearchTargetCorrespondenceFixtures.V2",
-            "RunFaster.AllocationFixture" => "src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture",
+            "RunFaster.AllocationFixture" => "fixtures/runfaster/RunFaster.AllocationFixture",
             _ => throw new ArgumentException(
                 $"Unknown fixture project '{projectName}'.",
                 nameof(projectName)),

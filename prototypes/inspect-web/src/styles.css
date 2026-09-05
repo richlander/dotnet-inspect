@@ -2847,7 +2847,8 @@ kbd {
   color: var(--muted);
   font: 11px var(--mono);
 }
-.query-bar input {
+.query-bar input,
+.query-source-controls select {
   min-width: 0;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -2857,6 +2858,8 @@ kbd {
   padding: 8px 10px;
 }
 .query-bar input:focus-visible,
+.query-source-controls select:focus-visible,
+.query-source-controls input:focus-visible,
 .query-facet:focus-visible,
 .query-page button:focus-visible {
   outline: 2px solid var(--blue);
@@ -2901,6 +2904,34 @@ kbd {
 }
 .query-facet-rail .query-facet-disclosure {
   margin: 12px 0 0;
+}
+.query-source-controls {
+  display: grid;
+  gap: 9px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.query-source-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+.query-source-controls label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+}
+.query-source-controls select { width: 100%; }
+.query-row-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 .query-facets { display: flex; flex-direction: column; gap: 7px; }
 .query-facet-group {

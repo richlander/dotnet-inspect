@@ -40,6 +40,9 @@ substrates, and inspection producers that will extend that space.
   CLI-scoped boundary from host-authorized candidate collection through typed
   exact, glob, namespace-prefix, partial, and miss classification; Metadata
   retains candidate facts and the command retains presentation.
+  [Member source presentation](design/member-source-presentation.md) owns the
+  CLI projection of one Research-issued Finding census across explicit Facts
+  and Annotated Source output.
   The [package index cache](design/package-index-cache.md) separately owns
   whether a persistent filesystem-derived package result may replace cold
   inspection of one exact authorized retained payload.
@@ -146,6 +149,11 @@ substrates, and inspection producers that will extend that space.
   navigation-result consumer, shell interaction, and page-level composition
   across six focused owners while individual components retain rendering,
   binding, and state-transition responsibilities.
+- [Approved lazy traversal](design/approved-lazy-traversal.md) is the
+  operator-approved cross-owner target experience for subjects, traversal
+  permissions, operation demand, Browser defaults, and ecosystem-assisted
+  retrieval. It is not a new runtime owner; component contracts and their
+  focused adoption remain with the participating owners.
 - [Inspect Web Method Body Comparison](design/inspect-web-method-body-comparison.md)
   owns explicit same-assembly pair interaction, the managed feature projection,
   and typed Method Body Diff presentation. It consumes Queries comparison,

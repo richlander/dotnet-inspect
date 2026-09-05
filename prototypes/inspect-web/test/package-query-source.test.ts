@@ -6,8 +6,13 @@ import {
   packageQueryFacets,
   type BrowserPackageQueryEngine,
 } from "../src/package-query-source.ts";
-import { createQueryRequest, withFacet } from "../src/package-query.ts";
+import {
+  createQueryRequest,
+  withFacet,
+  type QueryResultRow,
+} from "../src/package-query.ts";
 import type {
+  BrowserPackageQueryCompletion,
   BrowserPackageQueryEvent,
   BrowserPackageQueryFacetCatalog,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -25,9 +30,259 @@ const completionEvent: BrowserPackageQueryEvent = {
     candidates: 1,
     matches: 1,
     failures: 1,
+    sourceCandidates: null,
+    estimatedTotalHits: null,
     kind: "Exhausted",
   },
 };
+
+async function runCompletion(completion: BrowserPackageQueryCompletion) {
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    requestMatches() { return true; },
+    async run() {
+      return { ...completionEvent, completion };
+    },
+  };
+  return createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest(""),
+    () => {},
+    () => {},
+    () => {},
+    new AbortController().signal);
+}
+
+test("Browser source forwards browse and free text with opaque selections and unchanged K", async () => {
+  for (const searchText of ["", "  hosting dependency injection  ", "System.*"]) {
+    for (const matchLimit of [100, 7]) {
+      const request = {
+        ...withFacet(createQueryRequest(searchText), {
+          key: "producer.inspection.facet",
+          label: "Producer inspection",
+          tier: "nuspec",
+        }),
+        packageType: "Producer.CustomType",
+        sourceOrderId: "producer.order.custom",
+        includePrerelease: true,
+        requestedMatchLimit: matchLimit,
+      };
+      const engine: BrowserPackageQueryEngine = {
+        cancel() {},
+        requestMatches() { return true; },
+        async run(...args) {
+          assert.deepEqual(args.slice(0, 6), [
+            searchText, '["producer.inspection.facet"]', 200, matchLimit, true, 20,
+          ]);
+          assert.ok(typeof args[6] === "object" && args[6] !== null);
+          assert.deepEqual(args.slice(7), [
+            "Producer.CustomType", "producer.order.custom",
+          ]);
+          return completionEvent;
+        },
+      };
+      await createBrowserPackageQueryDataSource(engine).run(
+        request, () => {}, () => {}, () => {}, new AbortController().signal);
+    }
+  }
+});
+
+test("Browser source leaves automatic source order and package type unresolved", async () => {
+  for (const searchText of ["", "hosting"]) {
+    const engine: BrowserPackageQueryEngine = {
+      cancel() {},
+      requestMatches() { return true; },
+      async run(...args) {
+        assert.equal(args[0], searchText);
+        assert.equal(args[4], false);
+        assert.deepEqual(args.slice(7), [null, null]);
+        return completionEvent;
+      },
+    };
+    await createBrowserPackageQueryDataSource(engine).run(
+      createQueryRequest(searchText),
+      () => {}, () => {}, () => {}, new AbortController().signal);
+  }
+});
+
+test("Gallery metadata rows preserve unknown downloads and source-authored evidence", async () => {
+  for (const totalDownloads of [null, 0, 9876]) {
+    for (const verified of [null, false, true]) {
+      const event: BrowserPackageQueryEvent = {
+        ...toolMatchEvent,
+        row: {
+          ...toolMatchEvent.row!,
+          tier: "SearchMetadata",
+          totalDownloads,
+          verified,
+          evidence: [{
+            id: "producer.source-selection",
+            text: "Source order: producer ranking; package type: Producer.Type",
+          }],
+        },
+      };
+      const rows: QueryResultRow[] = [];
+      const engine: BrowserPackageQueryEngine = {
+        cancel() {},
+        requestMatches() { return true; },
+        async run(...args) {
+          assert.ok(typeof args[6] === "object" && args[6] !== null);
+          Reflect.set(args[6], "event", JSON.stringify(event));
+          return completionEvent;
+        },
+      };
+      await createBrowserPackageQueryDataSource(engine).run(
+        createQueryRequest(""),
+        page => rows.push(...page),
+        () => {}, () => {}, new AbortController().signal);
+      assert.deepEqual(rows, [{
+        packageId: "Contoso.Tool",
+        version: "2.0.0",
+        tier: "search-metadata",
+        totalDownloads,
+        description: null,
+        producer: "nuget.org",
+        evidence: ["Source order: producer ranking; package type: Producer.Type"],
+      }]);
+    }
+  }
+});
+
+test("Gallery row descriptions are projected unchanged from the producer", async () => {
+  const description = "  Tools for <format> packages & templates.  ";
+  const rows: QueryResultRow[] = [];
+  const engine: BrowserPackageQueryEngine = {
+    cancel() {},
+    requestMatches() { return true; },
+    async run(...args) {
+      assert.ok(typeof args[6] === "object" && args[6] !== null);
+      Reflect.set(args[6], "event", JSON.stringify({
+        ...toolMatchEvent,
+        row: {
+          ...toolMatchEvent.row!,
+          tier: "SearchMetadata",
+          description,
+        },
+      } satisfies BrowserPackageQueryEvent));
+      return completionEvent;
+    },
+  };
+
+  await createBrowserPackageQueryDataSource(engine).run(
+    createQueryRequest(""),
+    page => rows.push(...page),
+    () => {}, () => {}, new AbortController().signal);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.description, description);
+});
+
+test("Gallery completions retain capacity and full acquired response independently of local matches", async () => {
+  const completion = await runCompletion({
+    ...completionEvent.completion!,
+    kind: "MatchLimitReached",
+    candidateLimit: 200,
+    matchLimit: 7,
+    candidates: 7,
+    matches: 7,
+    sourceCandidates: 200,
+    estimatedTotalHits: 42000,
+  });
+
+  assert.deepEqual(completion, {
+    kind: "bounded",
+    reason: "one finite Gallery response (capacity 200 candidates); acquired 200 candidates; local match limit 7 reached; estimated total hits: 42,000 (estimate only)",
+  });
+});
+
+test("empty and short Gallery responses stay finite even with absent or zero estimates", async () => {
+  for (const sourceCandidates of [0, 3]) {
+    for (const estimatedTotalHits of [null, 0, 400]) {
+      const completion = await runCompletion({
+        ...completionEvent.completion!,
+        kind: "GalleryResponseComplete",
+        candidateLimit: 200,
+        sourceCandidates,
+        estimatedTotalHits,
+        candidates: sourceCandidates,
+        matches: 0,
+        failures: 0,
+      });
+      assert.equal(completion.kind, "bounded");
+      assert.ok(completion.kind === "bounded");
+      assert.match(completion.reason, /one finite Gallery response/);
+      assert.match(completion.reason, /capacity 200 candidates/);
+      assert.ok(completion.reason.includes(`acquired ${sourceCandidates} candidates`));
+      assert.ok(completion.reason.includes(estimatedTotalHits === null
+        ? "estimated total hits: unavailable"
+        : `estimated total hits: ${estimatedTotalHits} (estimate only)`));
+      assert.doesNotMatch(completion.reason, /exhausted|all matches|local match limit/);
+    }
+  }
+});
+
+test("Gallery completion requires received-count evidence and known completion kind", async () => {
+  await assert.rejects(runCompletion({
+    ...completionEvent.completion!,
+    kind: "GalleryResponseComplete",
+  }), /no source candidate count/);
+  await assert.rejects(runCompletion({
+    ...completionEvent.completion!,
+    kind: 99,
+  }), /Unknown package-query completion/);
+  for (const property of ["sourceCandidates", "estimatedTotalHits"]) {
+    const incomplete = { ...completionEvent.completion! };
+    Reflect.deleteProperty(incomplete, property);
+    await assert.rejects(runCompletion(incomplete), /not a finite number/);
+  }
+});
+
+test("legacy match completion and failed package input retain distinct outcomes", async () => {
+  assert.deepEqual(await runCompletion({
+    ...completionEvent.completion!,
+    kind: "MatchLimitReached",
+  }), { kind: "bounded", reason: "first 100 matches" });
+  assert.deepEqual(await runCompletion({
+    ...completionEvent.completion!,
+    kind: "Failed",
+  }), {
+    kind: "failed",
+    reason: "The package source failed before returning usable package input.",
+  });
+});
+
+test("streamed metadata admission rejects unknown tiers, malformed metadata, and empty evidence", async () => {
+  const invalidRows = [
+    { ...toolMatchEvent.row!, tier: "UnknownTier" },
+    { ...toolMatchEvent.row!, totalDownloads: "unavailable" },
+    { ...toolMatchEvent.row!, verified: "unknown" },
+    { ...toolMatchEvent.row!, totalDownloads: undefined },
+    { ...toolMatchEvent.row!, verified: undefined },
+    { ...toolMatchEvent.row!, description: undefined },
+    { ...toolMatchEvent.row!, description: 123 },
+    { ...toolMatchEvent.row!, tier: "SearchMetadata", evidence: [] },
+    {
+      ...toolMatchEvent.row!,
+      tier: "SearchMetadata",
+      evidence: [{ id: "producer.source", text: " " }],
+    },
+  ];
+  for (const row of invalidRows) {
+    const engine: BrowserPackageQueryEngine = {
+      cancel() {},
+      requestMatches() { return true; },
+      async run(...args) {
+        assert.ok(typeof args[6] === "object" && args[6] !== null);
+        Reflect.set(args[6], "event", JSON.stringify({ ...toolMatchEvent, row }));
+        return completionEvent;
+      },
+    };
+    await assert.rejects(
+      createBrowserPackageQueryDataSource(engine).run(
+        createQueryRequest(""),
+        () => {}, () => {}, () => {}, new AbortController().signal),
+      /Unsupported package-query row tier|not a finite number|not a boolean|not text|no evidence/);
+  }
+});
 
 const toolMatchEvent: BrowserPackageQueryEvent = {
   kind: "Match",
@@ -43,6 +298,7 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
       text: "DotnetToolSettings.xml declares v2.",
     }],
     totalDownloads: 12,
+    description: null,
     verified: false,
     producer: "nuget.org",
   },
@@ -210,6 +466,7 @@ test("Browser data source streams matches and failures before terminal completio
       tier: "Nuspec",
       evidence: [{ id: "package.query.source-verified", text: "Verified source" }],
       totalDownloads: 1234,
+      description: null,
       verified: true,
       producer: "nuget.org",
     },

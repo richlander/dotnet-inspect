@@ -1,5 +1,14 @@
 # Release Notes
 
+## Unreleased
+
+- **Breaking:** Renames `match --implementation` to `match --body`, with
+  a `Method Body Diff` view. Body comparison now consumes the shared Queries
+  designated-pair path and retains native endpoint and failure outcomes.
+  `--body --json` uses a `match`/`body` envelope with typed native results
+  instead of the former `match`/`implementation` presentation envelope.
+  Plain `match --json` is unchanged (#5925).
+
 ## v0.22.0
 
 ### Inspection and matching
@@ -56,6 +65,10 @@
 
 ### Source and implementation evidence
 
+- Type Analysis-index sections now acquire bytes through the selected root or
+  forwarded supplier descriptor, including effective discovery. Rejected
+  acquisition is a visible command error rather than a path retry; ordinary
+  API output keeps Analysis acquisition lazy (#5957).
 - Type source-file and portable-PDB acquisition now open the selected supplier
   descriptor, preserving its opener as well as its symbol policy. Thrown
   source-context failures are reported as command errors instead of appearing

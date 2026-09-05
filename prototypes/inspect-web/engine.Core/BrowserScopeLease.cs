@@ -2,15 +2,19 @@ using System.Runtime.Versioning;
 
 namespace InspectWeb.Engine;
 
+/// <summary>
+/// One asynchronous pin on a registry-owned scope. Releasing the last pin of a scope whose
+/// removal was requested disposes that scope, so the release is awaited rather than dropped.
+/// </summary>
 [SupportedOSPlatform("browser")]
-internal sealed class BrowserScopeLease<TScope> : IDisposable
-    where TScope : class, IDisposable
+internal sealed class BrowserScopeLease<TScope> : IAsyncDisposable
+    where TScope : class, IAsyncDisposable
 {
-    Action? _release;
+    Func<ValueTask>? _release;
 
     internal BrowserScopeLease(
         TScope scope,
-        Action release)
+        Func<ValueTask> release)
     {
         Scope = scope;
         _release = release;
@@ -18,6 +22,8 @@ internal sealed class BrowserScopeLease<TScope> : IDisposable
 
     public TScope Scope { get; }
 
-    public void Dispose() =>
-        Interlocked.Exchange(ref _release, null)?.Invoke();
+    public ValueTask DisposeAsync() =>
+        Interlocked.Exchange(ref _release, null) is { } release
+            ? release()
+            : ValueTask.CompletedTask;
 }

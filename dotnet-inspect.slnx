@@ -65,6 +65,7 @@
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationComposed/TsJsExport.ContextFixtures.NormalizationComposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed/TsJsExport.ContextFixtures.NormalizationDecomposed.csproj" />
     <Project Path="fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj" />
+    <Project Path="fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures/ILInspector.Metadata.AttributeEnumFixtures.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew/ILInspector.Metadata.ExtensionInstanceNew.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld/ILInspector.Metadata.ExtensionInstanceOld.csproj" />
     <Project Path="fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures/ILInspector.Metadata.MemorySafetyFixtures.csproj" />
@@ -73,9 +74,12 @@
     <Project Path="fixtures/metadata/ILInspector.Metadata.StateMachineFixtures/ILInspector.Metadata.StateMachineFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.Queries.EmbeddedFixtures/DotnetInspector.Queries.EmbeddedFixtures.csproj" />
     <Project Path="fixtures/queries/DotnetInspector.RestoredProjectFixtures/DotnetInspector.RestoredProjectFixtures.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V1/DotnetInspector.SourceDiff.V1.csproj" />
+    <Project Path="fixtures/queries/DotnetInspector.SourceDiff.V2/DotnetInspector.SourceDiff.V2.csproj" />
     <Project Path="fixtures/research/ILInspector.Research.TargetFixtures/ILInspector.Research.TargetFixtures.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V1/ResearchTargetCorrespondenceFixtures.V1.csproj" />
     <Project Path="fixtures/research/ResearchTargetCorrespondenceFixtures.V2/ResearchTargetCorrespondenceFixtures.V2.csproj" />
+    <Project Path="fixtures/runfaster/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Base/DotnetInspector.Services.RouteLearning.Base.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Consumer/DotnetInspector.Services.RouteLearning.Consumer.csproj" />
     <Project Path="fixtures/services/DotnetInspector.Services.RouteLearning.Contract/DotnetInspector.Services.RouteLearning.Contract.csproj" />
@@ -140,14 +144,10 @@
     <Project Path="src/mdi/mdi.csproj" />
     <Project Path="src/NuGetFetch.Tests/NuGetFetch.Tests.csproj" />
     <Project Path="src/NuGetFetch/NuGetFetch.csproj" />
-    <Project Path="src/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="src/runfaster/runfaster.csproj" />
     <Project Path="src/SourceLinkFetch/SourceLinkFetch.csproj" />
     <Project Path="src/ts-jsexport/ts-jsexport.csproj" />
     <Project Path="src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
-  </Folder>
-  <Folder Name="/src/runfaster.Tests/Fixtures/">
-    <Project Path="src/runfaster.Tests/Fixtures/RunFaster.AllocationFixture/RunFaster.AllocationFixture.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CSharpText.Tests/CSharpText.Tests.csproj" />
@@ -164,6 +164,7 @@
     <Project Path="tests/DotnetInspector.PackageManifestCorpus/DotnetInspector.PackageManifestCorpus.csproj" />
     <Project Path="tests/DotnetInspector.RowSelection.Consumer/DotnetInspector.RowSelection.Consumer.csproj" />
     <Project Path="tests/HarnessReportDiff.Tests/HarnessReportDiff.Tests.csproj" />
+    <Project Path="tests/runfaster.Tests/runfaster.Tests.csproj" />
     <Project Path="tests/TestExtensions/TestExtensions.csproj" />
   </Folder>
   <Folder Name="/tools/">
@@ -175,6 +176,7 @@
     <Project Path="tools/IlDiffHarness/IlDiffHarness.csproj" />
     <Project Path="tools/HarnessReportDiff/HarnessReportDiff.csproj" />
     <Project Path="tools/HarnessReportProtocol/HarnessReportProtocol.csproj" />
+    <Project Path="tools/InspectWebFixtureResolver/InspectWebFixtureResolver.csproj" />
     <Project Path="tools/RoundTripCompilation/RoundTripCompilation.csproj" />
     <Project Path="tools/SectionRegistrySpike/SectionRegistrySpike.csproj" />
   </Folder>

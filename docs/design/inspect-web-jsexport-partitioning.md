@@ -2,6 +2,10 @@
 
 Status: **implemented** for issue
 [#4497](https://github.com/richlander/dotnet-inspect/issues/4497).
+The [page-facing engine client](#page-facing-engine-client) is **design-only,
+not implemented**, preparing the single-runtime Worker cutover for
+[#5987](https://github.com/richlander/dotnet-inspect/issues/5987) and its Source
+consumer [#5420](https://github.com/richlander/dotnet-inspect/issues/5420).
 
 This is the owning document for the inspect-web production facade partition:
 which existing browser-host exports belong together, how independently
@@ -115,7 +119,7 @@ source set into a fresh scratch directory:
 ts-jsexport InspectWeb.Engine.dll
   --context InspectWeb.Engine.InspectWebJsExportContext
   --assembly-search-path <browser-output>
-  --runtime-module ./_framework/dotnet.js
+  --runtime-module ./runtime-loader.js
   --output <fresh-scratch>/facades
 
 <fresh-scratch>/facades/
@@ -170,8 +174,9 @@ This partition does not:
 - change any managed operation's parameters, JSON wire shape, failure
   semantics, query behavior, or progressive-disclosure policy;
 - expose raw `ILInspector` or `DotnetInspector` objects to TypeScript;
-- introduce lazy module loading, multiple runtimes, workers, or a network
-  protocol;
+- introduce lazy module loading, multiple runtimes, or a network protocol;
+- define Worker hosting or lifecycle; the proposed client consumes the
+  [Worker runtime](inspect-web-worker-runtime.md);
 - make module names into product-layer authorities; or
 - claim that managed project boundaries and product architecture layers are
   identical.
@@ -181,7 +186,7 @@ capability they adapt, not ownership of the underlying product facts.
 
 ## Production surface inventory
 
-The seven rooted export assemblies contain 50 `[JSExport]` methods.
+The seven rooted export assemblies contain 51 `[JSExport]` methods.
 The generated `initializeRuntime()` and `runEntryPoint()` functions are
 generator-owned infrastructure and are not part of that count.
 
@@ -205,12 +210,13 @@ calls. `ConfigureHost` configures shared `InspectWeb.Engine.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 18 exports
+### Package facade: 19 exports
 
 - `ActivateWorkspacePackageOccurrence`
 - `CancelPackageQuery`
 - `ClearWorkspacePackageOccurrences`
 - `GetPackageDocument`
+- `ListGalleryDiscoveryCatalog`
 - `ListPackageQueryFacets`
 - `LoadRuntimePack`
 - `LoadRuntimePackAssembly`
@@ -361,8 +367,13 @@ the facade that publishes it.
 All generated facades use the exact same runtime module specifier:
 
 ```text
-./_framework/dotnet.js
+./runtime-loader.js
 ```
+
+The published loader resolves the SDK's fingerprinted runtime module without
+requiring a document import map. The coordinator is shared by the implemented
+page host and the separate Worker diagnostic host; sharing its source does not
+share a runtime between realms.
 
 The consumer owns one coordinator:
 
@@ -442,6 +453,178 @@ The production gate adds all seven real assemblies and their actual operations;
 the fixture canary remains because its intentionally colliding identities are a
 stronger close negative than the production names.
 
+## Page-facing engine client
+
+This proposed extension owns **consumer binding to the generated facade set
+through one asynchronous client**. The production consumer is Inspect Web,
+with Type Source as the first fully composed Worker feature in
+[#5420](https://github.com/richlander/dotnet-inspect/issues/5420). It retains the
+one-runtime and shared-core contracts above; it does not change the generated
+facade ABI or create a new logical-operation or Worker-protocol owner.
+
+### Composition contract
+
+After cutover, the application's managed runtime resides in its dedicated
+Worker. Every capability uses that runtime, including calls that have not yet
+adopted the managed-operation bridge. Moving only Source while keeping a page
+runtime for its neighbors would split the shared workspace and source budget
+and is not a supported intermediate production state.
+
+The page-facing client exposes consumer-required capabilities grouped by their
+owning facade, not arbitrary managed member lookup or a new generated monolith.
+Its bindings consume the generated parameter and result types; generated
+functions still own managed names, overload selection, serialization, and
+runtime dispatch. Bootstrap retains host configuration and entry-point
+execution. The existing canary remains a diagnostic, not a UI capability.
+
+Managed results and acknowledgments cross the client asynchronously, including
+results currently returned synchronously by generated functions. A fulfilled
+ordinary query preserves its generated result; managed rejection or Worker
+boundary failure remains visible through the caller's error path. Posting a
+command is not an acknowledgment of its effect. The client must allow controls
+to be dispatched while a query awaits them rather than queueing every call
+behind that query's completion.
+
+The consumer retains one complete readiness barrier: all facades initialize
+before managed dispatch is ready. Concurrent readiness callers share the
+attempt and its failure. A failed Worker bootstrap remains failure; it does not
+start a replacement runtime on the page. Static catalog results may be
+materialized as page data after readiness. Mutable lookups and actions remain
+asynchronous operations, not synchronous reads of an implicitly stale cache.
+
+An operation already governed by
+[operation authority](inspect-web-operation-authority.md) consumes a
+Worker producer adapter with the same authority-issued identity. It is not
+wrapped in another logical operation just to obtain a Promise-shaped facade.
+Logical cancellation and the separate terminal/quiescence handoffs retain
+their existing owner contracts. Ordinary Promise results do not acquire a new
+claim of managed quiescence merely by crossing this client.
+
+Callback-bearing calls need an explicit feature adapter, not a structured clone
+of a page callback or `JSObject`. The adapter consumes the Worker owner's
+validated event path and the feature's generated payloads. Package Query's
+durable matches and failures require
+[#5418's durable-event residual](https://github.com/richlander/dotnet-inspect/issues/5418)
+before cutover; sending them as advisory progress would change their contract.
+Its existing credit acknowledgment remains a real asynchronous result.
+
+Worker-issued epoch identity and operation-authority identity keep their
+separate meanings. A client bound to a closed epoch cannot silently send old
+actions to a replacement epoch. The initial consumer recovery policy is a
+visible page reload, not automatic in-place restoration of managed state.
+The Worker owner's restart mechanism remains available to its own callers and
+gates; adopting in-place application recovery needs a later consumer contract.
+This avoids inventing a cache rehydration or action-rebinding protocol here.
+
+UI owners decide how to await results while preserving navigation, user
+activation, focus, and current-view publication. The client does not reproduce
+managed codecs or ranking in JavaScript. Typed results still reach their
+existing rendering owners; this extension adds no rendering or format-lowering
+domain.
+
+### Call-site migration inventory
+
+This is migration evidence at `48d5436a2`, not a second export specification.
+The [production inventory](#production-surface-inventory) and generated
+declarations remain authoritative. Of its 50 managed exports, 48 are bound by
+`loadEngineModule` in
+[`dotnet-inspect.ts`](../../prototypes/inspect-web/src/dotnet-inspect.ts).
+Generated lifecycle functions are not included in these counts.
+
+Website Gallery adoption (#6019) subsequently adds the synchronous startup
+operation `listGalleryDiscoveryCatalog`. It participates in the same typed
+catalog handoff; the historical counts in this migration snapshot exclude it.
+
+| Current call class | Count | Generated operations | Consumer handoff to prepare |
+| --- | ---: | --- | --- |
+| Bootstrap/diagnostic only | 2 | `configureHost`, `asyncLoweringCanary` | Retain bootstrap/diagnostic ownership; do not expose a blanket facade proxy. |
+| Synchronous startup data | 4 | `buildIdentity`, `listVocabulary`, `listHomeDemos`, `listPackageQueryFacets` | Await acquisition; supply typed catalog data to existing readers. |
+| Synchronous computed results | 5 | `decodeWorkspaceShareState`, `encodeWorkspaceShareState`, `resolveHomeDemo`, `matchPackageDependencyCoordinate`, `searchTypes` | Await the real result in navigation/share, demo resolution, dependency matching, and Spotlight owners. |
+| Synchronous stateful operations | 3 | `activateWorkspacePackageOccurrence`, `clearWorkspacePackageOccurrences`, `packageCacheStats` | Await activation/clear completion or a current stats result; retain the UI owner's ordering and invalidation. |
+| Synchronous controls | 4 | `cancelPackageQuery`, `cancelSourceQuery`, `cancelTypeSourceQuery`, `requestPackageQueryMatches` | Preserve existing targeting and real acknowledgment; logical cancellation stays with its existing feature/operation authority. |
+| Callback stream | 1 | `runPackageQuery` | Worker-local callback adapter, durable delivery, terminal ordering, and existing match-credit behavior. |
+| Authority-governed Source | 1 | `queryTypeSource` | Direct Worker producer adapter; consume the existing keyed managed bridge and generated terminal DTO. |
+| Other Promise-returning calls | 30 | Package: 9; Metadata: 8; Analysis: 7; Source: 3; Call graph: 2; Catalog: `runHomeDemo` | Preserve generated inputs, results, and failures through typed bindings; placement alone does not complete lifecycle adoption. |
+
+The nonterminal, control, and query paths are one migration obligation, not
+optional methods to omit from an initial client. In particular,
+[`package-query-source.ts`](../../prototypes/inspect-web/src/package-query-source.ts)
+constructs a property-setter callback, and
+[`package-query.ts`](../../prototypes/inspect-web/src/package-query.ts) currently
+updates credit only after a synchronous successful grant.
+[`workspace-navigation.ts`](../../prototypes/inspect-web/src/workspace-navigation.ts)
+requires synchronous share encode/decode today. These consumers need focused
+adoption before the production switch, not type assertions that pretend their
+existing synchronous contracts already support a Worker.
+In particular, share/copy must not assume that transient user activation
+survives an awaited engine call; its navigation owner retains that interaction
+constraint.
+
+### Adoption and evidence
+
+The user-approved
+[five-milestone plan](https://github.com/richlander/dotnet-inspect/issues/5420#issuecomment-5549528380)
+is the production-host adoption and retirement path under #5418 and #5420:
+
+1. Lock this consumer contract and migration inventory.
+2. Prepare asynchronous consumer calls in focused slices, retaining the
+   existing single page runtime.
+3. Consume the separately owned durable Worker event prerequisite in #5418.
+4. Prepare typed Worker bindings and the Source producer adapter in a
+   Worker-only host, without activating them alongside the production runtime.
+5. Switch production bootstrap and all required bindings together, retire the
+   temporary page client/direct managed calls, and complete the Source demo.
+
+Steps 2 and 3 may proceed independently under their owners. Step 5 waits for
+all required paths; it includes the production demonstration rather than
+deferring correctness to a later slice. This uses the approved inspect-web-only
+Worker scope; it is not a CLI runtime migration. Feature-specific lifecycle
+adoption may continue after placement, but direct page managed dispatch does
+not.
+
+All new runtime claims are **unverified** until implementation. Extend the
+existing published facade-composition gate to exercise the actual client
+bootstrap, one SDK creation across the page/Worker composition, all required
+bindings, and visible startup failure. Its neighboring case uses package and
+metadata through the same runtime. This is behavioral evidence for that
+consumer path, not a repository-wide source absence audit.
+
+Worker protocol/lifecycle and durable ordering remain covered by their owner's
+gates; managed lifetime remains covered by #5419. Consumer adoption gates must
+exercise pending-query controls and preserve existing feature outcomes across
+the new asynchronous boundary. The #5420 browser scenario must show paint/input
+during representative managed Source work and distinguish logical cancellation
+from physical release, with a browser-native neighboring producer. Existing
+models remain evidence for their owned components, not proof of these new
+consumer bindings.
+
+### Comparative basis and mock demo
+
+[Comlink](https://github.com/GoogleChromeLabs/comlink#api) demonstrates the
+conventional asynchronous Worker-call boundary: even a synchronous remote
+function produces a Promise, and callbacks need special handling rather than
+ordinary cloning. Inspect Web deliberately uses its existing closed Worker
+catalog and explicit feature adapters instead of adopting a general proxy
+system. The [official .NET Worker evidence](inspect-web-worker-runtime.md#runtime-evidence)
+supports runtime placement, not inspect-web's publication or lifetime policy.
+
+Before, calling an asynchronous Source export still runs its managed work on
+the page's runtime. The proposed composition is:
+
+```text
+page: existing Source view and operation authority
+  -> typed Worker producer adapter, same operation identity
+  -> owning generated Source facade
+  -> one Worker runtime and shared managed workspace/source budget
+
+neighbor: package and metadata queries -> that same Worker runtime
+neighbor: browser-native fetch -> operation authority, without managed dispatch
+failure: Worker bootstrap rejects -> visible failure, not a page runtime
+```
+
+This is a design mockup, not a responsiveness result. Source rendering and
+focus remain with the existing view.
+
 ## TypeScript ownership
 
 Each checked-in TypeScript source is a byte-identical copy of one canonical
@@ -478,7 +661,9 @@ Application files import DTOs from their owning facade declaration. Runtime
 composition imports JavaScript modules only in the coordinator. A small
 authored bindings module may adapt generated names to existing application
 callback interfaces, but it does not re-export all generated functions as a
-new monolithic facade.
+new monolithic facade. The proposed page-facing client adapts invocation
+placement through the existing Worker boundary; it does not reconstruct the
+managed dispatch wrappers that generation owns.
 
 Generated sources, declarations, JavaScript outputs, compiler programs, lint
 targets, and generated-file relaxations remain exact inventories. The
@@ -637,7 +822,7 @@ The partition is implemented when all of the following hold:
 1. `ProductionFacadeContext_DeclaresExactAssemblySet` reads the compiled
    `InspectWebJsExportContext` and proves its root identities equal the seven
    expected managed assemblies.
-2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 50
+2. `ProductionFacadePartition_AssignsEveryJsExportExactlyOnce` derives 51
    current exports across the seven expected assemblies with no omission or
    duplicate.
 3. `ProductionFacadeProjects_HaveAcyclicOwnerReferences` proves the host,

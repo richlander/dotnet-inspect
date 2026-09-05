@@ -273,8 +273,8 @@ over-broad-design recovery procedure live in
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 - Put independently compiled inspected test inputs under `fixtures/<owner>/`;
-  keep test infrastructure under `tests/` and production code under `src/`.
-  Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
+  keep test executables and infrastructure under `tests/`, and production code
+  under `src/`. Follow [`docs/fixture-governance.md`](docs/fixture-governance.md).
 - Use inclusive terminology: "allow list"/"deny list", never
   "whitelist"/"blacklist" (match casing and word form, e.g. `allowList`,
   "deny-listed").

@@ -42,9 +42,9 @@ public static class MatchCommandDefinitions
         };
         var allOption = new Option<bool>("--all") { Description = "Include non-public members when resolving selectors" };
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
-        var implementationOption = new Option<bool>("--implementation")
+        var bodyOption = new Option<bool>("--body")
         {
-            Description = "Also decompile both members and render a side-by-side C#/IL implementation-diff view",
+            Description = "Show decompiled C# and IL body differences alongside the structural-match result",
         };
         var similarOption = new Option<bool>("--similar")
         {
@@ -79,7 +79,7 @@ public static class MatchCommandDefinitions
         matchCommand.Options.Add(allOption);
         matchCommand.Options.Add(opts.Json);
         matchCommand.Options.Add(compactOption);
-        matchCommand.Options.Add(implementationOption);
+        matchCommand.Options.Add(bodyOption);
         matchCommand.Options.Add(similarOption);
         matchCommand.Options.Add(assemblyWideOption);
         matchCommand.Options.Add(topOption);
@@ -174,7 +174,7 @@ public static class MatchCommandDefinitions
                 IncludeAll = parseResult.GetValue(allOption),
                 JsonOutput = opts.ResolveFormat(parseResult) == OutputFormat.Json,
                 CompactJson = parseResult.GetValue(compactOption),
-                IncludeImplementation = parseResult.GetValue(implementationOption),
+                IncludeBody = parseResult.GetValue(bodyOption),
                 Similar = similar,
                 AssemblyWide = parseResult.GetValue(assemblyWideOption),
                 Top = parseResult.GetValue(topOption),
@@ -190,7 +190,7 @@ public static class MatchCommandDefinitions
                 SourceOptions = sourceOptions,
             };
 
-            return await MatchCommand.ExecuteAsync(options);
+            return await MatchCommand.ExecuteAsync(options, ct);
         });
 
         return matchCommand;
