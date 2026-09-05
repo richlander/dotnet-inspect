@@ -81,6 +81,31 @@ public class ApiSurfaceExtractorTests
     }
 
     [Fact]
+    public void Extract_ClassifiesLanguageNeutralOpPrefixAsOperator()
+    {
+        var assemblyPath =
+            typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        ApiSurface surface =
+            ApiSurfaceExtractor.Extract(
+                peReader,
+                includeAll: true);
+        ApiType type = Assert.Single(
+            surface.Types,
+            type => type.Name
+                == nameof(SampleKeywordParameterHost));
+        ApiMember member = Assert.Single(
+            type.Members,
+            member => member.Name
+                == nameof(
+                    SampleKeywordParameterHost.op_Append));
+
+        Assert.Equal("operator", member.Kind);
+    }
+
+    [Fact]
     public void Extract_PreservesRefReadonlyReturnInMethodSignatures()
     {
         var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
@@ -1625,6 +1650,9 @@ public class SampleKeywordParameterHost
     public int Instance(int @object, string @class) => @object + @class.Length;
 
     public static int Static(int @params, int @void) => @params + @void;
+
+    public static int op_Append(int left, int right) =>
+        left + right;
 }
 
 [System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]

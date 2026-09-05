@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspector.Commands;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using DotnetInspector.Options;
@@ -15,6 +16,7 @@ using DotnetInspector.Queries.EmbeddedFixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
+using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspector.Tests;
 
@@ -1647,6 +1649,257 @@ public class SourceForwarderResolutionTests
             Assert.Equal(
                 AssemblyResolutionProvenance.Platform("aspnetcore", "2.3.4", "ApiServices"),
                 root.Provenance);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    public async Task TypeAnalysisAcquisition_UsesSelectedSupplier(
+        bool isForwarded, bool discover, bool project)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("type-analysis"),
+            isForwarded,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var handler = new RecordingNotFoundHandler();
+            using var client = new HttpClient(handler);
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+                RuntimeAssemblyPath = typeof(object).Assembly.Location,
+                Context = new CommandContext(verbose: false, client),
+            };
+            MethodBodyInspectionSession.OpenCountForTests = 0;
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        MemberFilter = [nameof(BodyShapeFixture.PublicSmallArray)],
+                        Select = [SectionNames.AllocationFacts, SectionNames.CostFacts],
+                        Discover = discover ? [SectionNames.AllocationFacts] : null,
+                        Columns = project ? ["Member"] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Contains(discover ? "Allocation Kind" : "PublicSmallArray", output);
+            Assert.Equal(1, opens);
+            Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
+            Assert.Empty(handler.RequestUris);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task TypeAnalysisAcquisition_ReportsSelectedOpenFailure(
+        bool discover, bool invalidImage)
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("failed-type-analysis"),
+            isForwarded: true,
+            () =>
+            {
+                opens++;
+                return invalidImage
+                    ? new MemoryStream([1, 2, 3], writable: false)
+                    : throw new IOException("Selected Analysis image is unavailable.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+            };
+            MethodBodyInspectionSession.OpenCountForTests = 0;
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        Select = [SectionNames.AllocationFacts],
+                        Discover = discover ? [SectionNames.AllocationFacts] : null,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains(
+                invalidImage ? "InvalidImage" : "Unreadable",
+                error);
+            Assert.Contains(fixture.AssemblyPath, error);
+            Assert.Equal(1, opens);
+            Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeAnalysisAcquisition_SkipsOrdinaryApiOutput()
+    {
+        int opens = 0;
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("ordinary-api"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                throw new IOException("Analysis was not requested.");
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            var source = CreateApiSource(fixture.AssemblyPath, SourceKind.Library) with
+            {
+                TypeName = fixture.Type.FullName,
+            };
+            MethodBodyInspectionSession.OpenCountForTests = 0;
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteResolvedAsync(
+                    new TypeOptions
+                    {
+                        TypeName = fixture.Type.FullName,
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        Verbosity = Verbosity.Minimal,
+                    },
+                    source,
+                    fixture.Loaded));
+
+            Assert.Equal(0, exit);
+            Assert.Contains(nameof(BodyShapeFixture), output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(0, opens);
+            Assert.Equal(0, MethodBodyInspectionSession.OpenCountForTests);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(SectionNames.CalledTypes, false, false, false)]
+    [InlineData(SectionNames.AllocationFacts, true, false, false)]
+    [InlineData(SectionNames.TopLeverage, false, false, true)]
+    [InlineData(SectionNames.PerformanceTriage, true, true, true)]
+    public void TypeAnalysisAcquisition_PreservesFeaturesAndScope(
+        string section, bool allocations, bool opportunities, bool wholeAssembly)
+    {
+        int opens = 0;
+        byte[] image = File.ReadAllBytes(typeof(BodyShapeFixture).Assembly.Location);
+        var fixture = CreateTypeSourceFixture(
+            AssemblyResolutionProvenance.Local("analysis-scope"),
+            isForwarded: false,
+            () =>
+            {
+                opens++;
+                return new MemoryStream(image, writable: false);
+            },
+            typeof(BodyShapeFixture));
+        try
+        {
+            Analysis.LibraryBodyIndex index = ApiAnalysisInspection.OpenTypeAnalysisIndex(
+                fixture.AssemblyPath,
+                [section],
+                fixture.Type,
+                sourceAssembly: fixture.Loaded.GetSourceAssembly(fixture.Type));
+
+            Assert.Equal(1, opens);
+            Assert.Equal(allocations, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.Allocations));
+            Assert.Equal(opportunities, index.Features.HasFlag(Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities));
+            Assert.NotEmpty(index.DirectCalls);
+            Assert.Equal(
+                wholeAssembly,
+                index.DirectCalls.Any(call =>
+                    !ApiAnalysisInspection.SameType(call.Caller.DeclaringType, fixture.Type)));
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeAnalysisAcquisition_IgnoresUnrequestedDebugData(bool deferred)
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            byte[] image = File.ReadAllBytes(typeof(EmbeddedSourceFixture).Assembly.Location);
+            using (var reader = new PEReader(new MemoryStream(image, writable: false)))
+            {
+                DebugDirectoryEntry embedded = Assert.Single(
+                    reader.ReadDebugDirectory(),
+                    entry => entry.Type == DebugDirectoryEntryType.EmbeddedPortablePdb);
+                image[embedded.DataPointer] = 0;
+            }
+            string path = Path.Combine(directory, "MalformedDebug.dll");
+            File.WriteAllBytes(path, image);
+            MethodBodyInspectionSession.OpenCountForTests = 0;
+            var (exit, output, error) = await ConsoleCapture.RunAsync(
+                () => deferred
+                    ? MemberCommand.ExecuteAsync(new MemberOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = typeof(EmbeddedSourceFixture).FullName,
+                        Select = [SectionNames.CostFacts],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                        RouterDeferredTypeOrMember = true,
+                    })
+                    : TypeCommand.ExecuteAsync(new TypeOptions
+                    {
+                        AssemblyPath = path,
+                        TypeName = typeof(EmbeddedSourceFixture).FullName,
+                        Select = [SectionNames.CostFacts],
+                        DocsExplicitlySet = true,
+                        TipLevel = TipLevel.Quiet,
+                    }));
+
+            Assert.Equal(0, exit);
+            Assert.Contains("Cost Facts", output);
+            Assert.DoesNotContain("Error:", error);
+            Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
         }
         finally
         {

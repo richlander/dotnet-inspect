@@ -715,6 +715,43 @@ public static class DiscoverOutput
         return null;
     }
 
+    internal static bool WriteUnresolvedSections(
+        SelectResult result)
+    {
+        if (result.Unresolved.Count == 0
+            || result.Sections is { Count: > 0 })
+        {
+            return false;
+        }
+
+        foreach (SelectMiss miss in result.Unresolved)
+        {
+            if (miss.IsGlob)
+            {
+                CommandError.Write(
+                    $"No sections match '{miss.Value}'.");
+            }
+            else
+            {
+                CommandError.Write(
+                    $"Section '{miss.Value}' not found.");
+            }
+
+            if (miss.Suggestions.Count == 0)
+                continue;
+
+            CommandError.WriteBlankLine();
+            CommandError.WriteLine(
+                miss.ListsAllSections
+                    ? "Available sections:"
+                    : "Did you mean:");
+            foreach (string suggestion in miss.Suggestions)
+                CommandError.WriteLine($"  {suggestion}");
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// Appends an annotation to a section's kind label, e.g. <c>"section"</c> →
     /// <c>"section (opt-in)"</c>, when <paramref name="annotations"/> has an entry for the

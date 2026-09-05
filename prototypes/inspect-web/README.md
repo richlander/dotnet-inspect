@@ -888,8 +888,21 @@ envelopes, boundary rejection, progress callback argument fidelity and closure,
 and operation readmission after release. The verifier, managed counters, and
 facade drift check reject skipped scenarios, wrong cancellation routing, stale
 facade output, or omitted callback release probes. This is Node-hosted
-Browser/Wasm evidence, not a Worker,
-real-browser, DOM-responsiveness, shared-producer, or epoch-work claim; the
+Browser/Wasm evidence.
+
+The same canary drives `RunSharedAsync` with the real
+`BrowserManagedSharedProducer`. It covers independent waiter cancellation,
+surviving-neighbor events and results, throwing-observer isolation, final-waiter
+natural completion and stop-and-drain through an asynchronous `finally`, late
+release failure, and producer cancellation that must not become waiter
+cancellation. Actual managed tasks, active entries, waiter counts, generated
+Promises, and callback sequences witness the release boundaries. Six producers
+and eight waiters must finish with no remaining entries or subscriptions.
+Additional negative controls reject a split producer, premature physical
+finalization, and an omitted final-waiter scenario.
+
+This is not a Worker, real-browser, DOM-responsiveness, prompt final-waiter
+quiescence, or epoch-work lease claim; the
 [managed operation bridge design] owns that scope and the remaining aggregate
 gate.
 
@@ -1390,6 +1403,15 @@ The `eng/CiChangeDetection` gate, invoked through
 `ci-required` includes the job's result.
 
 ## Interaction model
+
+On Workspace, **Add package** opens package search as a focused picker. Choose a
+NuGet or recent result to append its resolved coordinate while staying on
+Workspace; existing packages and the active inspection are retained. Already
+loaded packages are no-ops. Cancel leaves the scope unchanged. At the
+12-coordinate limit, Add reports the limit rather than evicting another member.
+Saved definitions change only through an explicit Save, not live additions.
+Version/framework editing and prefixes are separate from this focused
+[Add-package interaction](../../docs/design/inspect-web-workspace-add-package.md).
 
 The Workspace page offers **Save Workspace** for the current nonempty scope.
 Enter a unique name to save its canonical packet locally on this browser;
