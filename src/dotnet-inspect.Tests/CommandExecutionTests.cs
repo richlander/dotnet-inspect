@@ -11307,6 +11307,7 @@ public partial class CommandExecutionTests
         Assert.Equal(
             new[]
             {
+                "dependency-evidence",
                 "extensions",
                 "find",
                 "implements",
