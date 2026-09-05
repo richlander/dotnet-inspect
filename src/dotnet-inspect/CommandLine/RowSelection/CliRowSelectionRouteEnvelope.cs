@@ -404,23 +404,25 @@ internal static class CliRowSelectionRouteEnvelope
                 .. candidate.CommandPrefix,
                 .. arguments
             ];
-        CliRowSelectionArgumentResult result =
-            CliRowSelectionArgumentAdapter.InspectExplicit(
-                candidate.ParserRoot,
-                prefixedArguments,
-                candidate.Bindings);
         CliRowSelectionArgumentResult declarationResult =
             CliRowSelectionArgumentAdapter.InspectExplicit(
                 candidate.ParserRoot,
                 candidate.CommandPrefix.ToArray(),
                 candidate.Bindings);
+        CliRowSelectionArgumentResult result =
+            CliRowSelectionArgumentAdapter.InspectExplicit(
+                candidate.ParserRoot,
+                prefixedArguments,
+                candidate.Bindings,
+                declarationResult.ParseResult.CommandResult);
         int prefixLength =
             candidate.CommandPrefix.Count;
         CliRowSelectionOccurrence<string>[] occurrences =
             result.Occurrences
                 .Where(
                     occurrence =>
-                        occurrence.Position >= prefixLength)
+                        occurrence.Position >= prefixLength
+                        && !result.ScopeDependentArgumentPositions.Contains(occurrence.Position))
                 .Select(
                     occurrence =>
                         Translate(
@@ -429,7 +431,8 @@ internal static class CliRowSelectionRouteEnvelope
                 .ToArray();
         CliRowSelectionArgumentFailure[] argumentFailures =
             result.ArgumentFailures
-                .Where(failure => failure.Position >= prefixLength)
+                .Where(failure => failure.Position >= prefixLength
+                    && !result.ScopeDependentArgumentPositions.Contains(failure.Position))
                 .Select(failure =>
                     new CliRowSelectionArgumentFailure(
                         failure.Reason,
@@ -445,6 +448,11 @@ internal static class CliRowSelectionRouteEnvelope
                 .ToArray();
         int[] shadowedRowOptionPositions =
             result.ShadowedRowOptionPositions
+                .Where(position => position >= prefixLength)
+                .Select(position => position - prefixLength)
+                .ToArray();
+        int[] scopeDependentArgumentPositions =
+            result.ScopeDependentArgumentPositions
                 .Where(position => position >= prefixLength)
                 .Select(position => position - prefixLength)
                 .ToArray();
@@ -477,6 +485,7 @@ internal static class CliRowSelectionRouteEnvelope
             argumentFailures,
             requiredValuePositions,
             shadowedRowOptionPositions,
+            scopeDependentArgumentPositions,
             unexpectedCommandPosition,
             declaredKinds);
     }
@@ -525,6 +534,7 @@ internal static class CliRowSelectionRouteEnvelope
             && observations.Any(
                 observation =>
                     observation.ArgumentFailures.Count != 0
+                    || observation.ScopeDependentArgumentPositions.Count != 0
                     || !observation.PreservesOptionScope(
                         CliRowSelectionOccurrenceKind.Limit)
                     || observation.Occurrences.Any(occurrence =>
@@ -871,6 +881,7 @@ internal static class CliRowSelectionRouteEnvelope
             IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
             IReadOnlyList<int> requiredValuePositions,
             IReadOnlyList<int> shadowedRowOptionPositions,
+            IReadOnlyList<int> scopeDependentArgumentPositions,
             int? unexpectedCommandPosition,
             bool[] declaredKinds)
         {
@@ -881,6 +892,7 @@ internal static class CliRowSelectionRouteEnvelope
             ArgumentFailures = argumentFailures;
             RequiredValuePositions = requiredValuePositions;
             ShadowedRowOptionPositions = shadowedRowOptionPositions;
+            ScopeDependentArgumentPositions = scopeDependentArgumentPositions;
             UnexpectedCommandPosition =
                 unexpectedCommandPosition;
             DeclaredKinds = declaredKinds;
@@ -905,11 +917,15 @@ internal static class CliRowSelectionRouteEnvelope
 
         // Whole-request success still belongs to the expected command.
         public bool HasCompleteOccurrences =>
-            ExpectedCommandSelected && ArgumentFailures.Count == 0;
+            ExpectedCommandSelected
+            && ArgumentFailures.Count == 0
+            && ScopeDependentArgumentPositions.Count == 0;
 
         public IReadOnlyList<int> RequiredValuePositions { get; }
 
         public IReadOnlyList<int> ShadowedRowOptionPositions { get; }
+
+        public IReadOnlyList<int> ScopeDependentArgumentPositions { get; }
 
         public int? UnexpectedCommandPosition { get; }
 

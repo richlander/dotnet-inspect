@@ -82,6 +82,7 @@ internal sealed class CliRowSelectionArgumentResult
     private readonly ReadOnlyCollection<CliRowSelectionArgumentFailure> _argumentFailures;
     private readonly ReadOnlyCollection<int> _requiredValuePositions;
     private readonly ReadOnlyCollection<int> _shadowedRowOptionPositions;
+    private readonly ReadOnlyCollection<int> _scopeDependentArgumentPositions;
     private readonly ReadOnlyCollection<
         CliRowSelectionOccurrence<string>> _occurrences;
 
@@ -91,6 +92,7 @@ internal sealed class CliRowSelectionArgumentResult
         IReadOnlyList<ParseError> parseErrors,
         IReadOnlyList<int> requiredValuePositions,
         IReadOnlyList<int> shadowedRowOptionPositions,
+        IReadOnlyList<int> scopeDependentArgumentPositions,
         IReadOnlyList<CliRowSelectionOccurrence<string>> occurrences,
         IReadOnlyList<CliRowSelectionArgumentFailure> argumentFailures,
         CliRowSelectionLoweringResult<string>? loweringResult,
@@ -102,6 +104,7 @@ internal sealed class CliRowSelectionArgumentResult
         ArgumentNullException.ThrowIfNull(argumentFailures);
         ArgumentNullException.ThrowIfNull(requiredValuePositions);
         ArgumentNullException.ThrowIfNull(shadowedRowOptionPositions);
+        ArgumentNullException.ThrowIfNull(scopeDependentArgumentPositions);
         ArgumentNullException.ThrowIfNull(occurrences);
 
         _arguments =
@@ -114,6 +117,8 @@ internal sealed class CliRowSelectionArgumentResult
             Array.AsReadOnly(requiredValuePositions.ToArray());
         _shadowedRowOptionPositions =
             Array.AsReadOnly(shadowedRowOptionPositions.ToArray());
+        _scopeDependentArgumentPositions =
+            Array.AsReadOnly(scopeDependentArgumentPositions.ToArray());
         _occurrences =
             Array.AsReadOnly(occurrences.ToArray());
         ParseResult = parseResult;
@@ -139,6 +144,9 @@ internal sealed class CliRowSelectionArgumentResult
 
     public IReadOnlyList<int> ShadowedRowOptionPositions =>
         _shadowedRowOptionPositions;
+
+    public IReadOnlyList<int> ScopeDependentArgumentPositions =>
+        _scopeDependentArgumentPositions;
 
     public IReadOnlyList<CliRowSelectionArgumentFailure> ArgumentFailures =>
         _argumentFailures;
@@ -189,20 +197,23 @@ internal static class CliRowSelectionArgumentAdapter
     internal static CliRowSelectionArgumentResult InspectExplicit(
         Command command,
         string[] arguments,
-        CliRowSelectionOptionBindings bindings)
+        CliRowSelectionOptionBindings bindings,
+        CommandResult? expectedScope = null)
         => AnalyzeExplicit(
             command,
             arguments,
             bindings,
             CliRowSelectionCapabilities.All,
-            preserveRowEvidenceAcrossParseErrors: true);
+            preserveRowEvidenceAcrossParseErrors: true,
+            expectedScope);
 
     private static CliRowSelectionArgumentResult AnalyzeExplicit(
         Command command,
         string[] arguments,
         CliRowSelectionOptionBindings bindings,
         CliRowSelectionCapabilities capabilities,
-        bool preserveRowEvidenceAcrossParseErrors)
+        bool preserveRowEvidenceAcrossParseErrors,
+        CommandResult? expectedScope = null)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -257,9 +268,16 @@ internal static class CliRowSelectionArgumentAdapter
                     normalized,
                     bindings)
                 : [];
+        int[] scopeDependentArgumentPositions =
+            expectedScope is null
+                ? []
+                : FindScopeDependentArgumentPositions(
+                    authoritativeArguments,
+                    normalized,
+                    bindings,
+                    expectedScope);
         CliRowSelectionArgumentFailure[] argumentFailures =
             FindArgumentFailures(
-                authoritativeParse,
                 authoritativeArguments,
                 normalized,
                 bindings);
@@ -274,6 +292,7 @@ internal static class CliRowSelectionArgumentAdapter
                 parseErrors,
                 requiredValuePositions,
                 shadowedRowOptionPositions,
+                scopeDependentArgumentPositions,
                 Array.Empty<
                     CliRowSelectionOccurrence<string>>(),
                 argumentFailures,
@@ -295,6 +314,7 @@ internal static class CliRowSelectionArgumentAdapter
             parseErrors,
             requiredValuePositions,
             shadowedRowOptionPositions,
+            scopeDependentArgumentPositions,
             occurrences,
             argumentFailures,
             CliRowSelectionLowerer.Lower(
@@ -780,6 +800,51 @@ internal static class CliRowSelectionArgumentAdapter
         return null;
     }
 
+    private static int[] FindScopeDependentArgumentPositions(
+        IReadOnlyList<ParsedArgument> parsedArguments,
+        NormalizedArguments normalized,
+        CliRowSelectionOptionBindings bindings,
+        CommandResult expectedScope)
+    {
+        var positions = new List<int>();
+        BoundOption[] boundOptions = BoundOptions(bindings);
+        for (int index = 0; index + 1 < normalized.Arguments.Length; index++)
+        {
+            string token = normalized.Arguments[index];
+            if (token == "--")
+            {
+                break;
+            }
+
+            if (normalized.Positions[index] == normalized.Positions[index + 1]
+                || normalized.Arguments[index + 1] == "--")
+            {
+                continue;
+            }
+
+            foreach (BoundOption bound in boundOptions)
+            {
+                if (!bound.HasValue
+                    || !TryGetExactOptionAlias(token, bound.Option, out string? alias)
+                    || !IsOwnedOptionToken(parsedArguments[index], alias!, bound.Option))
+                {
+                    continue;
+                }
+
+                string following = normalized.Arguments[index + 1];
+                if (IsKnownOptionToken(following, parsedArguments[index + 1].Scope, bindings.Limit)
+                    != IsKnownOptionToken(following, expectedScope, bindings.Limit))
+                {
+                    positions.Add(normalized.Positions[index]);
+                }
+
+                break;
+            }
+        }
+
+        return [.. positions];
+    }
+
     private static int[] FindShadowedRowOptionPositions(
         IReadOnlyList<ParsedArgument> parsedArguments,
         NormalizedArguments normalized,
@@ -991,7 +1056,6 @@ internal static class CliRowSelectionArgumentAdapter
 
     private static CliRowSelectionArgumentFailure[]
         FindArgumentFailures(
-            ParseResult parseResult,
             IReadOnlyList<ParsedArgument> parsedArguments,
             NormalizedArguments normalized,
             CliRowSelectionOptionBindings bindings)
@@ -1016,7 +1080,6 @@ internal static class CliRowSelectionArgumentAdapter
                     && IsMissingValue(
                         token,
                         index,
-                        parseResult,
                         parsedArguments,
                         normalized.Arguments,
                         bound.Option,
@@ -1054,7 +1117,6 @@ internal static class CliRowSelectionArgumentAdapter
     private static bool IsMissingValue(
         string token,
         int index,
-        ParseResult parseResult,
         IReadOnlyList<ParsedArgument> parsedArguments,
         IReadOnlyList<string> arguments,
         Option option,
@@ -1076,16 +1138,16 @@ internal static class CliRowSelectionArgumentAdapter
             || arguments[index + 1] == "--"
             || IsKnownOptionToken(
                 arguments[index + 1],
-                parseResult,
+                parsedArguments[index + 1].Scope,
                 limit);
     }
 
     private static bool IsKnownOptionToken(
         string token,
-        ParseResult parseResult,
+        CommandResult selectedScope,
         Option limit)
     {
-        for (CommandResult? command = parseResult.CommandResult;
+        for (CommandResult? command = selectedScope;
             command is not null;
             command = command.Parent as CommandResult)
         {
@@ -1094,7 +1156,8 @@ internal static class CliRowSelectionArgumentAdapter
                         IsOptionToken(
                             token,
                             option,
-                            limit)))
+                            limit,
+                            selectedScope)))
             {
                 return true;
             }
@@ -1164,35 +1227,21 @@ internal static class CliRowSelectionArgumentAdapter
     private static bool IsOptionToken(
         string token,
         Option option,
-        Option limit)
+        Option limit,
+        CommandResult? scope = null)
     {
         foreach (string alias in Aliases(option))
         {
-            if (token.Equals(
-                    alias,
-                    StringComparison.Ordinal))
-            {
-                return true;
-            }
-
-            if (token.Length <= alias.Length
-                || !token.StartsWith(
-                    alias,
-                    StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (token[alias.Length] is '=' or ':'
-                || (ReferenceEquals(
-                        option,
-                        limit)
-                    && alias.Equals(
-                        "-n",
-                        StringComparison.Ordinal)
-                    && IsCompactShortLimitToken(
-                        token,
-                        alias)))
+            bool matches =
+                token.Equals(alias, StringComparison.Ordinal)
+                || token.Length > alias.Length
+                    && token.StartsWith(alias, StringComparison.Ordinal)
+                    && (token[alias.Length] is '=' or ':'
+                        || ReferenceEquals(option, limit)
+                            && alias.Equals("-n", StringComparison.Ordinal)
+                            && IsCompactShortLimitToken(token, alias));
+            if (matches
+                && (scope is null || ReferenceEquals(FindOptionInScope(scope, alias), option)))
             {
                 return true;
             }
