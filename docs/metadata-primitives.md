@@ -281,7 +281,8 @@ prohibition above, not a claim of a complete graph or a certified absence.
 Preserving reported failures does not independently establish the soundness of
 the remaining edges: those still depend on the decoder and resolver contracts.
 How a command presents a scan that carries rejections is a separate, CLI-owned
-concern, whose named consumer is #5632.
+concern, owned by [Uncertified scan results](design/uncertified-scan-results.md);
+today `depends` is its only adopter.
 
 **Known limit: decoding is not complete metadata validation.** A generic
 parameter outside its enclosing type's context can decode to a synthesized
@@ -386,7 +387,7 @@ exit code is unchanged; only the classification becomes exact. The generic
 message remains for extraction failures that carry no named rejection.
 
 What remains partial is therefore narrower than the base gap, and it is these
-four things rather than the explicit-name case:
+three things rather than the explicit-name case:
 
 - **The mechanism is flattened on some surfaces.** `library <winmd>` reports
   only `Could not read library`; the typed mechanism is lost to a broad catch
@@ -397,11 +398,6 @@ four things rather than the explicit-name case:
   Research, ILDiff, and the remaining Queries and CLI sites reach
   `MetadataReader` without admission, so a `.winmd` supplied directly to one of
   their APIs is still admitted. See the `MDP017` note below.
-- **A dependency scan's rejections are recorded but not presented.** The
-  scanner carries each rejection on its result, and no command renders them
-  yet, so `depends` answers a scan that excluded a candidate with a bare "not
-  found" — a certified absence the result itself does not claim. Presentation
-  is the CLI-owned concern named above, and #5632 is its named consumer.
 - **Non-PE classification depends on the entry point.**
   `MetadataImageFormatClassifier.Classify` maps an unreadable PE header to a
   malformed-root result. For non-PE input that reaches this classifier, the
