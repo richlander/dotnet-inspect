@@ -7680,9 +7680,10 @@ function executeCommand(
       : pkg.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
         || pkg.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
     if (match) {
-      state.selectedTypeId = match.id;
+      enterTypeSubject(match);
       state.selectedMemberKey = "";
       state.memberBrowseTypeId = "";
+      state.selectedOverloadIndex = null;
       resetMemberFilters();
       operation = loadSelectionData();
     }
@@ -11475,6 +11476,11 @@ async function loadPackage(
     state.libraryScope = null;
     state.accessibilityFilter = defaultAccessibilityFilter(packageModel);
     const deep = options.deepLink;
+    if (!deep) {
+      state.atPackageRoot = true;
+      state.atLibraryRoot = false;
+      state.packageLens = "overview";
+    }
     if (deep && (deep.type || deep.member)) {
       applyDeepLink(deep);
     } else {

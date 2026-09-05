@@ -884,8 +884,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
   const workspaceDependencyErrors = { [key]: "retained partial data" };
   const retainedState = {
     packages: [remaining],
-    atPackageRoot: true,
-    packageLens: "analysis" as const,
+    atPackageRoot: false,
+    atLibraryRoot: true,
+    packageLens: "dependencies" as const,
+    libraryLens: "analysis" as const,
     workspaceDependencies,
     workspaceDependencyErrors,
   };

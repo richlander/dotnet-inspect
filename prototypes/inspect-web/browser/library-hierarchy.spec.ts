@@ -107,7 +107,14 @@ async function installFacades(page: Page, model = surface) {
       }`,
     package: `
       const surface = ${JSON.stringify(model)};
-      export async function queryPackage() { return surface; }
+      export async function queryPackage(id, version, framework) {
+        return {
+          ...surface,
+          package: id,
+          version: version === "latest" ? surface.version : version,
+          activeFramework: framework || surface.activeFramework,
+        };
+      }
       export async function queryPackageVersions() { return ["1.0.0"]; }
       export function clearWorkspacePackageOccurrences() {}
       export function packageCacheStats() {
@@ -312,3 +319,64 @@ test("a single-library package retains a distinct Library level", async ({ page 
   await page.reload();
   await expect(page.locator('[data-scope="library"]')).toHaveAttribute("aria-selected", "true");
 });
+
+test("opening another package from Library enters Package and preserves history", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "Second.Package", version: "1.0.0", framework: "net10.0" }]),
+  ));
+  await installFacades(page);
+  await page.goto(root);
+  await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="Second.Package"]').click();
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-list [data-lib-scope]")).toHaveCount(3);
+  await expect(page.locator('[data-library-lens]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowLeft");
+  await expect(page.locator(".inspected-target")).toContainText("Example.Package");
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Core");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await page.getByRole("button", { name: "Application menu", exact: true }).press("Alt+ArrowRight");
+  await expect(page.locator(".inspected-target")).toContainText("Second.Package");
+  await expect(page.locator('[data-scope="package"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('.library-list [data-lib-scope="asset:other"]').click();
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+  await page.reload();
+  await expect(page.locator("#inspector-panel h1")).toHaveText("Example.Other");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+  await expect(page.locator("#type-list")).toContainText("Neighbor");
+});
+
+for (const startingSubject of ["Package", "Library", "Type", "Member"]) {
+  test(`the type command enters the target Library from ${startingSubject}`, async ({ page }) => {
+    await installFacades(page);
+    await page.goto(root);
+    if (startingSubject !== "Package") {
+      await page.locator('.library-list [data-lib-scope="asset:core"]').click();
+    }
+    if (startingSubject === "Type" || startingSubject === "Member") {
+      await page.locator('#type-list [data-type="asset:core:Example.Widget"]').click();
+    }
+    if (startingSubject === "Member") {
+      await page.locator('[data-subject-tab]:not([hidden])').first().press("End");
+    }
+    await expect(page.locator(`[data-scope="${startingSubject.toLowerCase()}"]`))
+      .toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Control+k");
+    await page.locator("#spotlight-input").fill("type Neighbor");
+    await expect(page.locator("#spotlight-results")).toContainText("type Neighbor");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("#spotlight-input")).toHaveCount(0);
+    await expect(page.locator('[data-scope="type"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".inspected-target")).toContainText("Example.Other");
+    await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
+    await expect(page.locator("#type-list [data-type]")).toHaveCount(1);
+    await expect(page.locator("#type-list")).not.toContainText("Widget");
+    await page.reload();
+    await expect(page.locator(".inspected-target")).toContainText("Example.Other");
+    await expect(page.locator(".inspected-target")).toContainText("Example.Neighbor");
+  });
+}
