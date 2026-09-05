@@ -4,6 +4,7 @@ using System.Text.Json;
 using DotnetInspector.Queries;
 using InspectWeb.Engine;
 using InspectWeb.Engine.PackageFacade;
+using NuGetFetch;
 
 namespace InspectWeb.Engine.PackageFacade
 {
@@ -34,6 +35,49 @@ namespace InspectWeb.Engine.PackageFacade
                             facet.DisplayGroupLabel)),
                 ]);
 
+        internal static BrowserGalleryDiscoveryCatalog GalleryCatalog() =>
+            new(
+                new BrowserGalleryPackageTypeFacet(
+                    NuGetGalleryDiscoveryCatalog.PackageType.Id,
+                    NuGetGalleryDiscoveryCatalog.PackageType.Label,
+                    NuGetGalleryDiscoveryCatalog.PackageType.Summary,
+                    [
+                        .. NuGetGalleryDiscoveryCatalog.PackageType.Suggestions
+                            .Select(suggestion => new BrowserGalleryPackageTypeSuggestion(
+                                suggestion.Value.Name,
+                                suggestion.Label)),
+                    ]),
+                [
+                    .. NuGetGalleryDiscoveryCatalog.Orders.Select(order =>
+                        new BrowserGalleryDiscoveryOrder(
+                            order.Id,
+                            order.Label,
+                            order.Summary)),
+                ]);
+
+        internal static PackageQueryPlanResult Plan(
+            string text,
+            string[] facetIds,
+            int maximumCandidates,
+            int maximumMatches,
+            bool includePrerelease,
+            string? packageType = null,
+            string? sourceOrderId = null) =>
+            PackageQuery.PlanGallery(
+                new NuGetGalleryDiscoveryRequest(
+                    PackageSourceDescriptor.NuGetGallery,
+                    maximumCandidates,
+                    text,
+                    packageType is null
+                        ? null
+                        : NuGetGalleryDiscoveryCatalog.PackageType.Select(packageType),
+                    sourceOrderId is null
+                        ? null
+                        : NuGetGalleryDiscoveryCatalog.GetOrder(sourceOrderId).Order,
+                    includePrerelease),
+                facetIds,
+                maximumMatches);
+
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
             string[] facetIds,
@@ -43,7 +87,9 @@ namespace InspectWeb.Engine.PackageFacade
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
+            string? packageType = null,
+            string? sourceOrderId = null)
             => await ExecuteAsync(
                 prefix,
                 facetIds,
@@ -54,7 +100,9 @@ namespace InspectWeb.Engine.PackageFacade
                 matchCredit,
                 emit,
                 cancellationToken,
-                deadline).ConfigureAwait(false);
+                deadline,
+                packageType,
+                sourceOrderId).ConfigureAwait(false);
 
         internal static async Task<BrowserPackageQueryEvent> ExecuteAsync(
             string prefix,
@@ -66,18 +114,21 @@ namespace InspectWeb.Engine.PackageFacade
             BrowserPackageQueryMatchCredit? matchCredit,
             Action<BrowserPackageQueryEvent> emit,
             CancellationToken cancellationToken,
-            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null)
+            BrowserPackageWorkspace.BrowserPackageOperationDeadline? deadline = null,
+            string? packageType = null,
+            string? sourceOrderId = null)
         {
             ArgumentNullException.ThrowIfNull(facetIds);
             ArgumentNullException.ThrowIfNull(emit);
 
-            PackageQueryPlanResult planResult = PackageQuery.Plan(
-                new PackageQueryRequest(
-                    prefix,
-                    facetIds,
-                    maximumCandidates,
-                    maximumMatches,
-                    includePrerelease));
+            PackageQueryPlanResult planResult = Plan(
+                prefix,
+                facetIds,
+                maximumCandidates,
+                maximumMatches,
+                includePrerelease,
+                packageType,
+                sourceOrderId);
             if (planResult is PackageQueryPlanResult.Rejected rejected)
                 throw new InvalidOperationException(rejected.Failure.Message);
 
@@ -190,6 +241,8 @@ namespace InspectWeb.Engine.PackageFacade
                         match.Value.Package.Version,
                         match.Value.Tier switch
                         {
+                            PackageQueryFacetTier.SearchMetadata =>
+                                BrowserPackageQueryFacetTier.SearchMetadata,
                             PackageQueryFacetTier.Nuspec =>
                                 BrowserPackageQueryFacetTier.Nuspec,
                             PackageQueryFacetTier.PackageContent =>
@@ -205,7 +258,8 @@ namespace InspectWeb.Engine.PackageFacade
                         ],
                         match.Value.Package.TotalDownloads,
                         match.Value.Package.Verified,
-                        match.Value.Package.Source.Producer.Display.ToString()),
+                        match.Value.Package.Source.Producer.Display.ToString(),
+                        match.Value.Package.Description),
                     Failure: null,
                     Completion: null),
             PackageQueryEvent.Failure failure =>
@@ -264,9 +318,13 @@ namespace InspectWeb.Engine.PackageFacade
                                 BrowserPackageQueryCompletionKind.ClientPageLimitReached,
                             PackageQueryCompletionKind.Failed =>
                                 BrowserPackageQueryCompletionKind.Failed,
+                            PackageQueryCompletionKind.GalleryResponseComplete =>
+                                BrowserPackageQueryCompletionKind.GalleryResponseComplete,
                             _ => throw new InvalidOperationException(
                                 "Unknown package-query completion kind."),
-                        })),
+                        },
+                        completed.Value.SourceCandidates,
+                        completed.Value.EstimatedTotalHits)),
                 _ => throw new InvalidOperationException(
                     "Unknown package-query event."),
             };
@@ -288,6 +346,12 @@ public static partial class PackageExports
             BrowserPackageJsonContext.Default.BrowserPackageQueryFacetCatalog);
 
     [JSExport]
+    public static string ListGalleryDiscoveryCatalog() =>
+        JsonSerializer.Serialize(
+            BrowserPackageQueryOperations.GalleryCatalog(),
+            BrowserPackageJsonContext.Default.BrowserGalleryDiscoveryCatalog);
+
+    [JSExport]
     public static void CancelPackageQuery() =>
         BrowserPackageQueryOperationCoordinator.CancelCurrent();
 
@@ -304,7 +368,9 @@ public static partial class PackageExports
         int maximumMatches,
         bool includePrerelease,
         int initialMatchCredit,
-        JSObject eventSink)
+        JSObject eventSink,
+        string? packageType,
+        string? sourceOrderId)
     {
         ArgumentNullException.ThrowIfNull(eventSink);
         string[] facetIds = JsonSerializer.Deserialize(
@@ -332,7 +398,9 @@ public static partial class PackageExports
                         "event",
                         BrowserPackageQueryOperations.Serialize(queryEvent)),
                     deadline.Token,
-                    deadline);
+                    deadline,
+                    packageType,
+                    sourceOrderId);
             },
             BrowserPackageWorkspace.PackageOperationTimeout,
             operation.CancellationToken);
@@ -350,7 +418,7 @@ namespace InspectWeb.Engine.PackageFacade
         : IPackageQueryContentProvider
     {
         public ValueTask<PackageQueryContentResult> GetContentAsync(
-            PackageProfileMatch package,
+            PackageQueryPackage package,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();

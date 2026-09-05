@@ -36,7 +36,12 @@ createServer((request, response) => {
     );
     return;
   }
-  const file = resolve(site, `.${pathname}`);
+  const file = resolve(
+    site,
+    pathname === "/query" || pathname === "/query/"
+      ? "index.html"
+      : `.${pathname}`,
+  );
   if (!file.startsWith(`${site}${sep}`)) {
     response.writeHead(404);
     response.end();
