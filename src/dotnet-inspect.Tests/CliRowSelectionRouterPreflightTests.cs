@@ -1404,6 +1404,115 @@ public sealed class CliRowSelectionRouterPreflightTests
         Assert.Equal(1, commonValue.Position);
     }
 
+    [Theory]
+    [InlineData("--rows", "--lines")]
+    [InlineData("--rows", "--tail-lines")]
+    [InlineData("--order-by", "--lines")]
+    [InlineData("--order-by", "--tail-lines")]
+    [InlineData("-n", "--lines")]
+    [InlineData("-n", "--tail-lines")]
+    public void ScopeDependentValuesCannotFixCountUnits(string valueAlias, string modifier)
+    {
+        RowDeclarations inherited =
+            RowDeclarations.All & ~RowDeclarations.Lines & ~RowDeclarations.TailLines;
+        CliRowSelectionCapabilities withoutHeadTail =
+            CliRowSelectionCapabilities.All & ~CliRowSelectionCapabilities.HeadTail;
+        foreach (CliRowSelectionCapabilities firstCapabilities in new[]
+            { withoutHeadTail, CliRowSelectionCapabilities.All })
+        {
+            CandidateFixture first =
+                new("first", capabilities: firstCapabilities, parentName: "scope",
+                    childName: "Target", childDeclarations: inherited);
+            CandidateFixture second =
+                new("second", capabilities: withoutHeadTail,
+                    childName: "Target", childDeclarations: inherited);
+            (string[] Arguments, int ChildPosition)[] cases =
+                valueAlias == "-n"
+                    ? [
+                        (["Target", "-n", modifier], 0),
+                        (["Target", "--head", "-n", modifier], 0),
+                        (["Target", "--tail", "-n", modifier], 0)
+                    ]
+                    : [
+                        (["Target", valueAlias, modifier, "-n", "2"], 0),
+                        (["Target", valueAlias, modifier, "-2"], 0),
+                        (["-2", "Target", valueAlias, modifier], 1),
+                        (["Target", "--head", valueAlias, modifier, "-n", "2"], 0),
+                        (["Target", "--tail", valueAlias, modifier, "-n", "2"], 0)
+                    ];
+            foreach (var scenario in cases)
+            {
+                CliRowSelectionRouteEnvelopeResult result =
+                    Evaluate(scenario.Arguments, first, second);
+                CliRowSelectionRouteEnvelopeResult reversed =
+                    Evaluate(scenario.Arguments, second, first);
+                Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, result.Outcome);
+                Assert.Equal(result.Outcome, reversed.Outcome);
+                Assert.Equal([scenario.ChildPosition], result.DeferredPositions);
+                Assert.Equal(result.DeferredPositions, reversed.DeferredPositions);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public void ScopeDependentUnitsPreserveIndependentFailures(string modifier)
+    {
+        RowDeclarations inherited =
+            RowDeclarations.All & ~RowDeclarations.Lines & ~RowDeclarations.TailLines;
+        CliRowSelectionCapabilities withoutHeadTail =
+            CliRowSelectionCapabilities.All & ~CliRowSelectionCapabilities.HeadTail;
+        CandidateFixture first =
+            new("first", capabilities: withoutHeadTail, parentName: "scope",
+                childName: "Target", childDeclarations: inherited, extraOptionName: "--other");
+        CandidateFixture second =
+            new("second", capabilities: withoutHeadTail,
+                childName: "Target", childDeclarations: inherited, extraOptionName: "--other");
+        CandidateFixture undeclaredFirst =
+            new("undeclared-first", declarations: inherited, capabilities: withoutHeadTail,
+                childName: "Target", childDeclarations: inherited);
+        CandidateFixture undeclaredSecond =
+            new("undeclared-second", declarations: inherited, capabilities: withoutHeadTail,
+                childName: "Target", childDeclarations: inherited);
+
+        foreach (bool reverse in new[] { false, true })
+        {
+            CandidateFixture[] candidates = reverse ? [second, first] : [first, second];
+            CliRowSelectionRouteEnvelopeResult independentValue =
+                Evaluate(["--rows", "bad", "Target", "--order-by", modifier, "-n", "2"], candidates);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.LoweringFailure, independentValue.Outcome);
+            Assert.Equal(CliRowSelectionFailureReason.InvalidWindowForm, independentValue.Failure!.Reason);
+            Assert.Equal(0, independentValue.Position);
+
+            CliRowSelectionRouteEnvelopeResult independentArity =
+                Evaluate(["Target", "--order-by", modifier, "--rows"], candidates);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.ArgumentFailure, independentArity.Outcome);
+            Assert.Equal(CliRowSelectionArgumentFailureReason.MissingValue, independentArity.ArgumentFailure!.Reason);
+            Assert.Equal(3, independentArity.Position);
+
+            CliRowSelectionRouteEnvelopeResult nonLineValue =
+                Evaluate(["Target", "--rows", "--other", "-n", "2"], candidates);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability, nonLineValue.Outcome);
+            Assert.Equal(CliRowSelectionCapabilities.HeadTail, nonLineValue.Failure!.MissingCapabilities);
+            Assert.Equal(CliRowSelectionOccurrenceKind.Limit, nonLineValue.RequestKind);
+            Assert.Equal(3, nonLineValue.Position);
+
+            CliRowSelectionRouteEnvelopeResult determinateValue =
+                Evaluate(["Target", "--order-by", modifier, "-n", "2"],
+                    reverse ? [undeclaredSecond, undeclaredFirst] : [undeclaredFirst, undeclaredSecond]);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.UnsupportedCapability, determinateValue.Outcome);
+            Assert.Equal(CliRowSelectionCapabilities.HeadTail, determinateValue.Failure!.MissingCapabilities);
+            Assert.Equal(CliRowSelectionOccurrenceKind.Limit, determinateValue.RequestKind);
+            Assert.Equal(3, determinateValue.Position);
+
+            CliRowSelectionRouteEnvelopeResult attached =
+                Evaluate(["Target", "--rows=1..2", modifier, "-n", "2"], candidates);
+            Assert.Equal(CliRowSelectionRouteEnvelopeOutcome.Deferred, attached.Outcome);
+            Assert.Equal([0], attached.DeferredPositions);
+        }
+    }
+
     [Fact]
     public void DeferredLineModifierCannotChangeEarlierCountMeaning()
     {
