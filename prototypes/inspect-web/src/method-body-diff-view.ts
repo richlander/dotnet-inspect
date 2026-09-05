@@ -226,12 +226,13 @@ function renderCSharpValue(
   escapeHtml: EscapeHtml,
   highlightCSharp: (value: string) => string,
 ): string {
+  const text = value ?? operationValue;
   return `<div class="method-body-value" data-method-body-value="${side}">
       <span class="method-body-value-label">${side === "old" ? "Before" : "After"}</span>
-      ${value === null
+      ${text === null
         ? `<span class="method-body-empty">no value</span>`
-        : `<pre class="language-csharp"><code class="language-csharp">${highlightCSharp(value)}</code></pre>`}
-      ${operationKind === null
+        : `<pre class="language-csharp"><code class="language-csharp">${highlightCSharp(text)}</code></pre>`}
+      ${operationKind === null || operationKind === "Line"
         ? ""
         : `<small class="method-body-operation">${escapeHtml(operationKind)}: ${escapeHtml(operationValue ?? "")}</small>`}
     </div>`;
@@ -262,7 +263,9 @@ function renderCSharpRow(
         <span class="method-body-row-member"
           title="${escapeHtml(row.assemblyIdentity)}">${escapeHtml(row.member)}</span>
       </p>
-      <pre class="language-csharp method-body-row-text"><code class="language-csharp">${highlightCSharp(row.text)}</code></pre>
+      ${row.oldValue === null && row.newValue === null && row.oldOperation === null && row.newOperation === null
+        ? `<pre class="language-csharp method-body-row-text"><code class="language-csharp">${highlightCSharp(row.text)}</code></pre>`
+        : ""}
       <div class="method-body-row-values">
         ${renderCSharpValue(
           "old",

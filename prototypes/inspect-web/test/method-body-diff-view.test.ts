@@ -330,6 +330,27 @@ test("C# rows keep their kind, coordinates and both operation values", () => {
   assert.doesNotMatch(html, /<b>/);
 });
 
+test("native line operations supply the paired C# text without duplicate body lines", () => {
+  const evidence = cSharpProducer.cSharp;
+  assert.ok(evidence);
+  const row = evidence.rows[0];
+  assert.ok(row);
+  const html = render(openState({
+    comparison: comparison([{
+      ...cSharpProducer,
+      cSharp: {
+        isExact: false,
+        rows: [{
+          ...row, text: "return 2;", oldValue: null, newValue: null,
+          oldOperation: null, newOperation: { kind: "Line", value: "return 2;" },
+        }],
+      },
+    }]),
+  }));
+  assert.match(html, /data-method-body-value="new"[\s\S]*<code class="language-csharp">return 2;<\/code>/);
+  assert.equal(html.split("return 2;").length - 1, 1);
+});
+
 test("hostile inventory text is escaped in the chooser and diagnostics", () => {
   const html = render(openState({
     candidateKey: methodBodySelectionKey(hostile),

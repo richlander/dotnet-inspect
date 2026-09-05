@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 
 const site = process.env.INSPECT_WEB_METHOD_BODY_URL;
 const fixturePackage = process.env.INSPECT_WEB_METHOD_BODY_FIXTURE;
@@ -85,9 +86,10 @@ test.describe("published Method Body Diff", () => {
       return { targets, different, same, noBody, cancellation };
     });
 
+    const evidencePath = testInfo.outputPath("native-comparisons.json");
+    await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
     await testInfo.attach("native-comparisons.json", {
-      body: JSON.stringify(evidence, null, 2),
-      contentType: "application/json",
+      path: evidencePath, contentType: "application/json",
     });
     expect(evidence.cancellation.kind).toBe("NotActive");
     for (const result of [evidence.different, evidence.same, evidence.noBody]) {
@@ -168,9 +170,10 @@ test.describe("published Method Body Diff", () => {
       );
       return { launch, targets, compared, noBody, accessors, getter, setter };
     });
+    const evidencePath = testInfo.outputPath("compiled-fixture-comparisons.json");
+    await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
     await testInfo.attach("compiled-fixture-comparisons.json", {
-      body: JSON.stringify(evidence, null, 2),
-      contentType: "application/json",
+      path: evidencePath, contentType: "application/json",
     });
     expect(evidence.targets.before.metadataToken).not.toBe(evidence.launch.token);
     expect(evidence.compared.kind).toBe("Succeeded");
@@ -225,6 +228,7 @@ test.describe("published Method Body Diff", () => {
       const label = await option.textContent();
       if (label === null)
         throw new Error(`No label for the product-issued ${method} selection.`);
+      await after.focus();
       await after.selectOption({ label });
       await expect(after).toBeFocused();
       await expect(dialog.locator("[data-method-body-comparison-outcome]")).toHaveCount(0);
@@ -243,8 +247,10 @@ test.describe("published Method Body Diff", () => {
     await expect(il.locator("details")).toHaveJSProperty("open", false);
     await il.locator("summary").click();
     await expect(il.locator('[data-method-body-row="il"]').first()).toBeVisible();
+    const differentScreenshot = testInfo.outputPath("different-methods.png");
+    await page.screenshot({ path: differentScreenshot, fullPage: true });
     await testInfo.attach("different-methods.png", {
-      body: await page.screenshot({ fullPage: true }), contentType: "image/png",
+      path: differentScreenshot, contentType: "image/png",
     });
 
     await choose("Trim");
@@ -264,8 +270,10 @@ test.describe("published Method Body Diff", () => {
     await expect(dialog).toBeVisible();
     expect(await page.evaluate(() =>
       document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const narrowScreenshot = testInfo.outputPath("bodyless-narrow.png");
+    await page.screenshot({ path: narrowScreenshot, fullPage: true });
     await testInfo.attach("bodyless-narrow.png", {
-      body: await page.screenshot({ fullPage: true }), contentType: "image/png",
+      path: narrowScreenshot, contentType: "image/png",
     });
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
@@ -274,5 +282,10 @@ test.describe("published Method Body Diff", () => {
     expect(await page.evaluate(() => history.length)).toBe(beforeHistory);
     await expect(page.getByRole("group", { name: "Source actions" })
       .getByRole("button", { name: "Copy", exact: true })).toBeEnabled({ timeout: 60_000 });
+    const demo = await page.evaluate(async () => {
+      const host = await import("/inspect-web-host.js");
+      return { url: location.href, build: host.buildIdentity() };
+    });
+    await writeFile(testInfo.outputPath("browser-demo.json"), JSON.stringify(demo, null, 2));
   });
 });
