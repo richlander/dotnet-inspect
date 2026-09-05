@@ -9,6 +9,7 @@
     <IsTestProject>true</IsTestProject>
     <IsAotCompatible>false</IsAotCompatible>
     <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,24 +26,24 @@
     <ProjectReference Include="../../src/ILInspector.JsExportSurface/ILInspector.JsExportSurface.csproj" />
     <ProjectReference Include="../../src/ts-jsexport/ts-jsexport.csproj" />
     <ProjectReference Include="../../src/TsJsExport.Contracts/TsJsExport.Contracts.csproj" />
-    <ProjectReference Include="../../src/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.Fixtures/ILInspector.JsExportSurface.Fixtures.csproj" />
     <ProjectReference
-      Include="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      Include="../../fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
       ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
-    <ProjectReference Include="../ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
-    <ProjectReference Include="../ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
-    <ProjectReference Include="../ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
-    <ProjectReference Include="../ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
-    <ProjectReference Include="../TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.NamingFixtures/ILInspector.JsExportSurface.NamingFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.OperatorFixtures/ILInspector.JsExportSurface.OperatorFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.PublishabilityFixtures/ILInspector.JsExportSurface.PublishabilityFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.ScalarFixtures/ILInspector.JsExportSurface.ScalarFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/ILInspector.JsExportSurface.TypeScriptFixtures/ILInspector.JsExportSurface.TypeScriptFixtures.csproj" />
+    <ProjectReference Include="../../fixtures/js-export/TsJsExport.ContextFixtures.Host/TsJsExport.ContextFixtures.Host.csproj" />
     <ProjectReference
-      Include="../TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
+      Include="../../fixtures/js-export/TsJsExport.ContextFixtures.WrongContract/TsJsExport.ContextFixtures.WrongContract.csproj"
       Aliases="WrongContractFixture" />
   </ItemGroup>
 
   <Target Name="CopyRuntimeAsyncFixture" AfterTargets="Build">
     <MSBuild
-      Projects="../../src/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
+      Projects="../../fixtures/js-export/ILInspector.JsExportSurface.RuntimeAsyncFixtures/ILInspector.JsExportSurface.RuntimeAsyncFixtures.csproj"
       Targets="GetTargetPath">
       <Output TaskParameter="TargetOutputs" ItemName="_RuntimeAsyncFixtureTargetPath" />
     </MSBuild>

@@ -89,6 +89,78 @@ internal static class ArrayKindSignatureFixture
                 new("M", MdArray(Int32, rank: 1), Void, IsGeneric: false),
             ]);
 
+    public static byte[] BuildProjectionFlowImage(string specimen)
+    {
+        var metadata = CreateMetadata();
+        byte[] signatureType = specimen switch
+        {
+            "Vector" => Sz(Int32),
+            "RankOneNonSz" => MdArray(Int32, rank: 1),
+            "RankTwo" => MdArray(Int32, rank: 2),
+            "NestedRankOneNonSz" => GenericInstance(
+                isValueType: false,
+                AddListReference(metadata),
+                MdArray(Int32, rank: 1)),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(specimen),
+                specimen,
+                "Unknown array-kind projection specimen."),
+        };
+
+        return BuildImage(
+            [
+                new("M", signatureType, signatureType, IsGeneric: false),
+            ],
+            metadata);
+    }
+
+    public static byte[] BuildShapeCorrespondenceImage()
+    {
+        var metadata = CreateMetadata();
+        AssemblyReferenceHandle systemRuntime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"),
+            new Version(8, 0, 0, 0),
+            default,
+            default,
+            default,
+            default);
+        TypeReferenceHandle valueTuple = metadata.AddTypeReference(
+            systemRuntime,
+            metadata.GetOrAddString("System"),
+            metadata.GetOrAddString("ValueTuple`2"));
+        byte[] stringType = [0x0e];
+
+        return BuildImage(
+            [
+                new("M", Sz(Int32), Void, IsGeneric: false),
+                new("M", MdArray(Int32, rank: 1), Void, IsGeneric: false),
+                new("M", MdArray(Int32, rank: 2), Void, IsGeneric: false),
+                new("M", Sz(MdArray(Int32, rank: 2)), Void, IsGeneric: false),
+                new("M", MdArray(Sz(Int32), rank: 2), Void, IsGeneric: false),
+                new("M", Sz(MethodGeneric0), Void, IsGeneric: true),
+                new("M", MdArray(MethodGeneric0, rank: 2), Void, IsGeneric: true),
+                new("M", GenericInstance(true, valueTuple, Int32, stringType), Void, IsGeneric: false),
+                new("M", GenericInstance(true, valueTuple, stringType, Int32), Void, IsGeneric: false),
+            ],
+            metadata);
+    }
+
+    static TypeReferenceHandle AddListReference(MetadataBuilder metadata)
+    {
+        AssemblyReferenceHandle systemCollections =
+            metadata.AddAssemblyReference(
+                metadata.GetOrAddString("System.Collections"),
+                new Version(8, 0, 0, 0),
+                default,
+                default,
+                default,
+                default);
+        return metadata.AddTypeReference(
+            systemCollections,
+            metadata.GetOrAddString("System.Collections.Generic"),
+            metadata.GetOrAddString("List`1"));
+    }
+
     static byte[] BuildImage(
         IReadOnlyList<MethodSpec> methods,
         MetadataBuilder? metadata = null)

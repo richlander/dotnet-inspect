@@ -4,6 +4,7 @@ import type {
   QueryResultRow,
 } from "./package-query.ts";
 import { renderBrand } from "./brand.ts";
+import { focusRenderedElement } from "./scope-bar.ts";
 
 export interface PackageQueryBindingActions {
   onBack: () => void;
@@ -20,7 +21,7 @@ export type PackageQueryFocusSnapshot =
       selectionStart: number | null;
       selectionEnd: number | null;
     }
-  | { kind: "workspace" }
+  | { kind: "product" }
   | { kind: "back" }
   | { kind: "run" }
   | { kind: "facet"; facetKey: string }
@@ -28,18 +29,13 @@ export type PackageQueryFocusSnapshot =
   | { kind: "cancel"; index: number }
   | { kind: "fallback" };
 
-interface FocusableQueryElement extends Element {
-  readonly dataset: DOMStringMap;
-  focus(): void;
-}
-
-interface SelectableQueryElement extends FocusableQueryElement {
+interface SelectableQueryElement extends HTMLElement {
   setSelectionRange(start: number, end: number): void;
 }
 
 function isFocusableQueryElement(
   element: Element | null,
-): element is FocusableQueryElement {
+): element is HTMLElement {
   return element !== null
     && "dataset" in element
     && "focus" in element
@@ -47,7 +43,7 @@ function isFocusableQueryElement(
 }
 
 function supportsSelectionRange(
-  element: FocusableQueryElement,
+  element: HTMLElement,
 ): element is SelectableQueryElement {
   return "setSelectionRange" in element
     && typeof element.setSelectionRange === "function";
@@ -72,7 +68,7 @@ export function capturePackageQueryFocus(
         : null,
     };
   }
-  if (active.id === "package-query-workspace") return { kind: "workspace" };
+  if (active.id === "package-query-product") return { kind: "product" };
   if (active.id === "package-query-back") return { kind: "back" };
   if (active.id === "package-query-run") return { kind: "run" };
   if (active.dataset.queryFacet) {
@@ -104,8 +100,8 @@ export function restorePackageQueryFocus(
     case "prefix":
       target = root.querySelector("#package-query-prefix");
       break;
-    case "workspace":
-      target = root.querySelector("#package-query-workspace");
+    case "product":
+      target = root.querySelector("#package-query-product");
       break;
     case "back":
       target = root.querySelector("#package-query-back");
@@ -135,12 +131,12 @@ export function restorePackageQueryFocus(
       break;
   }
   let usedFallback = false;
-  if (!isFocusableQueryElement(target)) {
+  if (!isFocusableQueryElement(target) || !focusRenderedElement(target)) {
     target = root.querySelector("#package-query-prefix");
     usedFallback = true;
   }
   if (!isFocusableQueryElement(target)) return "none";
-  target.focus();
+  if (usedFallback && !focusRenderedElement(target)) return "none";
   if (snapshot.kind === "prefix"
     && supportsSelectionRange(target)
     && snapshot.selectionStart !== null
@@ -169,7 +165,6 @@ export function bindPackageQueryView(
 ) {
   const prefixInput = () =>
     root.querySelector<HTMLInputElement>("#package-query-prefix");
-
   root.querySelector("#package-query-back")
     ?.addEventListener("click", actions.onBack);
   root.querySelector<HTMLFormElement>("#package-query-form")
@@ -380,7 +375,6 @@ export interface RenderPackageQueryOptions {
   prefix?: string;
   availableFacets: readonly QueryFacetTerm[];
   navigationError?: string;
-  workspaceHref?: string;
   escapeHtml: (value: unknown) => string;
 }
 
@@ -392,7 +386,6 @@ export function renderPackageQueryView(
     prefix = state.request?.scopeQuery ?? "",
     availableFacets,
     navigationError = "",
-    workspaceHref = "/",
     escapeHtml,
   } = options;
   const activeKeys = new Set(state.request?.facets.map(facet => facet.key) ?? []);
@@ -418,12 +411,10 @@ export function renderPackageQueryView(
   return `
     <div class="query-page">
       <header class="query-page-bar">
-        ${renderBrand({
-          id: "package-query-workspace",
-          href: workspaceHref,
-          ariaLabel: `dotnet inspect ${workspaceHref === "/" ? "home" : "workspace"}`,
-        })}
-        <button id="package-query-back" type="button">Back</button>
+        ${renderBrand({ id: "package-query-product" })}
+        <div class="query-page-navigation">
+          <button id="package-query-back" type="button">Back</button>
+        </div>
       </header>
       <main class="query-main">
         <div class="query-heading">

@@ -2,15 +2,9 @@ import {
   parsePackageQuery,
   type ParsedPackageQuery,
 } from "./package-controls.ts";
-import {
-  isProductHomeDemoId,
-  type ProductHomeDemoId,
-} from "./product-home-demos.ts";
 import { renderBrand } from "./brand.ts";
 import type { KeybindingDescription } from "./keybinding-registry.ts";
 
-/** Product home-demo ids (`ProductInspectionDemos` / CLI `demo <id>`). */
-export type HomeDemo = ProductHomeDemoId;
 export type ApplicationAction = "share" | "settings" | "keyboard-help";
 
 export interface WorkbenchShellBindingActions {
@@ -29,8 +23,8 @@ export interface WorkbenchShellBinding {
 }
 
 export interface HomeShellBindingActions {
-  onDemo: (demo: HomeDemo) => void;
   onDismissNotice: () => void;
+  onOpenDemos: () => void;
   onOpenCredits: () => void;
   onToggleTheme: () => void;
 }
@@ -41,7 +35,10 @@ export interface LoadErrorShellBindingActions {
 }
 
 export interface WorkbenchShellHtmlOptions {
+  applicationScopeHtml: string;
+  contextualActionsHtml?: string;
   inspectedTargetHtml: string;
+  subjectInspectorHtml: string;
   titleNavigationHtml: string;
 }
 
@@ -51,9 +48,49 @@ export function workbenchShellHtml(
   return `
       <header class="titlebar">
         ${renderBrand()}
-        ${options.inspectedTargetHtml}
+        <div class="application-scope-region">
+          ${options.applicationScopeHtml}
+        </div>
+        <div class="subject-inspector-region">
+          ${options.subjectInspectorHtml}
+        </div>
         ${options.titleNavigationHtml}
-      </header>`;
+        ${renderApplicationMenuButton()}
+      </header>
+      <div class="targetbar">
+        ${options.inspectedTargetHtml}
+        ${options.contextualActionsHtml ?? ""}
+      </div>`;
+}
+
+export function renderTitleNavigation(
+  canNavigateBack: boolean,
+  canNavigateForward: boolean,
+): string {
+  return `<nav class="title-navigation" aria-label="Search and history">
+    <div class="nav-history">
+      <button id="nav-back" type="button"
+        ${canNavigateBack ? "" : "disabled"}
+        title="Back (Alt+← or Shift+←)" aria-label="Back">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M10.25 3.5 5.75 8l4.5 4.5"></path>
+        </svg>
+      </button>
+      <button id="nav-forward" type="button"
+        ${canNavigateForward ? "" : "disabled"}
+        title="Forward (Alt+→ or Shift+→)" aria-label="Forward">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="m5.75 3.5 4.5 4.5-4.5 4.5"></path>
+        </svg>
+      </button>
+    </div>
+    <button id="open-search" class="title-search" type="button"
+      aria-haspopup="dialog" title="Search (Ctrl/Command+P)">
+      <span class="title-search-glyph" aria-hidden="true">⌕</span>
+      <span class="title-search-label title-search-label-full">Search types, members, packages</span>
+      <span class="title-search-label title-search-label-compact">Search</span>
+    </button>
+  </nav>`;
 }
 
 export function renderApplicationMenuButton(): string {
@@ -265,7 +302,7 @@ export function focusApplicationMenuButton(document: Document): boolean {
 
 export function trapModalTab(modal: HTMLElement, event: KeyboardEvent): void {
   const focusable = [...modal.querySelectorAll<HTMLElement>(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), '
+    'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), '
       + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
   )].filter(element => !element.hidden && element.getClientRects().length > 0);
   const first = focusable[0];
@@ -461,13 +498,8 @@ export function bindHomeShell(
       event.preventDefault();
       actions.onOpenCredits();
     });
-  root.querySelectorAll<HTMLElement>("[data-home-demo]").forEach(button =>
-    button.addEventListener("click", () => {
-      const demo = button.dataset.homeDemo;
-      if (isProductHomeDemoId(demo)) {
-        actions.onDemo(demo);
-      }
-    }));
+  root.querySelector("#home-demos")
+    ?.addEventListener("click", actions.onOpenDemos);
 }
 
 export function bindLoadErrorShell(

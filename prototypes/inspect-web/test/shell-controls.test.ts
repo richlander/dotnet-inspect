@@ -9,22 +9,11 @@ import {
   renderApplicationMenu,
   renderApplicationMenuButton,
   renderKeyboardHelpDialog,
+  renderTitleNavigation,
   restoreApplicationMenuFocusIfOwned,
   workbenchShellHtml,
 } from "../src/shell-controls.ts";
-import { setProductHomeDemoCatalog } from "../src/product-home-demos.ts";
 import { fakeDom } from "./fake-dom.ts";
-
-setProductHomeDemoCatalog([
-  { id: "stj-serializer", title: "System.Text.Json", summary: "Browse a real package API" },
-  { id: "extensions-callgraph", title: "Cross-package call graph", summary: "Trace calls across three packages" },
-  { id: "stj-serialize-callgraph", title: "Serialize call graph", summary: "Dense package-local STJ graph" },
-  { id: "config-bind-callgraph", title: "Configuration Bind", summary: "Recursive binder call graph" },
-  { id: "options-add-callgraph", title: "Options hub", summary: "Inbound fan-in at AddOptions" },
-  { id: "di-tryadd-callgraph", title: "DI TryAdd hub", summary: "Keyed/scoped Try* fan-in" },
-  { id: "http-addhttpclient-callgraph", title: "AddHttpClient", summary: "HttpClient factory registration" },
-  { id: "stj-getdecimal-callgraph", title: "JsonElement.GetDecimal", summary: "STJ number parse path" },
-]);
 
 class FakeElement {
   readonly dataset: Record<string, string | undefined>;
@@ -388,22 +377,28 @@ test("keyboard help is rendered from registered keybinding descriptions", () => 
   assert.match(html, /\+ \/ - \/ 0/);
 });
 
-test("workbench shell renders the inspected target after the product root", () => {
+test("workbench shell separates navigation and inspected target rows", () => {
   const html = workbenchShellHtml({
+    applicationScopeHtml:
+      '<nav class="application-scope-strip">Query Workspace</nav>',
+    contextualActionsHtml: '<div class="working-surface-actions">Copy</div>',
     inspectedTargetHtml: '<div class="inspected-target" data-test="target">System.Text.Json</div>',
-    titleNavigationHtml: '<nav class="title-navigation"><button id="open-search">Search</button></nav>',
+    subjectInspectorHtml: '<div class="lensbar">Subjects</div>',
+    titleNavigationHtml: renderTitleNavigation(true, false),
   });
 
   assert.match(
     html,
-    /class="titlebar"[\s\S]*class="brand"[\s\S]*data-test="target"[\s\S]*class="title-navigation"/);
-  assert.doesNotMatch(html, /class="lensbar"/);
+    /class="titlebar"[\s\S]*class="brand"[\s\S]*class="application-scope-region"[\s\S]*class="lensbar"[\s\S]*class="title-navigation"[\s\S]*class="application-menu-slot"[\s\S]*class="targetbar"[\s\S]*data-test="target"[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(html, /workspace-window|workspace-strip/);
   assert.doesNotMatch(
     html,
     /workspace-title|coordinate-selectors|package-version|framework-select/);
   assert.match(html, /class="brand-icon"[\s\S]*dotnet-inspect-bot\.png/);
   assert.match(html, /id="open-search"/);
+  assert.match(html, /id="nav-back"[\s\S]*<svg[\s\S]*id="nav-forward"/);
+  assert.match(html, /id="nav-forward"[\s\S]*disabled/);
+  assert.match(html, /id="application-menu-button"/);
   assert.doesNotMatch(html, /id="go-home"|>Home<\/button>/);
   assert.doesNotMatch(html, /id="open-settings"/);
   assert.doesNotMatch(html, /id="share"/);
@@ -429,32 +424,21 @@ test("workbench search focus stays with the shell selector owner", () => {
     false);
 });
 
-test("home shell accepts only known demos", () => {
+test("home shell opens the product demo catalog", () => {
   const root = new FakeRoot();
   const theme = root.element();
   const dismiss = root.element();
   const credits = root.element();
-  const stj = root.element({ homeDemo: "stj-serializer" });
-  const callgraph = root.element({ homeDemo: "extensions-callgraph" });
-  const serializeGraph = root.element({ homeDemo: "stj-serialize-callgraph" });
-  const unknown = root.element({ homeDemo: "other" });
-  const absent = root.element();
+  const demos = root.element();
   root.add("#home-theme", theme);
   root.add("#dismiss-notice", dismiss);
   root.add("#home-credits", credits);
-  root.addAll(
-    "[data-home-demo]",
-    stj,
-    callgraph,
-    serializeGraph,
-    unknown,
-    absent,
-  );
+  root.add("#home-demos", demos);
   const calls: string[] = [];
 
   bindHomeShell(fakeDom.parentNode(root), {
-    onDemo: demo => calls.push(`demo:${demo}`),
     onDismissNotice: () => calls.push("dismiss"),
+    onOpenDemos: () => calls.push("demos"),
     onOpenCredits: () => calls.push("credits"),
     onToggleTheme: () => calls.push("theme"),
   });
@@ -466,18 +450,12 @@ test("home shell accepts only known demos", () => {
   assert.equal(credits.dispatch("click", { button: 1 }), false);
   assert.deepEqual(calls, ["theme", "dismiss"]);
   assert.equal(credits.dispatch("click"), true);
-  stj.dispatch("click");
-  callgraph.dispatch("click");
-  serializeGraph.dispatch("click");
-  unknown.dispatch("click");
-  absent.dispatch("click");
+  demos.dispatch("click");
   assert.deepEqual(calls, [
     "theme",
     "dismiss",
     "credits",
-    "demo:stj-serializer",
-    "demo:extensions-callgraph",
-    "demo:stj-serialize-callgraph",
+    "demos",
   ]);
 });
 
@@ -535,8 +513,8 @@ test("shell bindings tolerate inactive surfaces", () => {
     onSearch() {},
   }));
   assert.doesNotThrow(() => bindHomeShell(root, {
-    onDemo() {},
     onDismissNotice() {},
+    onOpenDemos() {},
     onOpenCredits() {},
     onToggleTheme() {},
   }));

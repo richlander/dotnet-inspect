@@ -30,11 +30,11 @@ set -e -o pipefail
 # same-named one); eng/tla-module-overrides.txt overrides that for directories
 # where a .cfg must instead run against a model-checking harness module.
 #
-# CI passes --changed-files0 and a NUL-delimited base-to-head path stream so a
-# PR checks changed model directories plus direct and transitive consumers of
-# changed modules. SANY supplies the dependency closure; source text is not
-# approximated as a module parser. --all is deliberately explicit: a
-# repository-wide sweep belongs to a deliberate local investigation, not the
+# CI passes --changed-files0 and the planner's NUL-delimited scoped path
+# evidence so a PR checks changed model directories plus direct and transitive
+# consumers of changed modules. SANY supplies the dependency closure; source
+# text is not approximated as a module parser. --all is deliberately explicit:
+# a repository-wide sweep belongs to a deliberate local investigation, not the
 # per-PR gate.
 
 # Per-invocation wall-clock bound. Some committed models are large exhaustive
@@ -598,9 +598,8 @@ fi
 # That matches every model directory's actual layout today, but a file placed
 # directly in the root itself (mindepth 1, no model subdirectory) or nested
 # any deeper (mindepth 3+) would be silently invisible to that loop, while
-# still matching eng/ci-detect-changes.sh's classification (its `case`
-# patterns span `/`, so they are deliberately broader than this script's
-# layout assumption). Fail loudly rather than silently skip such a file.
+# still matching the planner's deliberately broader TLA+ routing patterns.
+# Fail loudly rather than silently skip such a file.
 if [ "$SCOPE_MODE" = all ]; then
   for root in "${MODEL_ROOTS[@]}"; do
     [ -d "$root" ] || continue

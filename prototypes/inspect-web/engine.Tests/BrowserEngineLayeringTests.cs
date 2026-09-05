@@ -1,4 +1,8 @@
+using System.Diagnostics;
 using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using System.Xml.Linq;
 using ILInspector.Metadata;
 using Microsoft.CodeAnalysis;
@@ -388,6 +392,7 @@ public sealed class BrowserEngineLayeringTests
             "DotnetInspector.Queries.AssemblyContextGroup",
             "DotnetInspector.Queries.AssemblyContextParticipant",
             "DotnetInspector.Queries.AssemblyContextTypeResolutionResult+Rejected",
+            "DotnetInspector.Queries.ImplementationComparisonBinding",
             "DotnetInspector.Queries.InspectionGraphSubject",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure",
             "DotnetInspector.Queries.MemberCallGraphAcquisitionFailure+InvalidImage",
@@ -595,14 +600,141 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void EngineCoreProject_PinsBrowserLayeringGate()
+    public void EcosystemCatalogIsFacadeOnly()
     {
+        // The compiled-reference gate is sound only when catalog IDs cannot be inlined.
+        Assert.DoesNotContain(
+            typeof(DotnetInspector.Ecosystems.ProductDemoIds)
+                .GetFields(BindingFlags.Public | BindingFlags.Static),
+            field => field.IsLiteral);
+
+        string inspectWebRoot = Path.Combine(
+            RepositoryRoot(),
+            "prototypes",
+            "inspect-web");
+        string ecosystemsProject = Path.Combine(
+            RepositoryRoot(),
+            "src",
+            "DotnetInspector.Ecosystems",
+            "DotnetInspector.Ecosystems.csproj");
+        string[] productionProjects =
+        [
+            .. Directory.EnumerateFiles(
+                    inspectWebRoot,
+                    "*.csproj",
+                    SearchOption.AllDirectories)
+                .Where(project =>
+                    !project.Contains(
+                        $"{Path.DirectorySeparatorChar}engine.Tests"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !project.Contains(
+                        $"{Path.DirectorySeparatorChar}msdl-proxy.Tests"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase)
+                    && !project.Contains(
+                        $"{Path.DirectorySeparatorChar}multi-facade-canary"
+                        + $"{Path.DirectorySeparatorChar}",
+                        StringComparison.OrdinalIgnoreCase))
+                .Order(StringComparer.Ordinal),
+        ];
         Assert.Contains(
-            ProjectItems(CoreProjectPath, "AdditionalFiles"),
-            path => path.Equals(
-                BanListPath,
-                StringComparison.OrdinalIgnoreCase));
+            EngineProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(
+            CoreProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Contains(
+            CatalogProjectPath,
+            productionProjects,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (string project in productionProjects)
+        {
+            IReadOnlyList<string> projectReferences =
+                EvaluatedProjectItems(project, "ProjectReference")
+                    .Select(item => item.GetProperty("FullPath").GetString())
+                    .OfType<string>()
+                    .ToArray();
+            if (project.Equals(
+                CatalogProjectPath,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                Assert.Contains(
+                    projectReferences,
+                    reference => string.Equals(
+                        reference,
+                        ecosystemsProject,
+                        StringComparison.OrdinalIgnoreCase));
+                Assert.Contains(
+                    CompiledAssemblyReferences(project),
+                    reference => string.Equals(
+                        reference,
+                        "DotnetInspector.Ecosystems",
+                        StringComparison.Ordinal));
+                continue;
+            }
+
+            Assert.DoesNotContain(
+                projectReferences,
+                reference => string.Equals(
+                    reference,
+                    ecosystemsProject,
+                    StringComparison.OrdinalIgnoreCase));
+            if (ProjectCanReach(project, CatalogProjectPath))
+            {
+                Assert.DoesNotContain(
+                    CompiledAssemblyReferences(project),
+                    reference => string.Equals(
+                        reference,
+                        "DotnetInspector.Ecosystems",
+                        StringComparison.Ordinal));
+            }
+        }
     }
+
+    [Fact]
+    public void EveryBrowserProjectPinsTheLayeringGate()
+    {
+        // The ban list is what makes the compiler enforce "inspect only through a public product
+        // query". Every browser-owned project that can reach product APIs must pin it, or a
+        // capability could quietly open a session in its own assembly.
+        string[] projects =
+        [
+            CoreProjectPath,
+            .. CapabilityProjectPaths,
+        ];
+
+        Assert.NotEmpty(projects);
+        Assert.All(
+            projects,
+            project => Assert.Contains(
+                ProjectItems(project, "AdditionalFiles"),
+                path => path.Equals(
+                    BanListPath,
+                    StringComparison.OrdinalIgnoreCase)));
+    }
+
+    static IReadOnlyList<string> CapabilityProjectPaths =>
+    [
+        .. new[]
+        {
+            ("engine.PackageExports", "InspectWeb.Engine.PackageExports.csproj"),
+            ("engine.MetadataExports", "InspectWeb.Engine.MetadataExports.csproj"),
+            ("engine.AnalysisExports", "InspectWeb.Engine.AnalysisExports.csproj"),
+            ("engine.SourceExports", "InspectWeb.Engine.SourceExports.csproj"),
+            ("engine.CallGraphExports", "InspectWeb.Engine.CallGraphExports.csproj"),
+            ("engine.CatalogExports", "InspectWeb.Engine.CatalogExports.csproj"),
+        }
+            .Select(project => Path.Combine(
+                RepositoryRoot(),
+                "prototypes",
+                "inspect-web",
+                project.Item1,
+                project.Item2)),
+    ];
 
     [Fact]
     public void EngineCoreAssembly_HasNoFacadeContracts()
@@ -745,6 +877,13 @@ public sealed class BrowserEngineLayeringTests
         "engine.Core",
         "InspectWeb.Engine.Core.csproj");
 
+    static string CatalogProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "prototypes",
+        "inspect-web",
+        "engine.CatalogExports",
+        "InspectWeb.Engine.CatalogExports.csproj");
+
     static string BanListPath => Path.Combine(
         Path.GetDirectoryName(EngineProjectPath)!,
         "BannedSymbols.txt");
@@ -764,6 +903,9 @@ public sealed class BrowserEngineLayeringTests
                 pending.Push(reference);
         }
 
+        // Owner-issued product assemblies only. The browser's own host, core, and capability
+        // export assemblies are L3 consumer adapters, so they are guarded by the facade
+        // partition tests rather than by the product-ownership guards below.
         return
         [
             .. projects
@@ -772,6 +914,7 @@ public sealed class BrowserEngineLayeringTests
                         EngineProjectPath,
                         StringComparison.OrdinalIgnoreCase))
                 .Select(ProjectAssemblyName)
+                .Where(name => !name.StartsWith("InspectWeb.", StringComparison.Ordinal))
                 .Distinct(StringComparer.Ordinal)
                 .Select(name => Assembly.Load(new AssemblyName(name)))
                 .OrderBy(assembly => assembly.GetName().Name, StringComparer.Ordinal),
@@ -780,6 +923,90 @@ public sealed class BrowserEngineLayeringTests
 
     static IReadOnlyList<string> ProjectReferences(string project) =>
         ProjectItems(project, "ProjectReference");
+
+    static bool ProjectCanReach(string project, string target)
+    {
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>();
+        pending.Push(project);
+        while (pending.TryPop(out string? current))
+        {
+            if (!visited.Add(current))
+                continue;
+            foreach (string reference in ProjectReferences(current))
+            {
+                if (reference.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    return true;
+                pending.Push(reference);
+            }
+        }
+
+        return false;
+    }
+
+    static IReadOnlyList<string> CompiledAssemblyReferences(string project)
+    {
+        string assemblyName = ProjectAssemblyName(project);
+        string assemblyPath = Path.Combine(
+            AppContext.BaseDirectory,
+            $"{assemblyName}.dll");
+        Assert.True(
+            File.Exists(assemblyPath),
+            $"Release assembly '{assemblyPath}' is required for the browser layering gate.");
+
+        using FileStream stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        MetadataReader reader = peReader.GetMetadataReader();
+        return
+        [
+            .. reader.AssemblyReferences.Select(handle =>
+                reader.GetString(reader.GetAssemblyReference(handle).Name)),
+        ];
+    }
+
+    static IReadOnlyList<JsonElement> EvaluatedProjectItems(
+        string project,
+        string itemName)
+    {
+        string dotnetHost =
+            Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")
+            ?? "dotnet";
+        var startInfo = new ProcessStartInfo(dotnetHost)
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("msbuild");
+        startInfo.ArgumentList.Add(project);
+        startInfo.ArgumentList.Add("-nologo");
+        startInfo.ArgumentList.Add($"-getItem:{itemName}");
+        startInfo.ArgumentList.Add("-property:Configuration=Release");
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                $"Could not start '{dotnetHost}' to evaluate '{project}'.");
+        Task<string> output = process.StandardOutput.ReadToEndAsync();
+        Task<string> error = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        string standardOutput = output.GetAwaiter().GetResult();
+        string standardError = error.GetAwaiter().GetResult();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"MSBuild could not evaluate '{project}': {standardError}");
+        }
+
+        using JsonDocument document = JsonDocument.Parse(standardOutput);
+        if (!document.RootElement
+            .GetProperty("Items")
+            .TryGetProperty(itemName, out JsonElement items))
+        {
+            return [];
+        }
+
+        return [.. items.EnumerateArray().Select(item => item.Clone())];
+    }
 
     static IReadOnlyList<string> ProjectItems(
         string project,

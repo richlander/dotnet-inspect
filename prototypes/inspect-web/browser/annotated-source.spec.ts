@@ -65,6 +65,48 @@ test("annotation rows preserve the anchored source indentation", async ({ page }
   expect(Math.abs(invocationBox.x - annotationBox.x)).toBeLessThan(1);
 });
 
+test("finding chips open detail without jumping the source", async ({ page }) => {
+  await page.addStyleTag({
+    content: ".annotated-reader { height: 150px !important; }",
+  });
+  const source = page.locator(
+    '.annotated-source-code[data-annotated-surface="embedded"]',
+  );
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-embedded-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
+test("modal finding chips preserve the source pane position", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: `
+      .annotated-modal-source .annotated-source-code {
+        min-height: 900px !important;
+        overflow: visible !important;
+      }
+    `,
+  });
+  const source = page.locator(".annotated-modal-source");
+  const before = await source.evaluate(element => {
+    element.scrollTop = 18;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  await page.locator("#annotated-chip-modal-0-1-CSharp").click();
+
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  await expect(source).toHaveJSProperty("scrollTop", before);
+});
+
 test("pointer hit testing prefers the product-issued invocation node", async ({ page }) => {
   await page.locator("#explore-annotated").click();
   const invocation = page.locator(
@@ -74,6 +116,35 @@ test("pointer hit testing prefers the product-issued invocation node", async ({ 
 
   await expect(page.locator("#annotated-node-1")).toBeFocused();
   await expect(page.locator("#annotated-node-4")).toHaveCount(0);
+});
+
+test("source selection reveals the focused inspector node", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: ".annotated-modal-inspector { height: 120px !important; }",
+  });
+  const inspector = page.locator(".annotated-modal-inspector");
+  const before = await inspector.evaluate(element => {
+    element.scrollTop = element.scrollHeight;
+    return element.scrollTop;
+  });
+  expect(before).toBeGreaterThan(0);
+
+  const invocation = page.locator(
+    '#annotated-source-modal .annotated-source-segment.invocation:has-text("object")',
+  ).first();
+  await invocation.click({ position: { x: 8, y: 8 } });
+
+  const focused = page.locator("#annotated-node-1");
+  await expect(focused).toBeFocused();
+  const visible = await inspector.evaluate((element, selector) => {
+    const target = document.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return false;
+    const viewport = element.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+  }, "#annotated-node-1");
+  expect(visible).toBe(true);
 });
 
 test("keyboard source activation selects the same invocation node", async ({ page }) => {
@@ -151,6 +222,39 @@ test("Escape closes detail before dismissing and restores exact focus", async ({
   await page.keyboard.press("Escape");
   await expect(page.locator("#annotated-source-modal")).toHaveCount(0);
   await expect(page.locator("#explore-annotated")).toBeFocused();
+});
+
+test("closing detail reveals its exact annotation opener", async ({ page }) => {
+  await page.locator("#explore-annotated").click();
+  await page.addStyleTag({
+    content: `
+      .annotated-modal-source .annotated-source-code {
+        min-height: 900px !important;
+        overflow: visible !important;
+      }
+    `,
+  });
+  const source = page.locator(".annotated-modal-source");
+  const chip = page.locator("#annotated-chip-modal-0-1-CSharp");
+  await chip.click();
+  await expect(page.locator("#annotated-detail-title")).toBeFocused();
+  const scrolled = await source.evaluate(element => {
+    element.scrollTop = 400;
+    return element.scrollTop;
+  });
+  expect(scrolled).toBeGreaterThan(0);
+
+  await page.keyboard.press("Escape");
+
+  await expect(chip).toBeFocused();
+  const visible = await source.evaluate((element, selector) => {
+    const target = document.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return false;
+    const viewport = element.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
+    return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+  }, "#annotated-chip-modal-0-1-CSharp");
+  expect(visible).toBe(true);
 });
 
 test("pointer Close dismisses detail and modal together", async ({ page }) => {

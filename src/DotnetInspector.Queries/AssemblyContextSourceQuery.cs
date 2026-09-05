@@ -249,6 +249,67 @@ public abstract record AssemblyMemberSourceEntry(
         : AssemblyMemberSourceEntry(Subject, Request);
 }
 
+public abstract record AssemblyMemberPdbSourceAttempt
+{
+    public sealed record Available(
+        PdbMemberSourceInspection Inspection,
+        AssemblyPdbSourceProvenance Provenance)
+        : AssemblyMemberPdbSourceAttempt;
+
+    public sealed record Unavailable(
+        PdbMemberSourceInspection Inspection)
+        : AssemblyMemberPdbSourceAttempt;
+}
+
+public abstract record AssemblyMemberDecompiledSourceAttempt
+{
+    public sealed record Available(
+        MemberRenderResult Result)
+        : AssemblyMemberDecompiledSourceAttempt;
+
+    public sealed record Unavailable(
+        MemberBodyProductionStatus Status,
+        string? FailureDetail)
+        : AssemblyMemberDecompiledSourceAttempt;
+}
+
+public abstract record AssemblyMemberSourceComparisonEntry(
+    AssemblyContextSubject Subject,
+    AssemblyMemberSourceRequest Request)
+{
+    public sealed record Available(
+        AssemblyContextSubject Subject,
+        AssemblyMemberSourceRequest Request,
+        AssemblyMemberPdbSourceAttempt Pdb,
+        AssemblyMemberDecompiledSourceAttempt Decompiled)
+        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+
+    public sealed record Unavailable(
+        AssemblyContextSubject Subject,
+        AssemblyMemberSourceRequest Request,
+        AssemblyMemberPdbSourceAttempt.Unavailable Pdb,
+        AssemblyMemberDecompiledSourceAttempt.Unavailable Decompiled)
+        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+
+    public sealed record NotFound(
+        AssemblyContextSubject Subject,
+        AssemblyMemberSourceRequest Request,
+        AssemblySourceFailure Failure)
+        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+
+    public sealed record Failed(
+        AssemblyContextSubject Subject,
+        AssemblyMemberSourceRequest Request,
+        AssemblySourceFailure Failure)
+        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+
+    public sealed record Rejected(
+        AssemblyContextSubject Subject,
+        AssemblyMemberSourceRequest Request,
+        CandidateOpenFailure Failure)
+        : AssemblyMemberSourceComparisonEntry(Subject, Request);
+}
+
 public abstract record AssemblyTypeSourceEntry(
     AssemblyContextSubject Subject,
     AssemblyTypeSourceRequest Request)
@@ -272,6 +333,33 @@ public abstract record AssemblyTypeSourceEntry(
         PdbTypeSourceInspection? PdbAttempt = null,
         DecompilerResult? DecompiledAttempt = null)
         : AssemblyTypeSourceEntry(Subject, Request);
+}
+
+/// <summary>
+/// Independently attempts checksum-verified PDB source and product-owned
+/// decompilation for one exact member resolution.
+/// </summary>
+public static class AssemblyContextSourceComparisonQuery
+{
+    public static InspectionQuery<AssemblyMemberSourceComparisonEntry>
+        Definition
+    { get; } =
+        new(
+            "Assembly context member source comparison",
+            InspectionCost.Moderated);
+
+    public static Task<AssemblyMemberSourceComparisonEntry> ExecuteAsync(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyMemberSourceRequest request,
+        AssemblyContextSourceQueryContext context,
+        CancellationToken cancellationToken = default)
+        => AssemblyContextSourceQuery.ExecuteComparisonAsync(
+            group,
+            participant,
+            request,
+            context,
+            cancellationToken);
 }
 
 /// <summary>
@@ -380,6 +468,91 @@ public static class AssemblyContextSourceQuery
         }
     }
 
+    internal static async Task<AssemblyMemberSourceComparisonEntry>
+        ExecuteComparisonAsync(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            AssemblyMemberSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var subject = new AssemblyContextSubject(participant.Assembly);
+        AssemblyBindingPolicyVersion bindingPolicyVersion =
+            group.BindingPolicyVersion;
+        AssemblyImageAccessResult<MemberInspectionSeed> access;
+        try
+        {
+            access = group.UseAssemblySession(
+                participant,
+                cancellationToken,
+                (session, retained) => new MemberInspectionSeed(
+                    retained,
+                    ResolveMember(session, request)));
+            cancellationToken.ThrowIfCancellationRequested();
+            EnsureBindingPolicyVersion(
+                participant,
+                bindingPolicyVersion);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            return new AssemblyMemberSourceComparisonEntry.Failed(
+                subject,
+                request,
+                InspectionFailure(ex));
+        }
+
+        if (access
+            is AssemblyImageAccessResult<
+                MemberInspectionSeed>.Rejected rejected)
+        {
+            return new AssemblyMemberSourceComparisonEntry.Rejected(
+                subject,
+                request,
+                rejected.Failure);
+        }
+        if (access
+            is not AssemblyImageAccessResult<
+                MemberInspectionSeed>.Available available)
+        {
+            throw new InvalidOperationException(
+                "Unknown assembly image access result.");
+        }
+        if (available.Value.Target is not { } target)
+        {
+            return new AssemblyMemberSourceComparisonEntry.NotFound(
+                subject,
+                request,
+                TargetNotFound(
+                    "The selected participant does not declare the requested method."));
+        }
+
+        try
+        {
+            return await InspectMemberComparisonAsync(
+                    subject,
+                    participant,
+                    request,
+                    context,
+                    target,
+                    available.Value.Retained,
+                    bindingPolicyVersion,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsInspectionFailure(ex))
+        {
+            return new AssemblyMemberSourceComparisonEntry.Failed(
+                subject,
+                request,
+                InspectionFailure(ex));
+        }
+    }
+
     public static async Task<AssemblyTypeSourceEntry> ExecuteTypeAsync(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
@@ -474,6 +647,135 @@ public static class AssemblyContextSourceQuery
         AssemblyBindingPolicyVersion bindingPolicyVersion,
         CancellationToken cancellationToken)
     {
+        MemberPdbInspection pdb =
+            await InspectMemberPdbAsync(
+                    participant,
+                    request,
+                    context,
+                    retained,
+                    bindingPolicyVersion,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        if (pdb.Inspection.IsComplete
+            && pdb.Inspection.Text is { } pdbText
+            && pdb.Provenance is { } provenance)
+        {
+            return new AssemblyMemberSourceEntry.Available(
+                subject,
+                request,
+                new AssemblyMemberSource.Pdb(
+                    pdbText,
+                    pdb.Inspection,
+                    provenance));
+        }
+
+        MemberRenderResult decompiled =
+            DecompileMember(
+                participant,
+                request,
+                target,
+                retained,
+                bindingPolicyVersion,
+                cancellationToken);
+        if (decompiled.IsComplete
+            && decompiled.Text is { } decompiledText)
+        {
+            return new AssemblyMemberSourceEntry.Available(
+                subject,
+                request,
+                new AssemblyMemberSource.Decompiled(
+                    decompiledText,
+                    decompiled,
+                    pdb.Inspection));
+        }
+
+        return new AssemblyMemberSourceEntry.Unavailable(
+            subject,
+            request,
+            BothUnavailable(),
+            pdb.Inspection,
+            decompiled);
+    }
+
+    internal static async Task<AssemblyMemberSourceComparisonEntry>
+        InspectMemberComparisonAsync(
+            AssemblyContextSubject subject,
+            AssemblyContextParticipant participant,
+            AssemblyMemberSourceRequest request,
+            AssemblyContextSourceQueryContext context,
+            (ApiType Type, ApiMember Member) target,
+            ResolvedAssemblyReference retained,
+            AssemblyBindingPolicyVersion bindingPolicyVersion,
+            CancellationToken cancellationToken)
+    {
+        MemberPdbInspection pdb =
+            await InspectMemberPdbAsync(
+                    participant,
+                    request,
+                    context,
+                    retained,
+                    bindingPolicyVersion,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        AssemblyMemberPdbSourceAttempt pdbAttempt =
+            pdb.Inspection.IsComplete
+                && pdb.Inspection.Text is not null
+                && pdb.Provenance is { } provenance
+                    ? new AssemblyMemberPdbSourceAttempt.Available(
+                        pdb.Inspection,
+                        provenance)
+                    : new AssemblyMemberPdbSourceAttempt.Unavailable(
+                        pdb.Inspection);
+
+        MemberRenderResult decompiled =
+            DecompileMember(
+                participant,
+                request,
+                target,
+                retained,
+                bindingPolicyVersion,
+                cancellationToken);
+        AssemblyMemberDecompiledSourceAttempt decompiledAttempt =
+            decompiled.IsComplete
+                && decompiled.Text is not null
+                    ? new AssemblyMemberDecompiledSourceAttempt.Available(
+                        decompiled)
+                    : new AssemblyMemberDecompiledSourceAttempt.Unavailable(
+                        decompiled.Status,
+                        decompiled.Text);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureBindingPolicyVersion(
+            participant,
+            bindingPolicyVersion);
+
+        if (pdbAttempt is AssemblyMemberPdbSourceAttempt.Available
+            || decompiledAttempt
+                is AssemblyMemberDecompiledSourceAttempt.Available)
+        {
+            return new AssemblyMemberSourceComparisonEntry.Available(
+                subject,
+                request,
+                pdbAttempt,
+                decompiledAttempt);
+        }
+
+        return new AssemblyMemberSourceComparisonEntry.Unavailable(
+            subject,
+            request,
+            (AssemblyMemberPdbSourceAttempt.Unavailable)pdbAttempt,
+            (AssemblyMemberDecompiledSourceAttempt.Unavailable)
+                decompiledAttempt);
+    }
+
+    static async Task<MemberPdbInspection> InspectMemberPdbAsync(
+        AssemblyContextParticipant participant,
+        AssemblyMemberSourceRequest request,
+        AssemblyContextSourceQueryContext context,
+        ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
+        CancellationToken cancellationToken)
+    {
         var findingSubject = new FindingSubject(
             "member",
             request.Member.Format(MemberAnchorFormat.Qualified));
@@ -483,10 +785,10 @@ public static class AssemblyContextSourceQuery
                     context,
                     cancellationToken)
                 .ConfigureAwait(false);
-        PdbMemberSourceInspection pdbSource;
+        PdbMemberSourceInspection inspection;
+        AssemblyPdbSourceProvenance? provenance = null;
         if (sourceResult.Source is { } source)
         {
-            AssemblyMemberSourceEntry.Available? pdbEntry = null;
             Exception? disposalFailure = null;
             try
             {
@@ -494,7 +796,7 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                pdbSource =
+                inspection =
                     await PdbSourceAcquisition.AcquireMemberAsync(
                             source,
                             request.MetadataToken,
@@ -510,18 +812,8 @@ public static class AssemblyContextSourceQuery
                 EnsureBindingPolicyVersion(
                     participant,
                     bindingPolicyVersion);
-                if (pdbSource.IsComplete
-                    && pdbSource.Text is { } pdbText)
-                {
-                    pdbEntry =
-                        new AssemblyMemberSourceEntry.Available(
-                            subject,
-                            request,
-                            new AssemblyMemberSource.Pdb(
-                                pdbText,
-                                pdbSource,
-                                PdbProvenance(source)));
-                }
+                if (inspection.IsComplete)
+                    provenance = PdbProvenance(source);
             }
             finally
             {
@@ -532,8 +824,6 @@ public static class AssemblyContextSourceQuery
                 bindingPolicyVersion,
                 cancellationToken,
                 disposalFailure);
-            if (pdbEntry is not null)
-                return pdbEntry;
         }
         else
         {
@@ -541,13 +831,26 @@ public static class AssemblyContextSourceQuery
             EnsureBindingPolicyVersion(
                 participant,
                 bindingPolicyVersion);
-            pdbSource =
+            inspection =
                 PdbSourceAcquisition
                     .MemberPdbAcquisitionFailed(
                         findingSubject,
                         sourceResult.Failure!);
         }
 
+        return new MemberPdbInspection(
+            inspection,
+            provenance);
+    }
+
+    static MemberRenderResult DecompileMember(
+        AssemblyContextParticipant participant,
+        AssemblyMemberSourceRequest request,
+        (ApiType Type, ApiMember Member) target,
+        ResolvedAssemblyReference retained,
+        AssemblyBindingPolicyVersion bindingPolicyVersion,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureBindingPolicyVersion(
             participant,
@@ -556,13 +859,11 @@ public static class AssemblyContextSourceQuery
             new CancellationObservingBindingPolicy(
                 participant.BindingPolicy,
                 bindingPolicyVersion);
-        ResolvedAssemblyReference decompilerAssembly =
-            retained.WithoutLocalPath();
         MemberRenderResult decompiled =
             MemberBodyProducer.ProduceMember(
                 target.Type,
                 target.Member,
-                decompilerAssembly,
+                retained.WithoutLocalPath(),
                 bindingPolicy,
                 printerOptions: request.PrinterOptions);
         bindingPolicy.ThrowIfObserved();
@@ -570,24 +871,7 @@ public static class AssemblyContextSourceQuery
         EnsureBindingPolicyVersion(
             participant,
             bindingPolicyVersion);
-        if (decompiled.IsComplete
-            && decompiled.Text is { } decompiledText)
-        {
-            return new AssemblyMemberSourceEntry.Available(
-                subject,
-                request,
-                new AssemblyMemberSource.Decompiled(
-                    decompiledText,
-                    decompiled,
-                    pdbSource));
-        }
-
-        return new AssemblyMemberSourceEntry.Unavailable(
-            subject,
-            request,
-            BothUnavailable(),
-            pdbSource,
-            decompiled);
+        return decompiled;
     }
 
     internal static async Task<AssemblyTypeSourceEntry> InspectTypeAsync(
@@ -931,6 +1215,7 @@ public static class AssemblyContextSourceQuery
         : IAssemblyBindingPolicy
     {
         ExceptionDispatchInfo? _cancellation;
+        ExceptionDispatchInfo? _inspectionFailure;
         readonly Dictionary<
             AssemblyAcquisitionRegistration,
             ResolvedAssemblyReference> _observedAssemblies =
@@ -977,10 +1262,18 @@ public static class AssemblyContextSourceQuery
                 ObserveCancellation(ex);
                 throw;
             }
+            catch (Exception ex) when (IsInspectionFailure(ex))
+            {
+                ObserveInspectionFailure(ex);
+                throw;
+            }
         }
 
-        internal void ThrowIfObserved() =>
+        internal void ThrowIfObserved()
+        {
             Volatile.Read(ref _cancellation)?.Throw();
+            Volatile.Read(ref _inspectionFailure)?.Throw();
+        }
 
         void EnsureVersion()
         {
@@ -1034,11 +1327,21 @@ public static class AssemblyContextSourceQuery
                 ref _cancellation,
                 ExceptionDispatchInfo.Capture(error),
                 comparand: null);
+
+        void ObserveInspectionFailure(Exception error) =>
+            Interlocked.CompareExchange(
+                ref _inspectionFailure,
+                ExceptionDispatchInfo.Capture(error),
+                comparand: null);
     }
 
     sealed record MemberInspectionSeed(
         ResolvedAssemblyReference Retained,
         (ApiType Type, ApiMember Member)? Target);
+
+    sealed record MemberPdbInspection(
+        PdbMemberSourceInspection Inspection,
+        AssemblyPdbSourceProvenance? Provenance);
 
     sealed record TypeInspectionSeed(
         ResolvedAssemblyReference Retained,

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="InspectWeb.Engine.Tests" />
+    <AdditionalFiles Include="..\engine\BannedSymbols.txt" />
+    <ProjectReference Include="..\engine.Core\InspectWeb.Engine.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Queries\DotnetInspector.Queries.csproj" />
+    <ProjectReference Include="..\..\..\src\DotnetInspector.Vocabulary\DotnetInspector.Vocabulary.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+  </ItemGroup>
+</Project>

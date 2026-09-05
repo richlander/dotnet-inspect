@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Reflection;
 
@@ -11,6 +12,34 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class PackageAssemblyContextCompletionTests
 {
     const string Framework = "net11.0";
+
+    [Fact]
+    public async Task PackageRealizationProjection_SelectedScanKeepsTheSharedRoleReusable()
+    {
+        PackageRootBinding binding = SharedBinding("Selected.Integration");
+        await using InspectionWorkspace workspace = InspectionWorkspace.CreateAsynchronous();
+        PackageAssemblyContextCompletion completion = await ExecuteAsync(workspace, [binding]);
+        PackageAssemblyContextProjection projection = completion.CreateProjection([binding]);
+        var scanner = EcosystemIntegrationScannerBinding.Create(EmptyClassification);
+
+        AssemblyContextIntegrationScanResult selected =
+            AssemblyContextIntegrationScanQuery.Execute(projection.SurfaceRole, scanner);
+        AssemblyContextIntegrationsResult full =
+            AssemblyContextIntegrationsQuery.Execute(projection.SurfaceRole);
+
+        Assert.True(selected.IsComplete);
+        var entry = Assert.IsType<AssemblyIntegrationsEntry.Selected>(
+            Assert.Single(selected.Assemblies));
+        Assert.Empty(entry.EcosystemSignals);
+        Assert.Same(
+            Assert.Single(full.Assemblies).Subject.Registration,
+            entry.Subject.Registration);
+        await projection.ReturnAsync();
+        await completion.CloseAsync();
+    }
+
+    static ImmutableArray<EcosystemIntegrationClassification> EmptyClassification(
+        EcosystemIntegrationObservationContext context) => [];
 
     [Fact]
     public async Task PackageRealizationProjection_PreservesDemandPackageIdentityAndOrder()

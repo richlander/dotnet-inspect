@@ -20,9 +20,9 @@ This owner defines:
   hover, keyboard focus, disabled) and their accessibility contract;
 - the interaction grammar and collapsed-summary rules for progressive filter
   disclosure;
-- the shared heading rules across the API and Metadata lenses: API renders a
-  compact exact-target heading, while Metadata retains its detailed type-level
-  context; and
+- the shared heading rules across the API and Metadata lenses: both use quiet
+  local headings while Metadata retains its detailed type-level context in its
+  projection and exact-target context row; and
 - the compact status vocabulary for successful and failed source provenance.
 
 It does not own:
@@ -195,7 +195,7 @@ ordinary body copy; the current leaf also receives the shared accent. Segment
 copy controls preserve this typography without button chrome and gain an
 underline on hover plus an explicit keyboard focus outline.
 
-### API, Source, and Metadata lenses
+### API, Source, Metadata, and Package Dependencies lenses
 
 API renders a compact local heading followed by its primary content. Type API
 uses `Members` with the live visible/total member-group count. Member API uses
@@ -205,11 +205,23 @@ competing with the subject path. Source is the full-area exception governed by
 [Inspect Web Surface Composition](inspect-web-surface-composition.md#source-and-annotated-source):
 it adds no local heading, so the subject zone remains the visible owner of the
 complete hierarchy while the active Source inspector labels the lens panel.
-Metadata retains its detailed type heading.
+Type Metadata uses a quiet local `Metadata` heading while retaining its detailed
+type-level context in the primary projection and compact bottom context row.
+Package Metadata uses the parallel quiet `Metadata images` heading while its
+compact controls and bottom row retain the active package coordinate.
+Package Dependencies uses a quiet `Dependencies` heading while its compact
+controls and bottom row retain the active package coordinate.
 
-At narrow widths, API header identity and status may elide visually as complete
-strings. Responsive styling does not selectively remove the overload total or
-ordinal from the rendered or accessible status.
+At narrow widths, API header identity and status plus Type Metadata, Package
+Metadata, and Package Dependencies header status and context values may elide
+visually as complete strings. Responsive styling does not selectively remove
+the overload total or ordinal from the rendered or accessible status.
+
+The narrow content-frame `Types` or `Members` control may occupy the leading
+space of these quiet headers. The local heading remains the accessible name
+even when it is visually elided. Member Overview begins its first content
+within the normal compact content inset; the scroller and first paragraph do
+not stack independent top margins into a blank introductory band.
 
 When the snapshot has no effective lens, the UI renders no `tabpanel`. A status
 region references the target heading and its visible `Lens unavailable`
@@ -248,15 +260,30 @@ and increases the amount visible without scrolling.
 
 ### Metadata lens
 
-The Metadata lens retains the detailed type heading. It is the type-level view
-for kind, namespace, declaration shape, target framework, library, package, and
-version context.
+Type Metadata uses a quiet `Metadata` heading with kind and accessibility
+status. Its full-area projection remains the type-level view for kind,
+namespace, declaration shape, target framework, library, package, and version
+context. Type shape rows begin at the top of the scroll region; the exact type
+identity and package coordinate remain in the compact bottom context row.
+
+Package Metadata uses a quiet `Metadata images` heading with assembly count or
+state. Version, Framework, and optional platform Library remain compact controls
+above the image facts. The exact package coordinate, framework, and optional
+library remain in the bottom context row.
+
+Package Dependencies uses a quiet `Dependencies` heading with selected
+package-dependency and direct assembly-reference counts or state. Version and
+Framework remain compact controls above the result. Manifest target-framework
+selection remains in the result because it does not change the package
+coordinate. The exact package coordinate and active framework remain in the
+bottom context row.
 
 The exact-target identity remains the common orientation point between API,
-Metadata, and Source. API and Metadata repeat that identity in their local
-headings; Source relies on the persistent subject zone rather than duplicating
-it inside the full-area working surface. Switching lenses does not change the
-selected subject or its display identity.
+Metadata, and Source. API uses its local member heading, Type Metadata preserves
+the type identity in its context row, Package Metadata and Package Dependencies
+preserve their package coordinates, and Source relies on the persistent subject
+zone rather than duplicating it inside the full-area working surface. Switching
+lenses does not change the selected subject or its display identity.
 
 ## Source provenance
 

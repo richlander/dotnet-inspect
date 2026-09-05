@@ -433,8 +433,12 @@ consumer's convenience.
 
 ## Queries-to-Research population boundary
 
-**Status:** target design for #4711; unimplemented and unverified until the
-named gates in [Migration and gates](#migration-and-gates) land.
+**Status:** #5860 implements the #4711 population sealer and companion-internal
+projection, with the named Release gates in
+[Migration and gates](#migration-and-gates). Public comparison query execution
+has not migrated: that adoption is step 7 of #4706, after Queries publication
+can retain the receipt. Body-signal target-evidence migration still
+requires #4777.
 
 This boundary is owned by the L1 `DotnetInspector.Queries` component and this
 document. The component spans the core query assembly and the optional
@@ -448,7 +452,13 @@ semantics under [Implementation Diff](implementation-diff.md). L1 may require
 Research-issued identities and retain their correspondence to query identities;
 it must not mint, infer, or reinterpret them.
 
-### Current gap
+The later
+[workspace Research target composition](research-workspace-target-composition.md)
+consumes this receipt to associate Metadata's terminal forwarding definition
+with one exact existing Research attempt. That composition remains
+Queries-owned and does not change this population-sealing contract.
+
+### Legacy query execution seam
 
 `ImplementationComparisonInput` currently accepts independent old/new
 collections of Research-owned `ImplementationAssemblyInput` values.
@@ -463,6 +473,23 @@ binding-policy consistency for one live workspace group. That remains a
 workspace lifetime contract. A comparison may borrow its participant evidence,
 but the group does not become the comparison-population owner and its disposal
 rules do not move into this boundary.
+
+`QueryComparisonPopulationSealer.Execute` now accepts separately typed,
+Queries-owned implementation or body-signal population requests and returns a
+sealed `QueryComparisonPopulation<TBinding>` or typed rejection. The internal
+`QueryPopulationProjection.Execute` in the ResearchQueries companion admits the
+sealed inputs and returns `ProjectedQueryPopulation` with its inert
+`QueryToResearchPopulationReceipt`, or a typed projection/admission rejection.
+It uses Research-issued occurrence associations, not input order or borrowed
+value equality, to establish the input map. One sealing invocation has exactly
+one question; the question map identifies the unique admitted question, even
+when both sides are empty.
+
+The existing `ImplementationComparisonInput`, `BodySignalComparisonInput`, and
+their public `Execute` result contracts are unchanged in this slice. The new
+receipt is not discarded to adapt them prematurely. #4706 counts the shared
+population boundary as step 1, local CLI/browser adoption as steps 8/9, and
+final Queries/Research retirement as steps 16/17.
 
 ### Population contract
 
@@ -508,7 +535,7 @@ queries:
 | Body-signal comparison | one binding per submitted body index | exact `LibraryBodyIndex` |
 
 The profiles share identity and sealing rules, not an untyped input bag.
-Implementation must replace the Research-owned
+The public execution migration must replace the Research-owned
 `ImplementationAssemblyInput` at the public L1 input seam with a query-owned
 idless binding. Body-signal comparison likewise wraps each index in a
 query-owned idless binding instead of treating `LibraryBodyIndex.Path` or
@@ -590,7 +617,7 @@ Those later identities cannot appear in the population receipt.
 
 ### Migration and gates
 
-Implementation proceeds without reversing dependency direction:
+Implementation and adoption proceed without reversing dependency direction:
 
 1. Core Queries adds the query-owned ids, profile bindings, immutable
    populations, and sealing results. It does not reference Research.
@@ -607,8 +634,8 @@ Implementation proceeds without reversing dependency direction:
 5. The Research-owned body-index/content check and target matching remain in
    Research until their owning designs change them.
 
-The implementation must add these named non-vacuity gates before the target
-contract is described as implemented:
+`QueryComparisonPopulationTests` in `DotnetInspector.Queries.Tests` contains
+the named non-vacuity gates for the implemented boundary:
 
 - `ComparisonPopulation_SealsImmutableInputAndSelectionSnapshots`
 - `QueryPopulationBindings_AreIdlessBorrowedWrappers`
@@ -626,6 +653,12 @@ so both missing and stale entries fail.
 `CoreQueries_AcquireDecompilerButNotResearch` already gates the project-reference
 closure and remains the dependency-direction proof.
 
+`ComparisonPopulation_Demo` exercises the product sealer, owner-issued Research
+admission, and receipt validator over an existing compiled fixture. Repeated
+borrowed values remain three distinct input occurrences; an incomplete map is
+rejected without a partial receipt. This internal-projection demo does not
+replace #5676's public workspace file-based demo or claim host adoption.
+
 ### Population-boundary non-goals
 
 This boundary does not define:
@@ -634,7 +667,7 @@ This boundary does not define:
 - Research target requests, attempts, correspondence outcomes, work items,
   producer-specific inspection topology, producer execution, completion, or
   comparison semantics;
-- direct-member designation or comparison;
+- [direct-member designation or comparison](direct-member-comparison.md);
 - Source, PDB, network, or authored-source behavior;
 - outer result publication, failure composition, CLI projection, or output
   integrity; or

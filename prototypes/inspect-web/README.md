@@ -320,6 +320,118 @@ group for both roles. When both roles exist and differ, they split the scope's
 has one group and uses the full budget; performance analysis falls back to that
 surface group when no implementation participant exists.
 
+### Artifact-backed package scope adoption
+
+**Status: planned, not implemented.** This section owns the Browser registry
+contract for [#5576](https://github.com/richlander/dotnet-inspect/issues/5576).
+The synchronous behavior described above remains current until that adoption
+lands. The end-to-end tracker is
+[#5577](https://github.com/richlander/dotnet-inspect/issues/5577); the CLI
+consumer has landed in
+[#5799](https://github.com/richlander/dotnet-inspect/pull/5799).
+[Package Root realization](../../docs/design/artifact-acquisition-and-workspaces.md#package-root-realization)
+owns artifact construction, role selection, rejection, and the budget split.
+[Inspection space](../../docs/inspection-space.md#retained-package-realization-caller)
+explains why this remains whole-scope reuse in the existing Browser registry,
+not workspace-local retained-demand caching or a second Integrations cache.
+
+The focused claim is one shared realization for an exact Browser package
+operation, with bounded retention through asynchronous cleanup. The production
+consumers are ordinary single-package scope opening and Workspace occurrence
+activation; surface, Integrations, and the other existing query hand-offs keep
+their typed inputs. Interactive DOM lowering remains Browser-owned rather than
+parsing CLI or Markout output. This adoption does not change multi-package role
+planning, Platform realization, package selection, source acquisition, or
+persistence. Those existing scopes still participate in the same registry
+bounds and reclamation policy.
+
+**Exact operation and use.** Repeated unbound requests for the same acquired
+coordinate, content generation, and selection request join the retained binding
+before another selection token is issued. The association includes the
+authoritative producer and framework request, including default selection as
+distinct from an explicit request. It lives with the counted scope entry, not
+in an additional unbounded binding cache. A caller with an already-issued
+binding preserves that binding's coordinate, `ContentGenerationIdentity`, and
+`SelectionIdentity`; independently issued selection tokens are not
+interchangeable merely because package/version/TFM labels match. Such a request
+can join only its exact binding operation, otherwise it is a distinct demand.
+Every singleton entry point uses the same opener; synchronous occurrence
+activation must become awaitable rather than constructing a competing legacy
+singleton scope.
+
+Concurrent callers join pending work as well as ready work. Each caller has its
+own cancellation and receives protected use of the exact entry before the
+opening operation completes; protection lasts through that caller's query, not
+just until the factory returns. Cancelling one caller does not cancel another
+caller's shared work. When the last pending caller leaves, the abandoned work
+retires. A shared factory also has its own bounded operation deadline, so
+joining requests cannot extend construction indefinitely.
+
+**Capacity and eviction.** The existing four-scope bound counts pending, ready,
+and retiring entries together, including legacy multi-package and Platform
+entries. Each reserves its full 64 MiB image allowance before construction,
+giving at most 256 MiB of reserved scope image capacity. The artifact-backed
+path passes 64 MiB as the shared realization's total budget, not an extra
+artifact allowance: artifacts receive 32 MiB and group images share the
+remaining 32 MiB, or 16 MiB per group when roles differ. This deliberately
+tightens the old one-copy admission capacity while preserving the total bound;
+budget rejection must remain visible. The 256-assembly per-role bound remains.
+These are retained-image limits, not a total Wasm heap estimate.
+
+Archive bytes and download reservations separately keep the existing
+12-package/128 MiB aggregate. Packages referenced by pending construction,
+protected queries, or unfinished retirement remain charged there. Neither a
+scope eviction nor a package-cache removal returns capacity while its owned
+resources are still settling. Ready entries without protected callers are
+evicted in least-recently-used order. When capacity is held by active work,
+admission visibly fails rather than evicting a caller's scope. When selected
+eviction requires asynchronous reclamation, an async admission awaits it before
+reusing capacity; a synchronous reservation that cannot reclaim immediately
+visibly rejects capacity instead of blocking Wasm or bypassing accounting.
+
+**Retirement and failure.** Removal or replacement immediately ends the exact
+entry's eligibility for new callers. Already-protected queries retain their
+use until release. Retirement is irreversible: an equal later request cannot
+revive that entry, and an old factory completion cannot publish into its
+replacement. Stale or cancelled construction is still owned until all of its
+construction and cleanup work settles, including artifact sessions not yet
+transferred to a workspace. Replacement does not require a new query-selection
+algorithm or a host-issued artifact identity.
+
+Registry retirement has an awaitable terminal outcome. Synchronous scope
+disposal is adapted as an already-completed retirement; an asynchronous
+workspace uses `CloseAsync`, never a synchronous wait or request-only
+`Dispose` pretending that reclamation finished. The outcome includes the
+workspace's group results and `ArtifactSessionCleanupFailures`, not merely
+whether its close task completed. The primary operation failure and any cleanup
+failures remain observable together. If cleanup fails, the entry remains
+charged and unavailable, with its bounded failure record surfaced to awaiting
+callers and subsequent admissions; no retry silently clears it or allocates
+replacement resources against unproven capacity. An abandoned caller does not
+abandon this outcome. A runtime restart is the recovery boundary for such a
+terminal cleanup failure, not an in-place cache reset.
+
+**Bounded model evidence.** The
+[Browser scope retirement model](../../docs/models/browser-scope-retirement/README.md)
+checks the post-binding registry's charged lifetime, protected return-to-query
+use, stale-publication exclusion, and failed-cleanup quarantine, with targeted
+broken-policy controls and required reachability witnesses. It abstracts
+authoritative factory and cleanup outcomes; it does not establish production
+conformance, binding issuance, archive accounting, or lower-owner cleanup.
+
+**Adoption evidence: unverified.** The implementation must add Release Browser
+engine gates for joined requests and independent cancellation, non-joining
+content/selection identities, use protected across async return, four-entry
+pressure and awaited eviction, stale completion after cancellation/replacement,
+and observable cleanup failure. It must preserve visible selected rejection
+carriers beside healthy participants and the existing multi-package/Platform
+registry cases. The Browser/Wasm gate must exercise the awaitable production
+opening/activation path. The two-host demo uses
+`Microsoft.Extensions.Http@10.0.0`: record the concrete TFM resolved by the CLI
+pilot's default selection and select that same TFM in Browser, with a
+neighboring replacement/eviction and valid-reference/malformed-implementation
+fixture. These are required future gates, not evidence supplied by this design.
+
 ## Supported
 
 | Operation | Workspace | Query that owns the session |
@@ -672,41 +784,44 @@ browser APIs. For private cross-machine demos, follow
 the preferred SSH-forwarding pattern preserves a browser-loopback URL without
 exposing an application port.
 
-On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful paint
-before dynamically importing `inspect-web-engine.js`. Search and demo controls
-remain inert behind a loading indicator until the Wasm engine is ready; package
-and shared-workspace deep links retain the full loading interstitial. The `bare
-home paints before wasm engine download` JavaScript test gates this startup
-boundary.
+On a bare visit, `dotnet-inspect.ts` waits for the home page's first contentful
+paint before dynamically importing the seven production facade modules. Search
+and demo controls remain inert behind a loading indicator until every facade is
+ready; package and shared-workspace deep links retain the full loading
+interstitial. The `bare home paints before wasm engine download` JavaScript test
+gates this startup boundary.
 
 `eng/generate-inspect-web-engine-facade.sh` executes the engine's compiled
-`JsExportRoot` recipe to generate `engine/inspect-web-engine.ts`. This
-execution path is `ts-jsexport` context mode: the attributes declare the closed
-assembly set and `--context` names that declaration for the generator. It is
-one mechanism, not a TypeScript feature, and the generated module contains no
-context construct. The current recipe has one root, `InspectionEngine`, and
-produces the canonical `InspectWeb.Engine.ts`; the script maps those exact
-generated bytes to the established checked-in name. It also proves the
-one-root result equals direct generation.
+`JsExportRoot` recipe once to generate the seven canonical context artifacts.
+This execution path is `ts-jsexport` context mode: the attributes declare the
+closed assembly set and `--context` names that declaration for the generator.
+It is one mechanism, not a TypeScript feature, and the generated modules
+contain no context construct. The script requires the context output to equal
+the exact seven-entry consumer map, proves each context artifact equals direct
+generation for its rooted assembly, and copies those bytes unchanged into
+`engine/facades/`.
 
-That native TypeScript file is the authoritative checked-in handoff. The
-script compiles it against the SDK-owned `dotnet.d.ts` from the Browser/Wasm
-runtime pack selected for the engine build, with LF compiler output on every
-host, into the checked-in `src/inspect-web-engine.d.ts` consumer declaration
-and `engine/wwwroot/inspect-web-engine.js` publish artifact; `--check` fails
-when any of the three drifts. The SDK declaration is a compile-time input
-copied only into a temporary workspace and is never published.
+Those native TypeScript files are the authoritative checked-in handoff. The
+script compiles all seven in one exact program against the SDK-owned
+`dotnet.d.ts` from the Browser/Wasm runtime pack selected for the engine build,
+with LF compiler output on every host. The derived declarations live in
+`src/facades/` and the published modules in `engine/wwwroot/`; `--check`
+compares all 21 artifacts and rejects extra or missing files. The SDK
+declaration is a compile-time input copied only into a temporary workspace and
+is never published.
 
-The application explicitly sequences `initializeRuntime()`,
-`configureHost(window.location.origin)`, and `runEntryPoint()`. The generated
-facade owns runtime creation and typed managed dispatch but owns no browser-host
-policy, performs no managed operation during initialization, and does not
-expose the runtime or raw managed exports. Its generation-time runtime canary
-executes without a `window` global. After publish,
-`verify-published-engine-facade.ts` runs the real Browser/Wasm artifact through
-the same worker-safe path and exercises build identity plus
-`asyncLoweringCanary()`, a genuinely awaited operation with a fixed typed
-result and no network, package-cache, server-API, or user-data dependency.
+`src/engine-facades.ts` owns runtime composition. Concurrent callers share one
+retained readiness promise. It calls the host module's `createRuntime()` once,
+then passes that same narrow runtime handle while the seven generated modules
+initialize serially. Only the host facade configures browser policy and runs
+the entry point; application calls bind directly to their owning generated
+module rather than a compatibility monolith. After publish,
+`verify-published-engine-facades.ts` runs the real Browser/Wasm artifact through
+the same worker-safe path, observes the SDK call without memoizing it, proves
+one creation, one runtime, and one entry point, invokes every facade through its
+own assembly, and exercises build identity plus `asyncLoweringCanary()`, a
+genuinely awaited operation with a fixed typed result and no network,
+package-cache, server-API, or user-data dependency.
 
 The purpose-built `multi-facade-canary` proves that this lifecycle composes
 across independently generated modules. Its Alpha and Beta assemblies
@@ -715,24 +830,46 @@ overload shapes, record name, and enum name. Each checked-in facade is generated
 from only its own assembly and acquires only that assembly's export root. A
 consumer-owned single-flight coordinator serializes first initialization:
 Alpha initializes before Beta, while concurrent readiness callers share that
-one sequence. The second facade relies on the SDK builder's completed-runtime
-reuse; neither generated module coordinates with the other or exposes the
-runtime.
+one sequence. The coordinator creates one narrow runtime handle and passes it
+to both generated modules; it does not rely on repeated SDK creation being
+idempotent.
 
 `eng/generate-inspect-web-multi-facade-canary.sh --check` gates independent
 generation and drift for both facades. The
 `eng/test-inspect-web-multi-facade-canary.sh` Browser/Wasm gate publishes both
-assemblies into one runtime, requests readiness concurrently, and then invokes
-both facades. It requires exactly one live SDK runtime, assembly-distinct
-results through both declaring types and exact overload keys, a genuinely
-awaited operation from each assembly, and independent record and enum
-declarations. Its negative cases prove that the gate fails for a wrong assembly
-root, a separately loaded runtime module, both operational paths routed through
-one facade, an uninitialized second facade, or a dropped managed invocation.
-This canary does not split the production engine binding or expose raw
-`ILInspector` APIs; that production partition remains [#4497].
+assemblies into one runtime under both Mono and CoreCLR, requests readiness
+concurrently, and then invokes both facades. It requires exactly one SDK
+creation and one live runtime, assembly-distinct results through both declaring
+types and exact overload keys, a genuinely awaited operation from each
+assembly, independent record and enum declarations, and the managed operation
+bridge's authenticated nonterminal callback lifecycle. The bridge case carries
+Progress, Item, and ItemFailure events in producer order before the terminal
+result, rejects callback failure, and prevents later invocation through a
+retained sink. Its negative cases prove that the gate fails for a dropped
+managed event callback, wrong assembly root, separately loaded runtime module,
+both operational paths routed through one facade, uninitialized second facade,
+or dropped managed invocation. This canary does not split the production engine
+binding or expose raw `ILInspector` APIs; that production partition remains
+[#4497].
+
+The purpose-built `managed-operation-bridge-canary` directly drives the product
+`BrowserManagedOperationBridge` through a generated `[JSExport]` facade. Its
+controlled feature bodies expose synchronous progress, keyed cancellation, and
+terminal release without reproducing lifecycle logic in the harness.
+`eng/test-inspect-web-managed-operation-bridge-canary.sh` publishes and runs the
+host under both Mono and CoreCLR Browser/Wasm. It proves distinct-operation
+cancellation routing, all six normalized reasons, concrete fulfilled result
+envelopes, boundary rejection, progress callback argument fidelity and closure,
+and operation readmission after release. The verifier, managed counters, and
+facade drift check reject skipped scenarios, wrong cancellation routing, stale
+facade output, or omitted callback release probes. This is Node-hosted
+Browser/Wasm evidence, not a Worker,
+real-browser, DOM-responsiveness, shared-producer, or epoch-work claim; the
+[managed operation bridge design] owns that scope and the remaining aggregate
+gate.
 
 [#4497]: https://github.com/richlander/dotnet-inspect/issues/4497
+[managed operation bridge design]: ../../docs/design/inspect-web-managed-operation-bridge.md
 
 The home page identifies the browser stack below its search surface and links
 to the client-rendered `/credits` route. `src/credits-panel.ts` owns that page's
@@ -781,19 +918,20 @@ Spotlight scopes are literal unions derived from their UI catalogs. DOM and URL
 tokens are decoded before they reach typed state or actions; the scope-bar and
 workspace-navigation tests gate rejection of unknown values.
 
-Oxlint checks the compiler-derived production facade artifacts and both
-multi-facade canary source modules as consumer contracts:
-`src/inspect-web-engine.d.ts` receives the TypeScript rules, while
-`engine/wwwroot/inspect-web-engine.js` receives the JavaScript correctness and
-suspicious rules described below. The checked-in production and canary
-TypeScript facades are compiled separately against the exact SDK-owned
-`dotnet.d.ts`; the canary gate compiles its authored coordinator and exercise
-modules in that same program. TypeScript compilation and the generated facade
-drift gates provide independent source and declaration coverage. The toolchain
-test pins every separately compiled and derived lint input so a generator
-change cannot silently leave analysis coverage. The configuration disables
-four non-correctness rules: underscore spelling, function relocation, listener
-API preference, and `Array.prototype.sort`. Those rules prescribe
+Oxlint checks all seven compiler-derived production facade artifact triples and
+the multi-facade and managed-operation canary sources as consumer contracts.
+The `src/facades/*.d.ts` declarations receive the TypeScript rules, while the
+exact seven `engine/wwwroot/inspect-web-*.js` modules receive the JavaScript
+correctness and suspicious rules described below. The checked-in production
+and canary TypeScript facades are compiled separately against the exact
+SDK-owned `dotnet.d.ts`; each canary gate compiles its authored coordinator or
+initializer and exercise modules in that same program. TypeScript compilation
+and the generated facade drift gates provide independent source and declaration
+coverage. The toolchain test pins every separately compiled and derived lint
+input so a generator change cannot silently leave analysis coverage. The
+configuration disables four non-correctness rules: underscore spelling,
+function relocation, listener API preference, and `Array.prototype.sort`.
+Those rules prescribe
 naming/layout churn or, for sorting, the ES2023 `toSorted` API while this
 project targets ES2022. Those four, plus the generated-facade overrides, are
 the *complete* set of disabled rules. The compiler-derived JavaScript disables
@@ -1095,9 +1233,11 @@ and 5 against that mermaid build. The code comment asserting that DOMPurify
 makes package Markdown safe had been resting on that build. None of it was
 hidden; nothing was in a position to look.
 
-CI runs `npm audit --audit-level=info` over the whole tree. Three review rounds
-went into that one line, and each found the same shape of mistake: a flag, or
-the absence of one, meaning something narrower than it appeared to.
+Auditing that lockfile is what makes the difference visible, and `npm audit` is
+still the way to run it by hand. Three review rounds went into the one CI line
+that used to run it, and each found the same shape of mistake: a flag, or the
+absence of one, meaning something narrower than it appeared to. That analysis is
+worth keeping even though the line is gone.
 
 `--audit-level` reads as a severity filter over advisories. npm applies it to
 *packages*, bucketing each by the highest severity affecting it. Of the 24
@@ -1115,11 +1255,21 @@ declared, not by whether its code reaches a browser. Vite is a devDependency and
 its `__vite__mapDeps` helper is in the shipped bundle, so that split was never
 the boundary it resembled.
 
-What remains is the strictest available check over all 168 packages, which is
-what lets the sanitization comment name its gate without qualification. It is
-clean today. It will sometimes fail for a build tool rather than for shipped
-code; that is the accepted trade against a narrower gate whose description has
-to be exactly right, and three times was not.
+That check no longer runs in CI. `npm audit` needs npm's advisories endpoint,
+and it exits non-zero both when it finds an advisory and when it cannot reach
+that endpoint, so the merge gate could not tell a vulnerable dependency from an
+npm outage. On 2026-09-04 the endpoint returned 503s and timeouts for over two
+hours and turned `ci-required` red on unrelated pull requests; a gate that
+blocks merges on a third party's uptime is not measuring this repository.
+
+What watches the lockfile now is Dependabot: the same 168 packages against the
+same advisory database, with vulnerability alerts enabled and a weekly npm
+update schedule for `/prototypes/inspect-web`. The honest difference is timing.
+`npm audit` blocked the merge that introduced an advisory; Dependabot reports
+one after it lands and opens a security update. That is weaker, and it is what
+lets the sanitization comment name a gate that is monitoring rather than
+enforcement. Run `npm audit --audit-level=info` locally to get the old answer on
+demand.
 
 Nothing remains on a CDN. Prism was the last third-party subresource in
 `index.html` and it is now bundled like the other three, so the coverage claim
@@ -1133,10 +1283,11 @@ strict.
 
 Knip checks authored source, every TypeScript and JavaScript test, and
 build/verification scripts for unused files, exports, and dependencies.
-`knip.json` excludes `engine/wwwroot/inspect-web-engine.js`: that generated
-publish artifact imports `./_framework/dotnet.js`, which exists only after Wasm
-publish. The exclusion is specific to Knip reachability; Oxlint still checks
-the generated module. It also ignores `type-fest`, which nothing here imports:
+`knip.json` excludes the exact seven generated
+`engine/wwwroot/inspect-web-*.js` publish artifacts: they import
+`./_framework/dotnet.js`, which exists only after Wasm publish. The exclusions
+are specific to Knip reachability; Oxlint still checks every generated module.
+It also ignores `type-fest`, which nothing here imports:
 mermaid's shipped `.d.ts` files import it while declaring it only in mermaid's
 own `devDependencies`, so a consumer has to supply it for `tsc` to resolve
 mermaid's types. It is pinned to the range mermaid builds against.
@@ -1686,8 +1837,10 @@ runs in the staging deployment job. The separate
 `inspect-web-staging` GitHub environment accepts only `main` and holds a
 deployment token scoped to the staging Azure Static Web App.
 
-`.github/workflows/deploy-inspect-web-coreclr.yml` publishes the same `main`
-commit to the isolated comparison site at
+Successful main-push completion of `.github/workflows/deploy-inspect-web.yml`
+triggers `.github/workflows/deploy-inspect-web-coreclr.yml`, which checks out
+that run's exact head and downloads its exact `inspect-web-site` artifact before
+publishing the same commit to the isolated comparison site at
 `https://coreclr.dotnet-inspect.ca`. It uses a third Azure Static Web App, the
 main-only `inspect-web-coreclr-staging` environment, a distinct deployment
 token, and the non-promotable `inspect-web-coreclr-site` artifact. The site is
@@ -1700,7 +1853,9 @@ this application graph, and applies the `UseMonoRuntime=false`,
 overrides. This exercises runtime async only in the CoreCLR comparison
 deployment; Mono staging and ordinary non-AOT builds retain classic async
 lowering. The workflow verifies the CoreCLR-specific `GetDotNetRuntimeHeap`
-hook before and after artifact transfer.
+hook before and after artifact transfer. Before the CoreCLR artifact crosses
+the upload/deploy boundary, the workflow compares its schema-5 runtime receipt
+with the triggering Mono run's schema-5 compiler receipt.
 
 Both deployment builds import `InspectWebAsyncLoweringReceipt.targets`. Every
 project that reaches `CoreCompile` fails unless its exact `Features` property
@@ -1711,31 +1866,36 @@ framework/runtime-pack binaries, the separately published MSDL server API, and
 unrelated repository projects are outside that set.
 
 Both builds then run `verify-inspect-web-async-deployment.sh` immediately after
-their clean engine publish. The gate enumerates every public async method
-in that publish's
-`bin/Release/net11.0/InspectWeb.Engine.dll` as compiler async for Mono and
-runtime async for CoreCLR, requires the entire census to use the expected
-physical lowering, and separately authenticates `AsyncLoweringCanary`. This is
-the exact pre-link assembly that retains the compiler-generated runtime wrappers
+their clean engine publish. The gate derives the seven export assemblies from
+the compiled `InspectWebJsExportContext`, enumerates every public async export
+as compiler async for Mono and runtime async for CoreCLR, and requires the
+entire census to use the expected physical lowering. These are the exact
+pre-link assemblies that retain the compiler-generated runtime wrappers
 authenticated by `ts-jsexport`; the linker removes those wrappers from its
-intermediate assembly before packaging the shipped WebCIL. The gate generates a
-declaration from each pre-link assembly with
-`generate-inspect-web-engine-facade.sh --contract`, requires both to equal the
-checked-in declaration, and invokes the canary through the generated facade in
-each published WebCIL application. The verifier carries the same authoritative
-product `VersionPrefix` used by the deployment build into `ts-jsexport`, so the
-compiled context and generator authenticate the same exact
-`TsJsExport.Contracts` assembly identity. The schema-3 uploaded receipt records
-total, compiler-async, and runtime-async method counts, the verified repository
-project count, and the publish assembly, shipped WebCIL, and facade-contract
-digests.
-Build, staging, and production artifact checks require the expected
-all-or-nothing lowering census and a nonempty verified project graph, require
-the one named WebCIL file, and recompute its digest without executing candidate
-code in an environment-gated deployment job. `PromotionWorkflowContract` gates
-both expected-lowering properties, exact publish-assembly paths, both browser
-invocations, graph receipts, and post-transfer evidence checks with close
-mutations.
+intermediate assemblies before packaging the shipped WebCIL.
+
+The gate regenerates all seven declarations with
+`generate-inspect-web-engine-facade.sh --contract`, compiles every generated
+source with the pinned consumer program, and requires the declarations and
+JavaScript bytes to equal the checked-in and published artifacts. It then
+initializes all seven facades through the published Browser/Wasm runtime and
+invokes the host's `AsyncLoweringCanary`. The verifier carries the same
+authoritative product `VersionPrefix` used by the deployment build into
+`ts-jsexport`, so the compiled context and generator authenticate the same exact
+`TsJsExport.Contracts` assembly identity.
+
+The schema-5 receipt preserves each facade's assembly, generated source,
+declaration, published JavaScript, and shipped WebCIL identity and digest beside
+its export and lowering counts. It also records the exact sorted repository
+project identities, their count and digest, and the successful initialization
+and canary outcome. Paired receipt validation requires both deployments to
+describe the same facade and project domains and treats only the inverse
+compiler-async/runtime-async counts as mode-specific. Build, staging, and
+production checks recompute every transferred digest without executing
+candidate code in an environment-gated deployment job.
+`PromotionWorkflowContract` gates both expected-lowering properties, exact
+facade domains, both browser invocations, graph receipts, and post-transfer
+evidence checks with close mutations.
 
 `.github/workflows/promote-inspect-web.yml` intentionally promotes one
 successful staging run to production at `https://dotnet-inspect.net`. The

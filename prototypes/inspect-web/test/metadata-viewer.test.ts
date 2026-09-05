@@ -7,6 +7,7 @@ import {
   estimateExplorerPageSize,
   explorerTableName,
   EXPLORER_PAGE,
+  groupMetadataTables,
   heapCoverageNote,
   heapStreamName,
   renderAssemblyMetadataBlock,
@@ -88,6 +89,8 @@ function recordingActions(calls: string[]): MetadataExplorerBindingActions {
     onJump: (index, rowId) => calls.push(`jump:${index}:${rowId}`),
     onOpenHeap: (assemblyFileName, heap) =>
       calls.push(`open-heap:${assemblyFileName}:${heap}`),
+    onOpenOverview: assemblyFileName =>
+      calls.push(`open-overview:${assemblyFileName}`),
     onOpenTable: (assemblyFileName, index) =>
       calls.push(`open-table:${assemblyFileName}:${index}`),
     onPage: (index, startRowId) =>
@@ -300,6 +303,9 @@ test("explorer bindings ignore malformed encoded coordinates", () => {
 
 test("metadata lens bindings open table and heap explorer views", () => {
   const root = new FakeRoot();
+  const explore = new FakeElement({ mdeAssembly: "Contoso.dll" });
+  const invalidExplore = new FakeElement({ mdeAssembly: "" });
+  root.addAll("[data-mde-explore]", explore, invalidExplore);
   const table = new FakeElement({
     mdeAssembly: "Contoso.dll",
     mdeOpen: "6",
@@ -352,6 +358,8 @@ test("metadata lens bindings open table and heap explorer views", () => {
     null,
     recordingActions(calls));
 
+  explore.dispatch("click");
+  invalidExplore.dispatch("click");
   table.dispatch("click");
   tableZero.dispatch("click");
   pipeAssemblyTable.dispatch("click");
@@ -362,6 +370,7 @@ test("metadata lens bindings open table and heap explorer views", () => {
   chip.dispatch("click");
 
   assert.deepEqual(calls, [
+    "open-overview:Contoso.dll",
     "open-table:Contoso.dll:6",
     "open-table:Contoso.dll:0",
     "open-table:A|6|B.dll:2",
@@ -398,6 +407,8 @@ function assembly(overrides = {}) {
       majorRuntimeVersion: 2,
       minorRuntimeVersion: 5,
       entryPointToken: 0x06000001,
+      managedNativeHeaderRva: 0,
+      managedNativeHeaderSize: 0,
     },
     ...overrides,
   };
@@ -407,8 +418,10 @@ function lensOptions(overrides = {}) {
   return {
     isPlatform: false,
     scopedLibrary: "",
+    packageId: "Contoso",
+    packageVersion: "1.2.3",
     activeFramework: "net10.0",
-    pickerHtml: "<div id=picker></div>",
+    controlsHtml: "<section class=package-metadata-controls><div id=picker></div></section>",
     fresh: true,
     loading: false,
     error: "",
@@ -450,11 +463,15 @@ test("the metadata lens asks the platform to pick a library before reading an im
   const html = renderPackageMetadata(lensOptions({ isPlatform: true, scopedLibrary: "" }));
   assert.match(html, /Pick a library to inspect/);
   assert.match(html, /id=picker/);
+  assert.match(
+    html,
+    /class="package-metadata-surface"[\s\S]*?class=package-metadata-controls[\s\S]*?Pick a library to inspect[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
 });
 
 test("the metadata lens reports loading and failure only for the current scope", () => {
   const loading = renderPackageMetadata(lensOptions({ loading: true, metadata: null }));
   assert.match(loading, /Reading metadata…/);
+  assert.match(loading, /<p>reading<\/p>/);
 
   const failed = renderPackageMetadata(lensOptions({ error: "boom & <bang>", metadata: null }));
   assert.match(failed, /Metadata read failed/);
@@ -474,7 +491,21 @@ test("the metadata lens surfaces a partial-read warning alongside the image", ()
   }));
   assert.match(html, /Some assemblies could not be read/);
   assert.match(html, /Native\.dll unreadable/);
-  assert.match(html, /1 assembly · net10\.0/);
+  assert.match(html, /<p>1 assembly<\/p>/);
+  assert.match(html, /title="Contoso@1\.2\.3"/);
+  assert.match(html, /title="net10\.0"/);
+});
+
+test("the metadata lens keeps selected platform context in its stable frame", () => {
+  const html = renderPackageMetadata(lensOptions({
+    isPlatform: true,
+    scopedLibrary: "System.Runtime",
+  }));
+  assert.match(html, /<p>1 assembly<\/p>/);
+  assert.match(html, /title="net10\.0 · System\.Runtime"/);
+  assert.match(
+    html,
+    /class=package-metadata-controls[\s\S]*?class="package-metadata-scroll"[\s\S]*?class="metadata-surface-footer package-metadata-surface-footer"/);
 });
 
 test("the metadata lens distinguishes a truncated metadata version", () => {
@@ -510,7 +541,7 @@ test("the metadata lens does not render all-failed inspection as valid emptiness
   assert.doesNotMatch(html, /native or resource-only/);
 });
 
-test("an assembly block lists non-empty heaps and tables sorted by row count", () => {
+test("an assembly block exposes Explore and groups tables by role", () => {
   const html = renderAssemblyMetadataBlock(assembly(), helpers);
   // The empty #Blob heap is omitted; #Strings and #GUID keep their ECMA-335 spellings.
   assert.match(html, /#Strings/);
@@ -520,14 +551,46 @@ test("an assembly block lists non-empty heaps and tables sorted by row count", (
     html,
     /data-mde-open-heap="String" data-mde-assembly="Contoso\.dll"/);
 
+  assert.match(
+    html,
+    /class="meta-explore primary-action" data-mde-explore data-mde-assembly="Contoso\.dll">Explore/);
+  assert.match(html, /Types/);
+  assert.match(html, /Members/);
+  assert.match(html, /Other/);
   const typeDefAt = html.indexOf("TypeDef");
   const methodDefAt = html.indexOf("MethodDef");
-  assert.ok(methodDefAt > 0 && methodDefAt < typeDefAt, "tables sort by descending row count");
+  assert.ok(typeDefAt > 0 && typeDefAt < methodDefAt, "tables retain metadata order within groups");
   assert.match(html, /data-mde-open="2" data-mde-assembly="Contoso\.dll"/);
   assert.match(html, /meta-table-unprojected/);
   assert.match(html, /2\/3 populated/);
   assert.match(html, /v2\.5 · ILOnly · entry 0x6000001/);
   assert.match(html, /Amd64 · PE32\+/);
+});
+
+test("an assembly block reports an available managed ReadyToRun header", () => {
+  const readyToRun = renderAssemblyMetadataBlock(assembly({
+    headers: {
+      ...assembly().headers,
+      managedNativeHeaderRva: 0x1234,
+      managedNativeHeaderSize: 96,
+    },
+  }), helpers);
+  const ilOnly = renderAssemblyMetadataBlock(assembly(), helpers);
+
+  assert.match(
+    readyToRun,
+    /ReadyToRun[\s\S]*managed native header · 96 B · RVA 0x1234/);
+  assert.doesNotMatch(ilOnly, /ReadyToRun/);
+});
+
+test("the metadata lens places assembly content directly in its owned scroller", () => {
+  const html = renderPackageMetadata(lensOptions());
+  assert.match(
+    html,
+    /<h1 id="package-metadata-surface-title">Metadata images<\/h1>[\s\S]*?<div class="package-metadata-scroll">[\s\S]*?class="document-section meta-assembly"/);
+  assert.doesNotMatch(
+    html,
+    /<h2>Metadata image<\/h2>|class="type-heading"|package-coordinate-editor/);
 });
 
 // -- Pure derivation ---------------------------------------------------------------------------
@@ -538,6 +601,26 @@ test("heap stream names match the product's ECMA-335 spelling", () => {
   assert.equal(heapStreamName("Guid"), "#GUID");
   assert.equal(heapStreamName("UserString"), "#US");
   assert.equal(heapStreamName("Future"), "#Future");
+});
+
+test("metadata tables are grouped by role with unknown tables retained", () => {
+  const groups = groupMetadataTables([
+    { index: 42, name: "FutureTable", rowCount: 1, isProjected: false },
+    { index: 6, name: "MethodDef", rowCount: 2, isProjected: true },
+    { index: 2, name: "TypeDef", rowCount: 1, isProjected: true },
+    { index: 32, name: "Assembly", rowCount: 1, isProjected: true },
+    { index: 37, name: "AssemblyRefOS", rowCount: 1, isProjected: false },
+  ]);
+
+  assert.deepEqual(groups.map(group => group.name), [
+    "Modules & assemblies",
+    "Types",
+    "Members",
+    "Other",
+  ]);
+  assert.deepEqual(
+    groups.flatMap(group => group.tables.map(table => table.name)),
+    ["Assembly", "AssemblyRefOS", "TypeDef", "MethodDef", "FutureTable"]);
 });
 
 test("focus identity compares heaps by name and tables by index, ignoring the row", () => {

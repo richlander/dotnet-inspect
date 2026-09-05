@@ -16,13 +16,12 @@ This owner defines:
 - the persistent shell's visible `Search` and `Open` actions, one stable
   Application menu for `Share`, `Settings`, and `Keyboard help`, and the
   `dotnet-inspect` Home control;
-- the title line's allocation among the product root, the navigation-
-  presentation-owned inspected target, and trailing Search/history cluster;
+- the identities, accessible behavior, and responsive visible states of the
+  row-one Home, history, Search, and Application menu controls;
 - the generic modal-dialog contract (accessible name, initial focus, inert
   background, tab containment, Escape, one-modal-at-a-time, and
   ordinary-dismissal focus return) shared by Spotlight, Open, Settings,
-  Keyboard help, the narrow navigation drawer, and the full-bleed Annotated
-  Source viewer;
+  Keyboard help, and the full-bleed Annotated Source viewer;
 - the classification that Home, Workspace, Package query, and Diagnostics are
   routed full-bleed surfaces rather than dialogs;
 - Spotlight Search's input and package-scope behavior;
@@ -72,62 +71,48 @@ This document consumes, without redefining:
 
 ## Workspace title bar and shell actions
 
-The first persistent row is one non-wrapping title line:
+Surface Composition owns the two-row placement:
 
 ```text
-dotnet-inspect  [package icon] Package > Type > Member  Back Forward  Search
+row one: dotnet-inspect  Subject  Inspectors  Back Forward  Search  Application
+row two: [package icon] Package > Type > Member          contextual actions
 ```
 
-It follows the product's CLI grammar without becoming an editable command:
+This document owns the row-one shell controls rather than the page-level
+allocation:
 
 1. `dotnet-inspect` is the stable product and Home control.
-2. Navigation Presentation renders the icon-backed typed inspected target
-   immediately after the product root. Package coordinate controls belong to
-   the Package working surface.
-3. Compact Back and Forward controls followed by flush-right Search occupy a
-   trailing cluster that yields space before the target path. The product Home
-   control remains.
+2. Compact Back and Forward controls occupy one quiet paired container.
+3. Search follows history and opens Spotlight.
+4. The Application menu is the stable inline-end action home.
 
-The title line contains no workspace tabs, indexed workspace selectors, or
+Row one contains no workspace tabs, indexed workspace selectors, or
 separate Platform workspace, active-package title, or package coordinate
 selector. Most sessions contain one workspace, so retained coordinate
 management belongs to the Workspace subject rather than permanent
 high-distraction chrome. Platform libraries are capabilities or content of the
 current workspace.
 
-The title line shows the applicable Package, Library, Type, and Member identity
-as one typed path.
-
-The second persistent line includes the Navigation Presentation-owned subject
-and inspector region: the Workspace, Package, Type, and Member subject ladder
-followed by the active subject's inspectors. `Share`, `Settings`,
-`Keyboard help`, and contextual working-surface actions are not children of
-that region or items in either SlideStrip.
+The Navigation Presentation-owned Subject and Inspector region shares row one
+with those shell controls. `Share`, `Settings`, `Keyboard help`, and contextual
+working-surface actions are not children of that region or items in either
+SlideStrip.
 
 The shell exposes one stable Application menu control separately from the
-subject zone. [Inspect Web Surface
+Subject and Inspector region. [Inspect Web Surface
 Composition](inspect-web-surface-composition.md) owns its page-level placement,
 its relationship to overflowing content, and the responsive allocation that
 keeps it outside the subject and inspector region. The control's interaction
 identity and menu inventory do not change with viewport width.
 
-Search is an input-like control in the title line that opens Spotlight. It is
+Search is an input-like control in row one that opens Spotlight. It is
 not editable in place and does not become a dominant centered command control.
 Back and Forward sit immediately to its left, following VS Code's bounded
-ordering, and Search is flush with the right edge. As target identity consumes
-width, the cluster progresses from full Search, to a `Search` button after the
-arrows, to flush-right arrows alone, and finally to no visible controls. The
-global title line exposes:
-
-```text
-dotnet-inspect (Home)   inspected target   Back   Forward   Search
-```
-
-The subject zone exposes only navigation:
-
-```text
-Workspace Package Type Member   inspectors
-```
+ordering. The Application menu follows Search at the row's inline end. Surface
+Composition owns the pressure order from full Search, to compact Search, to
+arrows alone, to no visible history/Search controls before the Subject and
+Inspector region starts reducing active identity. These states do not change
+the controls' interaction semantics.
 
 The separate Application menu exposes:
 
@@ -139,8 +124,8 @@ Application
 ```
 
 The dotnet-bot image is the product mark. The visible `dotnet-inspect` label
-remains; the image does not replace it. The inspected target owns a separate
-fixed-width root-mark slot immediately after the product control.
+remains; the image does not replace it. Navigation Presentation's row-two
+inspected target owns a separate fixed-width root-mark slot.
 
 For a NuGet package, that root mark is the bounded embedded JPEG or PNG declared
 by the package nuspec, with NuGet Gallery's default package icon as the
@@ -150,13 +135,13 @@ fallback. Legacy remote nuspec icon URLs are not fetched.
 
 The shell may land before adjacent redesign owners. During that transition:
 
-- currently supported Settings may occupy the second-row action region before
-  local-artifact Open is available;
+- currently supported Settings may remain a direct shell action before the
+  Application menu is available;
 - Open remains absent rather than appearing disabled or committing a
   success-shaped placeholder action;
 - the `dotnet-inspect` root control is the sole persistent Home affordance;
 - existing direct Share, Settings, and keyboard Help controls may remain in the
-  subject row until
+  shell until
   [Surface Composition's placement contract](inspect-web-surface-composition.md#shell-navigation-and-application-actions)
   is implemented;
 - that adoption replaces the direct controls atomically with the one
@@ -261,8 +246,8 @@ invoker and the modal applies its initial-focus rule. The stable menu-button
 invoker, not the removed menu item, becomes the modal's ordinary-dismissal
 return target; dismissal does not reopen the menu.
 
-Spotlight, Open, Settings, Keyboard help, the narrow navigation drawer, and the
-full-bleed Annotated Source viewer are modal dialogs:
+Spotlight, Open, Settings, Keyboard help, and the full-bleed Annotated Source
+viewer are modal dialogs:
 
 - each has a visible accessible name and close action;
 - opening moves focus to its primary input, current selection, or heading;
@@ -321,7 +306,7 @@ Spotlight as the one search experience for:
 - platform inputs; and
 - commands.
 
-The title-line Search control uses the expanded label
+The row-one Search control uses the expanded label
 `Search types, members, packages` and transfers focus to Spotlight's editable
 input when activated. The control does not carry a visible shortcut badge;
 Spotlight's footer lists `Ctrl P` alongside its existing navigation guidance
@@ -338,6 +323,9 @@ Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input
 method composition. Pasting a package coordinate updates results immediately;
 it is not dependent on keyboard events that paste does not emit.
+
+[Package-row removal](inspect-web-package-removal.md) owns the trailing close
+control for open and recent NuGet package rows in Home and modal Spotlight.
 
 Spotlight exposes one visible `Package query` action. Activating it closes
 Spotlight and requests the routed `/query` surface. When the current
@@ -453,30 +441,33 @@ outcomes.
 
 ### Workspace title bar
 
-1. Confirm that the icon-backed typed Package, Type, and Member path follows
-   `dotnet-inspect` in the title line, with no Package coordinate controls.
-2. Confirm that the line contains no workspace tabs, numeric workspace
-   selectors, or separate Platform workspace.
+1. Confirm that row one contains the `dotnet-inspect` Home control, Subject and
+   Inspector navigation, Back and Forward, Search, and the Application menu,
+   with no Package coordinate controls.
+2. Confirm that row one contains no workspace tabs, numeric workspace
+   selectors, separate Platform workspace, or reconstructed inspected target.
 3. Open Workspace and confirm that retained coordinates move into its working
    surface with activation and Close actions.
-4. Select a Type or Member and confirm that the title line advertises the
-   Package, Type, and Member path in order while the full-width row below
-   contains the subject and inspector strip.
+4. Select a Type or Member and confirm that row two advertises the Package,
+   Type, and Member path in order while row one retains the subject and
+   inspector strip.
 5. Select Package and confirm that Version and Framework appear in its working
    surface. Confirm that every product-issued subject-path segment copies its
    own typed canonical name, there is no separate Copy name action, and the
    Application menu's Share action retains the exact workspace identity.
    `dotnet-inspect` is the sole Home affordance.
-6. Narrow the viewport or lengthen the inspected target and confirm that the
-   title-line action cluster progresses from full Search, to `Search`, to
-   arrows, to nothing. Confirm that the subject row contains only subject and
-   inspector navigation and that narrowing does not change the Application
-   menu's action inventory.
+6. Narrow the viewport and confirm that the row-one action cluster progresses
+   from full Search, to `Search`, to arrows, to nothing before Subject or
+   Inspector navigation reduces active identity. Lengthen the row-two target
+   and confirm that the row-one Search state does not change. Narrowing does
+   not change the Application menu's action inventory.
 7. Confirm that the product bot and inspected-target root mark retain distinct
-   bounded icon slots and the current target leaf uses the shared accent.
+   bounded icon slots in their respective rows and the current target leaf uses
+   the shared accent.
 8. Confirm that no persistent package-query input or centered command-center
    control appears, and that Back and Forward sit immediately left of the
-   visible flush-right Search control, which opens Spotlight.
+   visible Search control, which precedes the Application menu and opens
+   Spotlight.
 
 ### Application menu scenarios
 
@@ -556,9 +547,9 @@ outcomes.
    background content, and focus return for each.
 3. Launch Diagnostics from Settings and Spotlight and confirm that focus moves
    to the routed Diagnostics heading rather than back to the modal invoker.
-4. Commit navigation from Search, Open, and the narrow drawer and confirm that
+4. Commit navigation from Search and Open and confirm that
    focus moves to the resulting active-subject heading.
-5. Return typed failures from Search, Open, and the narrow drawer and confirm
+5. Return typed failures from Search and Open and confirm
    that the prior surface and history remain active, the failure is visible,
    and focus moves to the surviving modal invoker or retained surface heading.
 6. Keep a modal open across product-maintenance renderer replacement and confirm

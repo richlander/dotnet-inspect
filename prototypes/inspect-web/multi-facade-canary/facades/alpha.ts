@@ -4,14 +4,21 @@
 //   eng/generate-inspect-web-multi-facade-canary.sh
 // CI fails if this facade drifts.
 
-import { dotnet, type RuntimeAPI } from "../_framework/dotnet.js";
+import { dotnet } from "../_framework/dotnet.js";
 
 export type Flavor = "Vanilla" | "Chocolate" | number;
+
+export type ManagedOperationCanaryResultKind = "Succeeded" | number;
 
 export interface Envelope {
   readonly assembly: string;
   readonly value: string;
   readonly flavor: Flavor;
+}
+
+export interface ManagedOperationCanaryResult {
+  readonly kind: ManagedOperationCanaryResultKind;
+  readonly value: number;
 }
 
 type $ManagedExports = {
@@ -22,6 +29,8 @@ type $ManagedExports = {
         readonly "Describe.304094707": (value: string) => string;
         readonly "GetEnvelopeAsync.451505237": (value: string, flavor: string) => Promise<string>;
         readonly "Identity.1310674786": () => string;
+        readonly "ReportRetainedManagedOperationCanaryEvent.1002069475": (kind: number, value: string) => void;
+        readonly "RunManagedOperationCanary.975359570": (operationId: string, eventCallback: (arg0: number, arg1: string) => undefined) => Promise<string>;
         readonly "VerifyInvocations.1310674786": () => string;
       };
       readonly "SecondaryExports": {
@@ -31,8 +40,16 @@ type $ManagedExports = {
   };
 };
 
+export interface JsExportRuntime {
+  readonly getAssemblyExports: (assemblyName: string) => Promise<unknown>;
+  readonly runMain: (
+    mainAssemblyName?: string,
+    args?: string[],
+  ) => Promise<number>;
+}
+
 const $notInitializedError = new Error("The .NET runtime facade is not initialized.");
-let $runtime: RuntimeAPI | undefined;
+let $runtime: JsExportRuntime | undefined;
 let $managedExports: $ManagedExports | undefined;
 let $initialization: Promise<void> | undefined;
 let $initializationFailure: { readonly error: unknown } | undefined;
@@ -48,7 +65,7 @@ function $ownDataProperty(value: unknown, key: string): unknown {
   return descriptor.value;
 }
 
-function $requireRuntime(): RuntimeAPI {
+function $requireRuntime(): JsExportRuntime {
   if ($initializationFailure !== undefined) throw $initializationFailure.error;
   if ($runtime === undefined) {
     throw $notInitializedError;
@@ -110,6 +127,26 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "MultiFacade");
     value = $ownDataProperty(value, "Shared");
     value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "ReportRetainedManagedOperationCanaryEvent.1002069475");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027MultiFacade.Shared.Exports.ReportRetainedManagedOperationCanaryEvent.1002069475\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "MultiFacade");
+    value = $ownDataProperty(value, "Shared");
+    value = $ownDataProperty(value, "Exports");
+    value = $ownDataProperty(value, "RunManagedOperationCanary.975359570");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027MultiFacade.Shared.Exports.RunManagedOperationCanary.975359570\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "MultiFacade");
+    value = $ownDataProperty(value, "Shared");
+    value = $ownDataProperty(value, "Exports");
     value = $ownDataProperty(value, "VerifyInvocations.1310674786");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027MultiFacade.Shared.Exports.VerifyInvocations.1310674786\u0027 is not callable.");
@@ -127,17 +164,25 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
   }
 }
 
-async function $initializeRuntimeCore(): Promise<void> {
-  const runtime = await dotnet.create();
+async function $initializeRuntimeCore(
+  runtime: JsExportRuntime,
+): Promise<void> {
   const exports: unknown = await runtime.getAssemblyExports("TsJsExport.MultiFacade.Alpha");
   $validateManagedExports(exports);
   $runtime = runtime;
   $managedExports = exports;
 }
 
-export function initializeRuntime(): Promise<void> {
+export function createRuntime(): Promise<JsExportRuntime> {
+  return dotnet.create();
+}
+
+export function initializeRuntime(
+  runtime?: JsExportRuntime | PromiseLike<JsExportRuntime>,
+): Promise<void> {
   if ($initialization === undefined) {
     $initialization = Promise.resolve()
+      .then(() => runtime === undefined ? createRuntime() : runtime)
       .then($initializeRuntimeCore)
       .catch((error: unknown) => {
         $initializationFailure = { error };
@@ -170,6 +215,16 @@ export async function getEnvelopeAsync(value: string, flavor: string): Promise<E
 
 export function identity(): string {
   return $requireManagedExports()["MultiFacade"]["Shared"]["Exports"]["Identity.1310674786"]();
+}
+
+export function reportRetainedManagedOperationCanaryEvent(kind: number, value: string): void {
+  return $requireManagedExports()["MultiFacade"]["Shared"]["Exports"]["ReportRetainedManagedOperationCanaryEvent.1002069475"](kind, value);
+}
+
+export async function runManagedOperationCanary(operationId: string, eventCallback: (arg0: number, arg1: string) => undefined): Promise<ManagedOperationCanaryResult> {
+  const $result = await $requireManagedExports()["MultiFacade"]["Shared"]["Exports"]["RunManagedOperationCanary.975359570"](operationId, eventCallback);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as ManagedOperationCanaryResult;
 }
 
 export function verifyInvocations(): string {

@@ -35,7 +35,13 @@
     },
     {
       "files": [
-        "engine/wwwroot/inspect-web-engine.js"
+        "engine/wwwroot/inspect-web-host.js",
+        "engine/wwwroot/inspect-web-package.js",
+        "engine/wwwroot/inspect-web-metadata.js",
+        "engine/wwwroot/inspect-web-analysis.js",
+        "engine/wwwroot/inspect-web-source.js",
+        "engine/wwwroot/inspect-web-call-graph.js",
+        "engine/wwwroot/inspect-web-catalog.js"
       ],
       "rules": {
         "typescript/no-unsafe-argument": "off",
@@ -48,9 +54,16 @@
     },
     {
       "files": [
-        "engine/inspect-web-engine.ts",
+        "engine/facades/inspect-web-host.ts",
+        "engine/facades/inspect-web-package.ts",
+        "engine/facades/inspect-web-metadata.ts",
+        "engine/facades/inspect-web-analysis.ts",
+        "engine/facades/inspect-web-source.ts",
+        "engine/facades/inspect-web-call-graph.ts",
+        "engine/facades/inspect-web-catalog.ts",
         "multi-facade-canary/facades/alpha.ts",
-        "multi-facade-canary/facades/beta.ts"
+        "multi-facade-canary/facades/beta.ts",
+        "managed-operation-bridge-canary/facades/bridge.ts"
       ],
       "rules": {
         "typescript/no-redundant-type-constituents": "off",

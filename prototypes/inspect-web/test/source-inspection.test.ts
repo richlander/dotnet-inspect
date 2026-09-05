@@ -7,7 +7,7 @@ import {
   type SourceInspectionDependencies,
   type SourceInspectionState,
 } from "../src/source-inspection.ts";
-import type { BrowserSource } from "../src/inspect-web-engine.d.ts";
+import type { BrowserSource } from "../src/facades/inspect-web-source.d.ts";
 import type { MemberFocusSnapshot } from "../src/member-focus.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
@@ -118,10 +118,10 @@ test("Source composition uses shell actions and a full-area loaded surface", () 
     /const sourcePageKind =[\s\S]*activeScope === "type" && state\.lens === "source"[\s\S]*activeScope === "member"[\s\S]*state\.memberSection === "source"/);
   assert.match(
     appSource,
-    /class="working-surface-actions" role="group" aria-label="\$\{annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
+    /class="working-surface-actions" role="group" aria-label="\$\{callGraphPageContext \? "Call graph actions" : annotatedPageContext \? "Annotated Source actions" : "Source actions"\}"[\s\S]*renderSourcePageActions\(\{[\s\S]*copyButtonId: sourcePageKind === "member"[\s\S]*"copy-source"[\s\S]*"copy-type-source"/);
   assert.match(
     appSource,
-    /class="shell-actions\$\{annotatedPageContext \? " annotated-page-actions" : ""\}\$\{sourcePageKind \? " source-page-actions" : ""\}/);
+    /contextualActionsHtml: annotatedPageContext \|\| sourcePageKind[\s\S]*class="working-surface-actions"/);
   assert.doesNotMatch(
     appSource,
     /class="legacy-application-actions"/);

@@ -32,7 +32,21 @@ provenance, and failures, and retains each available immutable snapshot for the
 rest of that library inspection without reopening the source path. Package
 `--all-libraries` partitions binding universes by package asset directory,
 preserving non-`net*` framework and runtime contexts, and releases each
-participant before advancing. Progressive member call
+participant before advancing. For a remote package whose default selection
+resolves one target framework, that grouped path now consumes the shared
+artifact-backed package-role realization: the existing visible surface
+selection remains the input to ordinary library inspection while Integration
+queries use its exact body-bearing implementation participant when one exists.
+A rejected implementation remains visible without erasing an available
+surface, and asynchronous workspace close retains the artifact generation
+until both participant groups settle. Ordinary presentation retains the
+selected extraction file's timestamp rather than manufacturing a timestamp
+from the artifact stream. The artifact-backed path requires the
+binding's frozen surface role to exactly cover the command's visible selection
+and to form exact assembly-identity correspondence; other package shapes
+retain the legacy grouped workspace. Local archives and explicit `--tfm` modes
+also keep that path because their visible selection can span tools or multiple
+package layout roles. Progressive member call
 graphs now run over the same group: they build Analysis indexes from retained
 snapshots, keep one cross-assembly catalog generation for both traversal
 directions, and remain independent of rendering. Group-scoped optimization
@@ -347,6 +361,12 @@ framework and runtime identity when known, and the resolution policy that chose
 them. It also retains the acquisition provenance and policy inputs needed to
 decide whether a query may use their content. Authorization remains a decision
 for the current query plan, not a permanent property of the group.
+
+[Workspace Scope and Expansion](design/workspace-scope-and-expansion.md) owns
+the committed logical Root occurrences above those physical contexts,
+closed-by-default selective dependency expansion, revision-bound scope edits,
+and closure completeness. Artifact Acquisition retains realization, admission,
+binding-context publication, query authorization, and physical lifetime.
 
 Queries may cross assembly boundaries within a group. They must not infer a
 relationship across groups. Multiple groups support comparisons such as two
@@ -1069,27 +1089,38 @@ a typed query result to instantiate a workspace in a later authorized stage.
 Several scenarios may reuse one workspace definition, and a host may inspect
 the definition without running a preset or acquiring its inputs.
 
-Product-resident home demos ship as a static id→factory registry
-(`DotnetInspector.Queries.Definitions.ProductInspectionDemos`, smooth-markdown-table
-`RendererRegistry` style); hosts resolve one demo via
-`ProductInspectionDemos.ResolveHomeScenario`, which allocates only that demo's
-peer records and requires a `ProductDemoSections` binding. Home demos are closed
-presets over the open query/section product: the registry fixes inputs and names
-**existing product section(s)** (`ProductDemoSections.ExpandRunSections` expands
-Call Graph presets format-aware: Markdown keeps Call Graph + Callers;
-table/tsv/jsonl keep Callers when the demo has caller scope so the re-add stays
-one section, otherwise Call Graph so package-local entry points still emit rows;
-mermaid keeps Call Graph; document JSON fails closed until graph projection
-lands); the CLI host runs them through the normal type/member section pipelines
-(`DemoScenarioRunner` → `TypeCommand` / `MemberCommand`) and returns those
-sections in ordinary formats. Demos must not call past sections into ad hoc
-inspection APIs; a capability that is not a product section is not a home demo
-until the section exists. CLI argv, definition plans, and browser engine
-operations (including a generated TypeScript binding of that engine surface)
-must be encodings of the same preset—not parallel demo systems. Residual:
-minted view-facet ids, `WorkspaceContextLoader` as the shared group-run owner,
-and Call Graph structured-JSON projection (see
-workspace-definitions). Detail:
+Product-resident home demos ship through the static application
+ecosystem catalog. `DotnetInspector.Ecosystems` owns which sources ship,
+ecosystem grouping, display metadata, and global product order. Workspace
+Definitions owns `ProductDemoSourceBinding`, record types and peer-graph
+validation, exact scenario resolution, section admission, run plans, execution,
+and failures. The selected application-authored factory constructs the records.
+Grouped and flat discovery expose only immutable metadata; selecting one exact
+scenario ID dispatches only that source, whose binding requires exactly one
+matching scenario record. Selection retains the catalog descriptor beside the
+resolved scenario, and hosts use that descriptor as product display metadata.
+The donor `DotnetInspector.Queries.Definitions.ProductInspectionDemos` registry
+has been removed; `DotnetInspector.Ecosystems` is the sole shipping application
+inventory.
+
+Home demos are closed presets over the open query/section product: each source
+fixes inputs and names **existing product section(s)**
+(`ProductDemoSections.ExpandRunSections` expands Call Graph presets
+format-aware: Markdown keeps Call Graph + Callers; table/tsv/jsonl keep Callers
+when the demo has caller scope so the re-add stays one section, otherwise Call
+Graph so package-local entry points still emit rows; mermaid keeps Call Graph;
+document JSON fails closed until graph projection lands). The CLI host runs
+them through the normal type/member section pipelines (`DemoScenarioRunner` →
+`TypeCommand` / `MemberCommand`) and returns those sections in ordinary
+formats. Demos must not call past sections into ad hoc inspection APIs; a
+capability that is not a product section is not a home demo until the section
+exists. CLI argv, definition plans, and browser engine operations (including a
+generated TypeScript binding of that engine surface) must be encodings of the
+same preset—not parallel demo systems. Ecosystem grouping does not select or
+activate the pack's package set, prefixes, or scanner, and is never inferred
+from package coordinates or display text. Residual: minted view-facet ids,
+`WorkspaceContextLoader` as the shared group-run owner, and Call Graph
+structured-JSON projection (see workspace-definitions). Detail:
 [workspace-definitions.md — Product demos are closed section
 presets](design/workspace-definitions.md#product-demos-are-closed-section-presets).
 

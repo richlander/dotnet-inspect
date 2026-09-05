@@ -80,6 +80,63 @@ Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
 
+### Library inspection subject
+
+After a `library` source resolver identifies a physical participant, the
+command forms one command-scoped inspection subject carrying its path and the
+selected `ResolvedAssemblyReference`, when one exists. An integration-produced
+descriptor is preferred unchanged; otherwise the command consumes
+`ResolvedAssemblyReference.SelectFromPath` with the direct-file, package, or
+platform resolver's typed provenance. The command does not decode metadata to
+reclassify that result.
+
+A `Rejected` selection is reported with the selected path before SourceLink
+probing, ordinary inspection, or an IL-coordinate early return. A
+`Descriptorless` selection keeps the path-only compatibility route. The same
+subject supplies local SourceLink probing, `LibraryMetadataService`, and both
+single and batch IL-coordinate resolution. Package selection remains
+participant-scoped: a rejected participant contributes a warning and non-zero
+exit status without suppressing healthy participants.
+
+`LibraryInspectionSubject_PreservesPreferredDescriptorForDownstreamOpen`,
+`LibraryCommand_IlOffsetsFile_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PackageIlOffsets_RejectsMalformedDescriptorBeforeReadingCoordinates`,
+`LibraryCommand_PlatformIlOffsets_RejectsMalformedResolvedAssemblyBeforeReadingCoordinates`,
+and
+`LibraryCommand_TfmAll_PreservesHealthyResultsWhenDescriptorSelectionIsRejected`
+gate this composition.
+
+### Type API-surface selection
+
+Type listing, single-type inspection, and compact platform listing consume
+Metadata's typed assembly selection before API extraction. `Ready` supplies
+the selected descriptor to extraction and retains it with each root `ApiType`;
+forwarded types retain their supplier descriptors. `Rejected` is a visible
+failure naming the selected path, not a retry through a path-only reader.
+Only `Descriptorless` retains the module/non-assembly compatibility route.
+Platform-prefix listing applies the same rule to each selected library.
+
+The descriptor carries the resolved source's package/version/TFM, platform
+framework/version, project context, or local provenance. Deferred type/member
+routing uses the same selection path and passes the loaded surface to `type`
+unchanged, rather than selecting or extracting it again.
+
+`TypeApiSelection_RejectsUnusableAssemblyIdentity`,
+`TypeApiSelection_RejectsUnusablePackageAssembly`,
+`TypeApiSelection_PreservesAssemblyAndModuleInspection`,
+`TypeApiSelection_RetainsResolvedProvenance`,
+`TypeApiSelection_RetainsForwardedSupplier`,
+`TypeApiSelection_CompactSummaryUsesTypedSelection`, and
+`Router_DeferredExactTypeReusesResolvedApiSurface` gate this composition.
+
+This is the API-surface slice in
+[#5853](https://github.com/richlander/dotnet-inspect/issues/5853), not complete
+descriptor adoption for every `type` operation. Existing source/PDB policy
+consumers keep receiving the selected type's descriptor. Runtime and
+source-context acquisition, deep Analysis/decompiler acquisition, and
+acquired-PDB propagation remain focused successors under
+[#4867](https://github.com/richlander/dotnet-inspect/issues/4867).
+
 ## Command families
 
 The command surface is organized by operation shape rather than by

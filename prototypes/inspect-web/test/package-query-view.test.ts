@@ -91,17 +91,18 @@ test("an unstarted query renders the composing empty state", () => {
   assert.match(html, /Query nuget\.org/);
 });
 
-test("the persistent brand opens the resident workspace", () => {
+test("the query header keeps home and Back without Query or Workspace buttons", () => {
   const html = renderPackageQueryView({
     state: initialQueryState(),
     availableFacets: FACETS,
-    workspaceHref: "/?package=Example&version=1.0.0",
     escapeHtml,
   });
 
+  assert.doesNotMatch(html, /application-scope/);
+  assert.match(html, /id="package-query-back" type="button">Back<\/button>/);
   assert.match(
     html,
-    /id="package-query-workspace" class="brand" href="\/\?package=Example&amp;version=1\.0\.0" aria-label="dotnet inspect workspace"/);
+    /id="package-query-product" class="brand" href="\/" aria-label="dotnet inspect home"/);
 });
 
 test("a packageId cannot break out of the row's HTML attribute context via a quote", () => {
@@ -132,6 +133,8 @@ test("a streaming result renders rows, product facets, and the streaming footer"
   assert.match(html, /1M\+ downloads/);
   assert.match(html, /streaming…/);
   assert.match(html, /data-query-cancel="1"/);
+  assert.match(html, />Open in workspace<\/button>/);
+  assert.doesNotMatch(html, /application-scope/);
   assert.doesNotMatch(html, /Deepen|data-query-row-select/);
   assert.doesNotMatch(html, /class="query-footer" role="status"/);
 });
@@ -449,6 +452,8 @@ class FakeElement {
   readonly dataset: Record<string, string | undefined>;
   readonly id: string;
   focusCount = 0;
+  hidden = false;
+  rendered = true;
   scrollTop = 0;
   selectionStart: number | null = null;
   selectionEnd: number | null = null;
@@ -475,6 +480,10 @@ class FakeElement {
 
   focus() {
     this.focusCount++;
+  }
+
+  checkVisibility() {
+    return this.rendered;
   }
 
   setSelectionRange(start: number, end: number) {
@@ -523,9 +532,9 @@ test("query focus snapshots restore semantic controls after a full render", () =
       replacement: new FakeElement({}, "package-query-run"),
     },
     {
-      active: new FakeElement({}, "package-query-workspace"),
-      selector: "#package-query-workspace",
-      replacement: new FakeElement({}, "package-query-workspace"),
+      active: new FakeElement({}, "package-query-product"),
+      selector: "#package-query-product",
+      replacement: new FakeElement({}, "package-query-product"),
     },
     {
       active: new FakeElement({}, "package-query-back"),
@@ -619,6 +628,26 @@ test("a vanished query control reports prefix fallback", () => {
     assert.equal(restoration, "fallback");
     assert.equal(prefix.focusCount, 1);
   }
+});
+
+test("a CSS-hidden query control reports prefix fallback", () => {
+  const active = new FakeElement({}, "package-query-back");
+  const replacement = new FakeElement({}, "package-query-back");
+  replacement.rendered = false;
+  const prefix = new FakeElement({}, "package-query-prefix");
+  const root = new FakeRoot(active);
+  root.add("#package-query-back", replacement);
+  root.add("#package-query-prefix", prefix);
+  // Test fake implements the Document and ParentNode subset consumed by the helpers.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const documentRoot = root as unknown as Document;
+
+  const snapshot = capturePackageQueryFocus(documentRoot);
+  const restoration = restorePackageQueryFocus(documentRoot, snapshot);
+
+  assert.equal(restoration, "fallback");
+  assert.equal(replacement.focusCount, 0);
+  assert.equal(prefix.focusCount, 1);
 });
 
 test("an unfocused query render does not move focus into the prefix", () => {
