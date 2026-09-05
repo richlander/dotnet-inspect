@@ -2966,10 +2966,11 @@ public sealed partial class ClassicInverseCoreTests
         MetadataSource source,
         string methodName,
         bool ownsSource,
-        Action<IrFunction>? mutateExecution = null)
+        Action<IrFunction>? mutateExecution = null,
+        string fixtureType = FixtureType)
     {
         IrFunction kickoff = Assert.IsType<IrFunction>(
-            IrImporter.Import(source, FixtureType, methodName));
+            IrImporter.Import(source, fixtureType, methodName));
         var seed = Assert.IsType<
             ClassicAsyncRequestAdapterResult.RequestAvailable>(
                 kickoff.ClassicAsyncRequest).Request;

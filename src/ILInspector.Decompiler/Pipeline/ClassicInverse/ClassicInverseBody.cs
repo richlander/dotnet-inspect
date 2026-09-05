@@ -329,6 +329,27 @@ internal sealed record ClassicInverseNewObjectNode(
         + $"({Children(Arguments)})";
 }
 
+internal sealed record ClassicInverseLoadPropertyNode(
+    MethodRef Accessor,
+    bool IsVirtual,
+    bool HasInstance,
+    ImmutableArray<ClassicInverseBodyNode> Arguments)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new LoadProperty(
+            Accessor,
+            HasInstance ? Expr(Arguments[0]) : null,
+            [.. Arguments.Skip(HasInstance ? 1 : 0).Select(Expr)])
+        {
+            IsVirtual = IsVirtual,
+        };
+
+    internal override string Signature =>
+        $"property[{MethodText(Accessor)}:{IsVirtual}:{HasInstance}]"
+        + $"({Children(Arguments)})";
+}
+
 internal sealed record ClassicInverseLoadElementNode(
     TypeRef? ElementType,
     MetadataFactState ResultIsDynamic,
@@ -620,6 +641,18 @@ internal static class ClassicInverseBodyCapture
                     : new ClassicInverseNewObjectNode(
                         Detach(creation.Constructor),
                         creation.AnonymousPropertyNames,
+                        arguments.Value);
+            }
+
+            case LoadProperty load:
+            {
+                var arguments = TryCaptureAll(load.Children, budget);
+                return arguments is null
+                    ? null
+                    : new ClassicInverseLoadPropertyNode(
+                        Detach(load.Accessor),
+                        load.IsVirtual,
+                        load.HasInstance,
                         arguments.Value);
             }
 

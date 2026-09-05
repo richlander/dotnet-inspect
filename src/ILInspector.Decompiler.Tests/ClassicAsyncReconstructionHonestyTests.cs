@@ -113,7 +113,7 @@ public class ClassicAsyncReconstructionHonestyTests
         "with")]
     [InlineData(
         "SequentialWithImplicitConversion",
-        "long beta = await b;")]
+        "long beta = (long)(await b);")]
     public void FaithfulLegacyRecipeRemainsFullyReconstructed(
         string methodName,
         string expectedOutput)

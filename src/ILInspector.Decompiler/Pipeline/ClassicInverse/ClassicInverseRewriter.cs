@@ -117,12 +117,6 @@ internal sealed class ClassicInverseRewriter
             case LoadStackSlot:
             case StoreStackSlot:
                 return null;
-
-            case Convert { IsChecked: false } convert
-                when CSharpConversionRules.IsImplicitNumericAssignment(
-                    convert.Operand.ResultType ?? convert.Target,
-                    convert.Target):
-                return RewriteCore(convert.Operand);
         }
 
         foreach (IrNode unused in source.Descendants)

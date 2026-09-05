@@ -349,19 +349,6 @@ internal static class ClassicInverseRealizationRules
             return true;
         }
 
-        if (source is Convert { IsChecked: false } implicitConversion
-            && output is not Convert
-            && CSharpConversionRules.IsImplicitNumericAssignment(
-                implicitConversion.Operand.ResultType ?? implicitConversion.Target,
-                implicitConversion.Target))
-        {
-            return Lockstep(
-                implicitConversion.Operand,
-                output,
-                context,
-                out failure);
-        }
-
         if (!ReferenceEquals(output, context.OutputRoot)
             && context.ClaimByOutput.TryGetValue(output, out ClassicInverseClaim? byOutput))
         {
@@ -595,6 +582,10 @@ internal static class ClassicInverseRealizationRules
                 && Equals(left.ConstrainedTo, right.ConstrainedTo)
                 && left.ExtensionSyntaxConflict
                     == right.ExtensionSyntaxConflict,
+            (LoadProperty left, LoadProperty right) =>
+                left.Accessor == right.Accessor
+                && left.IsVirtual == right.IsVirtual
+                && left.HasInstance == right.HasInstance,
             (NewObject left, NewObject right) =>
                 left.Constructor == right.Constructor
                 && left.AnonymousPropertyNames.SequenceEqual(

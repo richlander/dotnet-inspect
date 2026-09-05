@@ -559,6 +559,11 @@ The realization relation preserves:
 - exception and finally context; and
 - return, throw, break, continue, and leave ownership.
 
+An implicit assignment conversion alone does not license erasing a conversion
+inside an expression: arithmetic width, rounding, and overflow behavior must
+remain unchanged. Property reads preserve the exact accessor, dispatch,
+instance presence, and ordered index arguments through detached publication.
+
 ### Structured-ancestor receipts
 
 For each consumed semantic node, the plan records the uninterrupted parent path
@@ -707,6 +712,12 @@ Release gates:
 | `ClassicInverseAcceptedPopulationIsMeasured` | The implementation changes the accepted compiler-fixture population without an explicit expected delta and per-method review. |
 | `ClassicInversePreservesExistingValueTaskReconstruction` | The existing `ValueTask<T>` compiler fixture stops reconstructing through the exact core proof or loses its Full `return await a;` product output. |
 | `ClassicInverseValueTaskDispatchCannotBeHealedByPlanning` | A planning-only repair hides a changed raw ValueTask `GetAwaiter` member or dispatch. |
+| `ClassicInversePreservesArithmeticConversions` | Reconstruction drops widening conversions before integer addition, floating-point division, or checked arithmetic. |
+| `ClassicInverseDoesNotWidenIntegerArithmetic` | Reconstruction invents widening for an ordinary integer addition. |
+| `ClassicInverseRejectsErasedArithmeticConversion` | The accountant licenses a proposed arithmetic operand whose conversion has been erased. |
+| `ClassicInversePreservesPropertyAccess` | Existing property, indexer, static, or virtual getter expressions stop reconstructing or lose their typed shape. |
+| `ClassicInverseRejectsChangedPropertyIdentityOrDispatch` | The accountant licenses a changed getter member or call-site dispatch. |
+| `ClassicInversePropertyPlanIsDetached` | A property's receiver or index arguments alias a request or another materialization, or its accessor retains an acquisition guard. |
 
 The first five gates need compiler-produced positives plus synthetic close
 negatives. Two later gates are deliberately narrower.
