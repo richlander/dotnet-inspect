@@ -746,6 +746,10 @@ public static class ApiSurfaceExtractor
                         moduleVersionId, GetMemorySafetyIndex().Rules),
                 IsSealed = (attributes & TypeAttributes.Sealed) != 0,
                 IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                HasUnionAttribute = AttributeReader.HasUnionAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork),
                 Attributes = AttributeReader.RenderAttributes(
                     reader,
                     typeDef.GetCustomAttributes(),
