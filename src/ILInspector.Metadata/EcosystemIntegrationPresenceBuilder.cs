@@ -76,9 +76,9 @@ internal static class EcosystemIntegrationPresenceBuilder
                 .Count()
             + (hasOpenTelemetrySupport ? 1 : 0);
 
-        if (peReader.HasMetadata)
+        if (MetadataFormatAdmission.AdmitImage(peReader))
         {
-            MetadataReader reader = peReader.GetMetadataReader();
+            MetadataReader reader = MetadataFormatAdmission.GetMetadataReader(peReader);
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 TypeDefinition typeDefinition =

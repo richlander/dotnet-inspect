@@ -17,10 +17,10 @@ public static class SwitchScanner
 
     public static List<SwitchInfo> Scan(PEReader peReader)
     {
-        if (!peReader.HasMetadata)
+        if (!MetadataFormatAdmission.AdmitImage(peReader))
             return [];
 
-        var reader = peReader.GetMetadataReader();
+        var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Dictionary<string, SwitchInfo> switches = new(StringComparer.Ordinal);
         AddRuntimeHostConfigurationOptions(reader, switches);
         AddFeatureSwitchDefinitions(reader, switches);
@@ -33,7 +33,7 @@ public static class SwitchScanner
     }
 
     public static bool HasSupport(PEReader peReader)
-        => peReader.HasMetadata && Scan(peReader).Count > 0;
+        => MetadataFormatAdmission.AdmitImage(peReader) && Scan(peReader).Count > 0;
 
     private static void AddRuntimeHostConfigurationOptions(
         MetadataReader reader,
