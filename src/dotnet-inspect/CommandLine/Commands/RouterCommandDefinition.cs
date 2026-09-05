@@ -219,6 +219,13 @@ public static class RouterCommandDefinition
                                 _ => throw new InvalidOperationException("Unexpected package parse result."),
                             };
                         }
+                        else if (command == "library")
+                        {
+                            optionError = LibraryCommand.GetDiscoveryModeError(
+                                interpretation.GetValue(opts.Effective),
+                                opts.IsDiscoveryMode(interpretation),
+                                opts.ParseSchema(interpretation));
+                        }
                     }
                     optionErrors.Add(command, optionError);
                 }

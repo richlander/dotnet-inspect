@@ -389,7 +389,8 @@ public static class SharedParsers
         bool typeScoped,
         string? typeName,
         out BodyKindQueryOptions bodyKindQuery,
-        out PerformanceTriageOptions performanceTriage)
+        out PerformanceTriageOptions performanceTriage,
+        TypeGestureIntent? typeGesture = null)
     {
         string[] whereExpressions =
             parseResult.GetValue(options.RowWhere) ?? [];
@@ -407,7 +408,8 @@ public static class SharedParsers
             && bodyKindQuery.HasFilter
             && (string.IsNullOrWhiteSpace(typeName)
                 || typeName.Contains('*')
-                || typeName.Contains('?')))
+                || typeName.Contains('?')
+                || typeGesture?.SelectsListingCatalog(typeName) == true))
         {
             performanceTriage = new PerformanceTriageOptions();
             return new OptionError(

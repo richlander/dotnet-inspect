@@ -160,14 +160,12 @@ public class LibraryCommand
         options = aliasNormalized.Options;
         options = NormalizeReferenceProjection(options);
 
-        if (options.Effective && options.Discover == null)
+        if (GetDiscoveryModeError(
+                options.Effective,
+                options.Discover is not null,
+                options.Schema) is { } discoveryModeError)
         {
-            CommandError.Write("--effective requires -D/--discover.");
-            return 1;
-        }
-        if (options.Effective && options.Schema)
-        {
-            CommandError.Write("--effective cannot be combined with --schema.");
+            CommandError.Write(discoveryModeError);
             return 1;
         }
 
@@ -1801,7 +1799,7 @@ public class LibraryCommand
     /// Resolves every hex table spelling in <paramref name="values"/>. Returns a null array when
     /// nothing needed rewriting, so an untouched selection keeps its original instance.
     /// </summary>
-    private static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
+    internal static (string[]? Values, string? Error) ResolveTableAliases(string[]? values)
     {
         if (values is not { Length: > 0 })
             return (null, null);
@@ -1820,6 +1818,18 @@ public class LibraryCommand
         }
 
         return (rewritten, null);
+    }
+
+    internal static OptionError? GetDiscoveryModeError(
+        bool effective,
+        bool hasDiscovery,
+        bool schema)
+    {
+        if (effective && !hasDiscovery)
+            return new OptionError("--effective requires -D/--discover.");
+        if (effective && schema)
+            return new OptionError("--effective cannot be combined with --schema.");
+        return null;
     }
 
     /// <summary>

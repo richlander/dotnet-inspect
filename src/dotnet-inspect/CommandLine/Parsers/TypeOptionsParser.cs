@@ -83,19 +83,21 @@ public static class TypeOptionsParser
             return true;
         }
 
+        var (typeFilter, _) =
+            SharedParsers.ParseTypeFilter(
+                parseResult.GetValue(args.TypeFilterOption));
+        var typeGesture = new TypeGestureIntent(typeFilter);
         error = SharedParsers.ParseAnalysisQueryOptions(
             parseResult,
             options,
             typeScoped: true,
             typeName,
             out _,
-            out _);
+            out _,
+            typeGesture);
         if (error is not null)
             return true;
 
-        var (typeFilter, _) =
-            SharedParsers.ParseTypeFilter(
-                parseResult.GetValue(args.TypeFilterOption));
         targetFree =
             string.IsNullOrWhiteSpace(typeName)
             && sourceInputs.Args.Length == 0
@@ -103,9 +105,7 @@ public static class TypeOptionsParser
             && !hasProjectSource
             && parseResult.GetValue(args.TypeFilterOption) is null
             && memberValues.Length == 0;
-        bool hasTypeFilter =
-            new TypeGestureIntent(typeFilter)
-                .SelectsListingCatalog(typeName);
+        bool hasTypeFilter = typeGesture.SelectsListingCatalog(typeName);
         InspectionCatalogIdentity catalog =
             hasTypeFilter
             || string.IsNullOrWhiteSpace(typeName)
@@ -270,7 +270,8 @@ public static class TypeOptionsParser
                 typeScoped: true,
                 source.TypeName,
                 out BodyKindQueryOptions bodyKindQuery,
-                out PerformanceTriageOptions performanceTriage);
+                out PerformanceTriageOptions performanceTriage,
+                new TypeGestureIntent(typeFilter));
         if (analysisError is not null)
             return new VersionError(analysisError.Value);
         var select = opts.ParseSelect(parseResult);

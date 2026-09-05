@@ -1811,6 +1811,139 @@ public sealed class InspectionPlanningTests
         Assert.Contains("[package/single-library/Library] Library Info", result.Output);
     }
 
+    [Fact]
+    public async Task LibraryAlternativesUseLibraryDiscoveryModeValidation()
+    {
+        string[] args =
+        [
+            "Missing.Type.Run", "--effective",
+            "-D", "Library Info", "--schema", "--table", "--tips", "q",
+        ];
+        var commandless = await RunAppAsync(args);
+        var explicitLibrary = await RunAppAsync(["library", .. args]);
+
+        Assert.Equal(1, commandless.Exit);
+        Assert.Equal(1, explicitLibrary.Exit);
+        Assert.Empty(commandless.Output);
+        Assert.Contains(explicitLibrary.Error.Trim(), commandless.Error);
+        Assert.Contains("--effective cannot be combined with --schema", commandless.Error);
+    }
+
+    [Theory]
+    [InlineData("--effective=false")]
+    [InlineData("--effective:false")]
+    public async Task LibraryAlternativesPreserveDisabledEffectiveDiscovery(string option)
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", option,
+            "-D", "Library Info", "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[library/library/Library] Library Info", result.Output);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task PackageLibrarySchemaNormalizesMetadataTableAliases(string selectorOption)
+    {
+        string[] prefix = ["package", "Missing.Package", "--library", "missing.dll", selectorOption];
+        string[] tail =
+        [
+            .. selectorOption == "-S" ? new[] { "-D" } : [],
+            "--schema", "--table", "--tips", "q",
+        ];
+        var alias = await RunAppAsync([.. prefix, "Metadata: 0x02", .. tail]);
+        var canonical = await RunAppAsync([.. prefix, "Metadata: TypeDef", .. tail]);
+
+        Assert.Equal(0, alias.Exit);
+        Assert.Equal(canonical, alias);
+        Assert.Empty(alias.Error);
+    }
+
+    [Fact]
+    public async Task CommandlessLibraryPreflightNormalizesMetadataTableAliases()
+    {
+        string[] tail = ["-D", "Metadata: 0x02", "--table", "--tips", "q"];
+        var commandless = await RunAppAsync(["System.Private.CoreLib", .. tail]);
+        var explicitLibrary = await RunAppAsync(["library", "System.Private.CoreLib", .. tail]);
+
+        Assert.Equal(0, commandless.Exit);
+        Assert.Equal(explicitLibrary, commandless);
+        Assert.Contains("Rid", commandless.Output);
+        Assert.Contains("Namespace", commandless.Output);
+    }
+
+    [Theory]
+    [InlineData("-S")]
+    [InlineData("-D")]
+    public async Task CommandlessSchemaAlternativesNormalizeMetadataTableAliases(string selectorOption)
+    {
+        var result = await RunAppAsync(
+        [
+            "Missing.Type.Run", selectorOption, "Metadata: 0x02",
+            .. selectorOption == "-S" ? new[] { "-D" } : [],
+            "--schema", "--table", "--tips", "q",
+        ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[library/library/Library] Metadata: TypeDef", result.Output);
+    }
+
+    [Fact]
+    public async Task InvalidLibraryAliasDoesNotEraseValidTypeAlternative()
+    {
+        var result = await RunAppAsync(
+            "Missing.Type.Run", "-D", $"Metadata: 0xff,{SectionNames.Methods}",
+            "--schema", "--table", "--tips", "q");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        Assert.Contains("[library/library/Library] error:", result.Output);
+        Assert.Contains("not a projected metadata table", result.Output);
+        Assert.Contains("[type/type/ApiMember] Methods", result.Output);
+    }
+
+    [Theory]
+    [InlineData(false, "*BodyShape*")]
+    [InlineData(true, "*BodyShape*")]
+    [InlineData(false, "Other.Type")]
+    [InlineData(true, "Other.Type")]
+    public async Task TypeListingFilterRejectsExactTypeBodyQuery(bool schema, string filter)
+    {
+        var result = await RunAppAsync(
+        [
+            "type", typeof(Fixtures.BodyShapeFixture).FullName!,
+            "--library", typeof(Fixtures.BodyShapeFixture).Assembly.Location,
+            "-t", filter, "--where", "Kind=ObjectCreationExpression",
+            .. schema ? new[] { "-D", SectionNames.BodyShapes, "--schema" } : [],
+            "--table", "--tips", "q",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains("requires one exact type name", result.Error);
+    }
+
+    [Fact]
+    public async Task EquivalentExactTypeFilterPreservesBodyQuery()
+    {
+        string type = typeof(Fixtures.BodyShapeFixture).FullName!;
+        string[] args =
+        [
+            "type", type, "--library", typeof(Fixtures.BodyShapeFixture).Assembly.Location,
+            "--where", "Kind=ObjectCreationExpression", "--table", "--tips", "q",
+        ];
+        var filtered = await RunAppAsync([.. args, "-t", type]);
+        var unfiltered = await RunAppAsync(args);
+
+        Assert.Equal(0, filtered.Exit);
+        Assert.Equal(unfiltered, filtered);
+        Assert.Contains("ObjectCreationExpression", filtered.Output);
+    }
+
     [Theory]
     [InlineData("-D")]
     [InlineData("-S")]

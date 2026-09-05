@@ -1007,6 +1007,13 @@ public static class StructuralViewRegistry
         StructuralOutputShape outputShape =
             StructuralOutputShape.Document)
     {
+        var (normalizedRequest, aliasError) = NormalizeLibrarySelectors(request, [route]);
+        if (aliasError is not null)
+        {
+            CommandError.Write(aliasError.Value);
+            return 1;
+        }
+        request = normalizedRequest;
         StructuralSchemaProjection projection = Project(route, outputShape);
         DocumentSchema schema = projection.Schema;
         var selectedSections =
@@ -1060,6 +1067,17 @@ public static class StructuralViewRegistry
         StructuralCatalogAlternatives alternatives,
         StructuralDiscoveryRequest request)
     {
+        var (normalizedRequest, aliasError) = NormalizeLibrarySelectors(
+            request,
+            alternatives.Alternatives
+                .Where(alternative => alternative.Error is null)
+                .Select(alternative => alternative.Route));
+        if (aliasError is not null)
+        {
+            CommandError.Write(aliasError.Value);
+            return 1;
+        }
+        request = normalizedRequest;
         if (alternatives.Alternatives.Any(alternative => alternative.Error is not null)
             && !alternatives.Alternatives.Any(alternative =>
                 alternative.Error is null
@@ -1285,17 +1303,24 @@ public static class StructuralViewRegistry
             ImmutableArray.CreateBuilder<StructuralAlternativeSelection>();
         foreach (StructuralRoute route in routes)
         {
+            var (routeRequest, aliasError) = NormalizeLibrarySelectors(request, [route]);
+            if (aliasError is not null)
+            {
+                alternatives.Add(new StructuralAlternativeSelection(
+                    route, CompleteCatalog: false, [], [], aliasError));
+                continue;
+            }
             StructuralSchemaProjection projection = Project(route);
             bool hasSelection =
-                request.Select is { Length: > 0 }
-                || request.SelectDefault;
+                routeRequest.Select is { Length: > 0 }
+                || routeRequest.SelectDefault;
             SelectResult selection =
                 SelectResolver.ResolveSelectAsSections(
-                    request.Select,
+                    routeRequest.Select,
                     projection.SelectableSectionNames,
                     projection.DefaultSectionNames,
                     projection.SectionCategories,
-                    request.SelectDefault);
+                    routeRequest.SelectDefault);
             IReadOnlyList<string> discoverySections =
                 hasSelection
                     ? [.. selection.Sections ?? []]
@@ -1314,9 +1339,9 @@ public static class StructuralViewRegistry
                         pair => pair.Value,
                         StringComparer.OrdinalIgnoreCase);
             SelectResult discovery =
-                request.Discover is { Length: > 0 }
+                routeRequest.Discover is { Length: > 0 }
                     ? SelectResolver.ResolveSelectAsSections(
-                        request.Discover,
+                        routeRequest.Discover,
                         discoverySections,
                         infoSections: [],
                         discoveryCategories,
@@ -1324,11 +1349,11 @@ public static class StructuralViewRegistry
                     : selection;
             bool completeCatalog =
                 !hasSelection
-                && request.Discover is not { Length: > 0 };
+                && routeRequest.Discover is not { Length: > 0 };
             ImmutableArray<SectionSelectorDiagnostic> unresolved =
             [
                 .. selection.Unresolved.Select(ToDiagnostic),
-                .. request.Discover is { Length: > 0 }
+                .. routeRequest.Discover is { Length: > 0 }
                     ? discovery.Unresolved.Select(ToDiagnostic)
                     : [],
             ];
@@ -1350,6 +1375,30 @@ public static class StructuralViewRegistry
                 [.. miss.Suggestions],
                 miss.IsGlob,
                 miss.ListsAllSections);
+    }
+
+    private static (StructuralDiscoveryRequest Request, OptionError? Error) NormalizeLibrarySelectors(
+        StructuralDiscoveryRequest request,
+        IEnumerable<StructuralRoute> routes)
+    {
+        if (!routes.Any(route => route.Catalog is
+                InspectionCatalogIdentity.Library or InspectionCatalogIdentity.LibraryAggregate))
+        {
+            return (request, null);
+        }
+
+        var (select, selectError) = LibraryCommand.ResolveTableAliases(request.Select);
+        if (selectError is not null)
+            return (request, new OptionError(selectError));
+        var (discover, discoverError) = LibraryCommand.ResolveTableAliases(request.Discover);
+        if (discoverError is not null)
+            return (request, new OptionError(discoverError));
+
+        return (request with
+        {
+            Select = select ?? request.Select,
+            Discover = discover ?? request.Discover,
+        }, null);
     }
 
     private static ImmutableDictionary<string, StructuralSectionInput>
@@ -1576,13 +1625,22 @@ public static class StructuralViewRegistry
         StructuralDiscoveryRequest request,
         string? sourceIdentityTypeTarget = null)
     {
+        StructuralCatalogAlternatives alternatives = CreateCommandlessAlternatives(
+            tokens, request, sourceIdentityTypeTarget);
+        var (normalizedRequest, aliasError) = NormalizeLibrarySelectors(
+            request,
+            alternatives.Alternatives
+                .Where(alternative => alternative.Error is null)
+                .Select(alternative => alternative.Route));
+        if (aliasError is not null)
+        {
+            CommandError.Write(aliasError.Value);
+            return true;
+        }
+        request = normalizedRequest;
         StructuralSchemaProjection[] projections =
         [
-            .. CreateCommandlessAlternatives(
-                    tokens,
-                    request,
-                    sourceIdentityTypeTarget)
-                .Alternatives
+            .. alternatives.Alternatives
                 .Select(alternative =>
                     Project(alternative.Route)),
         ];
