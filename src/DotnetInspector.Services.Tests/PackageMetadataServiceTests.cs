@@ -157,19 +157,15 @@ public class PackageMetadataServiceTests : IDisposable
                   ]
                 }
                 """),
-            "/registration/private.package/1.0.0.json" => Json("""
-                {
-                  "published": "2024-01-02T03:04:05Z",
-                  "listed": false,
-                  "catalogEntry": "/catalog/private.package.1.0.0.json"
-                }
-                """),
-            "/catalog/private.package.1.0.0.json" => Json("""
-                {
-                  "deprecation": {
-                    "reasons": ["Legacy"],
-                    "message": "Use Private.Package.Next"
-                  }
+            "/registration/private.package/index.json" => SingleVersionRegistration(
+                "Private.Package",
+                "1.0.0",
+                """
+                "published": "2024-01-02T03:04:05Z",
+                "listed": false,
+                "deprecation": {
+                  "reasons": ["Legacy"],
+                  "message": "Use Private.Package.Next"
                 }
                 """),
             "/query" => Json("""
@@ -228,6 +224,13 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal("Legacy - Use Private.Package.Next", result.Deprecation!.Summary);
         Assert.Equal("High", Assert.Single(result.Vulnerabilities!).Severity);
         Assert.Equal(
+            "/registration/private.package/index.json",
+            Assert.Single(
+                handler.Requests,
+                request => request.Uri.AbsolutePath.StartsWith(
+                    "/registration/",
+                    StringComparison.Ordinal)).Uri.AbsolutePath);
+        Assert.Equal(
             "?s%69g=%73ecret&q=private.package&skip=0&take=20&prerelease=true&semVerLevel=2.0.0",
             Assert.Single(
                 handler.Requests,
@@ -265,8 +268,13 @@ public class PackageMetadataServiceTests : IDisposable
                   ]
                 }
                 """),
-            "/registration/signed.endpoint.failure/1.0.0.json" =>
-                Json("""{ "published": "2024-01-02T03:04:05Z" }"""),
+            "/registration/signed.endpoint.failure/index.json" =>
+                SingleVersionRegistration(
+                    "Signed.Endpoint.Failure",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-02T03:04:05Z"
+                    """),
             "/query" => Json("<html>SUPERSECRETEXCEPTION</html>"),
             _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
         });
@@ -314,9 +322,14 @@ public class PackageMetadataServiceTests : IDisposable
             }
 
             if (host == "b.example"
-                && path == "/registration/contoso.package/1.0.0.json")
+                && path == "/registration/contoso.package/index.json")
             {
-                return Json("""{ "published": "2025-02-03T00:00:00Z" }""");
+                return SingleVersionRegistration(
+                    "Contoso.Package",
+                    "1.0.0",
+                    """
+                    "published": "2025-02-03T00:00:00Z"
+                    """);
             }
 
             return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound);
@@ -396,9 +409,9 @@ public class PackageMetadataServiceTests : IDisposable
                     """);
             }
             if (request.RequestUri.AbsolutePath
-                == "/registration/private.package/1.0.0.json")
+                == "/registration/private.package/index.json")
             {
-                return Json("{}");
+                return SingleVersionRegistration("Private.Package", "1.0.0");
             }
             if (request.RequestUri.AbsolutePath == "/query"
                 && request.RequestUri.Query.Contains("skip=0", StringComparison.Ordinal))
@@ -463,15 +476,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("""
-                    {
-                      "catalogEntry":
-                        "/catalog/private.package.1.0.0.json"
-                    }
-                    """),
-                "/catalog/private.package.1.0.0.json" =>
-                    new HttpResponseMessage(
-                        System.Net.HttpStatusCode.BadGateway),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/query" => Json("""
                     {
                       "data": [
@@ -506,9 +512,83 @@ public class PackageMetadataServiceTests : IDisposable
                 sourceOptions:
                     new NuGetSourceOptions { Sources = [source] });
 
-        Assert.False(result.DeprecationMetadataAvailable);
+        Assert.True(result.DeprecationMetadataAvailable);
         Assert.Null(result.Deprecation);
         Assert.Equal(1, result.VersionDownloads);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_RegistrationDeprecationSurvivesNewerCleanSearchVersion()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(
+                        RegistrationPage(
+                            "1.0.0",
+                            "2.0.0",
+                            RegistrationLeaf(
+                                "Private.Package",
+                                "1.0.0",
+                                """
+                                "deprecation": {
+                                  "reasons": ["Legacy"],
+                                  "message": "Move to 2.0.0"
+                                }
+                                """),
+                            RegistrationLeaf("Private.Package", "2.0.0")))),
+                "/query" => Json("""
+                    {
+                      "data": [
+                        {
+                          "id": "Private.Package",
+                          "version": "2.0.0",
+                          "versions": [
+                            { "version": "1.0.0", "downloads": 11 },
+                            { "version": "2.0.0", "downloads": 22 }
+                          ]
+                        }
+                      ]
+                    }
+                    """),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm =
+            await PackageMetadataService.FetchAllMetadataAsync(
+                client,
+                "Private.Package",
+                "1.0.0",
+                log: null,
+                sourceOptions: options);
+
+        Assert.Equal("Legacy - Move to 2.0.0", cold.Deprecation!.Summary);
+        Assert.Equal("Legacy - Move to 2.0.0", warm.Deprecation!.Summary);
+        Assert.True(cold.DeprecationMetadataAvailable);
+        Assert.Equal(11, cold.VersionDownloads);
+        Assert.Equal(coldRequests, handler.Requests.Count);
     }
 
     [Fact]
@@ -523,13 +603,13 @@ public class PackageMetadataServiceTests : IDisposable
                     {
                       "version": "3.0.0",
                       "resources": [
-                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
                         { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
-                    Json("{}"),
+                "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
+                    Package(length: 42),
                 "/query" => Search(),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
@@ -553,6 +633,7 @@ public class PackageMetadataServiceTests : IDisposable
                 sourceOptions: options);
 
         Assert.False(first.DeprecationMetadataAvailable);
+        Assert.Null(first.Deprecation);
         Assert.True(second.DeprecationMetadataAvailable);
         Assert.Equal(
             "\u0405ystem.Fixed",
@@ -593,13 +674,13 @@ public class PackageMetadataServiceTests : IDisposable
                     {
                       "version": "3.0.0",
                       "resources": [
-                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" },
+                        { "@id": "https://private.example/flat/", "@type": "PackageBaseAddress/3.0.0" },
                         { "@id": "https://private.example/query", "@type": "SearchQueryService/3.5.0" }
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
-                    Json("{}"),
+                "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
+                    Package(length: 42),
                 "/query" => Json("""
                     {
                       "data": [
@@ -640,7 +721,7 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_CachesCatalogAuthorityDespiteSearchVersionMismatch()
+    public async Task FetchAllMetadataAsync_CachesRegistrationAuthorityDespiteSearchVersionMismatch()
     {
         const string source = "https://private.example/v3/index.json";
         var handler = new RoutingHandler(request =>
@@ -655,14 +736,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("""
-                    {
-                      "catalogEntry": {
-                        "id": "Private.Package",
-                        "version": "1.0.0"
-                      }
-                    }
-                    """),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/query" => Json("""
                     {
                       "data": [
@@ -701,7 +776,7 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_DoesNotCacheMismatchedInlineCatalogIdentity()
+    public async Task FetchAllMetadataAsync_DoesNotAdoptOrCacheMismatchedPageIdentity()
     {
         const string source = "https://private.example/v3/index.json";
         int registrationRequests = 0;
@@ -716,7 +791,7 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
+                "/registration/private.package/index.json" =>
                     Registration(),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
@@ -750,29 +825,25 @@ public class PackageMetadataServiceTests : IDisposable
         HttpResponseMessage Registration()
         {
             registrationRequests++;
-            string version =
-                registrationRequests == 1 ? "2.0.0" : "1.0.0";
-            return Json($$"""
-                {
-                  "catalogEntry": {
-                    "id": "Private.Package",
-                    "version": "{{version}}",
-                    "deprecation": {
-                      "alternatePackage": {
-                        "id": "\u0405ystem.Fixed"
-                      }
-                    }
-                  }
+            string id = registrationRequests == 1
+                ? "Different.Package"
+                : "Private.Package";
+            return SingleVersionRegistration(
+                id,
+                "1.0.0",
+                """
+                "deprecation": {
+                  "alternatePackage": { "id": "\u0405ystem.Fixed" }
                 }
                 """);
         }
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_DoesNotCacheMismatchedFetchedCatalogIdentity()
+    public async Task FetchAllMetadataAsync_DoesNotAdoptOrCacheMismatchedLinkedPageIdentity()
     {
         const string source = "https://private.example/v3/index.json";
-        int catalogRequests = 0;
+        int pageRequests = 0;
         var handler = new RoutingHandler(request =>
             request.RequestUri!.AbsolutePath switch
             {
@@ -784,14 +855,12 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("""
-                    {
-                      "catalogEntry":
-                        "/catalog/private.package.1.0.0.json"
-                    }
-                    """),
-                "/catalog/private.package.1.0.0.json" =>
-                    Catalog(),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "../pages/private.package-1.json",
+                        "1.0.0",
+                        "1.0.0"))),
+                "/registration/pages/private.package-1.json" => Page(),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
             });
@@ -819,25 +888,22 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.Equal(
             "\u0405ystem.Fixed",
             second.Deprecation!.AlternatePackageId);
-        Assert.Equal(2, catalogRequests);
+        Assert.Equal(2, pageRequests);
 
-        HttpResponseMessage Catalog()
+        HttpResponseMessage Page()
         {
-            catalogRequests++;
-            string id = catalogRequests == 1
+            pageRequests++;
+            string id = pageRequests == 1
                 ? "Different.Package"
                 : "Private.Package";
-            return Json($$"""
-                {
-                  "id": "{{id}}",
-                  "version": "1.0.0",
-                  "deprecation": {
-                    "alternatePackage": {
-                      "id": "\u0405ystem.Fixed"
-                    }
-                  }
+            return Json(RegistrationPageDocument(RegistrationLeaf(
+                id,
+                "1.0.0",
+                """
+                "deprecation": {
+                  "alternatePackage": { "id": "\u0405ystem.Fixed" }
                 }
-                """);
+                """)));
         }
     }
 
@@ -859,7 +925,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/query-a" => Json("{"),
                 "/query-b" => Json("""
                     {
@@ -905,7 +972,8 @@ public class PackageMetadataServiceTests : IDisposable
             {
                 "/v3/index.json" => Json(
                     $$"""{"resources":[{"@id":"https://private.example/registration/","@type":"RegistrationsBaseUrl/3.6.0"},{{resources}}]}"""),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 _ when request.RequestUri.AbsolutePath.StartsWith(
                     "/query-",
                     StringComparison.Ordinal) => Json("{"),
@@ -946,9 +1014,14 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration-a/private.package/1.0.0.json" => Json("{"),
-                "/registration-b/private.package/1.0.0.json" =>
-                    Json("""{ "published": "2025-01-02T00:00:00Z" }"""),
+                "/registration-a/private.package/index.json" => Json("{"),
+                "/registration-b/private.package/index.json" =>
+                    SingleVersionRegistration(
+                        "Private.Package",
+                        "1.0.0",
+                        """
+                        "published": "2025-01-02T00:00:00Z"
+                        """),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
             });
@@ -986,7 +1059,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/vulnerabilities-a.json" =>
                     Json("""[{ "@id": "/malformed-vulnerability-page.json" }]"""),
                 "/malformed-vulnerability-page.json" => Json("""
@@ -1053,7 +1127,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/vulnerabilities.json" => new HttpResponseMessage(
                     System.Net.HttpStatusCode.BadRequest),
                 _ => throw new InvalidOperationException(
@@ -1080,32 +1155,34 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_DoesNotCacheFailedCatalogFetch()
+    public async Task FetchAllMetadataAsync_DoesNotCacheFailedRegistrationPageFetch()
     {
         const string source = "https://private.example/v3/index.json";
-        int registrationRequests = 0;
-        int catalogRequests = 0;
-        HttpResponseMessage Registration()
+        int indexRequests = 0;
+        int pageRequests = 0;
+        HttpResponseMessage Index()
         {
-            registrationRequests++;
-            return Json("""
-                { "catalogEntry": "/catalog/private.package.json" }
-                """);
+            indexRequests++;
+            return Json(RegistrationIndex(LinkedRegistrationPage(
+                "/registration/pages/private.package.json",
+                "1.0.0",
+                "1.0.0")));
         }
-        HttpResponseMessage Catalog()
+        HttpResponseMessage Page()
         {
-            catalogRequests++;
-            return registrationRequests == 1
+            pageRequests++;
+            return indexRequests == 1
                 ? new HttpResponseMessage(
                     System.Net.HttpStatusCode.BadGateway)
-                : Json("""
-                    {
-                      "deprecation": {
-                        "reasons": ["Legacy"],
-                        "message": "Use a replacement."
-                      }
+                : Json(RegistrationPageDocument(RegistrationLeaf(
+                    "Private.Package",
+                    "1.0.0",
+                    """
+                    "deprecation": {
+                      "reasons": ["Legacy"],
+                      "message": "Use a replacement."
                     }
-                    """);
+                    """)));
         }
         var handler = new RoutingHandler(request =>
             request.RequestUri!.AbsolutePath switch
@@ -1118,9 +1195,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
-                    Registration(),
-                "/catalog/private.package.json" => Catalog(),
+                "/registration/private.package/index.json" => Index(),
+                "/registration/pages/private.package.json" => Page(),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
             });
@@ -1146,7 +1222,7 @@ public class PackageMetadataServiceTests : IDisposable
         Assert.False(first.DeprecationMetadataAvailable);
         Assert.Equal("Use a replacement.", second.Deprecation!.Message);
         Assert.True(second.DeprecationMetadataAvailable);
-        Assert.True(catalogRequests > 1);
+        Assert.True(pageRequests > 1);
     }
 
     [Fact]
@@ -1167,7 +1243,7 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
+                "/registration/private.package/index.json" =>
                     RegistrationFailure(),
                 "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
                     Package(length: 42),
@@ -1263,7 +1339,7 @@ public class PackageMetadataServiceTests : IDisposable
         HttpResponseMessage Registration()
         {
             registrationRequests++;
-            return Json("{}");
+            return SingleVersionRegistration("Private.Package", "1.0.0");
         }
         HttpResponseMessage Search()
         {
@@ -1294,7 +1370,7 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
+                "/registration/private.package/index.json" =>
                     Registration(),
                 "/query" => Search(),
                 _ => throw new InvalidOperationException(
@@ -1339,7 +1415,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/vulnerabilities.json" => Json("""[{ "@name": "base" }]"""),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
@@ -1384,7 +1461,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/vulnerabilities.json" => Json("""
                     [
                       { "@id": "/vulnerability-page.json" },
@@ -1451,7 +1529,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/vulnerabilities-a.json" or "/vulnerabilities-b.json" => Json("""
                     [
                       { "@id": "/vulnerability-page.json" },
@@ -1524,7 +1603,7 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{"),
+                "/registration/private.package/index.json" => Json("{"),
                 "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
                     Html("<html>Sign in</html>"),
                 _ => throw new InvalidOperationException(
@@ -1557,7 +1636,8 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json("{}"),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration("Private.Package", "1.0.0"),
                 "/flat/private.package/1.0.0/private.package.1.0.0.nupkg" =>
                     Package(length: null),
                 _ => new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
@@ -1590,9 +1670,16 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json(host == "a.example"
-                    ? """{ "published": "2024-01-01T00:00:00Z" }"""
-                    : """{ "published": "2025-01-01T00:00:00Z" }""");
+                : SingleVersionRegistration(
+                    "Same.Package",
+                    "1.0.0",
+                    host == "a.example"
+                        ? """
+                          "published": "2024-01-01T00:00:00Z"
+                          """
+                        : """
+                          "published": "2025-01-01T00:00:00Z"
+                          """);
         });
         using var client = new HttpClient(handler);
 
@@ -1639,9 +1726,16 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json(host == "a.example"
-                    ? """{ "published": "2024-01-01T00:00:00Z" }"""
-                    : """{ "published": "2025-01-01T00:00:00Z" }""");
+                : SingleVersionRegistration(
+                    "Ordered.Package",
+                    "1.0.0",
+                    host == "a.example"
+                        ? """
+                          "published": "2024-01-01T00:00:00Z"
+                          """
+                        : """
+                          "published": "2025-01-01T00:00:00Z"
+                          """);
         });
         using var client = new HttpClient(handler);
 
@@ -1683,7 +1777,12 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json("""{ "published": "2024-01-01T00:00:00Z" }"""));
+                : SingleVersionRegistration(
+                    "Legacy.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-01T00:00:00Z"
+                    """));
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
             new HttpClient(handler),
@@ -1694,6 +1793,58 @@ public class PackageMetadataServiceTests : IDisposable
 
         Assert.Equal(2024, result.Published!.Value.Year);
         Assert.NotEmpty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_IgnoresLegacyGuessedLeafAbsenceEntry()
+    {
+        const string source = "https://private.example/v3/index.json";
+        string legacyKey =
+            $"v6-full-{NuGetCache.GetSourceKey(source)}-stale.package@1.0.0";
+        MetadataFieldCache.SetAbsent(legacyKey);
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath == "/v3/index.json"
+                ? Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """)
+                : SingleVersionRegistration(
+                    "Stale.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-01T00:00:00Z"
+                    """));
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Stale.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Stale.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Equal(2024, cold.Published!.Value.Year);
+        Assert.Equal(cold.Published, warm.Published);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Uri.AbsolutePath
+                == "/registration/stale.package/index.json");
+        Assert.Equal(coldRequests, handler.Requests.Count);
+        Assert.True(
+            Assert.IsType<MetadataFieldCache.Entry>(
+                MetadataFieldCache.TryGetEntry(legacyKey)).IsAbsent);
     }
 
     [Fact]
@@ -1714,7 +1865,12 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json("""{ "published": "2025-01-01T00:00:00Z" }"""));
+                : SingleVersionRegistration(
+                    "Restricted.Package",
+                    "1.0.0",
+                    """
+                    "published": "2025-01-01T00:00:00Z"
+                    """));
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
             new HttpClient(handler),
@@ -1730,7 +1886,7 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_EmptyMetadataResultIsCached()
+    public async Task FetchAllMetadataAsync_MinimalRegistrationEntryIsCached()
     {
         const string source = "https://empty.example/v3/index.json";
         var handler = new RoutingHandler(request =>
@@ -1743,7 +1899,7 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json("{}"));
+                : SingleVersionRegistration("Empty.Package", "1.0.0"));
         using var client = new HttpClient(handler);
         var options = new NuGetSourceOptions { Sources = [source] };
 
@@ -1764,8 +1920,11 @@ public class PackageMetadataServiceTests : IDisposable
             sourceOptions: options);
 
         Assert.Equal(coldRequests, handler.Requests.Count);
-        Assert.False(cold.DeprecationMetadataAvailable);
-        Assert.False(warm.DeprecationMetadataAvailable);
+        Assert.True(cold.DeprecationMetadataAvailable);
+        Assert.True(warm.DeprecationMetadataAvailable);
+        Assert.Null(cold.Published);
+        Assert.Null(cold.Deprecation);
+        Assert.Null(warm.Deprecation);
     }
 
     [Fact]
@@ -1782,15 +1941,14 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json("""
-                    {
-                      "published": "2024-01-02T03:04:05Z",
-                      "catalogEntry": {
-                        "deprecation": {
-                          "reasons": ["Legacy"],
-                          "message": "text\nabsent: true"
-                        }
-                      }
+                : SingleVersionRegistration(
+                    "Injected.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-02T03:04:05Z",
+                    "deprecation": {
+                      "reasons": ["Legacy"],
+                      "message": "text\nabsent: true"
                     }
                     """));
         using var client = new HttpClient(handler);
@@ -1890,7 +2048,7 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_WithholdsStaticCredentialFromCrossOriginCatalog()
+    public async Task FetchAllMetadataAsync_WithholdsStaticCredentialFromCrossOriginRegistrationPage()
     {
         const string source = "https://private.example/v3/index.json";
         using var config = new TempNuGetConfig(
@@ -1908,24 +2066,23 @@ public class PackageMetadataServiceTests : IDisposable
                           ]
                         }
                         """),
-                "/registration/private.package/1.0.0.json" => Json("""
-                    {
-                      "published": "2024-01-01T00:00:00Z",
-                      "catalogEntry": "https://catalog.example/entry.json"
-                    }
-                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "https://pages.example/private.package/page-1.json",
+                        "1.0.0",
+                        "1.0.0"))),
                 _ => throw new InvalidOperationException(
                     "Cross-origin metadata used the configured-feed client."),
             });
         var untrustedHandler = new RoutingHandler(request =>
-            request.RequestUri!.Host == "catalog.example"
-                ? Json("""
-                    {
-                      "deprecation": {
-                        "reasons": ["Legacy"]
-                      }
-                    }
-                    """)
+            request.RequestUri!.Host == "pages.example"
+                ? Json(RegistrationPageDocument(RegistrationLeaf(
+                    "Private.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-01T00:00:00Z",
+                    "deprecation": { "reasons": ["Legacy"] }
+                    """)))
                 : throw new InvalidOperationException(
                     "Unexpected untrusted metadata request."));
         using var client = new HttpClient(sourceHandler);
@@ -1940,6 +2097,9 @@ public class PackageMetadataServiceTests : IDisposable
             untrustedClient: untrustedClient);
 
         Assert.Equal("Legacy", result.Deprecation!.Summary);
+        Assert.Equal(
+            new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            result.Published);
         Assert.All(
             sourceHandler.Requests,
             request => Assert.NotNull(request.Authorization));
@@ -1964,7 +2124,12 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """)
-                : Json("""{ "published": "2024-01-01T00:00:00Z" }"""));
+                : SingleVersionRegistration(
+                    "Private.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-01T00:00:00Z"
+                    """));
 
         PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
             new HttpClient(handler),
@@ -2023,8 +2188,13 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
-                    Json("""{ "published": "2024-01-02T03:04:05Z" }"""),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration(
+                        "Private.Package",
+                        "1.0.0",
+                        """
+                        "published": "2024-01-02T03:04:05Z"
+                        """),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
             });
@@ -2066,13 +2236,18 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration-36/private.package/1.0.0.json" =>
+                "/registration-36/private.package/index.json" =>
                     new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
-                "/registration-34/private.package/1.0.0.json" =>
+                "/registration-34/private.package/index.json" =>
                     new HttpResponseMessage(
                         System.Net.HttpStatusCode.InternalServerError),
-                "/registration/private.package/1.0.0.json" =>
-                    Json("""{ "published": "2025-01-02T00:00:00Z" }"""),
+                "/registration/private.package/index.json" =>
+                    SingleVersionRegistration(
+                        "Private.Package",
+                        "1.0.0",
+                        """
+                        "published": "2025-01-02T00:00:00Z"
+                        """),
                 _ => throw new InvalidOperationException(
                     $"Unexpected metadata request: {request.RequestUri}"),
             };
@@ -2094,7 +2269,7 @@ public class PackageMetadataServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FetchAllMetadataAsync_IgnoresMalformedCatalogReference()
+    public async Task FetchAllMetadataAsync_IgnoresMalformedRegistrationPageLink()
     {
         const string source = "https://private.example/v3/index.json";
         int registrationRequests = 0;
@@ -2109,10 +2284,10 @@ public class PackageMetadataServiceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" =>
+                "/registration/private.package/index.json" =>
                     Registration(),
                 _ => throw new InvalidOperationException(
-                    "A malformed catalog reference must not be requested."),
+                    "A malformed registration page link must not be requested."),
             });
         using var client = new HttpClient(handler);
         var options = new NuGetSourceOptions { Sources = [source] };
@@ -2130,9 +2305,8 @@ public class PackageMetadataServiceTests : IDisposable
             log: null,
             sourceOptions: options);
 
-        Assert.Equal(
-            new DateTimeOffset(2024, 1, 2, 3, 4, 5, TimeSpan.Zero),
-            first.Published);
+        Assert.Null(first.Published);
+        Assert.Null(first.Deprecation);
         Assert.False(first.DeprecationMetadataAvailable);
         Assert.True(second.DeprecationMetadataAvailable);
         Assert.Equal(
@@ -2144,25 +2318,476 @@ public class PackageMetadataServiceTests : IDisposable
         {
             registrationRequests++;
             return registrationRequests == 1
-                ? Json("""
-                    {
-                      "published": "2024-01-02T03:04:05Z",
-                      "catalogEntry": "http://[::1"
-                    }
-                    """)
-                : Json("""
-                    {
-                      "catalogEntry": {
-                        "deprecation": {
-                          "reasons": ["Legacy"],
-                          "alternatePackage": {
-                            "id": "\u0405ystem.Fixed"
-                          }
-                        }
-                      }
+                ? Json(RegistrationIndex(LinkedRegistrationPage(
+                    "http://[::1",
+                    "1.0.0",
+                    "1.0.0")))
+                : SingleVersionRegistration(
+                    "Private.Package",
+                    "1.0.0",
+                    """
+                    "published": "2024-01-02T03:04:05Z",
+                    "deprecation": {
+                      "reasons": ["Legacy"],
+                      "alternatePackage": { "id": "\u0405ystem.Fixed" }
                     }
                     """);
         }
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_InlineRegistrationPageNeedsNoAdditionalRequest()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(
+                        LinkedRegistrationPage(
+                            "/registration/pages/older.json",
+                            "0.1.0",
+                            "0.9.0"),
+                        InlineRegistrationPage(
+                            "/registration/pages/current.json",
+                            "1.0.0",
+                            "2.0.0",
+                            RegistrationLeaf(
+                                "Private.Package",
+                                "1.0.0",
+                                """
+                                "published": "2024-03-04T05:06:07Z",
+                                "listed": true,
+                                "deprecation": { "reasons": ["Legacy"] }
+                                """),
+                            RegistrationLeaf("Private.Package", "2.0.0")),
+                        LinkedRegistrationPage(
+                            "/registration/pages/newer.json",
+                            "3.0.0",
+                            "4.0.0"))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 3, 4, 5, 6, 7, TimeSpan.Zero),
+            result.Published);
+        Assert.True(result.Listed);
+        Assert.Equal("Legacy", result.Deprecation!.Summary);
+        Assert.Equal(
+            ["/v3/index.json", "/registration/private.package/index.json"],
+            handler.Requests.Select(request => request.Uri.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_FollowsNonPatternRelativePageLink()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "../pages/p-42.json?token=abc",
+                        "1.0.0",
+                        "1.0.0"))),
+                "/registration/pages/p-42.json" => Json(
+                    RegistrationPageDocument(RegistrationLeaf(
+                        "Private.Package",
+                        "1.0.0",
+                        """
+                        "published": "2024-05-06T07:08:09Z"
+                        """))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 5, 6, 7, 8, 9, TimeSpan.Zero),
+            result.Published);
+        Assert.Equal(
+            "?token=abc",
+            Assert.Single(
+                handler.Requests,
+                request => request.Uri.AbsolutePath
+                    == "/registration/pages/p-42.json").Uri.Query);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_FetchesOnlyThePageCoveringTheRequestedVersion()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(
+                        LinkedRegistrationPage(
+                            "/registration/pages/one.json",
+                            "0.1.0",
+                            "1.0.0"),
+                        LinkedRegistrationPage(
+                            "/registration/pages/two.json",
+                            "1.2.3-alpha",
+                            "1.2.3-beta.5"),
+                        LinkedRegistrationPage(
+                            "/registration/pages/three.json",
+                            "2.0.0",
+                            "3.0.0"))),
+                "/registration/pages/two.json" => Json(
+                    RegistrationPageDocument(
+                        RegistrationLeaf("Private.Package", "1.2.3-alpha"),
+                        RegistrationLeaf(
+                            "Private.Package",
+                            "1.2.3-Beta.1+build.7",
+                            """
+                            "published": "2024-07-08T09:10:11Z",
+                            "listed": false
+                            """))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.2.3-Beta.1+build.7",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 7, 8, 9, 10, 11, TimeSpan.Zero),
+            result.Published);
+        Assert.False(result.Listed);
+        Assert.Equal(
+            [
+                "/v3/index.json",
+                "/registration/private.package/index.json",
+                "/registration/pages/two.json",
+            ],
+            handler.Requests.Select(request => request.Uri.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_NormalizesRequestedVersionForPageSelection()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(
+                        LinkedRegistrationPage(
+                            "/registration/pages/older.json",
+                            "0.1.0",
+                            "0.9.0"),
+                        RegistrationPage(
+                            "1.0.0",
+                            "1.0.0",
+                            RegistrationLeaf(
+                                "PRIVATE.package",
+                                "1.0.0.0",
+                                """
+                                "published": "2024-11-12T13:14:15Z"
+                                """)))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 11, 12, 13, 14, 15, TimeSpan.Zero),
+            result.Published);
+        Assert.Equal(
+            ["/v3/index.json", "/registration/private.package/index.json"],
+            handler.Requests.Select(request => request.Uri.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_ValidRegistrationWithoutTheRequestedVersionIsAbsence()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "/registration/pages/newer.json",
+                        "2.0.0",
+                        "3.0.0"))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Null(cold.Published);
+        Assert.Null(warm.Published);
+        Assert.Equal(coldRequests, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_MissingAdvertisedPageIsNotAbsence()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "/registration/pages/current.json",
+                        "1.0.0",
+                        "1.0.0"))),
+                "/registration/pages/current.json" =>
+                    new HttpResponseMessage(System.Net.HttpStatusCode.NotFound),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Null(cold.Published);
+        Assert.Null(warm.Published);
+        Assert.True(handler.Requests.Count > coldRequests);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_MalformedSelectedPageIsNotAbsence()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "/registration/pages/current.json",
+                        "1.0.0",
+                        "1.0.0"))),
+                "/registration/pages/current.json" =>
+                    Json("""{ "items": { "catalogEntry": {} } }"""),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata cold = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        int coldRequests = handler.Requests.Count;
+        PackageMetadata warm = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Null(cold.Published);
+        Assert.False(cold.DeprecationMetadataAvailable);
+        Assert.Null(warm.Published);
+        Assert.True(handler.Requests.Count > coldRequests);
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_DoesNotTraverseLinkedPagesRecursively()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/private.package/index.json" => Json(
+                    RegistrationIndex(LinkedRegistrationPage(
+                        "/registration/pages/current.json",
+                        "1.0.0",
+                        "1.0.0"))),
+                "/registration/pages/current.json" => Json(
+                    RegistrationPageDocument(LinkedRegistrationPage(
+                        "/registration/pages/nested.json",
+                        "1.0.0",
+                        "1.0.0"))),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+
+        PackageMetadata result = await PackageMetadataService.FetchAllMetadataAsync(
+            new HttpClient(handler),
+            "Private.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: new NuGetSourceOptions { Sources = [source] });
+
+        Assert.Null(result.Published);
+        Assert.Equal(
+            [
+                "/v3/index.json",
+                "/registration/private.package/index.json",
+                "/registration/pages/current.json",
+            ],
+            handler.Requests.Select(request => request.Uri.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task FetchAllMetadataAsync_AdmitsBoundedPageCountAndRejectsMore()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new RoutingHandler(request =>
+            request.RequestUri!.AbsolutePath switch
+            {
+                "/v3/index.json" => Json("""
+                    {
+                      "version": "3.0.0",
+                      "resources": [
+                        { "@id": "https://private.example/registration/", "@type": "RegistrationsBaseUrl/3.6.0" }
+                      ]
+                    }
+                    """),
+                "/registration/bounded.package/index.json" =>
+                    Json(PagedRegistrationIndex("Bounded.Package", pageCount: 128)),
+                "/registration/oversized.package/index.json" =>
+                    Json(PagedRegistrationIndex("Oversized.Package", pageCount: 129)),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected metadata request: {request.RequestUri}"),
+            });
+        using var client = new HttpClient(handler);
+        var options = new NuGetSourceOptions { Sources = [source] };
+
+        PackageMetadata bounded = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Bounded.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+        PackageMetadata oversized = await PackageMetadataService.FetchAllMetadataAsync(
+            client,
+            "Oversized.Package",
+            "1.0.0",
+            log: null,
+            sourceOptions: options);
+
+        Assert.Equal(
+            new DateTimeOffset(2024, 9, 10, 11, 12, 13, TimeSpan.Zero),
+            bounded.Published);
+        Assert.Null(oversized.Published);
+        Assert.DoesNotContain(
+            handler.Requests,
+            request => request.Uri.AbsolutePath.StartsWith(
+                "/registration/pages/",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2189,6 +2814,87 @@ public class PackageMetadataServiceTests : IDisposable
                 "Skipping non-HTTP NuGet metadata source",
                 StringComparison.Ordinal));
     }
+
+    private static string RegistrationIndex(params string[] pages) =>
+        $$"""{ "items": [ {{string.Join(",", pages)}} ] }""";
+
+    private static string RegistrationPage(
+        string lower,
+        string upper,
+        params string[] leaves) =>
+        $$"""
+        {
+          "lower": "{{lower}}",
+          "upper": "{{upper}}",
+          "items": [ {{string.Join(",", leaves)}} ]
+        }
+        """;
+
+    private static string LinkedRegistrationPage(
+        string pageUrl,
+        string lower,
+        string upper) =>
+        $$"""{ "@id": "{{pageUrl}}", "lower": "{{lower}}", "upper": "{{upper}}" }""";
+
+    private static string InlineRegistrationPage(
+        string pageUrl,
+        string lower,
+        string upper,
+        params string[] leaves) =>
+        $$"""
+        {
+          "@id": "{{pageUrl}}",
+          "lower": "{{lower}}",
+          "upper": "{{upper}}",
+          "items": [ {{string.Join(",", leaves)}} ]
+        }
+        """;
+
+    private static string PagedRegistrationIndex(string packageId, int pageCount)
+    {
+        string[] pages =
+        [
+            .. Enumerable.Range(1, pageCount - 1).Select(index =>
+                LinkedRegistrationPage(
+                    $"/registration/pages/{index}.json",
+                    $"0.0.{index}",
+                    $"0.0.{index}")),
+            RegistrationPage(
+                "1.0.0",
+                "1.0.0",
+                RegistrationLeaf(
+                    packageId,
+                    "1.0.0",
+                    """
+                    "published": "2024-09-10T11:12:13Z"
+                    """)),
+        ];
+        return RegistrationIndex(pages);
+    }
+
+    private static string RegistrationPageDocument(params string[] leaves) =>
+        $$"""{ "items": [ {{string.Join(",", leaves)}} ] }""";
+
+    private static string RegistrationLeaf(
+        string id,
+        string version,
+        string? catalogFields = null)
+    {
+        string extra = catalogFields is null ? "" : $", {catalogFields}";
+        return $$"""
+            { "catalogEntry": { "id": "{{id}}", "version": "{{version}}"{{extra}} } }
+            """;
+    }
+
+    private static HttpResponseMessage SingleVersionRegistration(
+        string id,
+        string version,
+        string? catalogFields = null) =>
+        Json(RegistrationIndex(
+            RegistrationPage(
+                version,
+                version,
+                RegistrationLeaf(id, version, catalogFields))));
 
     private static HttpResponseMessage Json(string content) =>
         new(System.Net.HttpStatusCode.OK)

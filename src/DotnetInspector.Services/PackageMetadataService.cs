@@ -53,11 +53,6 @@ public static class PackageMetadataService
         bool DeprecationMetadataAvailable,
         bool Indeterminate = false);
 
-    private readonly record struct RegistrationMetadataResult(
-        string? CatalogEntryUrl,
-        bool DeprecationMetadataAvailable,
-        bool Indeterminate = false);
-
     private readonly record struct VulnerabilityFetchResult(
         bool Succeeded,
         List<PackageVulnerability> Vulnerabilities);
@@ -200,7 +195,7 @@ public static class PackageMetadataService
         PackageSource source,
         string normalizedName,
         string normalizedVersion) =>
-        "v6-full-"
+        "v7-full-"
         + $"{NuGetCache.GetSourceKey(source.Url)}-"
         + $"{normalizedName}@{normalizedVersion}";
 
@@ -252,59 +247,36 @@ public static class PackageMetadataService
         bool found = false;
         bool sawExistenceEndpoint = false;
         bool sawIndeterminate = false;
-        string? catalogEntryUrl = null;
-
         foreach (ServiceResource registration in registrationResources)
         {
             sawExistenceEndpoint = true;
-            string registrationUrl = AppendPath(
-                registration.Id,
-                normalizedName,
-                $"{version}.json");
-            log?.Invoke($"Fetching registration metadata: {registrationUrl}");
-
-            TextFetchResult registrationResult = await FetchTextAsync(
-                client,
-                untrustedClient,
-                source,
-                registrationUrl,
-                NetworkTrafficKind.PackageMetadata,
-                log).ConfigureAwait(false);
-            if (registrationResult.IsSuccess)
+            try
             {
-                try
-                {
-                    RegistrationMetadataResult registrationMetadata =
-                        ApplyRegistrationMetadata(
-                        registrationResult.Content!,
-                        registrationUrl,
+                SourceMetadataResult registrationResult =
+                    await FetchRegistrationMetadataAsync(
+                        client,
+                        untrustedClient,
+                        source,
+                        registration,
                         normalizedName,
                         version,
-                        metadata,
-                        log);
-                    catalogEntryUrl =
-                        registrationMetadata.CatalogEntryUrl;
-                    metadata.DeprecationMetadataAvailable =
-                        registrationMetadata
-                            .DeprecationMetadataAvailable;
-                    sawIndeterminate |=
-                        registrationMetadata.Indeterminate;
+                        log).ConfigureAwait(false);
+                if (registrationResult.Metadata is { } registrationMetadata)
+                {
+                    metadata = registrationMetadata;
                     found = true;
                     break;
                 }
-                catch (Exception ex) when (ex is
-                    JsonException
-                    or InvalidOperationException
-                    or UriFormatException)
-                {
-                    log?.Invoke($"Invalid registration metadata from {source.Name}: {ex.Message}");
-                    sawIndeterminate = true;
-                }
-                continue;
+                sawIndeterminate |=
+                    registrationResult.Presence == SourcePresence.Indeterminate;
             }
-
-            if (!registrationResult.IsNotFound)
+            catch (Exception ex) when (ex is not NetworkPolicyException
+                && ex is (JsonException
+                    or InvalidOperationException
+                    or UriFormatException))
             {
+                log?.Invoke(
+                    $"Invalid registration metadata from {source.Name} ({ex.GetType().Name}).");
                 sawIndeterminate = true;
             }
         }
@@ -340,44 +312,6 @@ public static class PackageMetadataService
             return sawExistenceEndpoint && !sawIndeterminate
                 ? new SourceMetadataResult(SourcePresence.Absent)
                 : new SourceMetadataResult(SourcePresence.Indeterminate);
-        }
-
-        bool catalogDataAvailable = true;
-        if (!string.IsNullOrEmpty(catalogEntryUrl))
-        {
-            catalogDataAvailable = false;
-            try
-            {
-                log?.Invoke($"Fetching catalog entry: {catalogEntryUrl}");
-                TextFetchResult catalogResult = await FetchTextAsync(
-                    client,
-                    untrustedClient,
-                    source,
-                    catalogEntryUrl,
-                    NetworkTrafficKind.PackageMetadata,
-                    log).ConfigureAwait(false);
-                if (catalogResult.IsSuccess)
-                {
-                    if (ApplyCatalogMetadata(
-                            catalogResult.Content!,
-                            normalizedName,
-                            version,
-                            metadata,
-                            log))
-                    {
-                        catalogDataAvailable = true;
-                        metadata.DeprecationMetadataAvailable = true;
-                    }
-                    else
-                    {
-                        sawIndeterminate = true;
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is not NetworkPolicyException)
-            {
-                log?.Invoke($"Error fetching catalog entry: {ex.Message}");
-            }
         }
 
         bool searchDataAvailable = searchQueryServices.Count == 0;
@@ -472,7 +406,6 @@ public static class PackageMetadataService
             SourcePresence.Present,
             metadata,
             Cacheable: !sawIndeterminate
-                && catalogDataAvailable
                 && searchDataAvailable
                 && vulnerabilityDataAvailable);
     }
@@ -659,134 +592,144 @@ public static class PackageMetadataService
             DeprecationMetadataAvailable: false);
     }
 
-    private static RegistrationMetadataResult
-        ApplyRegistrationMetadata(
-        string json,
-        string registrationUrl,
+    private static async Task<SourceMetadataResult> FetchRegistrationMetadataAsync(
+        HttpClient client,
+        HttpClient untrustedClient,
+        PackageSource source,
+        ServiceResource registration,
         string normalizedName,
         string version,
-        PackageMetadata metadata,
         Action<string>? log)
     {
-        using var doc = HardenedJson.Parse(json);
-        JsonElement root = doc.RootElement;
-
-        ApplyListingState(root, metadata, log);
-
-        if (root.TryGetProperty("published", out JsonElement publishedElement)
-            && DateTimeOffset.TryParse(
-                publishedElement.GetString(),
-                out DateTimeOffset published))
+        const int MaximumPageCount = 128;
+        string indexUrl = AppendPath(registration.Id, normalizedName, "index.json");
+        log?.Invoke(
+            "Fetching registration index: "
+            + NetworkRequestObservation.RedactSensitiveUrlText(indexUrl));
+        TextFetchResult indexResult = await FetchTextAsync(
+            client, untrustedClient, source, indexUrl,
+            NetworkTrafficKind.PackageMetadata, log).ConfigureAwait(false);
+        if (!indexResult.IsSuccess)
         {
-            metadata.Published = published;
-            log?.Invoke($"Published: {published:yyyy-MM-dd}");
+            return new SourceMetadataResult(
+                indexResult.IsNotFound
+                    ? SourcePresence.Absent
+                    : SourcePresence.Indeterminate);
         }
 
-        if (!root.TryGetProperty("catalogEntry", out JsonElement catalogElement))
-        {
-            return new RegistrationMetadataResult(
-                CatalogEntryUrl: null,
-                DeprecationMetadataAvailable: false);
-        }
+        using var index = HardenedJson.Parse(indexResult.Content!);
+        JsonElement pages = GetRegistrationItems(index.RootElement);
+        if (pages.GetArrayLength() > MaximumPageCount)
+            throw new JsonException("Registration index exceeded the 128-page limit.");
+        if (!NuGetVersion.TryParse(version, out NuGetVersion? requestedVersion))
+            throw new JsonException("Registration lookup requires an exact NuGet version.");
 
-        if (catalogElement.ValueKind == JsonValueKind.Object)
+        foreach (JsonElement page in pages.EnumerateArray())
         {
-            if (!CatalogIdentityMatches(
-                    catalogElement,
-                    normalizedName,
-                    version))
+            NuGetVersion lower = ReadRegistrationVersion(page, "lower");
+            NuGetVersion upper = ReadRegistrationVersion(page, "upper");
+            if (VersionComparer.VersionRelease.Compare(lower, upper) > 0)
+                throw new JsonException("Registration page bounds are reversed.");
+            if (VersionComparer.VersionRelease.Compare(requestedVersion, lower) < 0
+                || VersionComparer.VersionRelease.Compare(requestedVersion, upper) > 0)
+                continue;
+
+            PackageMetadata? metadata;
+            if (page.TryGetProperty("items", out _))
             {
-                log?.Invoke(
-                    "Ignoring catalog metadata for a different "
-                    + "package identity.");
-                return new RegistrationMetadataResult(
-                    CatalogEntryUrl: null,
-                    DeprecationMetadataAvailable: false,
-                    Indeterminate: true);
+                metadata = FindRegistrationMetadata(
+                    page, normalizedName, version, log);
             }
+            else
+            {
+                if (!page.TryGetProperty("@id", out JsonElement pageId)
+                    || pageId.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(pageId.GetString()))
+                    throw new JsonException("Registration page has no link.");
 
-            ApplyCatalogElement(catalogElement, metadata, log);
-            return new RegistrationMetadataResult(
-                CatalogEntryUrl: null,
-                DeprecationMetadataAvailable: true);
+                string pageUrl = ResolveReference(indexUrl, pageId.GetString()!);
+                if (!Uri.TryCreate(pageUrl, UriKind.Absolute, out Uri? uri)
+                    || uri.Scheme is not ("http" or "https"))
+                    throw new JsonException("Registration page link must use HTTP or HTTPS.");
+
+                log?.Invoke(
+                    "Fetching registration page: "
+                    + NetworkRequestObservation.RedactSensitiveUrlText(pageUrl));
+                TextFetchResult pageResult = await FetchTextAsync(
+                    client, untrustedClient, source, pageUrl,
+                    NetworkTrafficKind.PackageMetadata, log,
+                    preservePathAndQuery: true).ConfigureAwait(false);
+                if (!pageResult.IsSuccess)
+                {
+                    // A broken advertised link does not prove version absence.
+                    log?.Invoke("The selected registration page is unavailable.");
+                    return new SourceMetadataResult(SourcePresence.Indeterminate);
+                }
+
+                using var pageDocument = HardenedJson.Parse(pageResult.Content!);
+                metadata = FindRegistrationMetadata(
+                    pageDocument.RootElement, normalizedName, version, log);
+            }
+            if (metadata is not null)
+                return new SourceMetadataResult(SourcePresence.Present, metadata);
         }
 
-        string? catalogEntry = catalogElement.GetString();
-        if (string.IsNullOrWhiteSpace(catalogEntry))
-        {
-            return new RegistrationMetadataResult(
-                CatalogEntryUrl: null,
-                DeprecationMetadataAvailable: false);
-        }
-
-        try
-        {
-            return new RegistrationMetadataResult(
-                ResolveReference(
-                    registrationUrl,
-                    catalogEntry),
-                DeprecationMetadataAvailable: false);
-        }
-        catch (UriFormatException)
-        {
-            log?.Invoke("Ignoring malformed catalog entry URL.");
-            return new RegistrationMetadataResult(
-                CatalogEntryUrl: null,
-                DeprecationMetadataAvailable: false,
-                Indeterminate: true);
-        }
+        return new SourceMetadataResult(SourcePresence.Absent);
     }
 
-    private static bool ApplyCatalogMetadata(
-        string json,
+    private static JsonElement GetRegistrationItems(JsonElement document)
+    {
+        if (document.ValueKind != JsonValueKind.Object
+            || !document.TryGetProperty("items", out JsonElement items)
+            || items.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Registration document has no items array.");
+        return items;
+    }
+
+    private static NuGetVersion ReadRegistrationVersion(
+        JsonElement element,
+        string property)
+    {
+        if (element.ValueKind != JsonValueKind.Object
+            || !element.TryGetProperty(property, out JsonElement value)
+            || value.ValueKind != JsonValueKind.String
+            || !NuGetVersion.TryParse(value.GetString(), out NuGetVersion? parsed))
+            throw new JsonException("Registration metadata has an invalid version.");
+        return parsed;
+    }
+
+    private static PackageMetadata? FindRegistrationMetadata(
+        JsonElement page,
         string normalizedName,
         string version,
-        PackageMetadata metadata,
         Action<string>? log)
     {
-        using var doc = HardenedJson.Parse(json);
-        if (!CatalogIdentityMatches(
-                doc.RootElement,
-                normalizedName,
-                version))
+        foreach (JsonElement leaf in GetRegistrationItems(page).EnumerateArray())
         {
-            log?.Invoke(
-                "Ignoring catalog metadata for a different "
-                + "package identity.");
-            return false;
-        }
-
-        ApplyCatalogElement(doc.RootElement, metadata, log);
-        return true;
-    }
-
-    private static bool CatalogIdentityMatches(
-        JsonElement root,
-        string normalizedName,
-        string version)
-    {
-        if (root.ValueKind != JsonValueKind.Object)
-            return false;
-
-        if (root.TryGetProperty("id", out JsonElement id)
-            && (id.ValueKind != JsonValueKind.String
+            if (leaf.ValueKind != JsonValueKind.Object
+                || !leaf.TryGetProperty("catalogEntry", out JsonElement catalog)
+                || catalog.ValueKind != JsonValueKind.Object)
+                throw new JsonException("Registration leaf has no embedded catalog entry.");
+            NuGetVersion catalogVersion = ReadRegistrationVersion(catalog, "version");
+            if (!catalog.TryGetProperty("id", out JsonElement id)
+                || id.ValueKind != JsonValueKind.String
                 || !string.Equals(
                     id.GetString(),
                     normalizedName,
-                    StringComparison.OrdinalIgnoreCase)))
-        {
-            return false;
-        }
+                    StringComparison.OrdinalIgnoreCase))
+                throw new JsonException("Registration metadata has a different package identity.");
+            if (!VersionsEqual(catalogVersion.ToNormalizedString(), version))
+                continue;
 
-        if (!root.TryGetProperty(
-                "version",
-                out JsonElement catalogVersion))
-        {
-            return true;
+            var metadata = new PackageMetadata
+            {
+                DeprecationMetadataSupported = true,
+                DeprecationMetadataAvailable = true,
+            };
+            ApplyCatalogElement(catalog, metadata, log);
+            return metadata;
         }
-
-        return catalogVersion.ValueKind == JsonValueKind.String
-            && VersionsEqual(catalogVersion.GetString(), version);
+        return null;
     }
 
     private static void ApplyCatalogElement(

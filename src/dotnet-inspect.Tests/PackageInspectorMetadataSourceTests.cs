@@ -52,8 +52,30 @@ public sealed class PackageInspectorMetadataSourceTests : IDisposable
                       ]
                     }
                     """),
-                "/registration/private.package/1.0.0.json" => Json(
-                    """{ "published": "2025-01-02T00:00:00Z" }"""),
+                "/registration/private.package/index.json" => Json("""
+                    {
+                      "items": [
+                        {
+                          "@id": "/metadata/release-page",
+                          "lower": "1.0.0",
+                          "upper": "1.0.0"
+                        }
+                      ]
+                    }
+                    """),
+                "/metadata/release-page" => Json("""
+                    {
+                      "items": [
+                        {
+                          "catalogEntry": {
+                            "id": "Private.Package",
+                            "version": "1.0.0",
+                            "published": "2025-01-02T00:00:00Z"
+                          }
+                        }
+                      ]
+                    }
+                    """),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound),
             };
         }));
