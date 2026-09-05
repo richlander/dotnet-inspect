@@ -3610,7 +3610,10 @@ compile assets. `BrowserEngineBoundaryTests` enforce the tools-v2 pointer and
 explicit-empty-group cases, including typed compile-library absence, package
 documents, manifest dependencies, and no fabricated default assembly.
 
-Workspace-wide admission budgets, single-flight/reentrancy, content digests,
+Owner-mediated on-demand content digests are covered by the
+[named digest gates](#on-demand-retained-content-digests).
+
+Workspace-wide admission budgets, single-flight/reentrancy,
 assembly-group reporting into session quiescence, and Metadata consumption of
 workspace roles remain unverified.
 
