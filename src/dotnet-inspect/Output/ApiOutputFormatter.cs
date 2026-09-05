@@ -1573,7 +1573,6 @@ public static class ApiOutputFormatter
             IsOverride = owner.IsOverride,
             IsSealed = owner.IsSealed,
             IsUnsafe = owner.IsUnsafe,
-            HasMethodBody = hasMethodBody,
             MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
                 facts => facts.CallerContract.Evidence.MemberToken == token),
             MethodImplementation = implementation,

@@ -2995,7 +2995,6 @@ public static class ApiSurfaceExtractor
                     IsUnsafe = extension.IsUnsafe,
                     MemorySafety = extension.MemorySafety,
                     MethodImplementation = extension.MethodImplementation,
-                    HasMethodBody = extension.HasMethodBody,
                     IsExtension = true,
                     ExtendedType = extension.ExtendedType,
                     DeclaringType = declaringType.FullName,
