@@ -84,6 +84,7 @@ public static class MetadataDeclarationQuery
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var attributes = typeDef.Attributes;
+        Guid moduleVersionId = reader.GetGuid(reader.GetModuleDefinition().Mvid);
         var (ns, name) = GetApiTypeNameParts(reader, typeHandle);
         MetadataTypeDefinitionName definitionName =
             MetadataTypeDefinitionNameReader.Read(reader, typeHandle) switch
@@ -134,6 +135,7 @@ public static class MetadataDeclarationQuery
         foreach (var propertyHandle in typeDef.GetProperties())
         {
             var property = reader.GetPropertyDefinition(propertyHandle);
+            var accessors = property.GetAccessors();
             var declaration = GetProperty(reader, typeDef, property);
             if (!includeNonPublicMembers && declaration.Accessibility != "public")
                 continue;
@@ -159,6 +161,9 @@ public static class MetadataDeclarationQuery
                 Attributes = declaration.Attributes.ToList(),
                 GetterToken = declaration.Getter.IsNil ? null : MetadataTokens.GetToken(declaration.Getter),
                 SetterToken = declaration.Setter.IsNil ? null : MetadataTokens.GetToken(declaration.Setter),
+                AccessorImplementations = ApiMethodImplementationFacts.ReadAccessors(
+                    reader, moduleVersionId,
+                    [accessors.Getter, accessors.Setter, .. accessors.Others]),
             });
         }
 
@@ -184,6 +189,9 @@ public static class MetadataDeclarationQuery
                 Signature = MethodSignatureText(declaration),
                 SignatureDecodeStatus = declaration.SignatureDecodeStatus,
                 MetadataToken = MetadataTokens.GetToken(methodHandle),
+                HasMethodBody = method.RelativeVirtualAddress != 0,
+                MethodImplementation = ApiMethodImplementationFacts.Read(
+                    reader, moduleVersionId, methodHandle),
                 IsStatic = declaration.IsStatic,
                 IsAbstract = declaration.IsAbstract,
                 IsVirtual = declaration.IsVirtual,

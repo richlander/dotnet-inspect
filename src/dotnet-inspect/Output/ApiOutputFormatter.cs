@@ -1536,6 +1536,8 @@ public static class ApiOutputFormatter
             : accessorEntry!.Accessibility;
 
         var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
+        var implementation = owner.AccessorImplementations?.FirstOrDefault(
+            facts => facts.MethodToken == token);
         return new ApiMember
         {
             Name = name,
@@ -1558,6 +1560,8 @@ public static class ApiOutputFormatter
             IsUnsafe = owner.IsUnsafe,
             MemorySafety = owner.AccessorMemorySafety?.FirstOrDefault(
                 facts => facts.CallerContract.Evidence.MemberToken == token),
+            MethodImplementation = implementation,
+            HasMethodBody = implementation?.HasBodyRva,
             Accessibility = accessibility,
             Documentation = owner.Documentation,
         };
