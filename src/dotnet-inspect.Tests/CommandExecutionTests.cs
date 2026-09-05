@@ -17279,6 +17279,78 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("overloads", output);
     }
 
+    [Theory]
+    [InlineData("--table")]
+    [InlineData("--tsv")]
+    [InlineData("--jsonl")]
+    public async Task Member_OverloadInventory_TabularOutputContainsOnlyRows(string format)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", format, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.TrimEnd('\r', '\n').Split('\n');
+        Assert.NotEmpty(lines);
+        if (format == "--jsonl")
+        {
+            Assert.All(lines, line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                Assert.Equal("Serialize", document.RootElement.GetProperty("name").GetString());
+            });
+        }
+        else if (format == "--tsv")
+        {
+            Assert.StartsWith("name\tdigest\tsignature", lines[0]);
+            Assert.NotEmpty(lines.Skip(1));
+            Assert.All(lines.Skip(1), line => Assert.StartsWith("Serialize\t", line));
+        }
+        else
+        {
+            Assert.StartsWith("Name", lines[0]);
+            Assert.Contains("Digest", lines[0]);
+            Assert.Contains("Signature", lines[0]);
+            Assert.Contains("Serialize", output);
+        }
+    }
+
+    [Theory]
+    [InlineData("--tsv", "--rows", "2", 2)]
+    [InlineData("--tsv", "--rows", "1..3", 3)]
+    [InlineData("--tsv", "-n", "2", 1)]
+    [InlineData("--jsonl", "--rows", "2", 2)]
+    [InlineData("--jsonl", "--rows", "1..3", 3)]
+    [InlineData("--jsonl", "-n", "2", 2)]
+    public async Task Member_OverloadInventory_TabularWindowsRetainRows(
+        string format, string window, string value, int expectedRows)
+    {
+        var (exit, output, error) = await RunAppInDirectoryAsync(
+            Environment.CurrentDirectory,
+            "member", "JsonSerializer", "--platform", "System.Text.Json",
+            "-m", "Serialize", format, window, value, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.TrimEnd('\r', '\n').Split('\n');
+        if (format == "--jsonl")
+        {
+            Assert.Equal(expectedRows, lines.Length);
+            Assert.All(lines, line =>
+            {
+                using var document = JsonDocument.Parse(line);
+                Assert.Equal("Serialize", document.RootElement.GetProperty("name").GetString());
+            });
+        }
+        else
+        {
+            Assert.StartsWith("name\tdigest\tsignature", lines[0]);
+            Assert.Equal(expectedRows + 1, lines.Length);
+            Assert.All(lines.Skip(1), line => Assert.StartsWith("Serialize\t", line));
+        }
+    }
+
     [Fact]
     public async Task Member_NarrowedMethods_StableSelectorRoundTripsToSignature()
     {

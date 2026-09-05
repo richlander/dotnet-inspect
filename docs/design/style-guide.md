@@ -115,6 +115,9 @@ Fields always appear in a consistent order. Empty/null fields are omitted.
 
 `ApiHeaderProvenanceTests` gates subject-only headings, retained context,
 focused-inventory behavior, and acquired asset paths.
+`Member_OverloadInventory_TabularOutputContainsOnlyRows` and
+`Member_OverloadInventory_TabularWindowsRetainRows` gate the separate default
+tabular inventory shape and its row windows, without document provenance.
 `Type_SingleType_MarkdownQuiet_RendersCompactSectionView`,
 `Type_SingleType_PlaintextIncludesAcquisitionContext`, and
 `Router_FullyQualifiedGenericPlatformType_PreservesContractSource` gate CLI

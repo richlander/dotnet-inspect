@@ -86,9 +86,11 @@ public class ApiHeaderProvenanceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task MemberInventory_KeepsProvenanceOutsideTitle(bool focused)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task MemberInventory_KeepsProvenanceOutsideTitle(bool focused, bool plaintext)
     {
         var output = new StringWriter();
         var options = new MemberOptions
@@ -97,6 +99,8 @@ public class ApiHeaderProvenanceTests
             MemberFilter = ["Run"],
             IncludeSections = focused ? ["Methods"] : null
         };
+        if (plaintext)
+            options = options with { PlainText = true, Format = OutputFormat.PlainText };
 
         int exit = await ApiCommand.WriteTypeOutputAsync(
             CreateType(), "lib/net10.0/Example.dll", "Example.Package", "2.0.0",
@@ -113,7 +117,7 @@ public class ApiHeaderProvenanceTests
         }
         else
         {
-            Assert.StartsWith("# Example.Widget\n\n", text);
+            Assert.StartsWith(plaintext ? "Example.Widget\n\n" : "# Example.Widget\n\n", text);
             Assert.Contains("Package: Example.Package", text);
             Assert.Contains("Version: 2.0.0", text);
             Assert.Contains("Library: lib/net10.0/Example.dll", text);
