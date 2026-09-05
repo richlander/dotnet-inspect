@@ -139,15 +139,16 @@ public class LibraryCommand
             CommandError.Write(scannerError);
             return 1;
         }
+        if (scanner is not null
+            && (options.ILOffsetsPath is not null || options.ExtractResources is not null))
+        {
+            CommandError.Write("--scanner cannot be combined with --il-offsets or --extract-resources.");
+            return 1;
+        }
         if (scanner is not null && options.Discover is null)
         {
             if (options.Select is null && options.IncludeSections is null)
                 options = options with { Select = [IntegrationSectionNames.Scan], SelectDefault = false };
-            if (options.ILOffsetsPath is not null || options.ExtractResources is not null)
-            {
-                CommandError.Write("--scanner cannot be combined with --il-offsets or --extract-resources.");
-                return 1;
-            }
             if (options.Value || options.Urls || options.Paths)
             {
                 CommandError.Write(

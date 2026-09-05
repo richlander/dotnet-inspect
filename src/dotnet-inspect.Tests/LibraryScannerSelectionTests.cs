@@ -288,6 +288,38 @@ public class LibraryScannerSelectionTests
         Assert.Contains("supports section rows, columns, and counts", result.Error);
     }
 
+    [Theory]
+    [InlineData("--il-offsets", null)]
+    [InlineData("--il-offsets", "--schema")]
+    [InlineData("--il-offsets", "--effective")]
+    [InlineData("--extract-resources", null)]
+    [InlineData("--extract-resources", "--schema")]
+    [InlineData("--extract-resources", "--effective")]
+    public async Task IncompatibleOperationsFailBeforeDiscovery(
+        string option, string? discoveryMode)
+    {
+        await WithFixtureAsync(true, async path =>
+        {
+            string operationPath = Path.ChangeExtension(path, ".operation");
+            if (option == "--il-offsets")
+                await File.WriteAllTextAsync(operationPath, "0x06000001+0x0\n");
+            List<string> args =
+                ["library", path, "--scanner", "ecosystem.aspire",
+                 option, operationPath, "--json", "--trace"];
+            if (discoveryMode is not null)
+                args.AddRange(["-D", IntegrationSectionNames.Scan, discoveryMode]);
+
+            var result = await RunAsync([.. args]);
+            Assert.Equal(1, result.ExitCode);
+            Assert.Contains(
+                "--scanner cannot be combined with --il-offsets or --extract-resources.",
+                result.Error);
+            Assert.Empty(result.Output);
+            Assert.DoesNotContain("SelectedIntegrationScan", result.Error);
+            Assert.False(Directory.Exists(operationPath));
+        });
+    }
+
     [Fact]
     public async Task UnreadableInputDoesNotBecomeASuccessfulZeroCount()
     {
