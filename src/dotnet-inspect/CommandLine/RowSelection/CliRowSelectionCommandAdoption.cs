@@ -205,7 +205,7 @@ internal static class CliRowSelectionCommandRegistry
             CliRowSelectionFailureReason.ConflictingDirection =>
                 "--head and --tail cannot be combined.",
             CliRowSelectionFailureReason.ModifierRequiresCount =>
-                $"{OptionName(failure.OccurrenceKind)} requires -n or --rows.",
+                $"{OptionName(failure.OccurrenceKind)} requires -n.",
             CliRowSelectionFailureReason.UnsupportedCapability =>
                 $"{OptionName(failure.OccurrenceKind)} is not available for this command.",
             _ => "The row-selection arguments are invalid."

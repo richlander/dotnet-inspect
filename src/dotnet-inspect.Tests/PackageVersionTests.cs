@@ -1,6 +1,7 @@
 using DotnetInspector.Core;
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using System.CommandLine;
 using System.Text.Json;
 
 namespace DotnetInspector.Tests;
@@ -232,17 +233,58 @@ public class PackageVersionTests
                 StringSplitOptions.RemoveEmptyEntries));
     }
 
-    [Fact]
-    public async Task Versions_LinesRejectsDocumentJsonBeforeAcquisition()
+    [Theory]
+    [InlineData("--versions")]
+    [InlineData("--versions-with-feed")]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public void Versions_ZeroArityFlagsPreserveFollowingPackageInput(
+        string optionName)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        var package = root.Subcommands.Single(command => command.Name == "package");
+        var option = Assert.IsType<Option<bool>>(
+            package.Options.Single(option => option.Name == optionName));
+        var packageArgument = Assert.IsType<Argument<string[]>>(
+            Assert.Single(package.Arguments));
+        string[] arguments = optionName is "--versions" or "--versions-with-feed"
+            ? ["package", optionName, "false"]
+            : ["package", "--versions", "-n", "1", optionName, "false"];
+
+        var result = root.Parse(arguments);
+
+        Assert.Empty(result.Errors);
+        Assert.True(result.GetValue(option));
+        Assert.Equal(
+            ["false"],
+            Assert.IsType<string[]>(result.GetValue(packageArgument)));
+    }
+
+    [Theory]
+    [InlineData("--versions", "--lines", null)]
+    [InlineData("--versions", "--tail-lines", null)]
+    [InlineData("--versions", "--lines", "false")]
+    [InlineData("--versions", "--tail-lines", "false")]
+    [InlineData("--versions-with-feed", "--lines", "false")]
+    [InlineData("--versions-with-feed", "--tail-lines", "false")]
+    [InlineData("--versions", "--lines", "true")]
+    [InlineData("--versions", "--tail-lines", "true")]
+    public async Task Versions_LinesRejectsDocumentJsonBeforeAcquisition(
+        string selector,
+        string modifier,
+        string? followingInput)
     {
         var (exit, output, error) = await RunAppAsync(
-            "package",
-            "ThisQueryMustNotReachTheNetwork",
-            "--versions",
-            "-n",
-            "2",
-            "--lines",
-            "--json");
+            [
+                "package",
+                "ThisQueryMustNotReachTheNetwork",
+                selector,
+                "-n",
+                "2",
+                modifier,
+                .. followingInput is null ? Array.Empty<string>() : [followingInput],
+                "--json"
+            ]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -256,8 +298,13 @@ public class PackageVersionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public async Task Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition()
+    [Theory]
+    [InlineData("--lines", null)]
+    [InlineData("--lines", "false")]
+    [InlineData("--tail-lines", "false")]
+    public async Task Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition(
+        string modifier,
+        string? followingInput)
     {
         string? originalFormat =
             Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
@@ -267,12 +314,15 @@ public class PackageVersionTests
                 "DOTNET_INSPECT_FORMAT",
                 "json");
             var (exit, output, error) = await RunAppAsync(
-                "package",
-                "ThisQueryMustNotReachTheNetwork",
-                "--versions",
-                "-n",
-                "2",
-                "--lines");
+                [
+                    "package",
+                    "ThisQueryMustNotReachTheNetwork",
+                    "--versions",
+                    "-n",
+                    "2",
+                    modifier,
+                    .. followingInput is null ? Array.Empty<string>() : [followingInput]
+                ]);
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
@@ -291,6 +341,41 @@ public class PackageVersionTests
                 "DOTNET_INSPECT_FORMAT",
                 originalFormat);
         }
+    }
+
+    [Theory]
+    [InlineData("--head")]
+    [InlineData("--tail")]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
+    public async Task Versions_ModifierRequiresCountReportsUsableRemedy(
+        string modifier)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package",
+            "ThisQueryMustNotReachTheNetwork",
+            "--versions",
+            "--rows",
+            "1..2",
+            modifier);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains($"{modifier} requires -n.", error, StringComparison.Ordinal);
+
+        var (correctedExit, correctedOutput, correctedError) = await RunAppAsync(
+            "package",
+            "System.CommandLine",
+            "--versions",
+            "--rows",
+            "1..2",
+            modifier,
+            "-n",
+            "1");
+
+        Assert.Equal(0, correctedExit);
+        Assert.Empty(correctedError);
+        Assert.Single(correctedOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]

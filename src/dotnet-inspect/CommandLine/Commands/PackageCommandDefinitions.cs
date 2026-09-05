@@ -50,19 +50,23 @@ public static class PackageCommandDefinitions
         };
         var versionsOption = new Option<bool>("--versions")
         {
-            Description = "List available versions; use -n N to select N version rows"
+            Description = "List available versions; use -n N to select N version rows",
+            Arity = ArgumentArity.Zero
         };
         var versionsWithFeedOption = new Option<bool>("--versions-with-feed")
         {
-            Description = "List available versions with source feeds; use -n N to select N version/feed rows"
+            Description = "List available versions with source feeds; use -n N to select N version/feed rows",
+            Arity = ArgumentArity.Zero
         };
         var linesOption = new Option<bool>("--lines")
         {
-            Description = "Apply -n to rendered lines instead of version rows"
+            Description = "Apply -n to rendered lines instead of version rows",
+            Arity = ArgumentArity.Zero
         };
         var tailLinesOption = new Option<bool>("--tail-lines")
         {
-            Description = "Apply -n to rendered lines from the end"
+            Description = "Apply -n to rendered lines from the end",
+            Arity = ArgumentArity.Zero
         };
         var prereleaseOption = new Option<bool>("--preview") { Description = "Include prerelease versions for --versions and latest resolution" };
         prereleaseOption.Aliases.Add("--prerelease");

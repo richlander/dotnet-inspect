@@ -140,9 +140,7 @@ public static class PackageOptionsParser
         bool explicitTabularOutput = opts.IsTableExplicitlySet(parseResult);
         bool suppressImplicitRowFormat = bareOutput && !opts.IsTableFlagExplicitlySet(parseResult);
         var outputFormat = opts.ResolveFormat(parseResult);
-        bool hasLineSelection =
-            parseResult.GetValue(args.LinesOption)
-            || parseResult.GetValue(args.TailLinesOption);
+        bool hasLineSelection = rowSelection?.LineIntent is not null;
         if (showPluralVersions
             && hasLineSelection
             && outputFormat == OutputFormat.Json)

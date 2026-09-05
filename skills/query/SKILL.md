@@ -184,9 +184,10 @@ Prefer built-in limits to shell pipes:
 - `--rows N` takes the first N data rows per table on commands that retain the
   legacy row window, preserving headings and headers; add `--tail` for the last
   N. On package version lenses, use `-n N` instead.
-- `--rows 2..10` is an absolute 1-based inclusive range (nine rows), `2+10`
-  means ten rows starting at row 2, and `10..` runs from row 10 to the end.
-  Ranges reject `--head`/`--tail`; all `--rows` forms reject `-n`.
+- On commands retaining the legacy row window, `--rows 2..10` is an absolute
+  1-based inclusive range (nine rows), `2+10` means ten rows starting at row 2,
+  and `10..` runs from row 10 to the end. These legacy ranges reject
+  `--head`/`--tail`, and all legacy `--rows` forms reject `-n`.
 - `--row` is not a window. With `--print`, `--value`, `--urls`, or `--paths`,
   it selects one displayed row, not a compacted projection position.
   `first`/`last` mean rendered endpoints; missing payloads fail instead of
@@ -197,3 +198,5 @@ Command-specific caps: `-t N` for type/find rows and `-m N` for members.
 Package `--versions` and `--versions-with-feed` are zero-arity selectors;
 `-n N` selects complete version rows, while `-n N --lines` clips their rendered
 lines. `--rows` on those lenses accepts only `A..B`, `A..`, and `..B`.
+`-n` and `--rows` compose as stages in argv order on those lenses;
+`--head` and `--tail` modify `-n`, not the range.
